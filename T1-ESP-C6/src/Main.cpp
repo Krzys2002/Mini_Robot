@@ -5,266 +5,753 @@
 
 CodeCell myCodeCell;
 
-#define PROXIMITY_RANGE 1000U
-#define MOTOR_DEADZONE  30U
-#define MOTOR_MAXSPEED  90U
+// ======================================================
+// WiFi AP
+// ======================================================
 
-// Hotspot settings
 const char* AP_SSID = "CodeCell-C6-Drive";
-const char* AP_PASS = "12345678";   // minimum 8 chars
+const char* AP_PASS = "12345678";
 
 WebServer server(80);
 
-// ---------------- Shared command buffer ----------------
+// ======================================================
+// Types
+// ======================================================
 
-struct MotorCommand
+enum ControlMode
 {
-    bool m1Forward;
-    bool m2Forward;
-    uint8_t m1Speed;
-    uint8_t m2Speed;
-    uint32_t sequence;
-    bool changed;
+  CONTROL_DIRECT,
+  CONTROL_TARGET
 };
 
-MotorCommand commandBuffer =
+struct RobotCommand
 {
-    true,
-    true,
-    0,
-    0,
-    0,
-    false
+  ControlMode mode;
+
+  int8_t move;
+  int8_t rotation;
+
+  float targetDistanceM;
+  float targetRotationDeg;
+
+  uint32_t sequence;
 };
+
+struct MotorOutput
+{
+  bool m1Forward;
+  bool m2Forward;
+
+  uint8_t m1Speed;
+  uint8_t m2Speed;
+};
+
+struct RobotStatus
+{
+  uint16_t batteryMv;
+  uint16_t batteryPercent;
+
+  uint32_t uptimeMs;
+
+  float headingDeg;
+
+  int8_t move;
+  int8_t rotation;
+
+  int16_t m1Signed;
+  int16_t m2Signed;
+};
+
+// ======================================================
+// Shared buffers
+// ======================================================
+
+RobotCommand commandBuffer =
+{
+  CONTROL_DIRECT,
+  0,
+  0,
+  0.0f,
+  0.0f,
+  0
+};
+
+MotorOutput motorBuffer =
+{
+  true,
+  true,
+  0,
+  0
+};
+
+RobotStatus statusBuffer;
 
 SemaphoreHandle_t commandMutex;
+SemaphoreHandle_t motorMutex;
+SemaphoreHandle_t statusMutex;
 
-// ---------------- Helpers ----------------
+uint32_t startTimeMs;
 
-uint8_t clampSpeed(int value)
+// ======================================================
+// Helpers
+// ======================================================
+
+void calculateMotorMix(
+  int8_t move,
+  int8_t rotation,
+  int16_t &m1,
+  int16_t &m2
+)
 {
-    if (value < 0) return 0;
-    if (value > 100) return 100;
-    return (uint8_t)value;
+  move = constrain(move, -100, 100);
+  rotation = constrain(rotation, -100, 100);
+
+  m1 = move + rotation;
+  m2 = move - rotation;
+
+  m1 = constrain(m1, -100, 100);
+  m2 = constrain(m2, -100, 100);
 }
 
-void writeCommand(bool m1Forward, uint8_t m1Speed,
-                  bool m2Forward, uint8_t m2Speed)
+// ======================================================
+// Start boost ramp
+// ======================================================
+
+int16_t applyStartRamp(
+  int16_t targetSpeed,
+  uint32_t elapsedMs
+)
 {
+  const int START_BOOST = 70;
+  const int RAMP_TIME_MS = 500;
 
-    if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE)
-    {
-        commandBuffer.m1Forward = m1Forward;
-        commandBuffer.m1Speed = m1Speed;
-        commandBuffer.m2Forward = m2Forward;
-        commandBuffer.m2Speed = m2Speed;
-        commandBuffer.sequence++;
-        commandBuffer.changed = true;
-        xSemaphoreGive(commandMutex);
-    }
+  if (targetSpeed == 0)
+    return 0;
 
+  int sign = targetSpeed >= 0 ? 1 : -1;
+
+  int absTarget = abs(targetSpeed);
+
+  if (elapsedMs >= RAMP_TIME_MS)
+    return targetSpeed;
+
+  float t = (float)elapsedMs / (float)RAMP_TIME_MS;
+
+  // squared decay
+  float decay = 1.0f - (t * t);
+
+  int boosted =
+    absTarget +
+    (START_BOOST - absTarget) * decay;
+
+  boosted = constrain(boosted, absTarget, 100);
+
+  return boosted * sign;
 }
 
-MotorCommand readCommand()
+// ======================================================
+// Command access
+// ======================================================
+
+void setDirectControl(
+  int8_t move,
+  int8_t rotation
+)
 {
-    MotorCommand copy;
-    if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE)
-    {
-        copy = commandBuffer;
-        commandBuffer.changed = false;
-        xSemaphoreGive(commandMutex);
-    }
-    return copy;
+  if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE)
+  {
+
+    commandBuffer.mode = CONTROL_DIRECT;
+
+    commandBuffer.move =
+      constrain(move, -100, 100);
+
+    commandBuffer.rotation =
+      constrain(rotation, -100, 100);
+
+    commandBuffer.sequence++;
+
+    xSemaphoreGive(commandMutex);
+  }
 }
 
-uint8_t squaredRampSpeed(uint32_t elapsedMs,
-                         uint8_t startSpeed,
-                         uint8_t endSpeed,
-                         uint32_t rampTimeMs)
+void setTargetControl(
+  float distanceM,
+  float rotationDeg
+)
 {
-    if (elapsedMs >= rampTimeMs) return endSpeed;
-    float t = (float)elapsedMs / (float)rampTimeMs;
-    float curve = t * t;   // squared time curve
-    float speed = startSpeed + ((float)endSpeed - startSpeed) * curve;
+  if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE)
+  {
 
-    return (uint8_t)round(speed);
+    commandBuffer.mode = CONTROL_TARGET;
+
+    commandBuffer.targetDistanceM = distanceM;
+    commandBuffer.targetRotationDeg = rotationDeg;
+
+    commandBuffer.sequence++;
+
+    xSemaphoreGive(commandMutex);
+  }
 }
 
-// ---------------- HTTP communication ----------------
+// ======================================================
+// Motor output access
+// ======================================================
 
-//
-
-// Example command from phone/browser:
-
-// http://192.168.4.1/set?m1=60&m2=60
-
-// http://192.168.4.1/set?m1=-50&m2=75
-
-//
-
-// Negative value = reverse
-
-// Positive value = forward
-
-// 0 = stop
-
-void handleSetCommand()
+void writeMotorOutput(
+  int16_t m1Signed,
+  int16_t m2Signed
+)
 {
-    if (!server.hasArg("m1") || !server.hasArg("m2"))
-    {
-      server.send(400, "text/plain",
-                  "ERROR: use /set?m1=-100..100&m2=-100..100");
-      return;
-    }
+  if (xSemaphoreTake(motorMutex, portMAX_DELAY) == pdTRUE)
+  {
 
-    int rawM1 = server.arg("m1").toInt();
-    int rawM2 = server.arg("m2").toInt();
+    motorBuffer.m1Forward = m1Signed >= 0;
+    motorBuffer.m2Forward = m2Signed >= 0;
 
-    rawM1 = constrain(rawM1, -100, 100);
-    rawM2 = constrain(rawM2, -100, 100);
+    motorBuffer.m1Speed = abs(m1Signed);
+    motorBuffer.m2Speed = abs(m2Signed);
 
-    bool m1Forward = rawM1 >= 0;
-    bool m2Forward = rawM2 >= 0;
+    xSemaphoreGive(motorMutex);
+  }
+}
 
-    uint8_t m1Speed = clampSpeed(abs(rawM1));
-    uint8_t m2Speed = clampSpeed(abs(rawM2));
+MotorOutput readMotorOutput()
+{
+  MotorOutput out;
 
-    writeCommand(m1Forward, m1Speed, m2Forward, m2Speed);
-    MotorCommand current = readCommand();
+  if (xSemaphoreTake(motorMutex, portMAX_DELAY) == pdTRUE)
+  {
+    out = motorBuffer;
+    xSemaphoreGive(motorMutex);
+  }
 
-    String reply;
+  return out;
+}
 
-    reply += "OK\n";
-    reply += "Command accepted\n";
-    reply += "SEQ=" + String(current.sequence) + "\n";
-    reply += "M1=" + String(current.m1Forward ? "FWD" : "REV");
-    reply += " SPEED=" + String(current.m1Speed) + "\n";
-    reply += "M2=" + String(current.m2Forward ? "FWD" : "REV");
-    reply += " SPEED=" + String(current.m2Speed) + "\n";
-    server.send(200, "text/plain", reply);
+// ======================================================
+// Debug print
+// ======================================================
 
+void debugMotorState(
+  const char* source,
+  int8_t move,
+  int8_t rotation,
+  int16_t m1,
+  int16_t m2
+) {
+
+  Serial.println("================================");
+
+  Serial.print("SOURCE: ");
+  Serial.println(source);
+
+  Serial.print("MOVE: ");
+  Serial.println(move);
+
+  Serial.print("ROTATION: ");
+  Serial.println(rotation);
+
+  Serial.print("M1 SIGNED: ");
+  Serial.println(m1);
+
+  Serial.print("M2 SIGNED: ");
+  Serial.println(m2);
+
+  Serial.print("M1 DIR: ");
+  Serial.println(m1 >= 0 ? "FORWARD" : "REVERSE");
+
+  Serial.print("M2 DIR: ");
+  Serial.println(m2 >= 0 ? "FORWARD" : "REVERSE");
+
+  Serial.print("M1 PWM: ");
+  Serial.println(abs(m1));
+
+  Serial.print("M2 PWM: ");
+  Serial.println(abs(m2));
+
+  Serial.println("================================");
+}
+
+// ======================================================
+// HTTP handlers
+// ======================================================
+
+void handleMoveCommand()
+{
+
+  if (!server.hasArg("move") ||
+      !server.hasArg("rotation"))
+  {
+
+    server.send(
+      400,
+      "text/plain",
+      "ERROR: /move?move=-100..100&rotation=-100..100"
+    );
+
+    return;
+  }
+
+  int move = server.arg("move").toInt();
+  int rotation = server.arg("rotation").toInt();
+
+  setDirectControl(move, rotation);
+
+  server.send(
+    200,
+    "text/plain",
+    "OK: direct control updated"
+  );
+}
+
+void handleTargetCommand()
+{
+
+  if (!server.hasArg("distance") ||
+      !server.hasArg("angle"))
+  {
+
+    server.send(
+      400,
+      "text/plain",
+      "ERROR: /target?distance=1.0&angle=90"
+    );
+
+    return;
+  }
+
+  float distanceM =
+    server.arg("distance").toFloat();
+
+  float angleDeg =
+    server.arg("angle").toFloat();
+
+  setTargetControl(distanceM, angleDeg);
+
+  server.send(
+    200,
+    "text/plain",
+    "OK: target control updated"
+  );
 }
 
 void handleStatus()
 {
-    MotorCommand current = readCommand();
-    String reply;
 
-    reply += "SEQ=" + String(current.sequence) + "\n";
-    reply += "M1=" + String(current.m1Forward ? "FWD" : "REV");
-    reply += " SPEED=" + String(current.m1Speed) + "\n";
-    reply += "M2=" + String(current.m2Forward ? "FWD" : "REV");
-    reply += " SPEED=" + String(current.m2Speed) + "\n";
-    server.send(200, "text/plain", reply);
+  RobotStatus s;
+
+  if (xSemaphoreTake(statusMutex, portMAX_DELAY) == pdTRUE)
+  {
+    s = statusBuffer;
+    xSemaphoreGive(statusMutex);
+  }
+
+  String reply;
+
+  reply += "Battery mV: ";
+  reply += String(s.batteryMv);
+  reply += "\n";
+
+  reply += "Battery %: ";
+  reply += String(s.batteryPercent);
+  reply += "\n";
+
+  reply += "Uptime s: ";
+  reply += String(s.uptimeMs / 1000.0f, 1);
+  reply += "\n";
+
+  reply += "Heading deg: ";
+  reply += String(s.headingDeg, 1);
+  reply += "\n";
+
+  reply += "Move: ";
+  reply += String(s.move);
+  reply += "\n";
+
+  reply += "Rotation: ";
+  reply += String(s.rotation);
+  reply += "\n";
+
+  reply += "M1: ";
+  reply += String(s.m1Signed);
+  reply += "\n";
+
+  reply += "M2: ";
+  reply += String(s.m2Signed);
+  reply += "\n";
+
+  server.send(200, "text/plain", reply);
 }
 
-// ---------------- FreeRTOS tasks ----------------
+// ======================================================
+// Motor task
+// Only writes to hardware
+// ======================================================
 
 void motorTask(void* parameter)
 {
-    uint32_t rampStartTime = millis();
 
-    const uint8_t START_SPEED = 70;
-    const uint8_t END_SPEED = 30;
-    const uint32_t RAMP_TIME_MS = 2000;
+  while (true)
+  {
 
-    while (true)
-    {
-        if (myCodeCell.Run(20))
-        {
-            uint32_t elapsed = millis() - rampStartTime;
-            uint8_t rampSpeed = squaredRampSpeed(
-              elapsed,
-              START_SPEED,
-              END_SPEED,
-              RAMP_TIME_MS
-            );
+    MotorOutput out = readMotorOutput();
 
-            // Motors run forward with ramped speed
-            myCodeCell.Drive1.Drive(true, rampSpeed);
-            myCodeCell.Drive2.Drive(true, rampSpeed);
+    myCodeCell.Drive1.Drive(
+      !out.m1Forward,
+      out.m1Speed
+    );
 
-            Serial.printf(
-              "Ramp time: %lu ms | Motor speed: %u%%\n",
-              elapsed,
-              rampSpeed
-            );
+    myCodeCell.Drive2.Drive(
+      out.m2Forward,
+      out.m2Speed
+    );
 
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(5));
-
-    }
-
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
 }
 
-void communicationTask(void* parameter)
+// ======================================================
+// Control task
+// All motion logic here
+// ======================================================
+
+void controlTask(void* parameter)
 {
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(AP_SSID, AP_PASS);
 
-    Serial.println("Hotspot started");
-    Serial.print("SSID: ");
-    Serial.println(AP_SSID);
-    Serial.print("IP: ");
-    Serial.println(WiFi.softAPIP());
+  const float MS_PER_METER = 2500.0f;
+  const float MS_PER_DEGREE = 10.0f;
 
-    server.on("/set", HTTP_GET, handleSetCommand);
-    server.on("/status", HTTP_GET, handleStatus);
-    server.begin();
+  const int8_t TARGET_MOVE_SPEED = 50;
+  const int8_t TARGET_ROTATE_SPEED = 40;
 
-    while (true)
+  uint32_t lastSeq = 0;
+
+  uint32_t targetStartMs = 0;
+
+  bool targetRunning = false;
+
+  uint32_t rotateDurationMs = 0;
+  uint32_t moveDurationMs = 0;
+
+  uint32_t motionStartMs = 0;
+  bool wasMoving = false;
+
+  while (true)
+  {
+    RobotCommand cmd;
+
+    if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE)
     {
-        server.handleClient();
-        vTaskDelay(pdMS_TO_TICKS(10));
+      cmd = commandBuffer;
+      xSemaphoreGive(commandMutex);
     }
-}
 
-// ---------------- Arduino setup / loop ----------------
+    int16_t m1 = 0;
+    int16_t m2 = 0;
 
-void setup()
-{
-    Serial.begin(115200);
-    delay(500);
-    commandMutex = xSemaphoreCreateMutex();
+    // ==========================================
+    // DIRECT MODE
+    // ==========================================
 
-    if (commandMutex == NULL)
+    if (cmd.mode == CONTROL_DIRECT)
     {
-      Serial.println("ERROR: mutex creation failed");
-      while (true)
-      {
-        delay(1000);
+      if (cmd.mode == CONTROL_DIRECT) {
+
+        calculateMotorMix(
+          cmd.move,
+          cmd.rotation,
+          m1,
+          m2
+        );
+
+        debugMotorState(
+          "DIRECT",
+          cmd.move,
+          cmd.rotation,
+          m1,
+          m2
+        );
+
       }
     }
 
+    // ==========================================
+    // TARGET MODE
+    // ==========================================
 
-    myCodeCell.Init(LIGHT);
-    myCodeCell.Drive1.Init();
-    myCodeCell.Drive2.Init();
-    writeCommand(true, 0, true, 0);
+    else if (cmd.mode == CONTROL_TARGET)
+    {
+      if (cmd.sequence != lastSeq)
+      {
+        lastSeq = cmd.sequence;
 
-    xTaskCreate(
-        motorTask,
-        "MotorTask",
-        4096,
-        NULL,
-        2,
-        NULL
+        targetStartMs = millis();
+
+        rotateDurationMs =
+          abs(cmd.targetRotationDeg) *
+          MS_PER_DEGREE;
+
+        moveDurationMs =
+          abs(cmd.targetDistanceM) *
+          MS_PER_METER;
+
+        targetRunning = true;
+      }
+
+      uint32_t elapsed =
+        millis() - targetStartMs;
+
+      // rotate phase
+      if (targetRunning &&
+          elapsed < rotateDurationMs)
+      {
+
+        int8_t rot =
+          cmd.targetRotationDeg >= 0
+          ? TARGET_ROTATE_SPEED
+          : -TARGET_ROTATE_SPEED;
+
+        calculateMotorMix(
+          0,
+          rot,
+          m1,
+          m2
+        );
+
+        debugMotorState(
+           "TARGET_ROTATE",
+          0,
+          rot,
+          m1,
+          m2
+        );
+      }
+
+      // move phase
+      else if (targetRunning &&
+               elapsed <
+               rotateDurationMs +
+               moveDurationMs)
+      {
+
+        int8_t mv =
+          cmd.targetDistanceM >= 0
+          ? TARGET_MOVE_SPEED
+          : -TARGET_MOVE_SPEED;
+
+        calculateMotorMix(
+          mv,
+          0,
+          m1,
+          m2
+        );
+      }
+
+      else
+      {
+        m1 = 0;
+        m2 = 0;
+        targetRunning = false;
+      }
+    }
+
+    // ==========================================
+    // Start boost ramp
+    // ==========================================
+
+    bool movingNow =
+      (m1 != 0 || m2 != 0);
+
+    if (movingNow && !wasMoving)
+    {
+      motionStartMs = millis();
+    }
+
+    uint32_t motionElapsed =
+      millis() - motionStartMs;
+
+    m1 = applyStartRamp(
+      m1,
+      motionElapsed
     );
 
-    xTaskCreate(
-        communicationTask,
-        "CommunicationTask",
-        8192,
-        NULL,
-        1,
-        NULL
+    m2 = applyStartRamp(
+      m2,
+      motionElapsed
     );
 
+    Serial.print("BOOSTED M1: ");
+
+    Serial.println(m1);
+
+    Serial.print("BOOSTED M2: ");
+
+    Serial.println(m2);
+
+    Serial.print("BOOST ELAPSED MS: ");
+
+    Serial.println(motionElapsed);
+
+    wasMoving = movingNow;
+
+    // ==========================================
+    // Write motor output
+    // ==========================================
+
+    writeMotorOutput(m1, m2);
+
+    // ==========================================
+    // Sensor/status update
+    // ==========================================
+
+    myCodeCell.Run(20);
+
+    float roll = 0;
+    float pitch = 0;
+    float yaw = 0;
+
+    myCodeCell.Motion_RotationRead(
+      roll,
+      pitch,
+      yaw
+    );
+
+    if (xSemaphoreTake(statusMutex, portMAX_DELAY) == pdTRUE) {
+
+      statusBuffer.batteryMv =
+        myCodeCell.BatteryVoltageRead();
+
+      statusBuffer.batteryPercent =
+        myCodeCell.BatteryLevelRead();
+
+      statusBuffer.uptimeMs =
+        millis() - startTimeMs;
+
+      statusBuffer.headingDeg = yaw;
+
+      statusBuffer.move = cmd.move;
+      statusBuffer.rotation = cmd.rotation;
+
+      statusBuffer.m1Signed = m1;
+      statusBuffer.m2Signed = m2;
+
+      xSemaphoreGive(statusMutex);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
 }
+
+// ======================================================
+// Communication task
+// ======================================================
+
+void communicationTask(void* parameter)
+{
+
+  WiFi.mode(WIFI_AP);
+
+  WiFi.softAP(AP_SSID, AP_PASS);
+
+  Serial.println("Hotspot started");
+  Serial.print("IP: ");
+  Serial.println(WiFi.softAPIP());
+
+  server.on(
+    "/move",
+    HTTP_GET,
+    handleMoveCommand
+  );
+
+  server.on(
+    "/target",
+    HTTP_GET,
+    handleTargetCommand
+  );
+
+  server.on(
+    "/status",
+    HTTP_GET,
+    handleStatus
+  );
+
+  server.begin();
+
+  while (true)
+  {
+
+    server.handleClient();
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+// ======================================================
+// Setup
+// ======================================================
+
+void setup()
+{
+
+  Serial.begin(115200);
+
+  delay(500);
+
+  startTimeMs = millis();
+
+  commandMutex =
+    xSemaphoreCreateMutex();
+
+  motorMutex =
+    xSemaphoreCreateMutex();
+
+  statusMutex =
+    xSemaphoreCreateMutex();
+
+  myCodeCell.Init(
+    LIGHT +
+    MOTION_ROTATION
+  );
+
+  myCodeCell.Drive1.Init();
+  myCodeCell.Drive2.Init();
+
+  setDirectControl(0, 0);
+
+  xTaskCreate(
+    motorTask,
+    "MotorTask",
+    2048,
+    NULL,
+    3,
+    NULL
+  );
+
+  xTaskCreate(
+    controlTask,
+    "ControlTask",
+    4096,
+    NULL,
+    2,
+    NULL
+  );
+
+  xTaskCreate(
+    communicationTask,
+    "CommunicationTask",
+    8192,
+    NULL,
+    1,
+    NULL
+  );
+}
+
+// ======================================================
+// Loop
+// ======================================================
 
 void loop()
 {
-    // Empty. FreeRTOS tasks do the work.
-    vTaskDelay(pdMS_TO_TICKS(1000));
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }
