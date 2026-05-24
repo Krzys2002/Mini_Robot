@@ -15,6 +15,17 @@ enum ControlMode {
   CONTROL_TARGET
 };
 
+enum TargetPhase {
+  TARGET_IDLE,
+  TARGET_PRE_ROTATE,
+  TARGET_MOVE_PI
+};
+
+enum DistanceMethod {
+  DISTANCE_TIME,
+  DISTANCE_IMU
+};
+
 struct RobotCommand {
   ControlMode mode;
   int8_t move;
@@ -116,6 +127,21 @@ void debugMotorState(const char* source, int8_t move, int8_t rotation, int16_t m
   Serial.println("================================");
 }
 
+void sendJson(int code, const String& json) {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  server.send(code, "application/json", json);
+}
+
+void handleCorsOptions()
+{
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  server.send(204);
+}
+
 // ======================================================
 // Shared buffers
 // ======================================================
@@ -179,100 +205,140 @@ void clearEmergencyStop() {
 // Control functions
 // ======================================================
 
+struct DistanceState {
+  uint32_t startMs;
+  uint32_t lastImuMs;
+  float imuVelocityMps;
+  float imuDistanceM;
+};
+
+void resetDistanceState(DistanceState &state) {
+  state.startMs = millis();
+  state.lastImuMs = millis();
+  state.imuVelocityMps = 0.0f;
+  state.imuDistanceM = 0.0f;
+}
+
+float getCurrentDistanceM(DistanceMethod method,DistanceState &state) {
+  const float MS_PER_METER = 2500.0f;
+
+  if (method == DISTANCE_TIME) {
+    uint32_t elapsedMs = millis() - state.startMs;
+    return (float)elapsedMs / MS_PER_METER;
+  }
+
+  return state.imuDistanceM;
+}
+
 void controlDirect(const RobotCommand &cmd, int16_t &m1, int16_t &m2) {
   calculateMotorMix(cmd.move, cmd.rotation, m1, m2);
   debugMotorState("DIRECT", cmd.move, cmd.rotation, m1, m2);
 }
 
-void controlTargetByYawAndTime(
+
+void controlMoveWithPiYaw(
   const RobotCommand &cmd,
+  float targetYaw,
+  DistanceState &distanceState,
   int16_t &m1,
   int16_t &m2,
   bool &targetRunning,
-  uint32_t &targetStartMs,
-  float &targetYaw,
-  uint32_t &moveStartMs
+  float &yawIntegral,
+  uint32_t &lastPiMs
 ) {
-  const float ANGLE_TOLERANCE_DEG = 8.0f;
-  const float MS_PER_METER = 2500.0f;
-  const int8_t TARGET_MOVE_SPEED = 50;
-  const int8_t TARGET_ROTATE_SPEED = 50;
+  const int8_t BASE_MOVE_SPEED = 50;
 
-  float yaw = readYawDeg();
-  float err = angleError(targetYaw, yaw);
+  const float KP = 0.2f;
+  const float KI = 0.02f;
+  const float MAX_CORRECTION = 35.0f;
 
-  if (abs(err) > ANGLE_TOLERANCE_DEG) {
-    int8_t rot = err > 0 ? TARGET_ROTATE_SPEED : -TARGET_ROTATE_SPEED;
-    calculateMotorMix(0, rot, m1, m2);
-    moveStartMs = 0;
-    debugMotorState("TARGET_YAW", 0, rot, m1, m2);
-    return;
-  }
+  DistanceMethod method =
+    cmd.useImuDistance ? DISTANCE_IMU : DISTANCE_TIME;
 
-  if (moveStartMs == 0) moveStartMs = millis();
+  float currentDistance =
+    getCurrentDistanceM(method, distanceState);
 
-  uint32_t moveDurationMs = abs(cmd.targetDistanceM) * MS_PER_METER;
-  uint32_t moveElapsed = millis() - moveStartMs;
-
-  if (moveElapsed < moveDurationMs) {
-    int8_t mv = cmd.targetDistanceM >= 0 ? TARGET_MOVE_SPEED : -TARGET_MOVE_SPEED;
-    calculateMotorMix(mv, 0, m1, m2);
-    debugMotorState("TARGET_DISTANCE_TIME", mv, 0, m1, m2);
-  } else {
+  if (abs(currentDistance) >= abs(cmd.targetDistanceM)) {
     m1 = 0;
     m2 = 0;
     targetRunning = false;
-  }
-}
-
-void controlTargetByYawAndImu(
-  const RobotCommand &cmd,
-  int16_t &m1,
-  int16_t &m2,
-  bool &targetRunning,
-  float &targetYaw,
-  float &velocityMps,
-  float &distanceM,
-  uint32_t &lastImuMs
-) {
-  const float ANGLE_TOLERANCE_DEG = 16.0f;
-  const int8_t TARGET_MOVE_SPEED = 50;
-  const int8_t TARGET_ROTATE_SPEED = 50;
-
-  float yaw = readYawDeg();
-  float err = angleError(targetYaw, yaw);
-
-  if (abs(err) > ANGLE_TOLERANCE_DEG) {
-    int8_t rot = err > 0 ? TARGET_ROTATE_SPEED : -TARGET_ROTATE_SPEED;
-    calculateMotorMix(0, rot, m1, m2);
-    debugMotorState("TARGET_YAW_IMU", 0, rot, m1, m2);
-    lastImuMs = millis();
     return;
   }
 
   uint32_t now = millis();
-  float dt = (now - lastImuMs) / 1000.0f;
-  lastImuMs = now;
+  float dt = (now - lastPiMs) / 1000.0f;
+  lastPiMs = now;
 
-  float ax = 0, ay = 0, az = 0;
-  myCodeCell.Motion_LinearAccRead(ax, ay, az);
+  float yaw = readYawDeg();
+  float err = angleError(targetYaw, yaw);
 
-  // Change this axis if your robot forward direction is different.
-  float forwardAcc = ax;
+  yawIntegral += err * dt;
+  yawIntegral = constrain(yawIntegral, -100.0f, 100.0f);
 
-  velocityMps += forwardAcc * dt;
-  distanceM += velocityMps * dt;
+  float correction = KP * err + KI * yawIntegral;
+  correction = constrain(correction, -MAX_CORRECTION, MAX_CORRECTION);
 
-  if (abs(distanceM) < abs(cmd.targetDistanceM)) {
-    int8_t mv = cmd.targetDistanceM >= 0 ? TARGET_MOVE_SPEED : -TARGET_MOVE_SPEED;
-    calculateMotorMix(mv, 0, m1, m2);
-    debugMotorState("TARGET_DISTANCE_IMU", mv, 0, m1, m2);
-  } else {
+  int8_t move =
+    cmd.targetDistanceM >= 0
+    ? BASE_MOVE_SPEED
+    : -BASE_MOVE_SPEED;
+
+  int8_t rotationCorrection =
+    constrain((int)correction, -100, 100);
+
+  calculateMotorMix(move, rotationCorrection, m1, m2);
+
+  debugMotorState(
+    "MOVE_PI_YAW",
+    move,
+    rotationCorrection,
+    m1,
+    m2
+  );
+}
+
+void controlPreliminaryRotation(
+  float targetYaw,
+  TargetPhase &targetPhase,
+  int16_t &m1,
+  int16_t &m2,
+  DistanceState &distanceState,
+  float &yawIntegral,
+  uint32_t &lastPiMs
+) {
+  const float ANGLE_TOLERANCE_DEG = 8.0f;
+  const int8_t ROTATE_SPEED = 50;
+
+  float yaw = readYawDeg();
+  float err = angleError(targetYaw, yaw);
+
+  if (abs(err) <= ANGLE_TOLERANCE_DEG) {
     m1 = 0;
     m2 = 0;
-    velocityMps = 0;
-    targetRunning = false;
+
+    targetPhase = TARGET_MOVE_PI;
+
+    resetDistanceState(distanceState);
+    yawIntegral = 0.0f;
+    lastPiMs = millis();
+
+    return;
   }
+
+  int8_t rot =
+    err > 0
+    ? ROTATE_SPEED
+    : -ROTATE_SPEED;
+
+  calculateMotorMix(0, rot, m1, m2);
+
+  debugMotorState(
+    "PRE_ROTATE",
+    0,
+    rot,
+    m1,
+    m2
+  );
 }
 
 // ======================================================
@@ -282,37 +348,51 @@ void controlTargetByYawAndImu(
 void handleEmergencyStop() {
   emergencyStopNow();
 
-  server.send(
+  sendJson(
     200,
-    "text/plain",
-    "EMERGENCY STOP ACTIVATED"
+    "{\"ok\":true,\"emergencyStop\":true,\"message\":\"EMERGENCY STOP ACTIVATED\"}"
   );
 }
 
-void handleEmergencyClear()
-{
+void handleEmergencyClear() {
   clearEmergencyStop();
 
-  server.send(
+  sendJson(
     200,
-    "text/plain",
-    "EMERGENCY STOP CLEARED"
+    "{\"ok\":true,\"emergencyStop\":false,\"message\":\"EMERGENCY STOP CLEARED\"}"
   );
 }
 
 void handleMoveCommand() {
   if (!server.hasArg("move") || !server.hasArg("rotation")) {
-    server.send(400, "text/plain", "ERROR: /move?move=-100..100&rotation=-100..100");
+    sendJson(
+      400,
+      "{\"ok\":false,\"error\":\"Use /move?move=-100..100&rotation=-100..100\"}"
+    );
     return;
   }
 
-  setDirectControl(server.arg("move").toInt(), server.arg("rotation").toInt());
-  server.send(200, "text/plain", "OK: direct control updated");
+  int move = constrain(server.arg("move").toInt(), -100, 100);
+  int rotation = constrain(server.arg("rotation").toInt(), -100, 100);
+
+  setDirectControl(move, rotation);
+
+  String json = "{";
+  json += "\"ok\":true,";
+  json += "\"mode\":\"direct\",";
+  json += "\"move\":" + String(move) + ",";
+  json += "\"rotation\":" + String(rotation);
+  json += "}";
+
+  sendJson(200, json);
 }
 
 void handleTargetCommand() {
   if (!server.hasArg("distance") || !server.hasArg("angle")) {
-    server.send(400, "text/plain", "ERROR: /target?distance=1.0&angle=90&imu=0");
+    sendJson(
+      400,
+      "{\"ok\":false,\"error\":\"Use /target?distance=1.0&angle=90&imu=0\"}"
+    );
     return;
   }
 
@@ -322,7 +402,15 @@ void handleTargetCommand() {
 
   setTargetControl(distanceM, angleDeg, useImu);
 
-  server.send(200, "text/plain", useImu ? "OK: target IMU mode" : "OK: target time mode");
+  String json = "{";
+  json += "\"ok\":true,";
+  json += "\"mode\":\"target\",";
+  json += "\"distanceM\":" + String(distanceM, 3) + ",";
+  json += "\"angleDeg\":" + String(angleDeg, 1) + ",";
+  json += "\"useImu\":" + String(useImu ? "true" : "false");
+  json += "}";
+
+  sendJson(200, json);
 }
 
 void handleStatus() {
@@ -333,18 +421,20 @@ void handleStatus() {
     xSemaphoreGive(statusMutex);
   }
 
-  String reply;
-  reply += "Battery mV: " + String(s.batteryMv) + "\n";
-  reply += "Battery %: " + String(s.batteryPercent) + "\n";
-  reply += "Uptime s: " + String(s.uptimeMs / 1000.0f, 1) + "\n";
-  reply += "Heading deg: " + String(s.headingDeg, 1) + "\n";
-  reply += "Estimated distance m: " + String(s.estimatedDistanceM, 3) + "\n";
-  reply += "Move: " + String(s.move) + "\n";
-  reply += "Rotation: " + String(s.rotation) + "\n";
-  reply += "M1: " + String(s.m1Signed) + "\n";
-  reply += "M2: " + String(s.m2Signed) + "\n";
+  String json = "{";
+  json += "\"ok\":true,";
+  json += "\"batteryMv\":" + String(s.batteryMv) + ",";
+  json += "\"batteryPercent\":" + String(s.batteryPercent) + ",";
+  json += "\"uptimeS\":" + String(s.uptimeMs / 1000.0f, 1) + ",";
+  json += "\"headingDeg\":" + String(s.headingDeg, 1) + ",";
+  json += "\"estimatedDistanceM\":" + String(s.estimatedDistanceM, 3) + ",";
+  json += "\"move\":" + String(s.move) + ",";
+  json += "\"rotation\":" + String(s.rotation) + ",";
+  json += "\"m1\":" + String(s.m1Signed) + ",";
+  json += "\"m2\":" + String(s.m2Signed);
+  json += "}";
 
-  server.send(200, "text/plain", reply);
+  sendJson(200, json);
 }
 
 // ======================================================
@@ -378,13 +468,14 @@ void controlTask(void* parameter) {
   bool wasMoving = false;
 
   bool targetRunning = false;
-  uint32_t targetStartMs = 0;
   uint32_t moveStartMs = 0;
-  float targetYaw = 0;
+  float targetYaw = 0.0f;
 
-  float imuVelocityMps = 0;
-  float imuDistanceM = 0;
-  uint32_t lastImuMs = 0;
+  DistanceState distanceState;
+
+  float yawIntegral = 0.0f;
+  uint32_t lastPiMs = 0;
+  TargetPhase targetPhase = TARGET_IDLE;
 
   while (true) {
     if (emergencyStop) {
@@ -410,14 +501,15 @@ void controlTask(void* parameter) {
     if (cmd.sequence != lastSeq) {
       lastSeq = cmd.sequence;
       targetRunning = true;
-      targetStartMs = millis();
-      moveStartMs = 0;
+      targetPhase = TARGET_PRE_ROTATE;
 
-      imuVelocityMps = 0;
-      imuDistanceM = 0;
-      lastImuMs = millis();
+      resetDistanceState(distanceState);
+
+      yawIntegral = 0.0f;
+      lastPiMs = millis();
 
       targetYaw = readYawDeg() + cmd.targetRotationDeg;
+
       while (targetYaw > 180.0f) targetYaw -= 360.0f;
       while (targetYaw < -180.0f) targetYaw += 360.0f;
 
@@ -429,18 +521,38 @@ void controlTask(void* parameter) {
       targetRunning = false;
       controlDirect(cmd, m1, m2);
     }
-
     else if (cmd.mode == CONTROL_TARGET && targetRunning) {
-      if (cmd.useImuDistance) {
-        controlTargetByYawAndImu(
-          cmd, m1, m2, targetRunning,
-          targetYaw, imuVelocityMps, imuDistanceM, lastImuMs
+      Serial.print("Target Phase:  ");  Serial.println(targetPhase);
+
+      if (targetPhase == TARGET_PRE_ROTATE) {
+        controlPreliminaryRotation(
+          targetYaw,
+          targetPhase,
+          m1,
+          m2,
+          distanceState,
+          yawIntegral,
+          lastPiMs
         );
-      } else {
-        controlTargetByYawAndTime(
-          cmd, m1, m2, targetRunning,
-          targetStartMs, targetYaw, moveStartMs
+      }
+
+      else if (targetPhase == TARGET_MOVE_PI) {
+        controlMoveWithPiYaw(
+          cmd,
+          targetYaw,
+          distanceState,
+          m1,
+          m2,
+          targetRunning,
+          yawIntegral,
+          lastPiMs
         );
+      }
+
+      else {
+        m1 = 0;
+        m2 = 0;
+        targetRunning = false;
       }
     }
 
@@ -464,7 +576,10 @@ void controlTask(void* parameter) {
       statusBuffer.batteryPercent = myCodeCell.BatteryLevelRead();
       statusBuffer.uptimeMs = millis() - startTimeMs;
       statusBuffer.headingDeg = readYawDeg();
-      statusBuffer.estimatedDistanceM = cmd.useImuDistance ? imuDistanceM : 0.0f;
+
+      float currentDistanceM = getCurrentDistanceM(cmd.useImuDistance ? DISTANCE_IMU : DISTANCE_TIME,distanceState);
+
+      statusBuffer.estimatedDistanceM = currentDistanceM;
       statusBuffer.move = cmd.move;
       statusBuffer.rotation = cmd.rotation;
       statusBuffer.m1Signed = m1;
@@ -489,6 +604,12 @@ void communicationTask(void* parameter) {
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/estop", HTTP_GET, handleEmergencyStop);
   server.on("/clear_estop", HTTP_GET, handleEmergencyClear);
+
+  server.on("/move", HTTP_OPTIONS, handleCorsOptions);
+  server.on("/target", HTTP_OPTIONS, handleCorsOptions);
+  server.on("/status", HTTP_OPTIONS, handleCorsOptions);
+  server.on("/estop", HTTP_OPTIONS, handleCorsOptions);
+  server.on("/clear_estop", HTTP_OPTIONS, handleCorsOptions);
 
   server.begin();
 

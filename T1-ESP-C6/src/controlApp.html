@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Robot Controller</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 650px;
+            margin: 30px auto;
+            background: #f4f4f4;
+        }
+
+        .card {
+            background: white;
+            padding: 18px;
+            margin-bottom: 18px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px #0002;
+        }
+
+        input, button, select {
+            padding: 10px;
+            margin: 5px;
+            font-size: 16px;
+        }
+
+        button {
+            min-width: 120px;
+            cursor: pointer;
+        }
+
+        .stop {
+            background: red;
+            color: white;
+            font-weight: bold;
+        }
+
+        .clear {
+            background: orange;
+            color: black;
+            font-weight: bold;
+        }
+
+        .row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        pre {
+            background: #222;
+            color: #0f0;
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+<h1>Robot Controller</h1>
+
+<div class="card">
+    <h2>Connection</h2>
+    <label>Robot IP:</label>
+    <input id="ip" value="192.168.4.1">
+    <button onclick="updateStatus()">Connect / Refresh</button>
+</div>
+
+<div class="card">
+    <h2>Direct Move Control</h2>
+
+    <div class="row">
+        <button onclick="sendMove(100, 0)">Forward</button>
+    </div>
+
+    <div class="row">
+        <button onclick="sendMove(0, -100)">Left</button>
+        <button onclick="sendMove(0, 0)">Stop</button>
+        <button onclick="sendMove(0, 100)">Right</button>
+    </div>
+
+    <div class="row">
+        <button onclick="sendMove(-100, 0)">Backward</button>
+    </div>
+
+    <h3>Manual Values</h3>
+    <label>Move:</label>
+    <input id="move" type="number" min="-100" max="100" value="0">
+
+    <label>Rotation:</label>
+    <input id="rotation" type="number" min="-100" max="100" value="0">
+
+    <button onclick="sendManualMove()">Send Move</button>
+</div>
+
+<div class="card">
+    <h2>Target Control</h2>
+
+    <label>Distance [m]:</label>
+    <input id="distance" type="number" step="0.1" value="1.0">
+
+    <label>Angle [deg]:</label>
+    <input id="angle" type="number" step="1" value="0">
+
+    <label>
+        <input id="imu" type="checkbox">
+        Use IMU
+    </label>
+
+    <button onclick="sendTarget()">Send Target</button>
+</div>
+
+<div class="card">
+    <h2>Emergency</h2>
+    <button class="stop" onclick="emergencyStop()">EMERGENCY STOP</button>
+    <button class="clear" onclick="clearEmergency()">Clear Emergency</button>
+</div>
+
+<div class="card">
+    <h2>Status</h2>
+    <pre id="status">No data</pre>
+</div>
+
+<script>
+    function baseUrl() {
+        const ip = document.getElementById("ip").value.trim();
+        return "http://" + ip;
+    }
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    async function apiGet(path) {
+        const response = await fetch(baseUrl() + path);
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text);
+        }
+
+        return await response.json();
+    }
+
+    async function sendMove(move, rotation) {
+        move = clamp(move, -100, 100);
+        rotation = clamp(rotation, -100, 100);
+
+        try {
+            const data = await apiGet(`/move?move=${move}&rotation=${rotation}`);
+            showResponse(data);
+            updateStatus();
+        } catch (err) {
+            showError(err);
+        }
+    }
+
+    function sendManualMove() {
+        const move = Number(document.getElementById("move").value);
+        const rotation = Number(document.getElementById("rotation").value);
+        sendMove(move, rotation);
+    }
+
+    async function sendTarget() {
+        const distance = Number(document.getElementById("distance").value);
+        const angle = Number(document.getElementById("angle").value);
+        const imu = document.getElementById("imu").checked ? 1 : 0;
+
+        try {
+            const data = await apiGet(`/target?distance=${distance}&angle=${angle}&imu=${imu}`);
+            showResponse(data);
+            updateStatus();
+        } catch (err) {
+            showError(err);
+        }
+    }
+
+    async function emergencyStop() {
+        try {
+            const data = await apiGet("/estop");
+            showResponse(data);
+            updateStatus();
+        } catch (err) {
+            showError(err);
+        }
+    }
+
+    async function clearEmergency() {
+        try {
+            const data = await apiGet("/clear_estop");
+            showResponse(data);
+            updateStatus();
+        } catch (err) {
+            showError(err);
+        }
+    }
+
+    async function updateStatus() {
+        try {
+            const data = await apiGet("/status");
+            showResponse(data);
+        } catch (err) {
+            showError(err);
+        }
+    }
+
+    function showResponse(data) {
+        document.getElementById("status").textContent =
+            JSON.stringify(data, null, 2);
+    }
+
+    function showError(err) {
+        document.getElementById("status").textContent =
+            "ERROR:\n" + err.message;
+    }
+
+    setInterval(updateStatus, 1000);
+</script>
+</body>
+</html>
