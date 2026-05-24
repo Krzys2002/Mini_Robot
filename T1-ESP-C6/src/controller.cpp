@@ -5,7 +5,7 @@
 #include "controller.h"
 
 RobotCommand commandBuffer = {
-  CONTROL_DIRECT, 0, 0, 0.0f, 0.0f, false, 0
+  CONTROL_DIRECT, 0, 0, 0.0f, 0.0f, false, 0, 0
 };
 
 MotorOutput motorBuffer = {true, true, 0, 0};
@@ -18,6 +18,22 @@ SemaphoreHandle_t statusMutex;
 uint32_t startTimeMs;
 
 volatile bool emergencyStop = false;
+
+const uint32_t COMMAND_TIMEOUT_MS = 300;
+const float MAX_ANGLE_SETPOINT_RATE_DPS = 100.0f;
+
+const float YAW_KP = 0.3f;
+const float YAW_KI = 0.02f;
+const float YAW_KD = 0.02f;
+const float YAW_INTEGRAL_LIMIT = 120.0f;
+const float MAX_YAW_CORRECTION = 45.0f;
+
+const float IMU_ACCEL_DEADBAND_MPS2 = 0.08f;
+const float IMU_STATIONARY_VELOCITY_DECAY = 0.90f;
+const float IMU_MAX_DT_S = 0.10f;
+
+static float debugYawError = 0.0f;
+static float debugYawCorrection = 0.0f;
 
 void initController() {
   startTimeMs = millis();
@@ -85,6 +101,7 @@ void setDirectControl(int8_t move, int8_t rotation) {
     commandBuffer.mode = CONTROL_DIRECT;
     commandBuffer.move = constrain(move, -100, 100);
     commandBuffer.rotation = constrain(rotation, -100, 100);
+    commandBuffer.updatedMs = millis();
     commandBuffer.sequence++;
     xSemaphoreGive(commandMutex);
   }
@@ -94,8 +111,9 @@ void setTargetControl(float distanceM, float rotationDeg, bool useImuDistance) {
   if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE) {
     commandBuffer.mode = CONTROL_TARGET;
     commandBuffer.targetDistanceM = distanceM;
-    commandBuffer.targetRotationDeg = rotationDeg;
+    commandBuffer.targetRotationDeg = constrain(rotationDeg, -100.0f, 100.0f);
     commandBuffer.useImuDistance = useImuDistance;
+    commandBuffer.updatedMs = millis();
     commandBuffer.sequence++;
     xSemaphoreGive(commandMutex);
   }
@@ -152,6 +170,63 @@ void resetDistanceState(DistanceState &state) {
   state.lastImuMs = millis();
   state.imuVelocityMps = 0.0f;
   state.imuDistanceM = 0.0f;
+  state.imuAccelBiasMps2 = 0.0f;
+  state.imuBiasReady = false;
+}
+
+float rateLimitAngle(float currentDeg, float targetDeg, float dtS) {
+  float maxStep = MAX_ANGLE_SETPOINT_RATE_DPS * dtS;
+  float err = angleError(targetDeg, currentDeg);
+  err = constrain(err, -maxStep, maxStep);
+  return currentDeg + err;
+}
+
+float wrapAngleDeg(float angle) {
+  while (angle > 180.0f) angle -= 360.0f;
+  while (angle < -180.0f) angle += 360.0f;
+  return angle;
+}
+
+float readForwardLinearAccelerationMps2() {
+  float ax = 0, ay = 0, az = 0;
+  myCodeCell.Motion_LinearAccRead(ax, ay, az);
+
+  // CodeCell returns linear acceleration in m/s^2. For this robot the forward
+  // axis is assumed to be sensor X. Change this to ay if your CodeCell is
+  // mounted with Y pointing forward.
+  return ax;
+}
+
+void updateImuDistance(DistanceState &state, bool moving) {
+  uint32_t now = millis();
+  if (state.lastImuMs == 0) {
+    state.lastImuMs = now;
+    return;
+  }
+
+  float dt = (now - state.lastImuMs) / 1000.0f;
+  state.lastImuMs = now;
+
+  if (dt <= 0.0f || dt > IMU_MAX_DT_S) return;
+
+  float acc = readForwardLinearAccelerationMps2();
+
+  if (!moving) {
+    state.imuAccelBiasMps2 = state.imuBiasReady
+      ? (0.98f * state.imuAccelBiasMps2 + 0.02f * acc)
+      : acc;
+    state.imuBiasReady = true;
+    state.imuVelocityMps = 0.0f;
+    return;
+  }
+
+  if (state.imuBiasReady) acc -= state.imuAccelBiasMps2;
+  if (abs(acc) < IMU_ACCEL_DEADBAND_MPS2) acc = 0.0f;
+
+  state.imuVelocityMps += acc * dt;
+  if (acc == 0.0f) state.imuVelocityMps *= IMU_STATIONARY_VELOCITY_DECAY;
+
+  state.imuDistanceM += state.imuVelocityMps * dt;
 }
 
 float getCurrentDistanceM(DistanceMethod method, DistanceState &state) {
@@ -165,9 +240,68 @@ float getCurrentDistanceM(DistanceMethod method, DistanceState &state) {
   return state.imuDistanceM;
 }
 
-void controlDirect(const RobotCommand &cmd, int16_t &m1, int16_t &m2) {
-  calculateMotorMix(cmd.move, cmd.rotation, m1, m2);
-  debugMotorState("DIRECT", cmd.move, cmd.rotation, m1, m2);
+int8_t yawPidCorrection(float targetYaw, float &yawIntegral, float &lastYawError, uint32_t &lastPidMs) {
+  uint32_t now = millis();
+  float dt = (now - lastPidMs) / 1000.0f;
+  if (dt <= 0.0f || dt > 0.5f) dt = 0.02f;
+  lastPidMs = now;
+
+  float yaw = readYawDeg();
+  float err = angleError(targetYaw, yaw);
+
+  yawIntegral += err * dt;
+  yawIntegral = constrain(yawIntegral, -YAW_INTEGRAL_LIMIT, YAW_INTEGRAL_LIMIT);
+
+  float derivative = (err - lastYawError) / dt;
+  lastYawError = err;
+
+  float correction = YAW_KP * err + YAW_KI * yawIntegral + YAW_KD * derivative;
+  correction = constrain(correction, -MAX_YAW_CORRECTION, MAX_YAW_CORRECTION);
+
+  debugYawError = err;
+  debugYawCorrection = correction;
+
+  return constrain((int)correction, -100, 100);
+}
+
+void controlDirectRealtime(
+  const RobotCommand &cmd,
+  int16_t &m1,
+  int16_t &m2,
+  float &directYawSetpoint,
+  float &yawIntegral,
+  float &lastYawError,
+  uint32_t &lastPidMs,
+  uint32_t &lastSetpointMs
+) {
+  uint32_t now = millis();
+
+  // Timeout only stops motors.
+  // Do NOT reset directYawSetpoint.
+  if (now - cmd.updatedMs > COMMAND_TIMEOUT_MS) {
+    m1 = 0;
+    m2 = 0;
+    return;
+  }
+
+  float dt = (now - lastSetpointMs) / 1000.0f;
+  if (dt <= 0.0f || dt > 0.5f) dt = 0.02f;
+  lastSetpointMs = now;
+
+  // Joystick rotation is now relative yaw change, not absolute target.
+  float yawDelta = (float)cmd.rotation * dt;
+  directYawSetpoint = wrapAngleDeg(directYawSetpoint + yawDelta);
+
+  int8_t correction = yawPidCorrection(
+    directYawSetpoint,
+    yawIntegral,
+    lastYawError,
+    lastPidMs
+  );
+
+  calculateMotorMix(cmd.move, correction, m1, m2);
+
+  debugMotorState("DIRECT_RELATIVE_YAW_PID", cmd.move, correction, m1, m2);
 }
 
 void controlMoveWithPiYaw(
@@ -178,13 +312,10 @@ void controlMoveWithPiYaw(
   int16_t &m2,
   bool &targetRunning,
   float &yawIntegral,
+  float &lastYawError,
   uint32_t &lastPiMs
 ) {
   const int8_t BASE_MOVE_SPEED = 50;
-
-  const float KP = 0.2f;
-  const float KI = 0.02f;
-  const float MAX_CORRECTION = 35.0f;
 
   DistanceMethod method = cmd.useImuDistance ? DISTANCE_IMU : DISTANCE_TIME;
 
@@ -197,21 +328,8 @@ void controlMoveWithPiYaw(
     return;
   }
 
-  uint32_t now = millis();
-  float dt = (now - lastPiMs) / 1000.0f;
-  lastPiMs = now;
-
-  float yaw = readYawDeg();
-  float err = angleError(targetYaw, yaw);
-
-  yawIntegral += err * dt;
-  yawIntegral = constrain(yawIntegral, -100.0f, 100.0f);
-
-  float correction = KP * err + KI * yawIntegral;
-  correction = constrain(correction, -MAX_CORRECTION, MAX_CORRECTION);
-
   int8_t move = cmd.targetDistanceM >= 0 ? BASE_MOVE_SPEED : -BASE_MOVE_SPEED;
-  int8_t rotationCorrection = constrain((int)correction, -100, 100);
+  int8_t rotationCorrection = yawPidCorrection(targetYaw, yawIntegral, lastYawError, lastPiMs);
 
   calculateMotorMix(move, rotationCorrection, m1, m2);
 
@@ -225,6 +343,7 @@ void controlPreliminaryRotation(
   int16_t &m2,
   DistanceState &distanceState,
   float &yawIntegral,
+  float &lastYawError,
   uint32_t &lastPiMs
 ) {
   const float ANGLE_TOLERANCE_DEG = 8.0f;
@@ -241,6 +360,7 @@ void controlPreliminaryRotation(
 
     resetDistanceState(distanceState);
     yawIntegral = 0.0f;
+    lastYawError = 0.0f;
     lastPiMs = millis();
 
     return;
@@ -283,7 +403,10 @@ void controlTask(void* parameter) {
   DistanceState distanceState;
 
   float yawIntegral = 0.0f;
+  float lastYawError = 0.0f;
   uint32_t lastPiMs = 0;
+  float directYawSetpoint = 0.0f;
+  uint32_t lastSetpointMs = 0;
   TargetPhase targetPhase = TARGET_IDLE;
 
   while (true) {
@@ -307,28 +430,35 @@ void controlTask(void* parameter) {
 
     if (cmd.sequence != lastSeq) {
       lastSeq = cmd.sequence;
-      targetRunning = true;
-      targetPhase = TARGET_PRE_ROTATE;
-
       resetDistanceState(distanceState);
 
       yawIntegral = 0.0f;
+      lastYawError = 0.0f;
       lastPiMs = millis();
+      lastSetpointMs = millis();
 
-      targetYaw = readYawDeg() + cmd.targetRotationDeg;
+      if (cmd.mode == CONTROL_TARGET) {
+        targetRunning = true;
+        targetPhase = TARGET_PRE_ROTATE;
+        targetYaw = wrapAngleDeg(readYawDeg() + cmd.targetRotationDeg);
+      }
+      else {
+        targetRunning = false;
+        targetPhase = TARGET_IDLE;
 
-      while (targetYaw > 180.0f) targetYaw -= 360.0f;
-      while (targetYaw < -180.0f) targetYaw += 360.0f;
+      }
 
       Serial.print("NEW COMMAND SEQ: ");
       Serial.println(cmd.sequence);
     }
 
+    bool commandFresh = (millis() - cmd.updatedMs) <= COMMAND_TIMEOUT_MS;
+
     if (cmd.mode == CONTROL_DIRECT) {
       targetRunning = false;
-      controlDirect(cmd, m1, m2);
+      controlDirectRealtime(cmd, m1, m2, directYawSetpoint, yawIntegral, lastYawError, lastPiMs, lastSetpointMs);
     }
-    else if (cmd.mode == CONTROL_TARGET && targetRunning) {
+    else if (cmd.mode == CONTROL_TARGET && targetRunning && commandFresh) {
       Serial.print("Target Phase: ");
       Serial.println(targetPhase);
 
@@ -340,6 +470,7 @@ void controlTask(void* parameter) {
           m2,
           distanceState,
           yawIntegral,
+          lastYawError,
           lastPiMs
         );
       }
@@ -352,6 +483,7 @@ void controlTask(void* parameter) {
           m2,
           targetRunning,
           yawIntegral,
+          lastYawError,
           lastPiMs
         );
       }
@@ -363,6 +495,8 @@ void controlTask(void* parameter) {
     }
 
     bool movingNow = (m1 != 0 || m2 != 0);
+
+    updateImuDistance(distanceState, movingNow);
 
     if (movingNow && !wasMoving) {
       motionStartMs = millis();
@@ -382,6 +516,15 @@ void controlTask(void* parameter) {
       statusBuffer.batteryPercent = myCodeCell.BatteryLevelRead();
       statusBuffer.uptimeMs = millis() - startTimeMs;
       statusBuffer.headingDeg = readYawDeg();
+
+      if (cmd.mode == CONTROL_DIRECT) {
+        statusBuffer.headingSetpointDeg = directYawSetpoint;
+      } else {
+        statusBuffer.headingSetpointDeg = targetYaw;
+      }
+
+      statusBuffer.yawErrorDeg = debugYawError;
+      statusBuffer.yawCorrection = debugYawCorrection;
 
       statusBuffer.estimatedDistanceM =
         getCurrentDistanceM(cmd.useImuDistance ? DISTANCE_IMU : DISTANCE_TIME, distanceState);

@@ -103,12 +103,26 @@ void handleStatus() {
   json += "\"batteryMv\":" + String(s.batteryMv) + ",";
   json += "\"batteryPercent\":" + String(s.batteryPercent) + ",";
   json += "\"uptimeS\":" + String(s.uptimeMs / 1000.0f, 1) + ",";
+
+  // IMU / heading
   json += "\"headingDeg\":" + String(s.headingDeg, 1) + ",";
+  json += "\"headingSetpointDeg\":" + String(s.headingSetpointDeg, 1) + ",";
+
+  // Distance
   json += "\"estimatedDistanceM\":" + String(s.estimatedDistanceM, 3) + ",";
+
+  // Commands
   json += "\"move\":" + String(s.move) + ",";
   json += "\"rotation\":" + String(s.rotation) + ",";
+
+  // PID debug
+  json += "\"yawError\":" + String(s.yawErrorDeg, 1) + ",";
+  json += "\"yawCorrection\":" + String(s.yawCorrection, 1) + ",";
+
+  // Motors
   json += "\"m1\":" + String(s.m1Signed) + ",";
   json += "\"m2\":" + String(s.m2Signed);
+
   json += "}";
 
   sendJson(200, json);

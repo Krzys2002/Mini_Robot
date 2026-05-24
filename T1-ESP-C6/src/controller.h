@@ -23,12 +23,13 @@ enum DistanceMethod {
 
 struct RobotCommand {
     ControlMode mode;
-    int8_t move;
-    int8_t rotation;
+    int8_t move;              // -100..100 speed command
+    int8_t rotation;          // -100..100 yaw setpoint command in degrees
     float targetDistanceM;
     float targetRotationDeg;
     bool useImuDistance;
     uint32_t sequence;
+    uint32_t updatedMs;       // command freshness watchdog timestamp
 };
 
 struct MotorOutput {
@@ -43,6 +44,9 @@ struct RobotStatus {
     uint16_t batteryPercent;
     uint32_t uptimeMs;
     float headingDeg;
+    float headingSetpointDeg;
+    float yawErrorDeg;
+    float yawCorrection;
     float estimatedDistanceM;
     int8_t move;
     int8_t rotation;
@@ -55,6 +59,8 @@ struct DistanceState {
     uint32_t lastImuMs;
     float imuVelocityMps;
     float imuDistanceM;
+    float imuAccelBiasMps2;
+    bool imuBiasReady;
 };
 
 extern volatile bool emergencyStop;
