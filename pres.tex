@@ -68,6 +68,8 @@
 \institute[]{Poznań University of Technology \\ Automation Control and Robotics}
 \date{\today}
 
+\setbeameroption{show notes on second screen=right}
+
 % ============================================================
 \begin{document}
 
@@ -75,11 +77,17 @@
 \begin{frame}[plain]
   \titlepage
 \end{frame}
+\note{
+Introduce the project as a compact differential-drive robot built around the CodeCell C6 Drive board. Mention that the presentation covers the mechanical layout, electronics, control software, wireless interface, and safety mechanisms.
+}
 
 % ---- OUTLINE ----
 \begin{frame}{Outline}
   \tableofcontents
 \end{frame}
+\note{
+Use this slide only as orientation. Briefly tell the audience that the talk moves from goals and hardware, through control software and communication, and ends with safety and future improvements.
+}
 
 % ============================================================
 \section{Project Overview}
@@ -148,6 +156,9 @@
     \end{column}
   \end{columns}
 \end{frame}
+\note{
+Explain that the goal was to build a small mobile robot with as little extra electronics as possible. Emphasize the two operating modes: real-time joystick control for manual driving, and target mode for point-to-point autonomous movement. Point out that the browser app makes the system easy to use from a phone or laptop.
+}
 
 % ============================================================
 \section{Hardware}
@@ -207,6 +218,9 @@
   \end{tikzpicture}
   }
 \end{frame}
+\note{
+Describe the CodeCell C6 Drive as the core hardware module. Highlight the ESP32-C6 for computation and wireless communication, the BNO085 IMU for heading estimation, the motor drivers for the wheels, and the LiPo/USB-C power path. Mention that integrating these functions on one board reduces wiring and improves reproducibility.
+}
 
 % ============================================================
 
@@ -284,6 +298,9 @@
     \end{column}
   \end{columns}
 \end{frame}
+\note{
+Explain the differential-drive principle: equal wheel speeds produce straight movement, different speeds produce a curve, and opposite speeds rotate the robot in place. Mention that the chassis is 3D printed and designed to keep the board, battery, and motors compact and centered.
+}
 
 % ============================================================
 \section{Software Architecture}
@@ -344,6 +361,9 @@
   }
 
 \end{frame}
+\note{
+Explain the firmware split into three FreeRTOS tasks. The communication task handles HTTP requests, the control task interprets commands and computes motor targets, and the motor task drives the H-bridges. Point out that the shared buffers use mutex protection so the tasks do not corrupt each other's data.
+}
 
 % ============================================================
 \section{Movement Control}
@@ -416,6 +436,9 @@
   \end{columns}
 
 \end{frame}
+\note{
+Describe how joystick input becomes left and right motor commands. The forward value is combined with the rotation value: adding rotation to one side and subtracting it from the other creates turning. Use the example to show that one wheel receives a stronger command, so the robot follows a gentle curve.
+}
 
 % ============================================================
 
@@ -449,6 +472,9 @@
   Error is wrapped to $(-180^\circ,\,180^\circ]$ so the controller always uses
   the shortest rotation path.
 \end{frame}
+\note{
+Explain that the BNO085 provides a fused yaw angle at the control rate. The controller compares desired heading with measured heading and corrects drift through the rotation input. Mention that the tuning values are conservative so the robot corrects heading without aggressive oscillation.
+}
 
 \begin{frame}{PID Yaw Feedback Loop}
   \centering
@@ -501,6 +527,9 @@
       \end{tikzpicture}
   }
 \end{frame}
+\note{
+Walk through the loop from left to right. The set heading is compared with measured heading, the PID produces a correction, the correction is clamped, and the motor mixer applies it to the wheels. The robot movement changes the measured yaw, closing the feedback loop through the IMU.
+}
 
 % ============================================================
 
@@ -543,6 +572,9 @@
     \end{column}
   \end{columns}
 \end{frame}
+\note{
+Compare the two control modes. Direct mode is for manual driving and continuously receives joystick commands. Target mode is more autonomous: the user gives distance and angle, and the robot executes the movement in phases.
+}
 
 % ============================================================
 
@@ -593,6 +625,9 @@
     time-based calibration or IMU double-integration.
   }
 \end{frame}
+\note{
+Explain target mode as a simple state machine. First, the robot rotates until the heading error is below the threshold. Then it drives forward while PID keeps the heading stable. When the distance is reached, the motors stop and the robot returns to idle for the next command.
+}
 
 % ============================================================
 
@@ -663,6 +698,9 @@
     \end{column}
   \end{columns}
 \end{frame}
+\note{
+Explain that small DC motors often need extra torque to start moving because of static friction. The start ramp briefly applies a higher boost and then decays smoothly to the requested speed. This improves repeatability without permanently overpowering the motors.
+}
 
 % ============================================================
 \section{Wireless Communication}
@@ -714,6 +752,9 @@
     \end{column}
   \end{columns}
 \end{frame}
+\note{
+Describe the communication setup. The robot creates its own Wi-Fi access point, so no external router is required. The browser sends simple HTTP GET requests for movement, target mode, status, emergency stop, and clearing the stop condition.
+}
 
 % ============================================================
 
@@ -765,6 +806,9 @@
   \end{tikzpicture}
   }
 \end{frame}
+\note{
+Use this slide to explain the message sequence. Movement commands are sent frequently, status is polled less often, target commands start autonomous motion, and emergency stop has a dedicated endpoint. Emphasize that the API is simple enough to test from any browser.
+}
 
 % ============================================================
 \section{Control Application}
@@ -832,6 +876,9 @@
     \end{column}
   \end{columns}
 \end{frame}
+\note{
+Explain that the control app is a single-page HTML and JavaScript interface. It works on a phone or laptop and supports mouse and touch input. Mention the main controls: connection, joystick, target command panel, emergency stop, and live status.
+}
 
 % ============================================================
 \section{Safety \& Robustness}
@@ -875,6 +922,9 @@
     \end{column}
   \end{columns}
 \end{frame}
+\note{
+Present safety as part of the core design. Emergency stop overrides normal motion, command timeout stops the robot if communication is lost, mutexes protect shared state, and joystick auto-centering prevents continued movement after input release.
+}
 
 % ============================================================
 \section{Summary \& Future Work}
@@ -906,6 +956,9 @@
     onboard 9-axis IMU.
   }
 \end{frame}
+\note{
+Summarize the project as a self-contained differential-drive robot with integrated wireless control, motor driving, and IMU feedback. Reinforce the main technical achievements: FreeRTOS architecture, PID heading control, browser control, and safety mechanisms.
+}
 
 % ============================================================
 
@@ -928,6 +981,9 @@
   \end{itemize}
 
 \end{frame}
+\note{
+Discuss practical extensions. Obstacle avoidance could use the proximity sensor, odometry could improve distance estimation, multi-waypoint navigation would make target mode more useful, and BLE/Zigbee or a smartphone app could improve the control experience.
+}
 
 % ============================================================
 
@@ -945,5 +1001,8 @@
     Source code \& 3D models available in the project repository
   }
 \end{frame}
+\note{
+Close by inviting questions. Be ready to answer about PID tuning, communication reliability, mechanical design choices, and how the robot estimates distance in target mode.
+}
 
 \end{document}
