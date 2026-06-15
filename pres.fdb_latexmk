@@ -1,6 +1,6 @@
 # Fdb version 4
-["pdflatex"] 1781545645.44261 "/Users/krzysztofsawicki/Documents/Put/sem6/Term_Design/pres.tex" "pres.pdf" "pres" 1781545646.84391 0
-  "/Users/krzysztofsawicki/Documents/Put/sem6/Term_Design/pres.tex" 1781545643.64769 37365 514673b2c197e96efe1f2d2c50396dba ""
+["pdflatex"] 1781546594.63496 "/Users/krzysztofsawicki/Documents/Put/sem6/Term_Design/pres.tex" "pres.pdf" "pres" 1781546596.20806 0
+  "/Users/krzysztofsawicki/Documents/Put/sem6/Term_Design/pres.tex" 1781546594.39415 37480 20508d899fba27947e268106db01987e ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/enc/dvips/lm/lm-ec.enc" 1254269338 2375 baa924870cfb487815765f9094cf3728 ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/enc/dvips/lm/lm-mathex.enc" 1202520719 3486 c7eadf5dcc57b3b2d11736679f6636ba ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/enc/dvips/lm/lm-mathit.enc" 1202520719 2405 5dcf2c1b967ee25cc46c58cd52244aed ""
@@ -255,11 +255,11 @@
   "/usr/local/texlive/2026basic/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1774040405 79187 e3f5941707347d15c1721f52279213a2 ""
   "/usr/local/texlive/2026basic/texmf-var/web2c/pdftex/pdflatex.fmt" 1774040379 2966189 cb7414ddeb8bc8bd7e822b2c0f107a04 ""
   "/usr/local/texlive/2026basic/texmf.cnf" 1772405582 628 bbc09d6d38872d53c11bb48dc9b14e88 ""
-  "pres.aux" 1781545646.7487 5249 340b05fda46a245f58110f01f0fadc9e "pdflatex"
-  "pres.nav" 1781545646.74994 3300 805af564925324a49d0a49a0cab836f3 "pdflatex"
-  "pres.out" 1781545646.7496 1090 5b98d02b5563f7b232b52163e61248ab "pdflatex"
-  "pres.tex" 1781545643.64769 37365 514673b2c197e96efe1f2d2c50396dba ""
-  "pres.toc" 1781545646.74998 436 de411bc907a469585a06ec4efe183ba3 "pdflatex"
+  "pres.aux" 1781546596.10226 5249 340b05fda46a245f58110f01f0fadc9e "pdflatex"
+  "pres.nav" 1781546596.10314 3300 805af564925324a49d0a49a0cab836f3 "pdflatex"
+  "pres.out" 1781546596.10295 1090 5b98d02b5563f7b232b52163e61248ab "pdflatex"
+  "pres.tex" 1781546594.39415 37480 20508d899fba27947e268106db01987e ""
+  "pres.toc" 1781546596.10316 436 de411bc907a469585a06ec4efe183ba3 "pdflatex"
   (generated)
   "pres.aux"
   "pres.log"

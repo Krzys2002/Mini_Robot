@@ -86,7 +86,7 @@ Introduce the project as a compact differential-drive robot built around the Cod
   \tableofcontents
 \end{frame}
 \note{
-Use this slide only as orientation. Briefly tell the audience that the talk moves from goals and hardware, through control software and communication, and ends with safety and future improvements.
+Briefly walk through the structure: project goals, hardware, mechanical design, software architecture, movement control, wireless communication, browser interface, safety, and future work. Keep this slide short and use it only as orientation.
 }
 
 % ============================================================
@@ -157,7 +157,7 @@ Use this slide only as orientation. Briefly tell the audience that the talk move
   \end{columns}
 \end{frame}
 \note{
-Explain that the goal was to build a small mobile robot with as little extra electronics as possible. Emphasize the two operating modes: real-time joystick control for manual driving, and target mode for point-to-point autonomous movement. Point out that the browser app makes the system easy to use from a phone or laptop.
+Explain that the main idea was to build a small mobile robot with minimal external electronics. Emphasize that the CodeCell C6 Drive acts as the core module: motor driver, wireless interface, and sensor platform. Point out the two modes: direct joystick control and autonomous target movement.
 }
 
 % ============================================================
@@ -219,7 +219,7 @@ Explain that the goal was to build a small mobile robot with as little extra ele
   }
 \end{frame}
 \note{
-Describe the CodeCell C6 Drive as the core hardware module. Highlight the ESP32-C6 for computation and wireless communication, the BNO085 IMU for heading estimation, the motor drivers for the wheels, and the LiPo/USB-C power path. Mention that integrating these functions on one board reduces wiring and improves reproducibility.
+Describe the board as the central hardware element. Highlight the ESP32-C6 for computation and wireless communication, the BNO085 IMU for heading estimation, the motor drivers for the two wheels, and the LiPo/USB-C power path. Mention that using one compact board simplifies wiring and makes the robot easier to reproduce.
 }
 
 % ============================================================
@@ -299,7 +299,7 @@ Describe the CodeCell C6 Drive as the core hardware module. Highlight the ESP32-
   \end{columns}
 \end{frame}
 \note{
-Explain the differential-drive principle: equal wheel speeds produce straight movement, different speeds produce a curve, and opposite speeds rotate the robot in place. Mention that the chassis is 3D printed and designed to keep the board, battery, and motors compact and centered.
+Explain the differential-drive principle: two independently driven wheels create straight motion, turns, and rotation in place. Mention that the chassis is 3D printed and designed to hold the board, battery, and motors compactly. Use the three diagrams to show equal speed, unequal speed, and opposite wheel directions.
 }
 
 % ============================================================
@@ -362,7 +362,7 @@ Explain the differential-drive principle: equal wheel speeds produce straight mo
 
 \end{frame}
 \note{
-Explain the firmware split into three FreeRTOS tasks. The communication task handles HTTP requests, the control task interprets commands and computes motor targets, and the motor task drives the H-bridges. Point out that the shared buffers use mutex protection so the tasks do not corrupt each other's data.
+Explain that the firmware is split into three FreeRTOS tasks. The communication task handles HTTP commands, the control task interprets commands and computes motor targets, and the motor task drives the H-bridges. Point out that shared buffers are protected by mutexes so tasks do not write over each other.
 }
 
 % ============================================================
@@ -437,7 +437,7 @@ Explain the firmware split into three FreeRTOS tasks. The communication task han
 
 \end{frame}
 \note{
-Describe how joystick input becomes left and right motor commands. The forward value is combined with the rotation value: adding rotation to one side and subtracting it from the other creates turning. Use the example to show that one wheel receives a stronger command, so the robot follows a gentle curve.
+Describe how joystick input is converted into left and right motor commands. The forward/backward value is combined with the rotation value. A positive rotation increases one motor and decreases the other, creating a turn. The example shows a forward-right curve where one wheel moves faster than the other.
 }
 
 % ============================================================
@@ -473,7 +473,7 @@ Describe how joystick input becomes left and right motor commands. The forward v
   the shortest rotation path.
 \end{frame}
 \note{
-Explain that the BNO085 provides a fused yaw angle at the control rate. The controller compares desired heading with measured heading and corrects drift through the rotation input. Mention that the tuning values are conservative so the robot corrects heading without aggressive oscillation.
+Explain that the BNO085 gives a fused yaw angle, which is more useful than raw accelerometer or gyro data alone. The controller compares the desired heading with the measured heading. The PID constants were chosen conservatively so the robot corrects drift without oscillating strongly.
 }
 
 \begin{frame}{PID Yaw Feedback Loop}
@@ -528,7 +528,7 @@ Explain that the BNO085 provides a fused yaw angle at the control rate. The cont
   }
 \end{frame}
 \note{
-Walk through the loop from left to right. The set heading is compared with measured heading, the PID produces a correction, the correction is clamped, and the motor mixer applies it to the wheels. The robot movement changes the measured yaw, closing the feedback loop through the IMU.
+Walk through the feedback loop from left to right. The set heading is compared with measured heading, PID produces a correction, the correction is clamped, and the motor mixer applies it to the wheels. The robot motion changes the measured yaw, closing the loop through the IMU.
 }
 
 % ============================================================
@@ -573,7 +573,7 @@ Walk through the loop from left to right. The set heading is compared with measu
   \end{columns}
 \end{frame}
 \note{
-Compare the two control modes. Direct mode is for manual driving and continuously receives joystick commands. Target mode is more autonomous: the user gives distance and angle, and the robot executes the movement in phases.
+Compare the two control modes. Direct mode is for manual driving from the browser joystick and continuously sends movement commands. Target mode is more autonomous: the user gives a distance and angle, and the robot executes the motion in phases.
 }
 
 % ============================================================
@@ -626,7 +626,7 @@ Compare the two control modes. Direct mode is for manual driving and continuousl
   }
 \end{frame}
 \note{
-Explain target mode as a simple state machine. First, the robot rotates until the heading error is below the threshold. Then it drives forward while PID keeps the heading stable. When the distance is reached, the motors stop and the robot returns to idle for the next command.
+Explain that target mode is implemented as a simple state machine. First, the robot rotates until the heading error is small enough. Then it drives forward while the PID keeps the heading stable. After the distance is reached, motors stop and the robot returns to idle.
 }
 
 % ============================================================
@@ -699,7 +699,7 @@ Explain target mode as a simple state machine. First, the robot rotates until th
   \end{columns}
 \end{frame}
 \note{
-Explain that small DC motors often need extra torque to start moving because of static friction. The start ramp briefly applies a higher boost and then decays smoothly to the requested speed. This improves repeatability without permanently overpowering the motors.
+Explain why the start ramp is needed: small DC motors may not move reliably at low PWM because of static friction. The algorithm briefly applies a higher boost and then smoothly decays to the requested speed. This makes starts more reliable without keeping the motor overpowered.
 }
 
 % ============================================================
@@ -753,7 +753,7 @@ Explain that small DC motors often need extra torque to start moving because of 
   \end{columns}
 \end{frame}
 \note{
-Describe the communication setup. The robot creates its own Wi-Fi access point, so no external router is required. The browser sends simple HTTP GET requests for movement, target mode, status, emergency stop, and clearing the stop condition.
+Describe the communication setup. The robot creates its own Wi-Fi access point, so no external router is required. The browser sends simple HTTP GET requests to control movement, request status, and trigger or clear the emergency stop.
 }
 
 % ============================================================
@@ -807,7 +807,7 @@ Describe the communication setup. The robot creates its own Wi-Fi access point, 
   }
 \end{frame}
 \note{
-Use this slide to explain the message sequence. Movement commands are sent frequently, status is polled less often, target commands start autonomous motion, and emergency stop has a dedicated endpoint. Emphasize that the API is simple enough to test from any browser.
+Use this slide to explain the message sequence. The browser sends movement commands frequently, status is polled less often, target commands start autonomous motion, and emergency stop has a dedicated endpoint. Emphasize that the API is simple enough to test from any browser.
 }
 
 % ============================================================
@@ -877,7 +877,7 @@ Use this slide to explain the message sequence. Movement commands are sent frequ
   \end{columns}
 \end{frame}
 \note{
-Explain that the control app is a single-page HTML and JavaScript interface. It works on a phone or laptop and supports mouse and touch input. Mention the main controls: connection, joystick, target command panel, emergency stop, and live status.
+Explain that the control application is a single-page web interface. It works on a phone or laptop and supports both mouse and touch input. Mention the main controls: connection, joystick, target command panel, emergency stop, and live status.
 }
 
 % ============================================================
@@ -923,7 +923,7 @@ Explain that the control app is a single-page HTML and JavaScript interface. It 
   \end{columns}
 \end{frame}
 \note{
-Present safety as part of the core design. Emergency stop overrides normal motion, command timeout stops the robot if communication is lost, mutexes protect shared state, and joystick auto-centering prevents continued movement after input release.
+Present safety as a core part of the design. Emergency stop overrides normal motion, command timeout stops the robot if communication is lost, mutexes protect shared state, and joystick auto-centering prevents the robot from continuing to move after input is released.
 }
 
 % ============================================================
@@ -957,7 +957,7 @@ Present safety as part of the core design. Emergency stop overrides normal motio
   }
 \end{frame}
 \note{
-Summarize the project as a self-contained differential-drive robot with integrated wireless control, motor driving, and IMU feedback. Reinforce the main technical achievements: FreeRTOS architecture, PID heading control, browser control, and safety mechanisms.
+Summarize the project as a self-contained differential-drive robot built from a compact board with integrated wireless control, motor driving, and IMU feedback. Reinforce the main technical achievements: FreeRTOS architecture, PID heading control, browser control, and safety mechanisms.
 }
 
 % ============================================================
@@ -982,7 +982,7 @@ Summarize the project as a self-contained differential-drive robot with integrat
 
 \end{frame}
 \note{
-Discuss practical extensions. Obstacle avoidance could use the proximity sensor, odometry could improve distance estimation, multi-waypoint navigation would make target mode more useful, and BLE/Zigbee or a smartphone app could improve the control experience.
+Mention practical extensions. Obstacle avoidance could use the proximity sensor, odometry could improve distance estimation, multi-waypoint navigation would make target mode more useful, and BLE/Zigbee or a smartphone app could improve the user experience.
 }
 
 % ============================================================

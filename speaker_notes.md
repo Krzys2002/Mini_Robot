@@ -1,5 +1,13 @@
 # Speaker Notes
 
+Edit this file as the source of truth for speaker notes. After editing, run:
+
+```sh
+./build_presentation.sh
+```
+
+That command syncs these notes into `pres.tex` and rebuilds `pres.pdf`.
+
 ## Slide 1: Title
 
 Introduce the project as a compact differential-drive robot built around the CodeCell C6 Drive board. Mention that the presentation covers the mechanical layout, electronics, control software, wireless interface, and safety mechanisms.
