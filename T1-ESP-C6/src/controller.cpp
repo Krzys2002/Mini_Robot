@@ -22,9 +22,9 @@ volatile bool emergencyStop = false;
 const uint32_t COMMAND_TIMEOUT_MS = 300;
 const float MAX_ANGLE_SETPOINT_RATE_DPS = 100.0f;
 
-const float YAW_KP = 0.3f;
+const float YAW_KP = 0.25f;
 const float YAW_KI = 0.02f;
-const float YAW_KD = 0.02f;
+const float YAW_KD = 0.03f;
 const float YAW_INTEGRAL_LIMIT = 120.0f;
 const float MAX_YAW_CORRECTION = 45.0f;
 
