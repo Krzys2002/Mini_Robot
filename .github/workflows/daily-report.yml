@@ -77,6 +77,8 @@ jobs:
             # Read this person's unfinished tasks from the Project
             # ---------------------------------------------------
 
+            set -x
+            
             GH_TOKEN="$PROJECT_TOKEN" gh project item-list \
               "$PROJECT_NUMBER" \
               --owner "$PROJECT_OWNER" \
@@ -90,6 +92,7 @@ jobs:
               
             export CURRENT_MEMBER="$MEMBER"
 
+            set +x
             # ---------------------------------------------------
             # Generate automatic assessment + Markdown task table
             # ---------------------------------------------------
