@@ -337,7 +337,7 @@ jobs:
             # ---------------------------------------------------
             # Prevent duplicate reports after manual rerun
             # ---------------------------------------------------
-
+            
             EXISTING=$(GH_TOKEN="$REPORT_TOKEN" gh issue list \
               --repo "$GH_REPO" \
               --state all \
@@ -345,21 +345,64 @@ jobs:
               --json title \
               --jq ".[] | select(.title == \"$TITLE\") | .title" \
               | head -n 1)
-
+            
             if [ -n "$EXISTING" ]; then
               echo "Report already exists for @$MEMBER"
               continue
             fi
-
+            
             # ---------------------------------------------------
-            # Create report and assign it to that team member
+            # Dates for Project fields
             # ---------------------------------------------------
-
-            GH_TOKEN="$REPORT_TOKEN" gh issue create \
+            
+            START_DATE=$(TZ=Europe/Warsaw date +%Y-%m-%d)
+            DEADLINE_DATE=$(TZ=Europe/Warsaw date -d "tomorrow" +%Y-%m-%d)
+            DEADLINE_TIME="18:00"
+            
+            echo "Start date: $START_DATE"
+            echo "Deadline: $DEADLINE_DATE $DEADLINE_TIME"
+            
+            # ---------------------------------------------------
+            # Create report issue
+            # ---------------------------------------------------
+            
+            ISSUE_URL=$(GH_TOKEN="$REPORT_TOKEN" gh issue create \
               --repo "$GH_REPO" \
               --title "$TITLE" \
               --body-file report.md \
               --label "daily-report" \
-              --assignee "$MEMBER"
-
-          done
+              --assignee "$MEMBER")
+            
+            echo "Created issue: $ISSUE_URL"
+            
+            # ---------------------------------------------------
+            # Add report to Project
+            # ---------------------------------------------------
+            
+            GH_TOKEN="$PROJECT_TOKEN" gh project item-add "$PROJECT_NUMBER" \
+              --owner "$PROJECT_OWNER" \
+              --url "$ISSUE_URL"
+            
+            # ---------------------------------------------------
+            # Set Start date = creation date
+            # ---------------------------------------------------
+            
+            GH_TOKEN="$PROJECT_TOKEN" gh project item-edit "$PROJECT_NUMBER" \
+              --owner "$PROJECT_OWNER" \
+              --url "$ISSUE_URL" \
+              --field "Start date" \
+              --date "$START_DATE"
+            
+            # ---------------------------------------------------
+            # Set Deadline = next day
+            # ---------------------------------------------------
+            
+            GH_TOKEN="$PROJECT_TOKEN" gh project item-edit "$PROJECT_NUMBER" \
+              --owner "$PROJECT_OWNER" \
+              --url "$ISSUE_URL" \
+              --field "Deadline" \
+              --date "$DEADLINE_DATE"
+            
+            echo "Report configured successfully for @$MEMBER"
+            
+            done
