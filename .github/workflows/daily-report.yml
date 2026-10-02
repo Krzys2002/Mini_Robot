@@ -77,9 +77,9 @@ jobs:
             # Read this person's unfinished tasks from the Project
             # ---------------------------------------------------
 
-            gh project item-list "$PROJECT_NUMBER" \
+            GH_TOKEN="$PROJECT_TOKEN" gh project item-list "$PROJECT_NUMBER" \
               --owner "$PROJECT_OWNER" \
-              --query "assignee:$MEMBER -status:Done" \
+              --query "assignee:$MEMBER -status:Done" \    
               --limit 200 \
               --format json > project-items.json
 
@@ -330,9 +330,7 @@ jobs:
             # Prevent duplicate reports after manual rerun
             # ---------------------------------------------------
 
-            export GH_TOKEN="$REPORT_TOKEN"
-
-            EXISTING=$(gh issue list \
+            EXISTING=$(GH_TOKEN="$REPORT_TOKEN" gh issue list \
               --repo "$GH_REPO" \
               --state all \
               --search "\"$TITLE\" in:title" \
@@ -349,7 +347,7 @@ jobs:
             # Create report and assign it to that team member
             # ---------------------------------------------------
 
-            gh issue create \
+            GH_TOKEN="$REPORT_TOKEN" gh issue create \
               --repo "$GH_REPO" \
               --title "$TITLE" \
               --body-file report.md \
