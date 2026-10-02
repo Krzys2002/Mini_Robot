@@ -1,0 +1,57 @@
+name: Daily progress report
+
+on:
+  schedule:
+    # Monday-Friday at 20:15 Polish time
+    - cron: "15 20 * * 1-5"
+      timezone: "Europe/Warsaw"
+
+  # Allows us to test it manually
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  create-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create daily report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          DATE=$(TZ=Europe/Warsaw date +%Y-%m-%d)
+          DAY=$(TZ=Europe/Warsaw date +%A)
+
+          gh issue create \
+            --repo "$GH_REPO" \
+            --title "Daily Report — $DATE" \
+            --label "daily-report" \
+            --body "## Daily Progress Report
+
+          **Date:** $DATE
+          **Day:** $DAY
+
+          ### What did I work on today?
+
+          - Assignment/task:
+          - Progress made:
+
+          ### Problems / blockers
+
+          -
+
+          ### Next steps
+
+          -
+
+          ### Time spent
+
+          -
+
+          ### Notes
+
+          -"
