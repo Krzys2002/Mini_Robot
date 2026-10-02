@@ -77,11 +77,13 @@ jobs:
             # Read this person's unfinished tasks from the Project
             # ---------------------------------------------------
 
-            GH_TOKEN="$PROJECT_TOKEN" gh project item-list "$PROJECT_NUMBER" \
-              --owner "$PROJECT_OWNER" \
-              --query "assignee:$MEMBER -status:Done" \    
-              --limit 200 \
-              --format json > project-items.json
+            GH_TOKEN="$PROJECT_TOKEN" gh project item-list \
+              "$PROJECT_NUMBER" \
+              --owner "$PROJECT_OWNER" \       
+              --query "assignee:$MEMBER -status:Done" \            
+              --limit 200 \            
+              --format json \            
+              > project-items.json
 
             
             export CURRENT_MEMBER="$MEMBER"
