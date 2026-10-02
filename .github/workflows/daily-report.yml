@@ -46,6 +46,17 @@ jobs:
             exit 1
           fi
 
+      - name: Test Project access
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          gh project view "$PROJECT_NUMBER" \
+            --owner "$PROJECT_OWNER"
+      
+          gh project item-list "$PROJECT_NUMBER" \
+            --owner "$PROJECT_OWNER" \
+            --limit 5
+
       - name: Create individual reports
         env:
           GH_TOKEN: ${{ env.PROJECT_TOKEN }}
