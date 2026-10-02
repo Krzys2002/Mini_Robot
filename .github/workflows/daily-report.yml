@@ -79,17 +79,16 @@ jobs:
 
             set -x
             
-            GH_TOKEN="$PROJECT_TOKEN" gh project item-list \
-              "$PROJECT_NUMBER" \
-              --owner "$PROJECT_OWNER" \
-              --query "assignee:$MEMBER -status:Done" \
-              --field "Status" \
-              --field "Priority" \
-              --field "Deadline" \
-              --limit 200 \
-              --format json \
-              > project-items.json
-              
+            PROJECT_QUERY="assignee:${MEMBER} -status:Done"
+
+            echo "Project: [$PROJECT_NUMBER]"
+          
+            echo "Owner: [$PROJECT_OWNER]"
+          
+            echo "Query: [$PROJECT_QUERY]"
+          
+            GH_TOKEN="$PROJECT_TOKEN" gh project item-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --query "$PROJECT_QUERY" --field "Status" --field "Priority" --field "Deadline" --limit 200 --format json > project-items.json
+                        
             export CURRENT_MEMBER="$MEMBER"
 
             set +x
