@@ -81,11 +81,13 @@ jobs:
               "$PROJECT_NUMBER" \
               --owner "$PROJECT_OWNER" \
               --query "assignee:$MEMBER -status:Done" \
+              --field "Status" \
+              --field "Priority" \
+              --field "Deadline" \
               --limit 200 \
               --format json \
               > project-items.json
-
-            
+              
             export CURRENT_MEMBER="$MEMBER"
 
             # ---------------------------------------------------
