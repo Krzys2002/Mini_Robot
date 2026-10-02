@@ -79,10 +79,10 @@ jobs:
 
             GH_TOKEN="$PROJECT_TOKEN" gh project item-list \
               "$PROJECT_NUMBER" \
-              --owner "$PROJECT_OWNER" \       
-              --query "assignee:$MEMBER -status:Done" \            
-              --limit 200 \            
-              --format json \            
+              --owner "$PROJECT_OWNER" \
+              --query "assignee:$MEMBER -status:Done" \
+              --limit 200 \
+              --format json \
               > project-items.json
 
             
