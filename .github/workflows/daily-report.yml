@@ -45,18 +45,6 @@ jobs:
             echo "PROJECT_TOKEN secret is missing"
             exit 1
           fi
-
-      - name: Test Project access
-        env:
-          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
-        run: |
-          gh project view "$PROJECT_NUMBER" \
-            --owner "$PROJECT_OWNER"
-      
-          gh project item-list "$PROJECT_NUMBER" \
-            --owner "$PROJECT_OWNER" \
-            --limit 5
-
       - name: Create individual reports
         env:
           GH_TOKEN: ${{ env.PROJECT_TOKEN }}
@@ -76,9 +64,8 @@ jobs:
             # ---------------------------------------------------
             # Read this person's unfinished tasks from the Project
             # ---------------------------------------------------
-
-            set -x
             
+          
             PROJECT_QUERY="assignee:${MEMBER} -status:Done"
 
             echo "Project: [$PROJECT_NUMBER]"   
@@ -92,8 +79,7 @@ jobs:
               --format json > project-items.json
   
             export CURRENT_MEMBER="$MEMBER"
-
-            set +x
+            
             # ---------------------------------------------------
             # Generate automatic assessment + Markdown task table
             # ---------------------------------------------------
@@ -337,6 +323,7 @@ jobs:
             # ---------------------------------------------------
             # Prevent duplicate reports after manual rerun
             # ---------------------------------------------------
+            set -x
             
             EXISTING=$(GH_TOKEN="$REPORT_TOKEN" gh issue list \
               --repo "$GH_REPO" \
@@ -352,7 +339,7 @@ jobs:
             fi
             
             # ---------------------------------------------------
-            # Dates for Project fields
+            # Dates
             # ---------------------------------------------------
             
             START_DATE=$(TZ=Europe/Warsaw date +%Y-%m-%d)
@@ -363,7 +350,7 @@ jobs:
             echo "Deadline: $DEADLINE_DATE $DEADLINE_TIME"
             
             # ---------------------------------------------------
-            # Create report issue
+            # Create the issue
             # ---------------------------------------------------
             
             ISSUE_URL=$(GH_TOKEN="$REPORT_TOKEN" gh issue create \
@@ -376,15 +363,36 @@ jobs:
             echo "Created issue: $ISSUE_URL"
             
             # ---------------------------------------------------
-            # Add report to Project
+            # Verify PROJECT_TOKEN can see the issue
             # ---------------------------------------------------
+            
+            echo "Checking issue access..."
+            
+            GH_TOKEN="$PROJECT_TOKEN" gh issue view "$ISSUE_URL" \
+              --json number,title,url
+            
+            # ---------------------------------------------------
+            # Verify PROJECT_TOKEN can see the project
+            # ---------------------------------------------------
+            
+            echo "Checking Project access..."
+            
+            GH_TOKEN="$PROJECT_TOKEN" gh project view "$PROJECT_NUMBER" \
+              --owner "$PROJECT_OWNER" \
+              --format json
+            
+            # ---------------------------------------------------
+            # Add issue to Project
+            # ---------------------------------------------------
+            
+            echo "Adding issue to Project..."
             
             GH_TOKEN="$PROJECT_TOKEN" gh project item-add "$PROJECT_NUMBER" \
               --owner "$PROJECT_OWNER" \
               --url "$ISSUE_URL"
             
             # ---------------------------------------------------
-            # Set Start date = creation date
+            # Start date
             # ---------------------------------------------------
             
             GH_TOKEN="$PROJECT_TOKEN" gh project item-edit "$PROJECT_NUMBER" \
@@ -394,7 +402,7 @@ jobs:
               --date "$START_DATE"
             
             # ---------------------------------------------------
-            # Set Deadline = next day
+            # Deadline
             # ---------------------------------------------------
             
             GH_TOKEN="$PROJECT_TOKEN" gh project item-edit "$PROJECT_NUMBER" \
@@ -404,5 +412,9 @@ jobs:
               --date "$DEADLINE_DATE"
             
             echo "Report configured successfully for @$MEMBER"
+            echo "Start date: $START_DATE"
+            echo "Deadline: $DEADLINE_DATE $DEADLINE_TIME"
+
+            set +x
             
             done
