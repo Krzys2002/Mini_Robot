@@ -1,4 +1,4 @@
-name: Daily progress report
+name: Team daily progress reports
 
 on:
   schedule:
@@ -6,7 +6,6 @@ on:
     - cron: "15 20 * * 1-5"
       timezone: "Europe/Warsaw"
 
-  # Allows us to test it manually
   workflow_dispatch:
 
 permissions:
@@ -14,44 +13,338 @@ permissions:
   issues: write
 
 jobs:
-  create-report:
+  create-reports:
     runs-on: ubuntu-latest
 
+    env:
+      PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+      PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+      TEAM_MEMBERS: ${{ vars.TEAM_MEMBERS }}
+      PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+
     steps:
-      - name: Create daily report
+      - name: Validate configuration
+        run: |
+          if [ -z "$PROJECT_OWNER" ]; then
+            echo "PROJECT_OWNER is missing"
+            exit 1
+          fi
+
+          if [ -z "$PROJECT_NUMBER" ]; then
+            echo "PROJECT_NUMBER is missing"
+            exit 1
+          fi
+
+          if [ -z "$TEAM_MEMBERS" ]; then
+            echo "TEAM_MEMBERS is missing"
+            exit 1
+          fi
+
+          if [ -z "$PROJECT_TOKEN" ]; then
+            echo "PROJECT_TOKEN secret is missing"
+            exit 1
+          fi
+
+      - name: Create individual reports
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ env.PROJECT_TOKEN }}
+          REPORT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(TZ=Europe/Warsaw date +%Y-%m-%d)
           DAY=$(TZ=Europe/Warsaw date +%A)
 
-          gh issue create \
-            --repo "$GH_REPO" \
-            --title "Daily Report — $DATE" \
-            --label "daily-report" \
-            --body "## Daily Progress Report
+          IFS=',' read -ra MEMBERS <<< "$TEAM_MEMBERS"
 
-          **Date:** $DATE
-          **Day:** $DAY
+          for RAW_MEMBER in "${MEMBERS[@]}"; do
 
-          ### What did I work on today?
+            MEMBER=$(echo "$RAW_MEMBER" | xargs)
 
-          - Assignment/task:
-          - Progress made:
+            echo "Creating report for @$MEMBER"
 
-          ### Problems / blockers
+            # ---------------------------------------------------
+            # Read this person's unfinished tasks from the Project
+            # ---------------------------------------------------
 
-          -
+            gh project item-list "$PROJECT_NUMBER" \
+              --owner "$PROJECT_OWNER" \
+              --query "assignee:$MEMBER -status:Done" \
+              --field "Status" \
+              --field "Priority" \
+              --field "Deadline" \
+              --limit 200 \
+              --format json > project-items.json
 
-          ### Next steps
+            export CURRENT_MEMBER="$MEMBER"
 
-          -
+            # ---------------------------------------------------
+            # Generate automatic assessment + Markdown task table
+            # ---------------------------------------------------
 
-          ### Time spent
+            python3 << 'PY'
+          import json
+          import os
+          from datetime import date, datetime
 
-          -
+          member = os.environ["CURRENT_MEMBER"]
 
-          ### Notes
+          with open("project-items.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
 
-          -"
+          items = data.get("items", [])
+
+          today = date.today()
+
+          def normalized_key(key):
+              return (
+                  str(key)
+                  .replace(" ", "")
+                  .replace("_", "")
+                  .replace("-", "")
+                  .lower()
+              )
+
+          def get_field(item, wanted):
+              wanted_n = normalized_key(wanted)
+
+              for key, value in item.items():
+                  if normalized_key(key) == wanted_n:
+                      return value
+
+              return None
+
+          def field_text(value):
+              if value is None:
+                  return ""
+
+              if isinstance(value, str):
+                  return value
+
+              if isinstance(value, dict):
+                  for key in ("name", "title", "text", "date"):
+                      if key in value and value[key]:
+                          return str(value[key])
+
+              return str(value)
+
+          overdue = 0
+          three_days = 0
+          seven_days = 0
+          blocked = 0
+          active = 0
+          missing_deadline = 0
+
+          rows = []
+
+          for item in items:
+              content = item.get("content") or {}
+
+              title = (
+                  content.get("title")
+                  or item.get("title")
+                  or "Untitled task"
+              )
+
+              number = content.get("number")
+
+              url = (
+                  content.get("url")
+                  or item.get("url")
+                  or ""
+              )
+
+              status = field_text(get_field(item, "Status"))
+              priority = field_text(get_field(item, "Priority"))
+              deadline = field_text(get_field(item, "Deadline"))
+
+              status_lower = status.lower()
+
+              if status_lower not in ("done", "closed"):
+                  active += 1
+
+              if "blocked" in status_lower:
+                  blocked += 1
+
+              deadline_display = deadline or "⚪ Not set"
+
+              if deadline:
+                  try:
+                      due = datetime.strptime(
+                          deadline[:10],
+                          "%Y-%m-%d"
+                      ).date()
+
+                      days = (due - today).days
+
+                      if days < 0:
+                          overdue += 1
+                          deadline_display = f"🔴 {deadline}"
+                      elif days <= 3:
+                          three_days += 1
+                          deadline_display = f"🟠 {deadline}"
+                      elif days <= 7:
+                          seven_days += 1
+                          deadline_display = f"🟡 {deadline}"
+                      else:
+                          deadline_display = f"⚪ {deadline}"
+
+                  except ValueError:
+                      deadline_display = deadline
+              else:
+                  missing_deadline += 1
+
+              if number and url:
+                  task = f"[#{number} {title}]({url})"
+              elif url:
+                  task = f"[{title}]({url})"
+              else:
+                  task = title
+
+              rows.append(
+                  f"| {task} | {status or '—'} | "
+                  f"{priority or '—'} | {deadline_display} |"
+              )
+
+          lines = []
+
+          lines.append("## 🤖 Automatic assessment")
+          lines.append("")
+          lines.append(f"- 🔴 **Overdue:** {overdue}")
+          lines.append(f"- 🟠 **Due within 3 days:** {three_days}")
+          lines.append(f"- 🟡 **Due within 7 days:** {seven_days}")
+          lines.append(f"- 🔨 **Active assignments:** {active}")
+          lines.append(f"- ⛔ **Blocked:** {blocked}")
+
+          if missing_deadline:
+              lines.append(
+                  f"- ⚪ **Missing deadline:** {missing_deadline}"
+              )
+
+          lines.append("")
+          lines.append("### Assessment")
+
+          if overdue > 0:
+              lines.append(
+                  "🔴 **Immediate attention required:** "
+                  "at least one assignment is overdue."
+              )
+          elif three_days > 0:
+              lines.append(
+                  "🟠 **Deadline pressure:** at least one assignment "
+                  "is due within three days."
+              )
+          elif blocked > 0:
+              lines.append(
+                  "⛔ **Blocked work detected:** resolve or report "
+                  "the blocker as soon as possible."
+              )
+          elif seven_days > 0:
+              lines.append(
+                  "🟡 **Upcoming deadlines:** work should be planned "
+                  "for assignments due within seven days."
+              )
+          elif active > 0:
+              lines.append(
+                  "🟢 No immediate deadline problems detected."
+              )
+          else:
+              lines.append(
+                  "🟢 No active assignments are currently assigned."
+              )
+
+          lines.append("")
+          lines.append("## 📋 Assigned work")
+          lines.append("")
+
+          if rows:
+              lines.append(
+                  "| Assignment | Status | Priority | Deadline |"
+              )
+              lines.append(
+                  "|---|---|---|---|"
+              )
+              lines.extend(rows)
+          else:
+              lines.append(
+                  "_No unfinished assignments currently assigned._"
+              )
+
+          with open("assessment.md", "w", encoding="utf-8") as f:
+              f.write("\n".join(lines))
+          PY
+
+            # ---------------------------------------------------
+            # Build person's report
+            # ---------------------------------------------------
+
+            {
+              echo "# Daily Progress Report"
+              echo
+              echo "**Team member:** @$MEMBER"
+              echo
+              echo "**Date:** $DATE"
+              echo
+              echo "**Day:** $DAY"
+              echo
+              cat assessment.md
+              echo
+              echo "## 📝 Today's report"
+              echo
+              echo "### What did I accomplish today?"
+              echo
+              echo "-"
+              echo
+              echo "### Progress / changes"
+              echo
+              echo "-"
+              echo
+              echo "### Problems / blockers"
+              echo
+              echo "-"
+              echo
+              echo "### What will I work on next?"
+              echo
+              echo "-"
+              echo
+              echo "### Time spent"
+              echo
+              echo "-"
+              echo
+              echo "---"
+              echo
+              echo "_This report was generated automatically._"
+            } > report.md
+
+            TITLE="Daily Report — $MEMBER — $DATE"
+
+            # ---------------------------------------------------
+            # Prevent duplicate reports after manual rerun
+            # ---------------------------------------------------
+
+            export GH_TOKEN="$REPORT_TOKEN"
+
+            EXISTING=$(gh issue list \
+              --repo "$GH_REPO" \
+              --state all \
+              --search "\"$TITLE\" in:title" \
+              --json title \
+              --jq ".[] | select(.title == \"$TITLE\") | .title" \
+              | head -n 1)
+
+            if [ -n "$EXISTING" ]; then
+              echo "Report already exists for @$MEMBER"
+              continue
+            fi
+
+            # ---------------------------------------------------
+            # Create report and assign it to that team member
+            # ---------------------------------------------------
+
+            gh issue create \
+              --repo "$GH_REPO" \
+              --title "$TITLE" \
+              --body-file report.md \
+              --label "daily-report" \
+              --assignee "$MEMBER"
+
+          done
