@@ -106,14 +106,14 @@ transfer ownership through unique_ptr instead.
 Simulation tests cover deterministic replay, cancellation, freshness, retained
 frame ownership, bounded pending data, callback handling, and interface-based
 consumer substitution with separate test-only implementations. The simulation
-test executable links no Qt libraries. The desktop is not wired to simulation yet.
+test executable links no Qt libraries.
 
 ## World model
 
 `micro_robot_world` depends only on common domain types. `WorldModel` owns a private
 registry keyed by `RobotId`; ordered storage makes snapshots deterministic for
 multiple robots. It performs no capture, communication, tracking/filtering,
-planning, or rendering. It is not wired to the desktop or simulation yet.
+planning, or rendering.
 
 Robots are registered explicitly with a caller-supplied monotonic timestamp.
 `RobotState` records identity, registration time, optional world pose, and optional
@@ -137,3 +137,36 @@ The model reads no clocks and contains no Qt callbacks or internal worker thread
 
 World-model unit tests link only the common/world targets and GoogleTest. Real
 hardware backends, logging, and configuration remain unimplemented.
+
+## Phase 0 desktop integration
+
+`main.cpp` is the composition root: it owns FakeCameraSource, SimulationTransport,
+WorldModel, the injected DesktopController, MainWindow, and a simulation QTimer.
+Only composition code knows concrete backend classes. The controller target links
+Qt Core, interface targets, and WorldModel; the UI target adds Qt Widgets and has
+no dependency on simulation or hardware implementations.
+
+MainWindow contains buttons and labels. Button signals connect to controller
+slots; controller signals update source state, frame metadata, connection status,
+telemetry, and a description of stored world state. No device-state polling or
+business logic lives in the widgets. Frames are described, not rendered as video;
+camera discovery and real camera selection remain Phase 1 work.
+
+The controller owns a plain event sink, with weak subscriptions from the backends.
+Sources, model, and controller share the GUI thread in Phase 0. Dependencies
+outlive the controller, whose destructor detaches both subscriptions. Qt receiver
+contexts manage signal connection lifetimes. Future worker implementations must
+marshal their events to the controller's owning thread before using this sink.
+
+Startup registers Robot 1 with an unknown pose, leaving camera and transport idle.
+The timer advances simulation every 100 ms; source callbacks drive UI changes.
+While connected, composition code supplies a static pose (0.25 m, 0.15 m, 0 rad)
+with the current monotonic timestamp. This demo observation is independent of
+frames and telemetry; it demonstrates WorldModel storage without tracking or
+physics. Disconnection keeps the last stored pose and displays inactive telemetry.
+
+On application exit the timer stops, controller shutdown requests stop/disconnect,
+and composition code advances both fakes once to drain terminal state events.
+Only then are widgets, controller, model, and backends destroyed. UI integration
+tests drive virtual time explicitly, exercise buttons/signals/state displays, and
+check shutdown and subscription lifetimes without physical hardware.

@@ -2,7 +2,7 @@ add_executable(micro_robot_tests
     main.cpp
     ui/MainWindowTest.cpp
 )
-target_link_libraries(micro_robot_tests PRIVATE micro_robot_ui GTest::gtest)
+target_link_libraries(micro_robot_tests PRIVATE micro_robot_ui micro_robot_simulation GTest::gtest)
 micro_robot_target_defaults(micro_robot_tests)
 
 include(GoogleTest)
