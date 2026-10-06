@@ -94,10 +94,10 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
         stopCamera->setEnabled(active);
     });
     connect(&controller, &DesktopController::connectionStatusChanged, this,
-            [connectionStatus, connectRobot, disconnectRobot](const QString& status, bool connected) {
+            [connectionStatus, connectRobot, disconnectRobot](const QString& status, bool, bool active) {
         connectionStatus->setText(status);
-        connectRobot->setEnabled(!connected);
-        disconnectRobot->setEnabled(connected);
+        connectRobot->setEnabled(!active);
+        disconnectRobot->setEnabled(active);
     });
     connect(&controller, &DesktopController::errorOccurred, this, [this](const QString& message) {
         statusBar()->showMessage(message);

@@ -6,7 +6,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+option(MICRO_ROBOT_BUILD_DESKTOP "Build the Qt desktop application and UI tests" ON)
+if(MICRO_ROBOT_BUILD_DESKTOP)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+endif()
 
 function(micro_robot_target_defaults target)
     target_compile_features(${target} PRIVATE cxx_std_20)
@@ -27,6 +30,7 @@ if(BUILD_TESTING)
         # Match the default MSVC runtime used by the application.
         set(gtest_force_shared_crt ON CACHE BOOL "Use shared MSVC runtime" FORCE)
         set(INSTALL_GTEST OFF CACHE BOOL "Disable GoogleTest installation" FORCE)
+        set(BUILD_GMOCK OFF CACHE BOOL "GoogleMock is not used by this project" FORCE)
         FetchContent_Declare(
             googletest
             URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz

@@ -2,6 +2,7 @@
 #include "app/DesktopController.hpp"
 #include "simulation/FakeCameraSource.hpp"
 #include "simulation/SimulationTransport.hpp"
+#include "ManualBackends.hpp"
 
 #include <QApplication>
 #include <QLabel>
@@ -167,6 +168,82 @@ TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptions)
     transport.connect(RobotId{1});
     EXPECT_NO_THROW(camera.advanceTo(Timestamp{4s}));
     EXPECT_NO_THROW(transport.advanceTo(Timestamp{4s}));
+}
+
+TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellation)
+{
+    test::ManualCamera camera;
+    test::ManualTransport transport;
+    WorldModel world;
+    DesktopController controller{camera, transport, world, RobotId{1}};
+    MainWindow window{controller};
+    controller.initialize(Timestamp{1s});
+    auto button = [&](const char* name) {
+        return window.findChild<QPushButton*>(QString::fromLatin1(name));
+    };
+    auto label = [&](const char* name) {
+        return window.findChild<QLabel*>(QString::fromLatin1(name));
+    };
+
+    button("startCamera")->click();
+    EXPECT_EQ(camera.startRequests, 1);
+    camera.publishState(CameraState::Starting, Timestamp{2s});
+    EXPECT_EQ(label("cameraStatus")->text(), QStringLiteral("Starting"));
+    EXPECT_TRUE(button("stopCamera")->isEnabled());
+    camera.publishState(CameraState::Streaming, Timestamp{3s});
+    camera.publishFrame(std::make_shared<const Frame>(Frame{
+        12, Timestamp{3s}, 1, 1, 1, PixelFormat::Gray8,
+        std::make_shared<const std::vector<std::byte>>(1, std::byte{0x20})
+    }));
+    EXPECT_TRUE(label("frameDescription")->text().contains(QStringLiteral("Frame #12")));
+    camera.publishError({CameraErrorCode::Unavailable, "Test camera unavailable", Timestamp{3s}});
+    EXPECT_EQ(window.statusBar()->currentMessage(), QStringLiteral("Test camera unavailable"));
+    button("stopCamera")->click();
+    EXPECT_EQ(camera.stopRequests, 1);
+    camera.publishState(CameraState::Stopped, Timestamp{4s});
+
+    button("connectRobot")->click();
+    ASSERT_EQ(transport.connectRequests.size(), 1U);
+    EXPECT_EQ(transport.connectRequests.front(), RobotId{1});
+    transport.publishState(RobotId{1}, ConnectionState::Connecting, Timestamp{2s});
+    EXPECT_EQ(label("connectionStatus")->text(), QStringLiteral("Connecting"));
+    EXPECT_FALSE(button("connectRobot")->isEnabled());
+    EXPECT_TRUE(button("disconnectRobot")->isEnabled());
+    button("disconnectRobot")->click();
+    ASSERT_EQ(transport.disconnectRequests.size(), 1U);
+    EXPECT_EQ(transport.disconnectRequests.front(), RobotId{1});
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{3s});
+    EXPECT_TRUE(button("connectRobot")->isEnabled());
+
+    transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{4s});
+    transport.publishTelemetry({RobotId{1}, Timestamp{4s}, std::nullopt, std::nullopt, std::nullopt});
+    EXPECT_TRUE(label("telemetryDescription")->text().contains(QStringLiteral("unknown battery")));
+    const auto selectedTelemetry = label("telemetryDescription")->text();
+    transport.publishState(RobotId{9}, ConnectionState::Disconnected, Timestamp{4s});
+    transport.publishTelemetry({RobotId{9}, Timestamp{4s}, 5.0, 0.0, 0.0});
+    EXPECT_EQ(label("connectionStatus")->text(), QStringLiteral("Connected"));
+    EXPECT_EQ(label("telemetryDescription")->text(), selectedTelemetry);
+    EXPECT_FALSE(world.robot(RobotId{1})->pose);
+    controller.shutdown();
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{5s});
+}
+
+TEST(DesktopIntegrationTest, InitializationCannotRestartAShutdownController)
+{
+    test::ManualCamera camera;
+    test::ManualTransport transport;
+    WorldModel world;
+    DesktopController controller{camera, transport, world, RobotId{1}};
+    MainWindow window{controller};
+    controller.shutdown();
+    controller.initialize(Timestamp{1s});
+    EXPECT_EQ(window.findChild<QLabel*>(QStringLiteral("applicationStatus"))->text(),
+              QStringLiteral("Shutting down"));
+    EXPECT_EQ(world.robotCount(), 0U);
+    controller.startCamera();
+    controller.connectRobot();
+    EXPECT_EQ(camera.startRequests, 0);
+    EXPECT_TRUE(transport.connectRequests.empty());
 }
 
 } // namespace

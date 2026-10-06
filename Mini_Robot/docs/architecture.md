@@ -152,6 +152,12 @@ telemetry, and a description of stored world state. No device-state polling or
 business logic lives in the widgets. Frames are described, not rendered as video;
 camera discovery and real camera selection remain Phase 1 work.
 
+Connection events distinguish an established connection from an active pending
+attempt. The UI offers disconnect/cancel while Connecting or Disconnecting; demo
+pose production starts only after Connected. Initialization is idempotent and
+cannot return a shutdown controller to Ready. Tests exercise these transitions
+using alternative manual backends injected into the same controller and window.
+
 The controller owns a plain event sink, with weak subscriptions from the backends.
 Sources, model, and controller share the GUI thread in Phase 0. Dependencies
 outlive the controller, whose destructor detaches both subscriptions. Qt receiver
@@ -170,3 +176,28 @@ and composition code advances both fakes once to drain terminal state events.
 Only then are widgets, controller, model, and backends destroyed. UI integration
 tests drive virtual time explicitly, exercise buttons/signals/state displays, and
 check shutdown and subscription lifetimes without physical hardware.
+
+## Phase 0 review status
+
+The root CMake file manages dependencies and build options; source and test
+directories define targets. `MICRO_ROBOT_BUILD_DESKTOP` defaults to ON. Setting it
+to OFF omits Qt discovery, the controller, widgets, desktop executable, and GUI
+tests; common, interface, world, and simulation tests then configure/build without
+Qt installed. Unused GoogleMock targets are disabled in the GoogleTest fallback.
+GoogleTest may be supplied as an installed package or through the pinned fallback;
+an offline build may set `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` to cached sources.
+
+The standard library owns domain state and simulation buffers. Qt owns widgets
+and layouts through parent relationships; raw widget aliases are non-owning.
+Backends use weak event subscriptions, and application declaration order keeps
+referenced dependencies alive through controller teardown. All Phase 0 callbacks
+are serialized on the GUI thread; the controller and WorldModel are not thread
+safe. Worker-thread acquisition/transport and a queued event bridge are future
+work, not implied support in this implementation.
+
+Logging and configuration-file loading are still missing Phase 0 requirements.
+The FakeCameraConfig constructor parameters are not a configuration-loading
+subsystem, and Qt diagnostic messages are not application startup/shutdown logs.
+No logger, configuration loader, or related tests were added during this review.
+Windows compatibility follows the portable code/CMake boundaries, but Windows
+builds and deployment packaging have not been verified.

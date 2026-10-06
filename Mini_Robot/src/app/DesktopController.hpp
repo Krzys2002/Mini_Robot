@@ -36,7 +36,9 @@ signals:
     void applicationStatusChanged(const QString& status);
     void cameraStatusChanged(const QString& status, bool active);
     void frameDescriptionChanged(const QString& description);
-    void connectionStatusChanged(const QString& status, bool connected);
+    // Active includes connecting/disconnecting, so the UI can cancel a connection
+    // attempt without treating a pending connection as connected.
+    void connectionStatusChanged(const QString& status, bool connected, bool active);
     void telemetryDescriptionChanged(const QString& description);
     void worldDescriptionChanged(const QString& description);
     void errorOccurred(const QString& message);

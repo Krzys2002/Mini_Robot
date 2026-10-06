@@ -78,7 +78,7 @@ DesktopController::~DesktopController()
 
 void DesktopController::initialize(Timestamp now)
 {
-    if (initialized_) {
+    if (initialized_ || shuttingDown_) {
         return;
     }
     initialized_ = true;
@@ -150,7 +150,9 @@ void DesktopController::receiveCameraState(CameraState state)
 void DesktopController::receiveConnectionState(RobotId id, ConnectionState state)
 {
     if (id != robotId_) return;
-    emit connectionStatusChanged(connectionStateText(state), state == ConnectionState::Connected);
+    const bool active = state == ConnectionState::Connecting || state == ConnectionState::Connected
+        || state == ConnectionState::Disconnecting;
+    emit connectionStatusChanged(connectionStateText(state), state == ConnectionState::Connected, active);
     if (state != ConnectionState::Connected) {
         emit telemetryDescriptionChanged(QStringLiteral("No active telemetry"));
     }
