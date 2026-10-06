@@ -99,6 +99,20 @@ After meaningful changes:
 
 Do not claim success unless the relevant build/tests were actually run.
 
+## Git workflow
+
+After completing an implementation task:
+
+1. Build the affected targets.
+2. Run relevant tests.
+3. Review `git diff`.
+4. Fix any discovered problems.
+5. If all required builds and tests pass, create a Git commit.
+6. Use a concise conventional commit message describing the change.
+7. Never push automatically.
+8. Never commit build artifacts or generated temporary files.
+9. Do not commit if tests or required builds fail.
+
 ## Current development phase
 
 Phase 0 only.
