@@ -335,6 +335,7 @@ jobs:
             
             if [ -n "$EXISTING" ]; then
               echo "Report already exists for @$MEMBER"
+              set +x
               continue
             fi
             
@@ -368,8 +369,15 @@ jobs:
             
             echo "Checking issue access..."
             
-            GH_TOKEN="$PROJECT_TOKEN" gh issue view "$ISSUE_URL" \
-              --json number,title,url
+            if ! GH_TOKEN="$PROJECT_TOKEN" gh issue view "$ISSUE_URL" \
+              --json number,title,url; then
+            
+              echo "WARNING: PROJECT_TOKEN cannot access issue:"
+              echo "$ISSUE_URL"
+            
+              set +x
+              continue
+            fi
             
             # ---------------------------------------------------
             # Verify PROJECT_TOKEN can see the project
@@ -377,9 +385,15 @@ jobs:
             
             echo "Checking Project access..."
             
-            GH_TOKEN="$PROJECT_TOKEN" gh project view "$PROJECT_NUMBER" \
+            if ! GH_TOKEN="$PROJECT_TOKEN" gh project view "$PROJECT_NUMBER" \
               --owner "$PROJECT_OWNER" \
-              --format json
+              --format json; then
+            
+              echo "WARNING: PROJECT_TOKEN cannot access Project $PROJECT_NUMBER"
+            
+              set +x
+              continue
+            fi
             
             # ---------------------------------------------------
             # Add issue to Project
@@ -387,34 +401,77 @@ jobs:
             
             echo "Adding issue to Project..."
             
-            GH_TOKEN="$PROJECT_TOKEN" gh project item-add "$PROJECT_NUMBER" \
+            if ! GH_TOKEN="$PROJECT_TOKEN" gh project item-add "$PROJECT_NUMBER" \
               --owner "$PROJECT_OWNER" \
-              --url "$ISSUE_URL"
+              --url "$ISSUE_URL"; then
+            
+              echo "WARNING: Failed to add issue to Project."
+              echo "Issue still exists:"
+              echo "$ISSUE_URL"
+            
+              set +x
+              continue
+            fi
+            
+            # ---------------------------------------------------
+            # Retry helper for GitHub Project field updates
+            # ---------------------------------------------------
+            
+            retry_project_edit() {
+              local FIELD_NAME="$1"
+              local FIELD_DATE="$2"
+            
+              for ATTEMPT in 1 2 3; do
+            
+                echo "Setting '$FIELD_NAME' to '$FIELD_DATE' - attempt $ATTEMPT/3"
+            
+                if GH_TOKEN="$PROJECT_TOKEN" gh project item-edit "$PROJECT_NUMBER" \
+                  --owner "$PROJECT_OWNER" \
+                  --url "$ISSUE_URL" \
+                  --field "$FIELD_NAME" \
+                  --date "$FIELD_DATE"; then
+            
+                  echo "'$FIELD_NAME' configured successfully."
+                  return 0
+                fi
+            
+                echo "GitHub Project API error while setting '$FIELD_NAME'."
+            
+                if [ "$ATTEMPT" -lt 3 ]; then
+                  SLEEP_TIME=$((ATTEMPT * 5))
+                  echo "Retrying in ${SLEEP_TIME}s..."
+                  sleep "$SLEEP_TIME"
+                fi
+            
+              done
+            
+              echo "WARNING: Failed to set '$FIELD_NAME' after 3 attempts."
+              return 1
+            }
             
             # ---------------------------------------------------
             # Start date
             # ---------------------------------------------------
             
-            GH_TOKEN="$PROJECT_TOKEN" gh project item-edit "$PROJECT_NUMBER" \
-              --owner "$PROJECT_OWNER" \
-              --url "$ISSUE_URL" \
-              --field "Start date" \
-              --date "$START_DATE"
+            retry_project_edit "Start date" "$START_DATE" || true
             
             # ---------------------------------------------------
             # Deadline
             # ---------------------------------------------------
             
-            GH_TOKEN="$PROJECT_TOKEN" gh project item-edit "$PROJECT_NUMBER" \
-              --owner "$PROJECT_OWNER" \
-              --url "$ISSUE_URL" \
-              --field "Deadline" \
-              --date "$DEADLINE_DATE"
+            retry_project_edit "Deadline" "$DEADLINE_DATE" || true
             
-            echo "Report configured successfully for @$MEMBER"
+            # ---------------------------------------------------
+            # Summary
+            # ---------------------------------------------------
+            
+            echo "----------------------------------------"
+            echo "Report processing completed for @$MEMBER"
+            echo "Issue: $ISSUE_URL"
             echo "Start date: $START_DATE"
             echo "Deadline: $DEADLINE_DATE $DEADLINE_TIME"
-
+            echo "----------------------------------------"
+            
             set +x
             
             done
