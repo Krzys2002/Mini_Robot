@@ -23,6 +23,15 @@ target_sources(micro_robot_transport_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/transport/IRobotTransport.hpp"
 )
 
+add_library(micro_robot_world STATIC
+    world/RobotState.hpp
+    world/WorldSnapshot.hpp
+    world/WorldModel.hpp
+    world/WorldModel.cpp
+)
+target_link_libraries(micro_robot_world PUBLIC micro_robot_common)
+micro_robot_target_defaults(micro_robot_world)
+
 add_library(micro_robot_simulation STATIC
     simulation/FakeCameraSource.hpp
     simulation/FakeCameraSource.cpp

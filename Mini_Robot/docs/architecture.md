@@ -108,4 +108,32 @@ frame ownership, bounded pending data, callback handling, and interface-based
 consumer substitution with separate test-only implementations. The simulation
 test executable links no Qt libraries. The desktop is not wired to simulation yet.
 
-World model, real hardware backends, logging, and configuration remain unimplemented.
+## World model
+
+`micro_robot_world` depends only on common domain types. `WorldModel` owns a private
+registry keyed by `RobotId`; ordered storage makes snapshots deterministic for
+multiple robots. It performs no capture, communication, tracking/filtering,
+planning, or rendering. It is not wired to the desktop or simulation yet.
+
+Robots are registered explicitly with a caller-supplied monotonic timestamp.
+`RobotState` records identity, registration time, optional world pose, and optional
+pose update time. Unknown pose remains absent rather than defaulting to the origin.
+Registration does not imply a camera observation or transport connection.
+Duplicate registration leaves existing state unchanged. Removal affects only the
+requested ID; re-registration creates a fresh record with no previous pose.
+
+`updatePose` stores finite world coordinates and heading as supplied, without
+normalization or smoothing. It rejects unknown IDs, non-finite components, updates
+before registration, and updates at or before an existing pose timestamp. The
+first pose may have the same timestamp as registration. `PoseUpdateResult` exposes
+the result; rejected updates do not mutate state. Each robot has independent
+timestamp ordering, with no global observation timestamp requirement.
+
+Use the model on one owning thread, with application orchestration as the writer.
+Lookups return optional value copies; `WorldSnapshot` owns a full registry copy.
+Neither can modify authoritative state or become invalidated by later updates.
+These values can be delivered to the GUI through queued application-layer updates.
+The model reads no clocks and contains no Qt callbacks or internal worker threads.
+
+World-model unit tests link only the common/world targets and GoogleTest. Real
+hardware backends, logging, and configuration remain unimplemented.

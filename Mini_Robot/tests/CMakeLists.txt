@@ -27,3 +27,8 @@ target_link_libraries(micro_robot_simulation_tests PRIVATE
 )
 micro_robot_target_defaults(micro_robot_simulation_tests)
 gtest_discover_tests(micro_robot_simulation_tests DISCOVERY_MODE PRE_TEST)
+
+add_executable(micro_robot_world_tests world/WorldModelTest.cpp)
+target_link_libraries(micro_robot_world_tests PRIVATE micro_robot_world GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_world_tests)
+gtest_discover_tests(micro_robot_world_tests DISCOVERY_MODE PRE_TEST)
