@@ -1,139 +1,494 @@
-# Micro-Robot Swarm Project
+# Micro-Robot Swarm Desktop Control System — Agent Instructions
 
-## Project purpose
+## 1. Project purpose
 
-Desktop application for controlling and tracking a swarm of small
-ESP32-C6 differential-drive robots using external visual feedback.
+Build a cross-platform desktop application for supervising a swarm of ESP32-C6 differential-drive micro-robots using external visual feedback.
 
-Primary development platform:
-- macOS
-- CLion
-- C++20
-- Qt 6
-- CMake
+The desktop application is the supervisory layer. It acquires camera data, estimates robot state, maintains a metric world model, accepts operator tasks, plans paths/trajectories, generates supervisory motion commands, communicates with robots, and records experiment data.
 
-Future components include:
-- Qt Multimedia
-- OpenCV
-- AprilTag/fiducial detection
-- BLE
-- path planning
-- multi-robot coordination
+Primary platform:
+- macOS on Apple Silicon;
+- CLion;
+- C++20;
+- Qt 6;
+- CMake.
 
-## Architecture rules
+Required secondary platform:
+- Windows with the same core source tree.
 
-Keep hardware-specific code isolated behind interfaces.
+Robot platform:
+- ESP32-C6;
+- low-level motor/safety control remains on the robot;
+- desktop-to-robot transport starts with BLE and may later add Zigbee;
+- Wi-Fi is reserved for bandwidth-heavy streams such as onboard video.
 
-Core application logic must not depend directly on:
-- physical cameras
-- BLE
-- Zigbee
-- ESP32 hardware
+## 2. Instruction precedence
+
+When implementing work, follow this order:
+
+1. the current user request;
+2. the assigned GitHub issue and its acceptance criteria;
+3. this `AGENTS.md`;
+4. the installed `micro-robot-swarm-desktop` skill and its references;
+5. existing repository conventions and code.
+
+If two requirements conflict, do not silently choose one. Preserve safety and architecture rules, explain the conflict, and make the smallest justified change.
+
+## 3. Development model
+
+Development is issue-driven.
+
+A GitHub issue defines the implementation scope. Do not implement unrelated future issues merely because their architecture is visible.
+
+Before coding:
+- read the entire issue;
+- confirm its dependencies are satisfied or identify the missing dependency;
+- inspect the affected code and tests;
+- identify architecture boundaries that must remain unchanged;
+- plan the smallest coherent implementation that satisfies the acceptance criteria.
+
+Completion is defined by the issue acceptance criteria plus relevant build/tests, not by the presence of code alone.
+
+## 4. High-level architecture
+
+Preserve this dependency direction:
+
+```text
+CameraSource(s)
+    -> Vision / Calibration
+    -> RobotTracker
+    -> WorldModel
+    -> Planning / Task layer
+    -> Trajectory / Supervisory Control
+    -> RobotManager
+    -> RobotTransport
+    -> ESP32-C6
+```
+
+Cross-cutting services:
+- configuration;
+- logging/measurement;
+- simulation/replay;
+- safety state;
+- UI visualization.
+
+The GUI observes and commands application services. It is not the place where perception, planning, transport, or control algorithms live.
+
+## 5. Architectural invariants
+
+Keep hardware/platform-specific code isolated behind interfaces.
+
+Core application logic must not directly depend on:
+- physical camera APIs;
+- BLE implementation details;
+- Zigbee implementation details;
+- ESP32 hardware;
+- Apple-only APIs;
+- Windows-only APIs;
+- concrete GUI widgets.
 
 Use abstractions such as:
-- ICameraSource
-- IRobotTransport
+- `ICameraSource`;
+- `IRobotTransport`;
+- `IPathPlanner` when planning becomes active;
+- `ITrajectoryController` when trajectory tracking becomes active;
+- a separate future depth-sensor abstraction for LiDAR/depth data.
 
-Simulation/fake implementations must use the same interfaces
-as real implementations.
+Simulation, replay, and physical implementations must use compatible domain-facing interfaces.
 
-Prefer dependency injection instead of global objects.
-
-Use RAII and standard smart pointers.
+Prefer dependency injection over hidden global state.
 
 Avoid unnecessary singletons.
 
-Do not introduce hardware dependencies during Phase 0.
+Do not bypass an existing abstraction to finish an issue faster.
 
-## Project structure
+## 6. World model and coordinate conventions
 
-Prefer:
+Maintain one authoritative application-level `WorldModel` for current world/robot state.
 
-src/
-app/
-core/
-camera/
-transport/
-world/
-simulation/
-ui/
+Do not allow independent subsystems to maintain conflicting authoritative robot poses.
 
-tests/
+Use explicit coordinate frames:
+- image frame: pixels `(u, v)`;
+- world/table frame: metric Cartesian coordinates;
+- robot body frame: robot-relative coordinates.
 
-## C++
+Internal physical units:
+- distance: metres unless a strongly typed representation explicitly states otherwise;
+- angles: radians;
+- time/duration: `std::chrono`;
+- timestamps for latency and freshness: monotonic/steady clock.
+
+UI may display millimetres and degrees, but conversions must occur at presentation boundaries.
+
+Document:
+- world origin;
+- positive X/Y directions;
+- zero heading direction;
+- positive rotation convention.
+
+Planning and control must operate in calibrated world coordinates, not raw pixels.
+
+## 7. Camera and perception rules
+
+Camera acquisition and vision processing are separate responsibilities.
+
+A camera source provides timestamped frames and source metadata. It does not perform AprilTag detection or path planning.
+
+The vision pipeline may include:
+- intrinsic undistortion;
+- fiducial detection;
+- marker/robot ID association;
+- conversion to world coordinates;
+- quality metadata.
+
+Use AprilTag-compatible fiducials for robot identity/orientation unless an issue explicitly selects another approach.
+
+Use intrinsic camera calibration plus planar workspace calibration/homography for the tabletop system.
+
+Calibration profiles must be associated with the camera/device identity and resolution where required.
+
+Recorded-video/replay sources should remain first-class tools for deterministic debugging and tests.
+
+## 8. Tracking rules
+
+Treat a detection as a measurement, not permanent robot state.
+
+Tracking must explicitly handle:
+- timestamp/age;
+- fresh/stale/lost state;
+- angular wrapping;
+- filtering;
+- velocity/angular-velocity estimates when required;
+- confidence/quality when available.
+
+Never use indefinitely stale poses for control.
+
+## 9. Communication rules
+
+`IRobotTransport` isolates higher-level logic from radio technology.
+
+Initial real transport:
+- BLE Central on desktop;
+- ESP32-C6 BLE peripheral/GATT service.
+
+Future transports:
+- Zigbee through a coordinator/gateway;
+- optional Wi-Fi for suitable command/data channels.
+
+High-rate video must not be sent over BLE or Zigbee.
+
+Protocol design should support:
+- robot identity;
+- explicit message/command type;
+- sequence numbers;
+- command freshness where relevant;
+- telemetry/state;
+- error reporting;
+- emergency stop;
+- protocol/version evolution.
+
+Do not expose BLE handles/UUID mechanics to planning/control modules.
+
+## 10. Control and safety split
+
+The desktop provides supervisory/outer-loop control. The ESP32-C6 provides fast low-level motor control and local safety.
+
+Robot-side responsibilities include:
+- wheel/motor regulation;
+- PWM/motor output;
+- command watchdog;
+- safe motor stop;
+- local actuator limits.
+
+Desktop responsibilities include:
+- desired pose/path/trajectory;
+- external-vision state feedback;
+- supervisory `v`/`omega` or equivalent commands;
+- planning/coordination;
+- high-level safety state.
+
+Define explicit operational/safety states as the system grows, including at least concepts equivalent to:
+- disconnected;
+- idle/ready;
+- running;
+- paused;
+- lost tracking;
+- lost connection;
+- emergency stop;
+- fault.
+
+Safety rules override normal task execution.
+
+## 11. Planning rules
+
+Separate:
+- path geometry;
+- trajectory/time parameterization;
+- trajectory/path tracking control;
+- multi-robot coordination.
+
+Recommended progression:
+- user-drawn path;
+- path simplification/smoothing;
+- Pure Pursuit or equivalent path following;
+- manual obstacles;
+- occupancy grid;
+- obstacle inflation;
+- A*;
+- automatic obstacle extraction;
+- multi-robot conflict prediction;
+- prioritized planning;
+- optional CBS/ORCA research extensions.
+
+Do not introduce advanced planners when a simpler issue-scoped method satisfies the requirement.
+
+## 12. Multi-camera and future depth sensing
+
+Design camera ownership/calibration so multiple camera sources can be added later.
+
+Each camera may require its own:
+- intrinsic calibration;
+- resolution;
+- distortion model;
+- world/extrinsic transform;
+- timing metadata.
+
+Transform measurements into the common world frame before fusion.
+
+Treat iPhone LiDAR as a separate future depth-sensor pipeline, preferably through a small ARKit companion application sending depth/pose information over Wi-Fi. Do not couple the cross-platform desktop core directly to Apple ARKit.
+
+## 13. C++ rules
 
 Use C++20.
 
 Prefer:
-- std::chrono for time
-- strong domain types where useful
-- enum class
-- const correctness
-- RAII
-- std::unique_ptr for ownership
+- RAII;
+- `std::unique_ptr` for clear exclusive ownership;
+- `std::shared_ptr` only when ownership is genuinely shared;
+- const correctness;
+- `enum class`;
+- explicit domain types where they prevent unit/identity mistakes;
+- `std::chrono` for time;
+- standard containers/algorithms;
+- small cohesive classes/functions.
 
-Avoid raw owning pointers.
+Avoid:
+- raw owning pointers;
+- hidden lifetime assumptions;
+- large god objects;
+- business logic in Qt widgets;
+- unnecessary inheritance when composition is clearer.
 
-## Qt
+Public APIs must make ownership, units, thread expectations, and failure behavior understandable.
+
+## 14. Qt and concurrency rules
 
 Qt GUI objects remain on the GUI thread.
 
-Use signals/slots for asynchronous communication.
+Use signals/slots or other explicit asynchronous boundaries for worker-to-GUI communication.
 
-Do not put application/business logic directly in MainWindow.
+Potential workers include:
+- camera acquisition;
+- vision;
+- planning/control;
+- communication.
 
-## Testing
+Do not block the GUI thread with:
+- camera reads;
+- BLE operations;
+- planning loops;
+- long OpenCV operations;
+- sleeps/waits.
 
-Use GoogleTest.
+Use bounded buffering. For live visual feedback, prefer processing the newest useful frame over creating an unbounded stale-frame backlog.
 
-Core logic should be testable without Qt GUI or physical hardware.
+Do not put application/business logic directly in `MainWindow`.
 
-## Build
+## 15. Configuration and logging
 
-The project must build with CMake from the command line.
+Configuration must not be scattered as duplicated literals throughout modules.
+
+Use configuration/profile structures for values such as:
+- camera selection/resolution;
+- calibration data;
+- workspace dimensions/transforms;
+- transport parameters;
+- controller/planner parameters;
+- safety thresholds.
+
+Use structured logging/measurement with timestamps and robot IDs where applicable.
+
+Preserve data useful for thesis evaluation, including when relevant:
+- camera FPS;
+- perception latency;
+- detection success;
+- localization error;
+- communication latency/jitter;
+- control tracking error;
+- planner time/path length;
+- multi-robot separation/collisions.
+
+## 16. Testing rules
+
+Use GoogleTest for C++ unit tests unless the repository explicitly changes framework.
+
+Core logic must be testable without a GUI or physical hardware.
+
+Add/update tests for non-trivial pure logic, especially:
+- units/angle normalization;
+- coordinate transforms;
+- calibration/profile parsing;
+- protocol serialization;
+- stale/fresh rules;
+- path simplification;
+- occupancy/inflation;
+- A*;
+- controller geometry;
+- collision prediction.
+
+Use deterministic integration inputs where practical:
+- recorded video;
+- simulated robot transport;
+- fixed maps;
+- deterministic trajectories.
+
+Hardware-in-the-loop tests complement but do not replace unit/integration tests.
+
+## 17. Build rules
+
+The project must build from the command line with CMake.
 
 After meaningful changes:
-1. configure
-2. build
-3. run tests
+1. configure if required;
+2. build affected targets;
+3. run relevant tests;
+4. run broader tests when the change crosses module boundaries.
 
-Do not claim success unless the relevant build/tests were actually run.
+Do not claim a build/test passed unless it was actually executed successfully.
 
-## Git workflow
+If hardware or platform access prevents a required test, state exactly what was and was not verified.
 
-After completing an implementation task:
+## 18. GitHub issue workflow
 
-1. Build the affected targets.
-2. Run relevant tests.
-3. Review `git diff`.
-4. Fix any discovered problems.
-5. If all required builds and tests pass, create a Git commit.
-6. Use a concise conventional commit message describing the change.
-7. Never push automatically.
-8. Never commit build artifacts or generated temporary files.
-9. Do not commit if tests or required builds fail.
+Every implementation issue uses its own branch.
 
-## Current development phase
+### Start work
 
-Phase 0 only.
+1. Ensure the working tree is clean or preserve unrelated user changes without overwriting them.
+2. Fetch the remote default branch.
+3. Create a new branch from the current remote default branch.
+4. Use a branch name based on the issue, for example:
+   - `feat/23-camera-calibration-wizard`
+   - `fix/35-lost-tracking`
+   - `test/41-localization-benchmark`
+   - `docs/12-protocol-specification`
+5. Never implement an issue directly on `main`, `master`, or another protected/default branch.
 
-Implement:
-- CMake project
-- Qt main window
-- logging
-- configuration loading
-- common types
-- ICameraSource
-- IRobotTransport
-- WorldModel skeleton
-- SimulationTransport/fake data
-- GoogleTest target
+If uncommitted unrelated changes make safe branching impossible, stop and report the problem instead of discarding them.
 
-Do NOT implement yet:
-- OpenCV
-- AprilTag
-- real camera capture
-- BLE
-- Zigbee
-- robot control
-- path planning
+### Commits
+
+Use logical atomic commits.
+
+A commit should implement one coherent part of the issue and leave the repository in a buildable/testable state whenever practical.
+
+Do not mechanically create one commit per checkbox if several checkboxes form one inseparable change. Do not combine unrelated feature points into a single large commit.
+
+Use Conventional Commit style, for example:
+- `feat(camera): enumerate available video devices`
+- `feat(calibration): persist intrinsic profiles`
+- `test(world): cover homography conversion`
+- `fix(tracking): handle heading wrap boundary`
+- `docs(protocol): document BLE command framing`
+
+Create commits as feature points are completed; do not wait until the end and squash all implementation into one commit.
+
+Never commit:
+- build outputs;
+- generated temporary files;
+- credentials/secrets;
+- local IDE state that does not belong in the repository.
+
+Do not commit a known failing state unless the issue explicitly requires a red/green test workflow and the repository convention allows it.
+
+### Before PR
+
+Before declaring the issue complete:
+1. build affected targets;
+2. run relevant tests;
+3. review `git diff` and commit history;
+4. compare the result against every acceptance criterion;
+5. update documentation affected by public behavior/interfaces;
+6. ensure unrelated work is absent from the branch.
+
+### Push and pull request
+
+After the issue is complete and verified:
+1. push only the issue branch to the remote;
+2. create a Pull Request automatically;
+3. target the repository default branch;
+4. use a concise descriptive PR title;
+5. include `Closes #<issue-number>` when the PR should close the issue after merge;
+6. summarize implementation by logical feature point;
+7. list tests/build commands actually run and their results;
+8. note any hardware/manual verification still required;
+9. never merge the PR automatically.
+
+Codex may create/update the PR, but final review and merge belong to the human maintainer.
+
+Never force-push unless explicitly instructed.
+
+## 19. Pull request body expectations
+
+Default PR body structure:
+
+```markdown
+## Summary
+- ...
+
+## Implementation
+- ...
+
+## Validation
+- `cmake ...` — passed
+- `cmake --build ...` — passed
+- `ctest ...` — passed
+
+## Manual / hardware checks
+- ...
+
+## Notes / limitations
+- ...
+
+Closes #123
+```
+
+Only claim commands/checks that were actually executed.
+
+## 20. Scope discipline
+
+Do not implement unrelated future work while completing an issue.
+
+It is acceptable to add a small prerequisite refactor when it is necessary to implement the issue safely, but:
+- keep it minimal;
+- explain why it is required;
+- preserve behavior;
+- test it;
+- commit it separately when it is logically distinct.
+
+If an issue requires an architectural change that contradicts these instructions, surface the decision rather than silently rewriting project architecture.
+
+## 21. Definition of done for an issue
+
+An issue is implementation-complete only when:
+- all required behavior is implemented;
+- acceptance criteria are satisfied or explicitly documented as blocked;
+- required tests are present and passing;
+- affected targets build;
+- documentation is updated where needed;
+- changes are split into logical atomic commits;
+- branch contains no unrelated changes;
+- branch is pushed;
+- PR is created with validation evidence;
+- PR is not merged by Codex.
