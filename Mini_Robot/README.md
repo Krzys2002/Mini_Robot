@@ -49,4 +49,6 @@ cmake --build build/core --parallel
 ctest --test-dir build/core --output-on-failure
 ```
 
+For selecting suites, running an individual test executable, and adding tests,
+see [docs/testing.md](docs/testing.md).
 For architectural details, see [docs/architecture.md](docs/architecture.md).
