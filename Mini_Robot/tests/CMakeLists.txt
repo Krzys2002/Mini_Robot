@@ -17,6 +17,12 @@ target_link_libraries(micro_robot_common_tests PRIVATE micro_robot_common GTest:
 micro_robot_target_defaults(micro_robot_common_tests)
 gtest_discover_tests(micro_robot_common_tests DISCOVERY_MODE PRE_TEST)
 
+# Camera contract tests compile without Qt, transport, or a concrete backend.
+add_executable(micro_robot_camera_tests camera/CameraTypesTest.cpp)
+target_link_libraries(micro_robot_camera_tests PRIVATE micro_robot_camera_api GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_camera_tests)
+gtest_discover_tests(micro_robot_camera_tests DISCOVERY_MODE PRE_TEST)
+
 add_executable(micro_robot_interface_tests interfaces/InterfacesTest.cpp)
 target_link_libraries(micro_robot_interface_tests PRIVATE
     micro_robot_camera_api micro_robot_transport_api GTest::gtest_main

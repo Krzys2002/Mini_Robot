@@ -34,6 +34,8 @@ state-change, and error events. Frames carry a sequence, local capture timestamp
 dimensions, pixel format, stride, and shared immutable owned storage. Producers
 must not reuse retained buffers; delivery queues must be bounded, preferring the
 latest frame. Qt/OpenCV image conversions belong in future adapters.
+The [camera source contract](camera-source.md) specifies lifecycle, error reporting,
+pixel layout, frame validation/ownership, and threading obligations in detail.
 
 `IRobotTransport` exposes per-robot connect/disconnect, connection state, command
 submission, and telemetry/state/error events. Commands carry stop or velocity

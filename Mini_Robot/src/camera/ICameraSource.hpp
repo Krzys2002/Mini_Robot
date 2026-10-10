@@ -9,8 +9,12 @@ namespace micro_robot {
 class ICameraEvents {
 public:
     virtual ~ICameraEvents() = default;
+    // Owned immutable value; safe to retain after this callback and source teardown.
     virtual void onFrame(FramePtr frame) = 0;
+    // state() already reflects state when this callback runs.
     virtual void onCameraStateChanged(CameraState state, Timestamp changedAt) = 0;
+    // Borrowed only for this callback; copy to retain. An error is diagnostic,
+    // not an implicit state change. Terminal failures also emit a state event.
     virtual void onCameraError(const CameraError& error) = 0;
 };
 
@@ -19,6 +23,9 @@ public:
 // results must be marshalled there. Request methods return promptly and never
 // invoke events inline. Completion/failure is reported through state/error events.
 // Event handlers must return promptly and must not throw.
+// The interface is not thread-safe. Callbacks may request start/stop or replace
+// the sink; those requests must not cause nested event dispatch. GUI consumers
+// need an adapter on their thread, never a direct callback from a capture worker.
 class ICameraSource {
 public:
     // Owner first requests stop and awaits Stopped (or terminal Disconnected/Fault).
@@ -33,10 +40,18 @@ public:
     [[nodiscard]] virtual CameraInfo info() const = 0;
     [[nodiscard]] virtual CameraState state() const = 0;
     // Repeated start/stop requests are idempotent. Stop cancels a pending start.
+    // Initial state is Stopped. Starting/Stopping are optional pending states;
+    // successful start completes in Streaming, stop completes in Stopped.
+    // Disconnected means the source is unavailable; Fault means capture failed.
+    // Both are quiescent terminal states (no more frames/pending work). start()
+    // may attempt recovery from either; failure is reported asynchronously.
+    // stop() on a quiescent terminal source may leave that terminal state intact.
     virtual void start() = 0;
     virtual void stop() = 0;
 
-    // Emit only valid, non-null frames while Streaming. Frame handoff must use a
+    // Emit only non-null frames passing isValidFrame() while Streaming, after the
+    // Streaming state event. Invalid frames report InvalidFrame and are dropped;
+    // recoverable errors may leave the source Streaming. Frame handoff must use a
     // bounded latest-frame queue, dropping old frames instead of accumulating lag.
 };
 
