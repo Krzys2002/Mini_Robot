@@ -1,0 +1,57 @@
+name: Sync issue blockers
+
+on:
+  issues:
+    types: [opened, closed, reopened]
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview Status changes without writing to the Project
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: sync-issue-blockers-project-4
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Test synchronization rules
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s .github/scripts/tests -v
+
+      - name: Synchronize Project Status
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          PROJECT_OWNER: Krzys2002
+          PROJECT_NUMBER: "4"
+          REPOSITORY: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        shell: bash
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::PROJECT_TOKEN is missing. Configure a token with Issues read and user Projects read/write access."
+            exit 1
+          fi
+          args=(--repository "$REPOSITORY" --project-owner "$PROJECT_OWNER" --project-number "$PROJECT_NUMBER")
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          python3 .github/scripts/sync_issue_blockers.py "${args[@]}"
