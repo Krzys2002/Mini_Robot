@@ -170,6 +170,47 @@ TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptions)
     EXPECT_NO_THROW(transport.advanceTo(Timestamp{4s}));
 }
 
+TEST(DesktopIntegrationTest, CameraTerminalStatesPermitRecoveryThroughTheInterface)
+{
+    test::ManualCamera camera;
+    SimulationTransport transport;
+    WorldModel world;
+    DesktopController controller{camera, transport, world, RobotId{1}};
+    MainWindow window{controller};
+    controller.initialize(Timestamp{1s});
+    auto* start = window.findChild<QPushButton*>(QStringLiteral("startCamera"));
+    auto* stop = window.findChild<QPushButton*>(QStringLiteral("stopCamera"));
+    auto* status = window.findChild<QLabel*>(QStringLiteral("cameraStatus"));
+    ASSERT_NE(start, nullptr);
+    ASSERT_NE(stop, nullptr);
+    ASSERT_NE(status, nullptr);
+
+    const CameraState terminalStates[]{CameraState::Disconnected, CameraState::Fault};
+    int expectedRequests = 0;
+    for (const auto terminal : terminalStates) {
+        camera.publishState(CameraState::Streaming, Timestamp{2s});
+        EXPECT_FALSE(start->isEnabled());
+        EXPECT_TRUE(stop->isEnabled());
+        const CameraError error{CameraErrorCode::BackendFailure,
+            "Camera capture interrupted", Timestamp{3s}};
+        camera.publishError(error);
+        // Diagnostics and state are separate events.
+        EXPECT_EQ(status->text(), QStringLiteral("Streaming"));
+        EXPECT_EQ(window.statusBar()->currentMessage(), QString::fromStdString(error.message));
+        camera.publishState(terminal, Timestamp{3s});
+        EXPECT_EQ(status->text(), terminal == CameraState::Disconnected
+            ? QStringLiteral("Disconnected") : QStringLiteral("Fault"));
+        EXPECT_TRUE(start->isEnabled());
+        EXPECT_FALSE(stop->isEnabled());
+        start->click();
+        EXPECT_EQ(camera.startRequests, ++expectedRequests);
+        // Recovery remains asynchronous; requesting it does not invent a state.
+        EXPECT_EQ(camera.state(), terminal);
+    }
+    controller.shutdown();
+    camera.publishState(CameraState::Stopped, Timestamp{4s});
+}
+
 TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellation)
 {
     test::ManualCamera camera;
