@@ -1,222 +1,208 @@
-# Current Phase 0 architecture
+# Current architecture by milestone
 
-This guide describes implemented code. See the [source map](source-map.md) for
-all source files and target boundaries; roadmap features remain in
-[planning](../planning/README.md).
+This document maps the implemented desktop source to the
+[M1–M8 roadmap](../planning/MILESTONES.md). **M1 is partially implemented**;
+the later milestones remain planned. A foundation type or interface does not
+establish completion of the capability that will eventually use it. This is a
+source-based architecture assessment, not a live GitHub issue-status report.
 
-The desktop target uses Qt Widgets through `micro_robot_ui`. Common domain types
-are provided by the header-only C++20 `micro_robot_common` target, which has no Qt
-or hardware dependencies. `micro_robot_common_tests` links only common types and
-GoogleTest; the separate `micro_robot_tests` target covers the Qt window.
+Early Ubuntu compatibility is part of M1 under
+[AGENTS.md](../../AGENTS.md) and the [Linux catalog](../planning/linux_compatibility_issues.md).
+Windows remains a project target with deployment work assigned to M8.
+
+## Milestone status
+
+| Milestone | Current source state | Remaining capability |
+| --- | --- | --- |
+| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, tests, macOS CI. | Configuration loading, structured logging, physical camera enumeration/selection/capture/preview, source recovery implementation, recorded-video decoding, and Ubuntu build/GUI validation. |
+| M2 — Vision, Calibration & Robot Localization | Planned; metric Pose2D and timestamped frames are prerequisites already supplied by M1. | AprilTag detection, intrinsic/workspace calibration, image-to-world conversion, tracking, freshness/quality estimates, and localization measurements. |
+| M3 — Robot Communication & Manual Safety Control | Planned; IRobotTransport and semantic commands/telemetry are M1 prerequisites. | Wire protocol/GATT, physical BLE, RobotManager, manual motion controls, E-stop, reconnect, and hardware communication measurements. |
+| M4 — External-Vision Closed-Loop Robot Control | Planned; a stored demo pose is not closed-loop feedback. | Kinematics, supervisory scheduler/controller, target selection, command limits, tracking/connection safety transitions, and control experiments. |
+| M5 — Operator Path Drawing, Trajectory Generation & Tracking | Planned; no path or trajectory domain types exist. | World-space editor, simplification/smoothing, timing, Pure Pursuit, execution controls, and tracking metrics. |
+| M6 — Obstacles & Autonomous Single-Robot Path Planning | Planned; WorldModel currently stores robots only. | Obstacle/workspace storage, occupancy grid, footprint inflation, A*, route post-processing, obstacle observations, and planner evaluation. |
+| M7 — Multi-Robot Coordination & Collision Avoidance | Planned; independent registry entries and fake transport sessions are foundation support. | Multi-robot tracking/task execution, collision prediction, reservations/prioritized planning, coordination UI, and experiments; optional CBS/ORCA. |
+| M8 — Cross-Platform & Advanced Sensor/Communication Extensions | Planned; portable boundaries exist, but Windows deployment is unverified. | Windows CI/deployment/device validation and optional Zigbee, multiple-camera fusion, onboard video, depth/LiDAR, semantics, and task allocation. |
+
+## M1 — Implemented foundation
+
+### Modules and dependencies
+
+The [source map](source-map.md) links every implemented header/source and lists
+exact target dependencies from [src/CMakeLists.txt](../../src/CMakeLists.txt).
+The current layers are:
+
+- `micro_robot_common`: header-only identity, units, pose, and steady-clock types.
+- `micro_robot_camera_api` / `micro_robot_transport_api`: Qt-free asynchronous
+  interfaces and event values, depending only on common types.
+- `micro_robot_world`: private robot registry and timestamp-aware pose storage,
+  depending only on common types.
+- `micro_robot_simulation`: deterministic implementations of the camera and
+  transport interfaces; no Qt, physical hardware, or network dependency.
+- `micro_robot_desktop_controller`: Qt Core application adapter using interface
+  references and the authoritative model.
+- `micro_robot_ui`: Qt Widgets presentation and operator request signals.
+- `micro_robot_desktop`: composition root selecting concrete fake backends.
+
+The controller receives interface references; widgets receive the controller.
+Neither layer selects a physical device or depends on simulation classes.
+
+### Current runtime data flow
+
+```mermaid
+flowchart LR
+    Main[main.cpp / QTimer] -->|advance virtual time| Camera[FakeCameraSource]
+    Main -->|advance virtual time| Transport[SimulationTransport]
+    Main -->|explicit demo pose| Controller[DesktopController]
+    Camera -->|frame metadata and state events| Controller
+    Transport -->|connection and telemetry events| Controller
+    UI[MainWindow] -->|operator requests| Controller
+    Controller -->|start / stop| Camera
+    Controller -->|connect / disconnect| Transport
+    Controller -->|accepted pose updates and queries| World[WorldModel]
+    Controller -->|presentation signals| UI
+```
+
+[main.cpp](../../src/app/main.cpp) owns the backends, model, controller, window,
+and 100 ms timer. Startup registers Robot 1 with an unknown pose and leaves the
+camera stopped and transport disconnected. While connected, composition supplies
+a static pose (0.25 m, 0.15 m, 0 rad). This happens independently of frame events
+and remains active when the fake camera is stopped. Telemetry does not update pose.
+
+The GUI describes frame sequence/dimensions/timing; it does not render pixels.
+It displays connection state, fake battery telemetry, and stored pose. No velocity
+command, target, path, calibration, or E-stop UI is present. See the
+[desktop demo guide](desktop-demo.md) for controls and lifecycle details.
+
+### Camera and transport boundaries
+
+[ICameraSource](camera-source.md) exposes prompt start/stop requests, source
+metadata, and state/frame/error events. Frames have local capture timestamps,
+increasing sequences, dimensions, packed pixel layout, stride, and immutable
+owned storage. `isValidFrame` validates layout/storage without overflow;
+sequence/time ordering remains the source's responsibility. The contract allows
+terminal failures and recovery, but current production capture is fake only.
+
+[IRobotTransport](transport.md) exposes per-ID connect/disconnect, semantic command
+submission, and connection/telemetry/error events. Commands contain Stop or
+velocity intent with local issue time and positive validity duration. Telemetry
+has optional measurements and local receipt time. Submission is not confirmation
+of execution. Radio identities, packet encoding, protocol counters, and device
+clock conversion belong to future adapters.
+
+### Simulation and authoritative state
+
+[FakeCameraSource and SimulationTransport](simulation.md) execute pending requests
+only when composition/tests call `advanceTo`. They use nondecreasing supplied time,
+with no clock reads, worker threads, or sleeps. The camera emits at most one 8 by 6
+Gray8 frame per advancement, skipping missed intervals. The transport has one
+pending command per robot, validates freshness at dispatch, and emits deterministic
+3.7 V telemetry with fresh velocity intent or zero velocity. It does not integrate
+robot motion or implement a physical watchdog.
+
+[WorldModel](world-model.md) is owned once by the composition root and injected
+by reference. It cannot be copied or moved. Explicit registration creates unknown
+pose; updates accept finite world coordinates and strictly newer per-robot pose
+timestamps, with the first pose allowed at registration time. Queries/snapshots
+return detached values. The model performs no filtering, prediction, communication,
+or automatic freshness transitions. Unknown, invalid, and stale updates have
+explicit results and preserve state.
+
+### Ownership, threading, and shutdown
+
+All current application callbacks and model access are serialized on the GUI
+thread. Backends retain weak event subscriptions; the controller owns its plain
+C++ event sink. Borrowed event values must be copied when retained; immutable
+frames may be retained directly. Callbacks must be prompt and non-throwing.
+
+Future camera/transport workers must marshal results onto the owning thread and
+use an explicit queued boundary to GUI consumers. Thread safety or a worker queue
+is not supplied by the current interfaces. Frame handoffs must remain bounded and
+prefer the newest useful frame.
+
+Qt owns widgets through parent relationships. Injected backend/model references
+outlive the controller. Shutdown stops the timer, requests stop/disconnect, drains
+fake terminal events with one advancement, and then destroys objects in dependency
+order. The controller detaches subscriptions on destruction. Future physical
+adapters must asynchronously establish quiescence before destruction.
+
+### M1 completion gaps
+
+The application foundation is runnable, but M1 exit criteria are not all met.
+There is no configuration-file loader or structured startup/measurement logger.
+Constructor parameters such as FakeCameraConfig are not a settings subsystem.
+Camera discovery/selection, live pixel preview, actual device disconnect/recovery,
+and recorded-video decoding are not implemented; interface and test-double
+support for those events is not physical backend verification.
+
+[Build setup](../development/build.md) and
+[Ubuntu setup](../development/linux-setup.md) document current recipes. The
+committed build/test workflow runs macOS only. Ubuntu GCC/Clang, Linux X11/Wayland,
+Windows builds, packaging, and device behavior require their own executed checks.
 
 ## Domain conventions
 
-- `RobotId` is an explicit unsigned 32-bit application identifier with value
-  comparison and hashing. It is not a hardware address. Zero is valid; absence
-  should be represented with `std::optional<RobotId>`.
-- `Pose2D` stores `x` and `y` as `Meters`, and `heading` as `Radians`. In the
-  top-down world map, +x points right and +y points up; heading starts along +x
-  and increases counterclockwise. The physical origin will be set by calibration
-  in a later phase. Image pixels are a separate coordinate system.
-- `Meters` and `Radians` wrap a `double` with explicit construction and explicit
-  access through `.value`. They default to zero and do not perform validation,
-  dimensional arithmetic, or angle normalization. Convert display/protocol units
-  at their respective boundaries.
-- `Timestamp` and `Duration` use `std::chrono::steady_clock`. Use chrono duration
-  arithmetic for elapsed time and freshness. Its epoch is unspecified; these
-  timestamps are not wall-clock dates or portable persisted/device timestamps.
-  Missing timestamps should use `std::optional<Timestamp>`.
+These M1 contracts apply to all later milestones:
 
-## Asynchronous interfaces
+- `RobotId` is an explicit unsigned 32-bit application identity with comparison
+  and hashing, independent of hardware addresses. Zero is valid; missing identity
+  uses an optional value.
+- `Pose2D` uses metres for x/y and radians for heading. In a top-down world view,
+  +x is right and +y is up; heading is zero along +x and positive counterclockwise.
+  The physical origin will be established by M2 workspace calibration. Image
+  coordinates have a separate top-left origin with +u right and +v down.
+- `Meters` and `Radians` are explicit value wrappers. They do not normalize
+  angles, validate finite values, or provide dimensional arithmetic. Convert
+  display/protocol units at boundaries; WorldModel validates accepted poses.
+- Timestamp and duration use steady-clock types. Epoch is unspecified and valid;
+  it is not wall time, a persisted media offset, or a remote device clock. Missing
+  observations use optional timestamps. State timestamps do not imply freshness.
 
-`micro_robot_camera_api` and `micro_robot_transport_api` are header-only targets
-depending only on common types. Their abstract interfaces and event sinks are
-Qt-free. Deterministic fake backends implement these contracts in simulation.
+Definitions are in [src/common](../../src/common); all files and their contracts
+are linked in the [source map](source-map.md).
 
-`ICameraSource` exposes start/stop requests, source information, state, and frame,
-state-change, and error events. Frames carry a sequence, local capture timestamp,
-dimensions, pixel format, stride, and shared immutable owned storage. Producers
-must not reuse retained buffers; delivery queues must be bounded, preferring the
-latest frame. Qt/OpenCV image conversions belong in future adapters.
-The [camera source contract](camera-source.md) specifies lifecycle, error reporting,
-pixel layout, frame validation/ownership, and threading obligations in detail.
+## M2–M8 — Planned architectural growth
 
-`IRobotTransport` exposes per-robot connect/disconnect, connection state, command
-submission, and telemetry/state/error events. Commands carry stop or velocity
-intent, a local issue timestamp, and a positive freshness duration. This defines
-data contracts only, not control behavior. Telemetry uses local receipt timestamps
-and optional measurements; absent fields are unknown, not zero. Wire formats,
-radio addresses, protocol counters, and device clocks remain backend details.
-Submitting a command does not confirm robot delivery or execution.
+The intended perception/control chain from [AGENTS.md](../../AGENTS.md) remains:
 
-The application owns backends with `std::unique_ptr` and owns event sinks with
-`std::shared_ptr`. Backends retain only `std::weak_ptr` sinks and lock them for each
-dispatch. A callback temporarily retains its recipient. Empty subscriptions
-detach; expired recipients are skipped. Reference arguments must be copied when
-retained; shared immutable frames can be retained directly.
+```text
+CameraSource -> Vision / Calibration -> RobotTracker -> WorldModel
+            -> Planning / Task -> Trajectory / Supervisory Control
+            -> RobotManager -> RobotTransport -> ESP32-C6
+```
 
-Each backend is thread-affine: public calls and event dispatch are serialized on
-its owning thread. Requests return promptly and events are deferred. Future Qt
-worker implementations marshal results to that thread and bridge events to the
-GUI with queued signals/slots. Event sinks are plain C++ adapters, not shared-owned
-GUI widgets. Use receiver-context Qt connections to handle GUI receiver lifetimes.
-Callbacks must be short and non-throwing, and must not destroy the backend.
+M1 currently supplies the source/transport interfaces, robot registry, and
+simulation/UI shell. Intermediate algorithms and physical endpoints in this
+chain are not present. Later work must follow the assigned issue and preserve
+these boundaries:
 
-Stop/disconnect cancel pending startup/connection requests. Repeated requests are
-idempotent. Owners await terminal state events asynchronously before destroying
-backends on their owning thread; implementations must cancel outstanding work
-and deliver no callbacks after destruction. A Stopped/Disconnected/Fault terminal
-state must mean that the relevant stream/session has quiesced. No busy waiting or
-blocking device I/O belongs on the GUI thread.
+- M2 transforms measurements into the common metric frame before tracking;
+  detections are measurements, not permanent authoritative state.
+- M3 adds physical communication behind IRobotTransport, with RobotManager owning
+  sessions and protocol/safety behavior defined explicitly.
+- M4 uses fresh tracked state for outer-loop commands; ESP32-C6 retains low-level
+  motor control, command watchdog, and safe stop responsibilities.
+- M5 separates path geometry, time-parameterized trajectories, and tracking.
+- M6 extends WorldModel/snapshots with issue-scoped workspace/obstacle data and
+  introduces replaceable planning; planners never operate on raw image pixels.
+- M7 extends independent identities into coordinated task/trajectory execution;
+  multi-entry storage alone does not establish collision-safe swarm operation.
+- M8 isolates additional adapters and sensors. Depth/LiDAR remains a separate
+  pipeline, high-bandwidth video uses an appropriate network channel, and optional
+  extensions must not break the baseline system.
 
-Interface tests use test-only doubles to check polymorphic dispatch, event data,
-frame retention, weak subscriptions, and virtual destruction. They cannot prove
-future backend scheduling/validation behavior; concrete backends must test those
-contract requirements when implemented.
+Full milestone prerequisites, exit criteria, and required/optional distinctions
+remain in the [roadmap](../planning/MILESTONES.md), supplemented by early Linux
+M1 work. No future feature should be implemented merely to complete this overview.
 
-## Deterministic backends
+## Verification and maintenance
 
-`micro_robot_simulation` contains `FakeCameraSource` and `SimulationTransport`,
-with no Qt, camera, radio, or network dependency. Composition/test code drives
-each backend with `advanceTo(Timestamp)`. The current composition root advances
-virtual time from a Qt timer; consumers continue to use only the abstract interfaces.
-Neither implementation reads wall-clock time, starts threads, or sleeps.
-Nondecreasing timestamps are required; recursive advancement is rejected.
-Requests coalesce and emit no inline callbacks. State changes are deliberately
-direct (Stopped/Streaming or Disconnected/Connected), without simulated delays.
+[Tests](../development/testing.md) exercise common types, packed camera frame
+validation, abstract interfaces, deterministic backends, pose storage, and Qt
+controller/window integration. Domain targets run without Qt when the desktop is
+disabled; offscreen UI tests remain separate. These checks establish implemented
+contracts, not physical camera/BLE operation or completion of M2–M8.
 
-The camera emits at most one 8x6 Gray8 frame per advancement. Its configurable
-positive cadence and pattern seed produce repeatable pixels from sequence and
-pixel index. Missed intervals are skipped rather than queued. Frames are stamped
-with the supplied virtual capture time; retained pixel buffers are immutable and
-independently owned. Restarting resets cadence but preserves increasing sequence
-numbers. Stop cancels pending start and prevents further frame delivery.
-
-The transport processes robots in ascending ID order, with one pending command
-per robot. New commands supersede pending ones; disconnect cancels pending
-commands and clears accepted state. Commands are copied and validated at dispatch
-for connection, positive validity interval, finite setpoints, and freshness;
-future-issued and expired commands report InvalidCommand. The deadline is
-exclusive: elapsed time equal to validFor is stale. lastSentCommand() provides
-test/composition inspection of the last accepted command in the current session.
-
-Telemetry is emitted once per new virtual timestamp for each connected robot.
-It reports a fixed 3.7 V battery and echoes accepted velocity intent while fresh;
-stop or expired intent reports zero velocity. This is architectural test data,
-not robot physics or a real watchdog. Newly created sessions during a callback
-wait until the next advancement. Callback stop/disconnect requests suppress frame
-or telemetry delivery for that session. Weak subscriptions may expire or detach
-without retaining recipients. Backend instances cannot be copied or moved;
-transfer ownership through unique_ptr instead.
-
-Simulation tests cover deterministic replay, cancellation, freshness, retained
-frame ownership, bounded pending data, callback handling, and interface-based
-consumer substitution with separate test-only implementations. The simulation
-test executable links no Qt libraries.
-
-## World model
-
-`micro_robot_world` depends only on common domain types. `WorldModel` owns a private
-registry keyed by `RobotId`; ordered storage makes snapshots deterministic for
-multiple robots. It performs no capture, communication, tracking/filtering,
-planning, or rendering.
-
-Robots are registered explicitly with a caller-supplied monotonic timestamp.
-`RobotState` records identity, registration time, optional world pose, and optional
-pose update time. Unknown pose remains absent rather than defaulting to the origin.
-Registration does not imply a camera observation or transport connection.
-Duplicate registration leaves existing state unchanged. Removal affects only the
-requested ID; re-registration creates a fresh record with no previous pose.
-
-`updatePose` stores finite world coordinates and heading as supplied, without
-normalization or smoothing. It rejects unknown IDs, non-finite components, updates
-before registration, and updates at or before an existing pose timestamp. The
-first pose may have the same timestamp as registration. `PoseUpdateResult` exposes
-the result; rejected updates do not mutate state. Each robot has independent
-timestamp ordering, with no global observation timestamp requirement.
-
-Use the model on one owning thread, with application orchestration as the writer.
-The composition root owns exactly one model and injects references into services.
-`WorldModel` cannot be copied or moved, preventing accidental duplicate registries;
-this does not prevent constructing isolated models for independent tests.
-Lookups return optional value copies; `WorldSnapshot` owns a full registry copy.
-Neither can modify authoritative state or become invalidated by later updates.
-These values can be delivered to the GUI through queued application-layer updates.
-The model reads no clocks and contains no Qt callbacks or internal worker threads.
-
-Future workspace, obstacle, and task state can extend the model with private
-domain storage and explicit update/query methods. Their value representations
-should extend `WorldSnapshot` so consumers receive detached state through the
-same application boundary. These are extension points only: this skeleton adds
-no placeholder geometry, task execution, planning, or hardware dependencies.
-Stored pose timestamps describe accepted state, not a guarantee of current
-tracking freshness; future tracking/control services must evaluate age explicitly.
-
-World-model unit tests link only the common/world targets and GoogleTest. Real
-hardware backends, logging, and configuration remain unimplemented.
-
-## Phase 0 desktop integration
-
-`main.cpp` is the composition root: it owns FakeCameraSource, SimulationTransport,
-WorldModel, the injected DesktopController, MainWindow, and a simulation QTimer.
-Only composition code knows concrete backend classes. The controller target links
-Qt Core, interface targets, and WorldModel; the UI target adds Qt Widgets and has
-no dependency on simulation or hardware implementations.
-
-MainWindow contains buttons and labels. Button signals connect to controller
-slots; controller signals update source state, frame metadata, connection status,
-telemetry, and a description of stored world state. No device-state polling or
-business logic lives in the widgets. Frames are described, not rendered as video;
-camera discovery and real camera selection remain Phase 1 work.
-
-Connection events distinguish an established connection from an active pending
-attempt. The UI offers disconnect/cancel while Connecting or Disconnecting; demo
-pose production starts only after Connected. Initialization is idempotent and
-cannot return a shutdown controller to Ready. Tests exercise these transitions
-using alternative manual backends injected into the same controller and window.
-
-The controller owns a plain event sink, with weak subscriptions from the backends.
-Sources, model, and controller share the GUI thread in Phase 0. Dependencies
-outlive the controller, whose destructor detaches both subscriptions. Qt receiver
-contexts manage signal connection lifetimes. Future worker implementations must
-marshal their events to the controller's owning thread before using this sink.
-
-Startup registers Robot 1 with an unknown pose, leaving camera and transport idle.
-The timer advances simulation every 100 ms; source callbacks drive UI changes.
-While connected, composition code supplies a static pose (0.25 m, 0.15 m, 0 rad)
-with the current monotonic timestamp. This demo observation is independent of
-frames and telemetry; it demonstrates WorldModel storage without tracking or
-physics. Disconnection keeps the last stored pose and displays inactive telemetry.
-
-On application exit the timer stops, controller shutdown requests stop/disconnect,
-and composition code advances both fakes once to drain terminal state events.
-Only then are widgets, controller, model, and backends destroyed. UI integration
-tests drive virtual time explicitly, exercise buttons/signals/state displays, and
-check shutdown and subscription lifetimes without physical hardware.
-
-## Phase 0 review status
-
-The root CMake file manages dependencies and build options; source and test
-directories define targets. `MICRO_ROBOT_BUILD_DESKTOP` defaults to ON. Setting it
-to OFF omits Qt discovery, the controller, widgets, desktop executable, and GUI
-tests; common, camera, interface, world, and simulation tests then configure/build
-without Qt installed. Unused GoogleMock targets are disabled in the GoogleTest fallback.
-GoogleTest may be supplied as an installed package or through the pinned fallback;
-an offline build may set `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` to cached sources.
-
-The standard library owns domain state and simulation buffers. Qt owns widgets
-and layouts through parent relationships; raw widget aliases are non-owning.
-Backends use weak event subscriptions, and application declaration order keeps
-referenced dependencies alive through controller teardown. All Phase 0 callbacks
-are serialized on the GUI thread; the controller and WorldModel are not thread
-safe. Worker-thread acquisition/transport and a queued event bridge are future
-work, not implied support in this implementation.
-
-Logging and configuration-file loading are still missing Phase 0 requirements.
-The FakeCameraConfig constructor parameters are not a configuration-loading
-subsystem, and Qt diagnostic messages are not application startup/shutdown logs.
-No logger, configuration loader, or related tests were added during this review.
-Linux and Windows remain platform targets; this guide does not establish their
-build, GUI, hardware, or packaging validation. The committed application CI
-currently covers macOS only. See [build setup](../development/build.md) and
-[Ubuntu recipes](../development/linux-setup.md) for verification limits.
+Update this overview when source capabilities change: map them to the relevant
+milestone, link their guide/source, and distinguish implemented behavior from
+remaining acceptance checks. GitHub issue closure and project status remain live
+planning data, separate from this source-based assessment.

@@ -1,8 +1,8 @@
 # Micro-Robot Swarm Desktop
 
 C++20 / Qt 6 desktop application for the micro-robot swarm project.
-Phase 0 uses a fake camera and simulated robot transport; no physical hardware
-is required.
+The current M1 foundation uses a fake camera and simulated robot transport; no
+physical hardware is required. M1 is not yet complete.
 
 For controls and shutdown behavior, see the [desktop demo guide](docs/overview/desktop-demo.md).
 For platform setup and troubleshooting, see [build setup](docs/development/build.md).

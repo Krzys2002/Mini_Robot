@@ -7,7 +7,7 @@ Source: [main.cpp](../../src/app/main.cpp),
 [MainWindow.cpp](../../src/ui/MainWindow.cpp).
 
 Build and launch using the [development guide](../development/build.md).
-The current application is a Phase 0 simulation demo. It requires no camera,
+The current application demonstrates the implemented M1 foundation. It requires no camera,
 Bluetooth adapter, calibration, ESP32, or configuration file.
 
 ## Using the window
