@@ -98,5 +98,6 @@ polymorphism. GUI integration tests inject both `FakeCameraSource` and a test-on
 manual source into the same controller/window, including pending and failure
 states. Tests do not prove future physical backend scheduling behavior.
 
-Issue #26 defines this interface. Physical capture, discovery/selection, recorded
-video decoding, pixel preview, and worker adapters remain separate issue work.
+Issue #26 defines this interface. [Read-only discovery](camera-discovery.md) is
+implemented separately by #29. Device selection, physical capture, recorded-video
+decoding, pixel preview, and worker adapters remain separate issue work.

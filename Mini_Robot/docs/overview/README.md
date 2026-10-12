@@ -3,6 +3,7 @@
 - [Architecture](architecture.md): application modules, interfaces, ownership,
   domain units, threading boundaries, and current capability mapped to M1–M8.
 - [Source map](source-map.md): every implemented source file and its CMake target.
+- [Camera discovery](camera-discovery.md): system inventory, opaque IDs, refresh, and verification limits.
 - [Camera source contract](camera-source.md): lifecycle, frames, and subscriptions.
 - [Transport contract](transport.md): commands, telemetry, and async ownership.
 - [WorldModel](world-model.md): registration, timestamp ordering, and snapshots.

@@ -1,5 +1,11 @@
 # Camera device discovery
 
+Source: [discovery interface](../../src/camera/ICameraDeviceDiscovery.hpp),
+[Qt adapter header](../../src/camera/QtCameraDeviceDiscovery.hpp),
+[Qt adapter implementation](../../src/camera/QtCameraDeviceDiscovery.cpp),
+[presenter header](../../src/app/CameraDiscoveryController.hpp), and
+[presenter implementation](../../src/app/CameraDiscoveryController.cpp).
+
 Issue #29 adds a read-only inventory of operating-system cameras. It does not
 select/open a camera, capture frames, or replace the existing fake source.
 
@@ -41,10 +47,11 @@ Install the Qt Multimedia component alongside the matching Qt installation.
 
 Inventory logs use the Qt category micro_robot.camera.discovery, emitting
 camera_inventory (count) and camera_discovered (ID/name) records with local
-steady-clock milliseconds. Enable explicitly with:
+steady-clock milliseconds. From Mini_Robot after the Debug recipe in
+[build setup](../development/build.md), enable explicitly with:
 
 ```sh
-QT_LOGGING_RULES='micro_robot.camera.discovery.info=true' ./build/src/micro_robot_desktop.app/Contents/MacOS/micro_robot_desktop
+QT_LOGGING_RULES='micro_robot.camera.discovery.info=true' ./build/debug/src/micro_robot_desktop.app/Contents/MacOS/micro_robot_desktop
 ```
 
 This category is issue-scoped diagnostics, not the future application-wide
@@ -52,16 +59,24 @@ structured logging/configuration subsystem. No camera buffers or images are logg
 
 ## macOS and verification
 
-The bundle includes NSCameraUsageDescription and the Continuity Camera device-type
+The [bundle template](../../src/app/Info.plist.in) includes
+NSCameraUsageDescription and the Continuity Camera device-type
 opt-in. Built-in, USB, and Continuity devices are listed when Qt/macOS exposes them;
 no Apple API is called from the domain core. Discovery does not start capture or
 request capture authorization. A missing/empty list is handled safely, and visibility
 may depend on OS permissions, hardware connection, Qt version, and backend.
 
-Automated tests inject a manual discovery implementation, without cameras, and
+[Automated discovery tests](../../tests/ui/CameraDiscoveryTest.cpp) inject a manual
+discovery implementation, without cameras, and
 cover initial/empty snapshots, duplicate names/distinct IDs, add/remove/rename
 updates, missing metadata, plain-text display, copied inventory, and subscription
 teardown. They do not prove physical device visibility or hotplug behavior.
+
+The production adapter probe detected the FaceTime HD and an exposed iPhone
+camera on macOS, with distinct IDs and discovery logs. USB visibility/hotplug
+remains unchecked; the app launched, but native visual inspection was unavailable.
+Linux and Windows hardware/runtime behavior has not been executed. These limits
+do not change the following outstanding manual acceptance procedure.
 
 Manual acceptance checks:
 

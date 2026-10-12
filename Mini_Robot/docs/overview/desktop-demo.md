@@ -10,6 +10,15 @@ Build and launch using the [development guide](../development/build.md).
 The current application demonstrates the implemented M1 foundation. It requires no camera,
 Bluetooth adapter, calibration, ESP32, or configuration file.
 
+## System camera inventory
+
+The Available system cameras panel displays each device name and opaque ID. Its
+initial “Looking for cameras…” message is replaced by an asynchronous snapshot;
+zero devices show “No cameras available”. Device changes refresh the full list.
+This panel is read-only: it cannot select a device or start physical capture.
+Start camera still controls FakeCameraSource regardless of the inventory. See
+[camera discovery](camera-discovery.md) for identifiers, logging, and manual checks.
+
 ## Using the window
 
 1. Startup shows Ready, a stopped fake camera, disconnected robot, and registered
@@ -31,7 +40,9 @@ The UI offers no velocity command, path execution, robot selection, or E-stop.
 
 ## Ownership and threading
 
-The composition root chooses concrete backends and owns the model. Controller
+The composition root chooses concrete capture, transport, and discovery backends
+and owns the model. CameraDiscoveryController separately presents inventory
+snapshots through its injected discovery interface and detaches on destruction. Controller
 references outlive the controller; its destructor detaches the shared event sink
 from both weak backend subscriptions. MainWindow emits requests and displays
 controller signals. Widgets use Qt parent ownership and receiver-context
@@ -53,5 +64,7 @@ diagnostic status-bar messages, not structured experiment logs.
 [UI tests](../../tests/ui/MainWindowTest.cpp) inject fake and manual backends to
 verify startup, buttons, pending transitions, terminal camera recovery, telemetry,
 pose presentation, shutdown, and subscription teardown with an offscreen
-QApplication. Physical preview, manual hardware checks, Linux X11/Wayland
+QApplication. [Discovery tests](../../tests/ui/CameraDiscoveryTest.cpp) also
+verify inventory presentation and subscription lifetime with an injected manual
+provider. Physical preview, USB visibility/hotplug, native visual inspection, Linux X11/Wayland
 interaction, control safety, and standalone packaging remain unverified features.
