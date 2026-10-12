@@ -58,6 +58,39 @@ to the build command and `-C Debug` to CTest. Direct execution uses the selected
 configuration's subdirectory, for example
 `build/tests/Debug/micro_robot_common_tests.exe` on Windows.
 
+## macOS continuous integration
+
+The repository-level `.github/workflows/macos-build-test.yml` runs when a pull
+request is opened, reopened, or updated with new commits. Its `macOS Apple Silicon / Debug`
+job uses the `macos-15` runner and the default AppleClang toolchain. It checks out
+the repository with read-only permissions and without persisted credentials,
+installs CMake/Ninja/Qt using Homebrew, configures the desktop and tests explicitly,
+builds all targets, and runs every CTest case (including offscreen Qt tests).
+
+Each run uses a fresh build directory with no workflow dependency/build cache.
+GoogleTest is resolved through the existing CMake package lookup or pinned
+FetchContent fallback. No secrets or developer-specific paths are required.
+The Qt prefix comes from `brew --prefix qt`, and commands run in `Mini_Robot`
+relative to the checkout. Configure/build/test failures fail the job; CTest also
+fails if no tests are discovered. Logs are available in the repository's Actions
+tab and the pull request checks. New runs cancel superseded runs for the same ref.
+Push and manual triggers are omitted to avoid duplicate runs for PR branches.
+
+To run the same commands locally on macOS, start in `Mini_Robot` with a fresh
+`build/ci` directory and installed Xcode Command Line Tools:
+
+```sh
+brew install cmake ninja qt
+cmake -S . -B build/ci -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DMICRO_ROBOT_BUILD_DESKTOP=ON -DBUILD_TESTING=ON \
+  -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+cmake --build build/ci --parallel 3
+ctest --test-dir build/ci --output-on-failure --no-tests=error
+```
+
+This workflow verifies compilation and automated tests, without camera/BLE
+hardware or deployment packaging. Windows CI is separate Issue #106.
+
 ## Qt-free verification
 
 Use a separate build directory to verify the core without discovering Qt:
