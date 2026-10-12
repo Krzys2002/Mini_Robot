@@ -2,6 +2,10 @@
 
 The workflow synchronizes the existing **Status** field in [Krzys2002 Project #4](https://github.com/users/Krzys2002/projects/4) with native GitHub Issue dependencies for `Krzys2002/Mini_Robot`.
 
+Source: [workflow](../../../.github/workflows/sync-issue-blockers.yml),
+[synchronizer](../../../.github/scripts/sync_issue_blockers.py), and
+[unit tests](../../../.github/scripts/tests/test_sync_issue_blockers.py).
+
 ## Architecture
 
 - `.github/workflows/sync-issue-blockers.yml` runs when an issue is opened, closed, or reopened; every 30 minutes (`7,37 * * * *`, UTC); and manually.

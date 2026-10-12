@@ -4,6 +4,9 @@ C++20 / Qt 6 desktop application for the micro-robot swarm project.
 Phase 0 uses a fake camera and simulated robot transport; no physical hardware
 is required.
 
+For controls and shutdown behavior, see the [desktop demo guide](docs/overview/desktop-demo.md).
+For platform setup and troubleshooting, see [build setup](docs/development/build.md).
+
 ## Prerequisites
 
 - C++20 compiler (on macOS, install Xcode Command Line Tools with `xcode-select --install`).
@@ -22,7 +25,7 @@ Run these commands from the `Mini_Robot` directory:
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+ctest --test-dir build --output-on-failure --no-tests=error
 ```
 
 If CMake cannot find Qt, add `-DCMAKE_PREFIX_PATH=/path/to/your/Qt/installation`
@@ -46,7 +49,7 @@ Build and test the domain types, interfaces, simulation, and WorldModel without 
 cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DMICRO_ROBOT_BUILD_DESKTOP=OFF -DBUILD_TESTING=ON
 cmake --build build/core --parallel
-ctest --test-dir build/core --output-on-failure
+ctest --test-dir build/core --output-on-failure --no-tests=error
 ```
 
 For selecting suites, running an individual test executable, and adding tests,

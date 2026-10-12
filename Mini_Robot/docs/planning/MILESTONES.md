@@ -2,7 +2,12 @@
 
 Project: **Design and implementation of a control system for a micro-robot swarm using external visual feedback**
 
-This file defines the authoritative development order. `AGENTS.md` and the Codex skill remain stage-independent; milestones define what capability is being delivered and GitHub issues define the implementation contract.
+This file records the original M1–M8 development order. Early Linux foundation
+work is added by the [Linux catalog](linux_compatibility_issues.md); current
+[AGENTS.md](../../AGENTS.md) platform policy and assigned GitHub issues take
+precedence over the original platform timing here. `AGENTS.md` and the Codex skill
+remain stage-independent; milestones define what capability is being delivered
+and GitHub issues define the implementation contract.
 
 ## Milestone policy
 

@@ -1,10 +1,11 @@
 # Early Linux Compatibility — GitHub Issues
 
 Repository: `Krzys2002/Mini_Robot`\
-Target milestone: **M1 — Application Foundation (Phases 0–1)** (match actual milestone by name)\
+Target milestone: **M1 — Application Foundation & Camera Infrastructure**\
 Platforms: macOS (primary), Ubuntu Linux (secondary).\
 
-> Issue identifiers LNX-01–LNX-08 are planning IDs, not GitHub issue numbers. Create each issue only once.
+> Imported as GitHub issues #125–#132. LNX identifiers remain planning IDs;
+> see the [mapping](README.md). Checkboxes preserve source scope, not live status.
 
 ## LNX-01 — Establish Cross-Platform Build Configuration
 **Priority:** High\
@@ -192,3 +193,7 @@ Create hardware-independent regression tests executed on macOS and Linux.
 > The application must configure, compile, and pass all platform-independent unit tests on macOS and Ubuntu Linux through automated GitHub Actions workflows. The initial Qt6 GUI must launch successfully on both operating systems.
 
 Keep comprehensive packaging, hardware validation and final compatibility checks in M7.
+
+The source mentions M7 for final compatibility work; the existing milestone
+roadmap places cross-platform deployment and extensions in M8. Follow the actual
+assigned GitHub issue and AGENTS.md rather than inferring scope from that label.

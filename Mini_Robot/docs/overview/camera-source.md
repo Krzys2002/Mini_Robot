@@ -7,6 +7,10 @@ sources can implement the same boundary; only composition code selects a concret
 implementation. The existing `DesktopController` accepts `ICameraSource&`, and
 `MainWindow` interacts with controller signals/slots.
 
+Source: [ICameraSource.hpp](../../src/camera/ICameraSource.hpp),
+[CameraTypes.hpp](../../src/camera/CameraTypes.hpp), and
+[camera tests](../../tests/camera/CameraTypesTest.cpp).
+
 ## Operations and lifecycle
 
 `info()` returns an owned `CameraInfo` containing an opaque source ID stable for

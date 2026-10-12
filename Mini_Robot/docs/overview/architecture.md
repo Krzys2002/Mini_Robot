@@ -1,5 +1,9 @@
 # Current Phase 0 architecture
 
+This guide describes implemented code. See the [source map](source-map.md) for
+all source files and target boundaries; roadmap features remain in
+[planning](../planning/README.md).
+
 The desktop target uses Qt Widgets through `micro_robot_ui`. Common domain types
 are provided by the header-only C++20 `micro_robot_common` target, which has no Qt
 or hardware dependencies. `micro_robot_common_tests` links only common types and
@@ -74,8 +78,8 @@ contract requirements when implemented.
 
 `micro_robot_simulation` contains `FakeCameraSource` and `SimulationTransport`,
 with no Qt, camera, radio, or network dependency. Composition/test code drives
-each backend with `advanceTo(Timestamp)`. A future Qt adapter can advance virtual
-time from a timer; consumers continue to use only the abstract interfaces.
+each backend with `advanceTo(Timestamp)`. The current composition root advances
+virtual time from a Qt timer; consumers continue to use only the abstract interfaces.
 Neither implementation reads wall-clock time, starts threads, or sleeps.
 Nondecreasing timestamps are required; recursive advancement is rejected.
 Requests coalesce and emit no inline callbacks. State changes are deliberately
@@ -195,8 +199,8 @@ check shutdown and subscription lifetimes without physical hardware.
 The root CMake file manages dependencies and build options; source and test
 directories define targets. `MICRO_ROBOT_BUILD_DESKTOP` defaults to ON. Setting it
 to OFF omits Qt discovery, the controller, widgets, desktop executable, and GUI
-tests; common, interface, world, and simulation tests then configure/build without
-Qt installed. Unused GoogleMock targets are disabled in the GoogleTest fallback.
+tests; common, camera, interface, world, and simulation tests then configure/build
+without Qt installed. Unused GoogleMock targets are disabled in the GoogleTest fallback.
 GoogleTest may be supplied as an installed package or through the pinned fallback;
 an offline build may set `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` to cached sources.
 
@@ -212,5 +216,7 @@ Logging and configuration-file loading are still missing Phase 0 requirements.
 The FakeCameraConfig constructor parameters are not a configuration-loading
 subsystem, and Qt diagnostic messages are not application startup/shutdown logs.
 No logger, configuration loader, or related tests were added during this review.
-Windows compatibility follows the portable code/CMake boundaries, but Windows
-builds and deployment packaging have not been verified.
+Linux and Windows remain platform targets; this guide does not establish their
+build, GUI, hardware, or packaging validation. The committed application CI
+currently covers macOS only. See [build setup](../development/build.md) and
+[Ubuntu recipes](../development/linux-setup.md) for verification limits.

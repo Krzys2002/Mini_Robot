@@ -2,7 +2,7 @@
 
 | Folder | Contents |
 | --- | --- |
-| [Overview](overview/README.md) | Implemented architecture and domain conventions |
+| [Overview](overview/README.md) | Implemented architecture, source map, API contracts, and demo usage |
 | [Planning](planning/README.md) | Milestone roadmap and issue catalogs |
 | [Development](development/README.md) | Build/test procedures and GitHub automation |
 | [Archive](archive/README.md) | Historical import, dependency, and schedule records |
