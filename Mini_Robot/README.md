@@ -50,7 +50,12 @@ ctest --test-dir build/core --output-on-failure
 ```
 
 For selecting suites, running an individual test executable, and adding tests,
-see [docs/testing.md](docs/testing.md).
+see [the testing guide](docs/development/testing.md).
 The macOS build/test workflow runs on pull requests and their new commits; its local
-equivalent commands are in [macOS continuous integration](docs/testing.md#macos-continuous-integration).
-For architectural details, see [docs/architecture.md](docs/architecture.md).
+equivalent commands are in [macOS continuous integration](docs/development/testing.md#macos-continuous-integration).
+For architectural details, see [the architecture overview](docs/overview/architecture.md).
+
+## Documentation
+
+See the [documentation index](docs/README.md) for project overviews, planning,
+development guides, and archived historical records.

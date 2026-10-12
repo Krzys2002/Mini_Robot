@@ -1,12 +1,18 @@
 # GitHub Import Report
 
+> Historical snapshot from 2026-10-10. Counts, statuses, dependencies, and dates
+> reflect that recorded operation and omit later Linux issues. For current state,
+> use [GitHub issues](https://github.com/Krzys2002/Mini_Robot/issues),
+> [Project #4](https://github.com/users/Krzys2002/projects/4), and the
+> [planning index](../planning/README.md).
+
 Verified at: 2026-10-10T14:29:26.185470+00:00
 
 Repository: [Krzys2002/Mini_Robot](https://github.com/Krzys2002/Mini_Robot)
 
 Project: [GitHub Project #4](https://github.com/users/Krzys2002/projects/4), owner `Krzys2002`.
 
-Sources: [MILESTONES.md](MILESTONES.md) and [GITHUB_ISSUES_M1_M8.md](GITHUB_ISSUES_M1_M8.md).
+Sources: [MILESTONES.md](../planning/MILESTONES.md) and [GITHUB_ISSUES_M1_M8.md](../planning/GITHUB_ISSUES_M1_M8.md).
 
 The user approved the import plan, existing-issue matches, M1 update, and Critical → Urgent mapping before execution.
 
