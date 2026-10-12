@@ -1,5 +1,6 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
+#include "infrastructure/logging/Logger.hpp"
 #include "simulation/FakeCameraSource.hpp"
 #include "simulation/SimulationTransport.hpp"
 #include "ManualBackends.hpp"
@@ -10,19 +11,36 @@
 #include <QStatusBar>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace {
 
 using namespace micro_robot;
 using namespace std::chrono_literals;
 
+class CapturingLogSink final : public ILogSink {
+public:
+    void write(const LogRecord& record) override { records.push_back(record); }
+    [[nodiscard]] bool contains(LogLevel level, const std::string& message) const
+    {
+        return std::any_of(records.begin(), records.end(), [&](const LogRecord& record) {
+            return record.level == level && record.module == "controller"
+                && record.message.find(message) != std::string::npos;
+        });
+    }
+    std::vector<LogRecord> records;
+};
+
 struct DesktopFixture {
+    Logger logger;
     FakeCameraSource camera;
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}};
+    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
     Timestamp now{1s};
 
@@ -150,11 +168,13 @@ TEST(DesktopIntegrationTest, ErrorsAreVisibleAndShutdownStopsBothBackends)
 
 TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptions)
 {
+    Logger logger;
     FakeCameraSource camera;
     SimulationTransport transport;
     WorldModel world;
     {
-        auto controller = std::make_unique<DesktopController>(camera, transport, world, RobotId{1});
+        auto controller = std::make_unique<DesktopController>(camera, transport, world, RobotId{1},
+                                                              logger.channel("controller"));
         controller->initialize(Timestamp{1s});
         controller->startCamera();
         controller->connectRobot();
@@ -172,10 +192,11 @@ TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptions)
 
 TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellation)
 {
+    Logger logger;
     test::ManualCamera camera;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}};
+    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
     controller.initialize(Timestamp{1s});
     auto button = [&](const char* name) {
@@ -228,12 +249,44 @@ TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellat
     transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{5s});
 }
 
-TEST(DesktopIntegrationTest, InitializationCannotRestartAShutdownController)
+TEST(DesktopIntegrationTest, ControllerLogsLifecycleStateChangesAndErrors)
 {
+    Logger logger{LogLevel::Debug};
+    auto sink = std::make_shared<CapturingLogSink>();
+    logger.addSink(sink);
     test::ManualCamera camera;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}};
+    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
+
+    controller.initialize(Timestamp{1s});
+    EXPECT_TRUE(sink->contains(LogLevel::Info, "Controller initialized"));
+    EXPECT_TRUE(sink->contains(LogLevel::Info, "Camera state: Stopped"));
+
+    camera.publishState(CameraState::Streaming, Timestamp{2s});
+    EXPECT_TRUE(sink->contains(LogLevel::Info, "Camera state: Streaming"));
+    camera.publishError({CameraErrorCode::Unavailable, "Test camera unavailable", Timestamp{2s}});
+    EXPECT_TRUE(sink->contains(LogLevel::Error, "Camera error: Test camera unavailable"));
+    camera.publishState(CameraState::Fault, Timestamp{3s});
+    EXPECT_TRUE(sink->contains(LogLevel::Error, "Camera state: Fault"));
+
+    transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{3s});
+    ASSERT_FALSE(sink->records.empty());
+    EXPECT_EQ(sink->records.back().message, "Connection state: Connected");
+    EXPECT_EQ(sink->records.back().robotId, RobotId{1});
+
+    controller.shutdown();
+    EXPECT_TRUE(sink->contains(LogLevel::Info, "Shutdown requested"));
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{4s});
+}
+
+TEST(DesktopIntegrationTest, InitializationCannotRestartAShutdownController)
+{
+    Logger logger;
+    test::ManualCamera camera;
+    test::ManualTransport transport;
+    WorldModel world;
+    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
     controller.shutdown();
     controller.initialize(Timestamp{1s});

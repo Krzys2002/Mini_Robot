@@ -75,7 +75,12 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_target_defaults(micro_robot_ui)
 
     add_executable(micro_robot_desktop WIN32 MACOSX_BUNDLE app/main.cpp)
-    target_link_libraries(micro_robot_desktop PRIVATE micro_robot_ui micro_robot_simulation)
+    target_link_libraries(micro_robot_desktop PRIVATE
+        micro_robot_ui micro_robot_simulation micro_robot_logging
+    )
+    target_compile_definitions(micro_robot_desktop PRIVATE
+        MICRO_ROBOT_VERSION="${PROJECT_VERSION}"
+    )
     set_target_properties(micro_robot_desktop PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME "Micro Robot"
         MACOSX_BUNDLE_GUI_IDENTIFIER "org.microrobot.desktop"
