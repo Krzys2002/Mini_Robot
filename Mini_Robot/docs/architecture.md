@@ -136,7 +136,67 @@ These values can be delivered to the GUI through queued application-layer update
 The model reads no clocks and contains no Qt callbacks or internal worker threads.
 
 World-model unit tests link only the common/world targets and GoogleTest. Real
-hardware backends, logging, and configuration remain unimplemented.
+hardware backends and configuration remain unimplemented.
+
+## Logging
+
+`micro_robot_logging` (`src/infrastructure/logging`) is a Qt-free cross-cutting
+service depending only on common types. There is no global logger: the
+composition root owns one `Logger` and injects it, or per-module `LogChannel`
+handles derived from it, into modules that need to log. A channel fixes the
+module name (for example `app`, `controller`, later `camera` or `transport`) and
+is a cheap, copyable, non-owning handle; the logger must outlive it.
+
+Each `LogRecord` holds a wall-clock time, a `LogLevel` (Debug, Info, Warning,
+Error), the module name, a message, and an optional `RobotId`. Records below the
+logger's minimum level are dropped. Sinks format records as one line:
+
+```text
+2026-10-12T09:41:07.250Z [ERROR] [transport] robot=3 Link lost
+```
+
+Timestamps are UTC with millisecond precision. Line breaks inside messages are
+escaped so each record stays on one line. Errors are identified by the `[ERROR]`
+level tag; warnings use `[WARNING]`.
+
+Log timestamps come from `std::chrono::system_clock` because operational logs
+must be correlated with real time across runs. They are not suitable for latency
+or freshness calculations, which keep using monotonic `Timestamp` values. The
+logger accepts an injected clock function for deterministic tests.
+
+`Logger` is thread-safe: future camera, vision, and transport workers may log
+directly. Sinks run one at a time under the logger's lock and must not log
+through the same logger. `Logger::log` is `noexcept`; exceptions from the clock,
+formatting, or any sink are discarded, and one failing sink does not stop the
+others. Logging must never crash the application.
+
+Two sinks are provided:
+- `StreamLogSink` writes to a caller-owned `std::ostream`;
+- `FileLogSink` appends to a file, creating missing parent directories and
+  flushing each record so the log survives a crash. Opening never throws;
+  `isOpen()` reports failure. There is currently no size-based rotation.
+
+The desktop application logs to stderr and appends to
+`micro_robot.log` in a `logs` directory under Qt's per-user
+`AppLocalDataLocation`, for example
+`~/Library/Application Support/Micro Robot/logs/` on macOS,
+`%LOCALAPPDATA%/Micro Robot/logs/` on Windows, or
+`~/.local/share/Micro Robot/logs/` on Linux. The location is printed at
+startup. If the file cannot be opened, a warning is logged to stderr and the
+application continues. The path and level will move into the configuration
+subsystem once it exists.
+
+Startup (`Application starting`, `Application started`) and shutdown
+(`Application shutting down`, `Application shutdown complete`) are logged by
+the composition root. `DesktopController` logs initialization, shutdown requests,
+camera and connection state changes (Fault states at Error level), and camera
+and transport errors.
+
+These logs are human-readable operational diagnostics. Thesis measurements, such
+as latency, tracking error, or controller output time series, need structured,
+machine-readable experiment records with monotonic timestamps. Those will be
+added separately by the measurement issues and should not be parsed out of these
+text logs.
 
 ## Phase 0 desktop integration
 
@@ -195,9 +255,8 @@ are serialized on the GUI thread; the controller and WorldModel are not thread
 safe. Worker-thread acquisition/transport and a queued event bridge are future
 work, not implied support in this implementation.
 
-Logging and configuration-file loading are still missing Phase 0 requirements.
-The FakeCameraConfig constructor parameters are not a configuration-loading
-subsystem, and Qt diagnostic messages are not application startup/shutdown logs.
-No logger, configuration loader, or related tests were added during this review.
+Configuration-file loading is still a missing Phase 0 requirement. The
+FakeCameraConfig constructor parameters are not a configuration-loading
+subsystem. Application logging was added later; see [Logging](#logging).
 Windows compatibility follows the portable code/CMake boundaries, but Windows
 builds and deployment packaging have not been verified.

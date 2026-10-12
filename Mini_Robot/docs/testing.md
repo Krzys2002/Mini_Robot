@@ -31,6 +31,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
 | `micro_robot_simulation_tests` | `core` | Deterministic backends and substitution |
 | `micro_robot_world_tests` | `core` | World registry and pose update rules |
+| `micro_robot_logging_tests` | `core` | Log formatting, levels, channels, sink failures, file sink |
 | `micro_robot_tests` | `ui` | Offscreen Qt window and controller integration |
 
 Core executables link domain libraries and `GTest::gtest_main`, without Qt or a

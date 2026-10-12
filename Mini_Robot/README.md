@@ -40,7 +40,7 @@ redistributable bundle.
 
 ## Core-only build
 
-Build and test the domain types, interfaces, simulation, and WorldModel without Qt:
+Build and test the domain types, interfaces, simulation, WorldModel, and logging without Qt:
 
 ```sh
 cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug \
@@ -52,3 +52,11 @@ ctest --test-dir build/core --output-on-failure
 For selecting suites, running an individual test executable, and adding tests,
 see [docs/testing.md](docs/testing.md).
 For architectural details, see [docs/architecture.md](docs/architecture.md).
+
+## Logs
+
+The desktop application logs to stderr and appends to `logs/micro_robot.log` in
+the per-user application data directory, for example
+`~/Library/Application Support/Micro Robot/logs/micro_robot.log` on macOS. The
+exact path is printed at startup. See the logging section of
+[docs/architecture.md](docs/architecture.md#logging).
