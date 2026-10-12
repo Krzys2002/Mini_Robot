@@ -130,10 +130,21 @@ the result; rejected updates do not mutate state. Each robot has independent
 timestamp ordering, with no global observation timestamp requirement.
 
 Use the model on one owning thread, with application orchestration as the writer.
+The composition root owns exactly one model and injects references into services.
+`WorldModel` cannot be copied or moved, preventing accidental duplicate registries;
+this does not prevent constructing isolated models for independent tests.
 Lookups return optional value copies; `WorldSnapshot` owns a full registry copy.
 Neither can modify authoritative state or become invalidated by later updates.
 These values can be delivered to the GUI through queued application-layer updates.
 The model reads no clocks and contains no Qt callbacks or internal worker threads.
+
+Future workspace, obstacle, and task state can extend the model with private
+domain storage and explicit update/query methods. Their value representations
+should extend `WorldSnapshot` so consumers receive detached state through the
+same application boundary. These are extension points only: this skeleton adds
+no placeholder geometry, task execution, planning, or hardware dependencies.
+Stored pose timestamps describe accepted state, not a guarantee of current
+tracking freshness; future tracking/control services must evaluate age explicitly.
 
 World-model unit tests link only the common/world targets and GoogleTest. Real
 hardware backends, logging, and configuration remain unimplemented.
