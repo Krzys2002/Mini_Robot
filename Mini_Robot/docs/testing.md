@@ -38,6 +38,19 @@ Core executables link domain libraries and `GTest::gtest_main`, without Qt or a
 and an offscreen `QApplication`; it is built only when
 `MICRO_ROBOT_BUILD_DESKTOP=ON`.
 
+World tests cover insert/query/update/removal, unknown poses, duplicate IDs,
+finite-pose validation, per-robot timestamp ordering (including rejected updates),
+detached query/snapshot values, and the non-copyable authoritative model contract.
+Run only this suite with:
+
+```sh
+ctest --test-dir build -R '^WorldModelTest\.' --output-on-failure --no-tests=error
+```
+
+Issue #45 requires no manual camera/BLE checks: its domain model has no hardware
+dependencies. Desktop integration tests verify its existing controller consumers;
+a Qt-free build verifies that the world target remains independent of Qt.
+
 Select suites or individual cases:
 
 ```sh
