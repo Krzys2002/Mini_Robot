@@ -32,6 +32,16 @@ add_library(micro_robot_world STATIC
 target_link_libraries(micro_robot_world PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_world)
 
+add_library(micro_robot_logging STATIC
+    infrastructure/logging/LogRecord.hpp
+    infrastructure/logging/Logger.hpp
+    infrastructure/logging/Logger.cpp
+    infrastructure/logging/LogSinks.hpp
+    infrastructure/logging/LogSinks.cpp
+)
+target_link_libraries(micro_robot_logging PUBLIC micro_robot_common)
+micro_robot_target_defaults(micro_robot_logging)
+
 add_library(micro_robot_simulation STATIC
     simulation/FakeCameraSource.hpp
     simulation/FakeCameraSource.cpp
@@ -50,7 +60,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     )
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
-        micro_robot_camera_api micro_robot_transport_api micro_robot_world Qt6::Core
+        micro_robot_camera_api micro_robot_transport_api micro_robot_world micro_robot_logging
+        Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
 
