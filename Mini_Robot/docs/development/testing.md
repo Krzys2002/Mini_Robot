@@ -46,6 +46,13 @@ Core executables link domain libraries and `GTest::gtest_main`, without Qt or a
 and an offscreen `QApplication`; it is built only when
 `MICRO_ROBOT_BUILD_DESKTOP=ON`.
 
+`CameraDiscoveryTest` uses an injected manual inventory provider without Qt
+Multimedia or hardware. It checks empty inventories, duplicate names/distinct
+IDs, add/remove/rename refresh, missing metadata, plain-text presentation, copied
+snapshots, and subscription teardown. Camera contract tests also compile the
+discovery interface without Qt. Physical visibility/hotplug checks are listed
+in [camera discovery](camera-discovery.md).
+
 World tests cover insert/query/update/removal, unknown poses, duplicate IDs,
 finite-pose validation, per-robot timestamp ordering (including rejected updates),
 detached query/snapshot values, and the non-copyable authoritative model contract.

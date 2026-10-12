@@ -1,4 +1,5 @@
 #include "camera/ICameraSource.hpp"
+#include "camera/ICameraDeviceDiscovery.hpp"
 
 #include <gtest/gtest.h>
 
@@ -12,6 +13,8 @@ namespace micro_robot {
 namespace {
 
 static_assert(std::is_abstract_v<ICameraSource>);
+static_assert(std::is_abstract_v<ICameraDeviceDiscovery>);
+static_assert(std::has_virtual_destructor_v<ICameraDeviceDiscovery>);
 static_assert(std::has_virtual_destructor_v<ICameraSource>);
 static_assert(std::is_const_v<FramePtr::element_type>);
 static_assert(std::is_const_v<decltype(Frame::pixels)::element_type>);
