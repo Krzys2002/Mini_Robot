@@ -1,0 +1,45 @@
+name: macOS build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-build-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: macOS Apple Silicon / Debug
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: Mini_Robot
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: brew install cmake ninja qt
+
+      - name: Configure desktop and tests
+        run: >-
+          cmake -S . -B build/ci -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DMICRO_ROBOT_BUILD_DESKTOP=ON
+          -DBUILD_TESTING=ON
+          -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+
+      - name: Build application and tests
+        run: cmake --build build/ci --parallel 3
+
+      - name: Run all tests
+        run: ctest --test-dir build/ci --output-on-failure --no-tests=error
