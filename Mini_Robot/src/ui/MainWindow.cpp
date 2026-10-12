@@ -24,6 +24,15 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     applicationStatus->setObjectName(QStringLiteral("applicationStatus"));
     layout->addWidget(applicationStatus);
 
+    auto* deviceGroup = new QGroupBox(QStringLiteral("Available system cameras"), central);
+    auto* deviceLayout = new QVBoxLayout(deviceGroup);
+    cameraDevicesDescription_ = new QLabel(QStringLiteral("Looking for cameras…"), deviceGroup);
+    cameraDevicesDescription_->setObjectName(QStringLiteral("cameraDevicesDescription"));
+    cameraDevicesDescription_->setTextFormat(Qt::PlainText);
+    cameraDevicesDescription_->setWordWrap(true);
+    deviceLayout->addWidget(cameraDevicesDescription_);
+    layout->addWidget(deviceGroup);
+
     auto* cameraGroup = new QGroupBox(QStringLiteral("Fake camera source"), central);
     auto* cameraLayout = new QVBoxLayout(cameraGroup);
     auto* cameraStatus = new QLabel(QStringLiteral("Stopped"), cameraGroup);
@@ -102,6 +111,11 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     connect(&controller, &DesktopController::errorOccurred, this, [this](const QString& message) {
         statusBar()->showMessage(message);
     });
+}
+
+void MainWindow::setCameraDevicesDescription(const QString& description)
+{
+    cameraDevicesDescription_->setText(description);
 }
 
 } // namespace micro_robot

@@ -1,5 +1,7 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
+#include "app/CameraDiscoveryController.hpp"
+#include "camera/QtCameraDeviceDiscovery.hpp"
 #include "simulation/FakeCameraSource.hpp"
 #include "simulation/SimulationTransport.hpp"
 
@@ -18,9 +20,14 @@ int main(int argc, char* argv[])
     // keeps sources/model alive until after the controller detaches its event sink.
     auto camera = std::make_unique<FakeCameraSource>();
     auto transport = std::make_unique<SimulationTransport>();
+    QtCameraDeviceDiscovery cameraDiscovery;
+    CameraDiscoveryController discoveryController{cameraDiscovery};
     WorldModel world;
     DesktopController controller{*camera, *transport, world, RobotId{1}};
     MainWindow window{controller};
+    QObject::connect(&discoveryController,
+        &CameraDiscoveryController::cameraDevicesDescriptionChanged,
+        &window, &MainWindow::setCameraDevicesDescription);
     QTimer simulationTimer;
     simulationTimer.setInterval(100);
 
@@ -47,6 +54,7 @@ int main(int argc, char* argv[])
     });
 
     controller.initialize(MonotonicClock::now());
+    discoveryController.initialize();
     window.show();
     simulationTimer.start();
 

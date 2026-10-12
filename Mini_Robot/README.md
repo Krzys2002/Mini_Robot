@@ -3,6 +3,8 @@
 C++20 / Qt 6 desktop application for the micro-robot swarm project.
 The current M1 foundation uses a fake camera and simulated robot transport; no
 physical hardware is required. M1 is not yet complete.
+The read-only system camera inventory refreshes on device changes; it does not
+select a device or start physical capture. See [camera discovery](docs/overview/camera-discovery.md).
 
 For controls and shutdown behavior, see the [desktop demo guide](docs/overview/desktop-demo.md).
 For platform setup and troubleshooting, see [build setup](docs/development/build.md).
@@ -12,7 +14,7 @@ For platform setup and troubleshooting, see [build setup](docs/development/build
 - C++20 compiler (on macOS, install Xcode Command Line Tools with `xcode-select --install`).
 - CMake 3.24 or newer.
 - Ninja for the commands below.
-- Qt 6 with the Widgets component for the desktop build.
+- Qt 6 with the Widgets and Multimedia components for the desktop build.
 
 GoogleTest is used for testing. CMake uses an installed GoogleTest package when
 available; otherwise it downloads GoogleTest 1.17.0 during configuration, which
