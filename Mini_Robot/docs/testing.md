@@ -60,8 +60,8 @@ configuration's subdirectory, for example
 
 ## macOS continuous integration
 
-The repository-level `.github/workflows/macos-build-test.yml` runs on every push
-and pull request, and supports manual dispatch. Its `macOS Apple Silicon / Debug`
+The repository-level `.github/workflows/macos-build-test.yml` runs when a pull
+request is opened, reopened, or updated with new commits. Its `macOS Apple Silicon / Debug`
 job uses the `macos-15` runner and the default AppleClang toolchain. It checks out
 the repository with read-only permissions and without persisted credentials,
 installs CMake/Ninja/Qt using Homebrew, configures the desktop and tests explicitly,
@@ -74,6 +74,7 @@ The Qt prefix comes from `brew --prefix qt`, and commands run in `Mini_Robot`
 relative to the checkout. Configure/build/test failures fail the job; CTest also
 fails if no tests are discovered. Logs are available in the repository's Actions
 tab and the pull request checks. New runs cancel superseded runs for the same ref.
+Push and manual triggers are omitted to avoid duplicate runs for PR branches.
 
 To run the same commands locally on macOS, start in `Mini_Robot` with a fresh
 `build/ci` directory and installed Xcode Command Line Tools:
