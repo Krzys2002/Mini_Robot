@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
 
       - name: Install build dependencies
-        run: brew install cmake ninja qt
+        run: brew install cmake ninja qt opencv
 
       - name: Configure desktop and tests
         run: >-

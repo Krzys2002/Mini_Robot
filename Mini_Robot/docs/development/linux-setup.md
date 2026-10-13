@@ -9,7 +9,7 @@ proof that all Linux acceptance criteria (#125–#132) have been satisfied.
 
 ```sh
 sudo apt update
-sudo apt install build-essential clang cmake ninja-build qt6-base-dev qt6-multimedia-dev libgtest-dev
+sudo apt install build-essential clang cmake ninja-build qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
 ```
 
 Package names are documented by Ubuntu's official catalog:
@@ -50,10 +50,12 @@ cmake --build build/linux-core --parallel
 ctest --test-dir build/linux-core --output-on-failure --no-tests=error
 ```
 
-## Planned camera and BLE dependencies
+## Replay, camera, and BLE dependencies
 
-OpenCV and BlueZ are not used by current [source targets](../../src/CMakeLists.txt),
-so installing them will not enable capture or BLE. Qt Multimedia now queries
+OpenCV core/imgproc/videoio now decode [recorded local video](../overview/recorded-video.md).
+Install `libopencv-dev` for this adapter, or configure `MICRO_ROBOT_BUILD_REPLAY=OFF`
+to omit it. Replay tests require an MJPEG writer/decoder. BlueZ is not used by
+current [source targets](../../src/CMakeLists.txt); installing it does not enable BLE. Qt Multimedia now queries
 the system camera inventory through [the discovery adapter](../overview/camera-discovery.md);
 Linux device visibility/hotplug has not been tested. V4L2 capture, configurable
 resolution, and permission handling belong to #128; Qt Bluetooth/BlueZ integration

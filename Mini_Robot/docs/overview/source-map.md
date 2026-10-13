@@ -16,6 +16,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/camera/ICameraDeviceDiscovery.hpp](../../src/camera/ICameraDeviceDiscovery.hpp) | [Discovery contract](camera-discovery.md) |
 | [src/camera/QtCameraDeviceDiscovery.cpp](../../src/camera/QtCameraDeviceDiscovery.cpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/camera/QtCameraDeviceDiscovery.hpp](../../src/camera/QtCameraDeviceDiscovery.hpp) | [Qt discovery adapter](camera-discovery.md) |
+| [src/camera/RecordedVideoSource.cpp](../../src/camera/RecordedVideoSource.cpp) | [Replay adapter](recorded-video.md) |
+| [src/camera/RecordedVideoSource.hpp](../../src/camera/RecordedVideoSource.hpp) | [Replay configuration and driving](recorded-video.md) |
 | [src/common/Pose2D.hpp](../../src/common/Pose2D.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/RobotId.hpp](../../src/common/RobotId.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Time.hpp](../../src/common/Time.hpp) | [common](architecture.md#domain-conventions) |
@@ -48,6 +50,7 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_api | micro_robot_common |
 | micro_robot_transport_api | micro_robot_common |
 | micro_robot_camera_discovery | camera API, Qt6::Multimedia |
+| micro_robot_camera_replay | camera API, private OpenCV core/imgproc/videoio |
 | micro_robot_world | micro_robot_common |
 | micro_robot_logging | micro_robot_common |
 | micro_robot_simulation | camera and transport API targets |
@@ -62,12 +65,12 @@ Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 
 Only common types, asynchronous camera/transport contracts, deterministic fakes,
 robot pose storage, read-only system device discovery, human-readable application
-logging, and a Qt simulation window are implemented. Discovery diagnostics use a
-separate Qt logging category. There are no vision, calibration, tracking, planning,
-supervisory controller, physical BLE, Zigbee, replay decoding, settings loader,
+logging, recorded-video replay, and a Qt simulation window are implemented.
+Discovery diagnostics use a separate Qt logging category. There are no vision, calibration, tracking, planning,
+supervisory controller, physical BLE, Zigbee, settings loader,
 or structured measurement-recording modules. Qt Multimedia is used only by the
-concrete discovery adapter; OpenCV
-and other proposed dependencies are absent from current CMake targets. The desktop
+concrete discovery adapter. OpenCV is isolated in the optional replay adapter;
+other proposed dependencies are absent from current CMake targets. The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.
 
 ## Documentation maintenance
