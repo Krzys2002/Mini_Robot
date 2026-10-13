@@ -9,6 +9,7 @@
 - [Simulation](simulation.md): virtual time and deterministic fake behavior.
 - [Desktop demo](desktop-demo.md): controls, composition, and shutdown.
 - [Logging](logging.md): logger/channel API, record format, sinks, and log file location.
+- [Configuration](configuration.md): settings file format, location, defaults, and diagnostics.
 - [Milestone roadmap](../planning/MILESTONES.md): planned capability progression.
 - [Build and test guide](../development/testing.md): command-line verification.
 
