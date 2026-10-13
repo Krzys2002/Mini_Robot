@@ -1,6 +1,7 @@
 #include "simulation/SimulationTransport.hpp"
 
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -10,8 +11,17 @@ namespace {
 
 bool fresh(const RobotCommand& command, Timestamp now)
 {
-    return command.validFor > Duration::zero() && command.issuedAt <= now
-        && now - command.issuedAt < command.validFor;
+    if (command.validFor <= Duration::zero() || command.issuedAt > now) {
+        return false;
+    }
+    // A difference larger than Duration::max() is necessarily expired. Avoid
+    // signed overflow when a malformed command spans the clock's extremes.
+    const auto issued = command.issuedAt.time_since_epoch().count();
+    const auto current = now.time_since_epoch().count();
+    if (issued < 0 && current > std::numeric_limits<Duration::rep>::max() + issued) {
+        return false;
+    }
+    return now - command.issuedAt < command.validFor;
 }
 
 bool valid(const RobotCommand& command, Timestamp now)
@@ -106,6 +116,8 @@ void SimulationTransport::advanceTo(Timestamp now)
             std::optional<TransportErrorCode> error;
             if (session.state != ConnectionState::Connected || !session.desiredConnected) {
                 error = TransportErrorCode::NotConnected;
+            } else if (!isSupportedTransportModelVersion(command->metadata.modelVersion)) {
+                error = TransportErrorCode::UnsupportedVersion;
             } else if (!valid(*command, now)) {
                 error = TransportErrorCode::InvalidCommand;
             } else {
@@ -114,8 +126,10 @@ void SimulationTransport::advanceTo(Timestamp now)
             if (error) {
                 if (auto sink = sink_.lock()) {
                     sink->onTransportError({id, TransportOperation::SendCommand, *error,
-                        *error == TransportErrorCode::NotConnected
-                            ? "Robot is disconnected" : "Command is invalid or stale", now});
+                        *error == TransportErrorCode::NotConnected ? "Robot is disconnected"
+                        : *error == TransportErrorCode::UnsupportedVersion
+                            ? "Unsupported transport domain model version"
+                            : "Command is invalid or stale", now});
                 }
             }
         }

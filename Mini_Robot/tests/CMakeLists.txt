@@ -31,6 +31,11 @@ target_link_libraries(micro_robot_interface_tests PRIVATE
 micro_robot_target_defaults(micro_robot_interface_tests)
 gtest_discover_tests(micro_robot_interface_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
+add_executable(micro_robot_transport_tests transport/TransportTypesTest.cpp)
+target_link_libraries(micro_robot_transport_tests PRIVATE micro_robot_transport_api GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_transport_tests)
+gtest_discover_tests(micro_robot_transport_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
 add_executable(micro_robot_simulation_tests simulation/SimulationTest.cpp)
 target_link_libraries(micro_robot_simulation_tests PRIVATE
     micro_robot_simulation GTest::gtest_main

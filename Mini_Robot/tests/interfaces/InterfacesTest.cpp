@@ -258,8 +258,10 @@ TEST(TransportInterfaceTest, CommandsAndTelemetryAreOwnedDomainValues)
     const RobotId id{7};
     const Timestamp at{2s};
     RobotCommand command{VelocityCommand{0.2, -0.5}, at, 100ms};
+    command.metadata.sequence = 42;
     transport.sendCommand(id, command);
     command.payload = StopCommand{};
+    command.metadata.sequence = 43;
     ASSERT_TRUE(probe.submittedCommand);
     EXPECT_EQ(probe.submittedCommand->first, id);
     const auto& copied = probe.submittedCommand->second;
@@ -267,18 +269,24 @@ TEST(TransportInterfaceTest, CommandsAndTelemetryAreOwnedDomainValues)
     EXPECT_DOUBLE_EQ(std::get<VelocityCommand>(copied.payload).linearMetersPerSecond, 0.2);
     EXPECT_EQ(copied.issuedAt, at);
     EXPECT_EQ(copied.validFor, 100ms);
+    EXPECT_EQ(copied.metadata.modelVersion, currentTransportModelVersion);
+    EXPECT_EQ(copied.metadata.sequence, 42u);
     transport.sendCommand(id, command);
     EXPECT_TRUE(std::holds_alternative<StopCommand>(probe.submittedCommand->second.payload));
 
     RobotTelemetry telemetry{id, at + 20ms, 3.7, std::nullopt, std::nullopt};
+    telemetry.metadata.sequence = 9;
     probe.publishTelemetry(telemetry);
     telemetry.batteryVoltageVolts = 0.0;
+    telemetry.metadata.sequence.reset();
     ASSERT_TRUE(events->telemetry);
     EXPECT_EQ(events->telemetry->robotId, id);
     EXPECT_EQ(events->telemetry->receivedAt, at + 20ms);
     ASSERT_TRUE(events->telemetry->batteryVoltageVolts);
     EXPECT_DOUBLE_EQ(*events->telemetry->batteryVoltageVolts, 3.7);
     EXPECT_FALSE(events->telemetry->linearMetersPerSecond);
+    EXPECT_EQ(events->telemetry->metadata.modelVersion, currentTransportModelVersion);
+    EXPECT_EQ(events->telemetry->metadata.sequence, 9u);
 }
 
 TEST(TransportInterfaceTest, ErrorsAndWeakSubscriptionsUseTheAbstractBoundary)

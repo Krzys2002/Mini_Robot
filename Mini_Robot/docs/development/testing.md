@@ -33,6 +33,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
 | `micro_robot_camera_tests` | none | Packed frame validation, malformed metadata, storage and overflow checks |
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
+| `micro_robot_transport_tests` | `core` | Transport domain versions, sequence reservation, metadata defaults and copying |
 | `micro_robot_simulation_tests` | `core` | Deterministic backends and substitution |
 | `micro_robot_world_tests` | `core` | World registry and pose update rules |
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink |

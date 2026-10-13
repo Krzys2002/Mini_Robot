@@ -46,16 +46,19 @@ cancels pending commands and clears accepted state when an active session ends.
 New sessions created in callbacks wait until the next advancement.
 
 A command is accepted only when connected and desired-connected, with finite
-velocity components, positive validity, `issuedAt <= now`, and
+velocity components, supported domain model version, positive validity, `issuedAt <= now`, and
 `now - issuedAt < validFor`. Equal-to-deadline and future-issued commands are
 invalid. Disconnected submissions report NotConnected; invalid timing/setpoints
-report InvalidCommand. `lastSentCommand(id)` is an optional copied record of the
+report InvalidCommand. Unsupported domain versions report UnsupportedVersion
+without replacing the accepted command. Optional sequence metadata is copied
+without allocation, ordering, or deduplication. `lastSentCommand(id)` is an optional copied record of the
 last accepted command; it may still exist after expiry and is not proof of
 current actuation.
 
 Telemetry is emitted once per distinct timestamp per connected robot. It reports
 3.7 V and echoes fresh accepted velocity intent; Stop or expired intent reports
-zero velocity. Disconnect requested in a callback suppresses that session's
+zero velocity. Telemetry uses the current domain model version and an unassigned
+sequence; it does not acknowledge the command's sequence. Disconnect requested in a callback suppresses that session's
 telemetry. There is no movement integration, protocol encoding, radio latency,
 command acknowledgement, local actuator limit, or real robot watchdog.
 
