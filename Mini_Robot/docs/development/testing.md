@@ -105,7 +105,13 @@ The Qt prefix comes from `brew --prefix qt`, and commands run in `Mini_Robot`
 relative to the checkout. Configure/build/test failures fail the job; CTest also
 fails if no tests are discovered. Logs are available in the repository's Actions
 tab and the pull request checks. New runs cancel superseded runs for the same ref.
-Push and manual triggers are omitted to avoid duplicate runs for PR branches.
+Push triggers are omitted to avoid duplicate runs for PR branches. Manual
+`workflow_dispatch` runs can validate a selected branch even when PR merge
+conflicts prevent automatic CI:
+
+```sh
+gh workflow run macos-build-test.yml --repo Krzys2002/Mini_Robot --ref your-branch
+```
 
 To run the same commands locally on macOS, start in `Mini_Robot` with a fresh
 `build/ci` directory and installed Xcode Command Line Tools:
