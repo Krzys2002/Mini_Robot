@@ -1,5 +1,16 @@
 include(GoogleTest)
 
+if(MICRO_ROBOT_BUILD_REPLAY)
+    add_executable(micro_robot_replay_tests camera/RecordedVideoSourceTest.cpp)
+    target_link_libraries(micro_robot_replay_tests PRIVATE
+        micro_robot_camera_replay GTest::gtest_main ${OpenCV_LIBS}
+    )
+    target_include_directories(micro_robot_replay_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    micro_robot_target_defaults(micro_robot_replay_tests)
+    gtest_discover_tests(micro_robot_replay_tests DISCOVERY_MODE PRE_TEST
+        PROPERTIES LABELS "replay")
+endif()
+
 if(MICRO_ROBOT_BUILD_DESKTOP)
     add_executable(micro_robot_tests
         main.cpp
