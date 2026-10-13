@@ -45,6 +45,7 @@ public:
     }
     void onCameraError(const CameraError& error) override
     {
+        owner_.log_.error("Camera error: " + error.message);
         emit owner_.errorOccurred(QString::fromStdString(error.message));
     }
     void onConnectionStateChanged(RobotId id, ConnectionState state, Timestamp) override
@@ -54,6 +55,7 @@ public:
     void onTelemetry(const RobotTelemetry& telemetry) override { owner_.receiveTelemetry(telemetry); }
     void onTransportError(const TransportError& error) override
     {
+        owner_.log_.error("Transport error: " + error.message, error.robotId);
         emit owner_.errorOccurred(QStringLiteral("Robot %1: %2")
             .arg(error.robotId.value()).arg(QString::fromStdString(error.message)));
     }
@@ -62,9 +64,10 @@ private:
 };
 
 DesktopController::DesktopController(ICameraSource& camera, IRobotTransport& transport,
-                                     WorldModel& world, RobotId robotId, QObject* parent)
+                                     WorldModel& world, RobotId robotId, LogChannel log,
+                                     QObject* parent)
     : QObject(parent), camera_(camera), transport_(transport), world_(world), robotId_(robotId),
-      events_(std::make_shared<EventSink>(*this))
+      log_(std::move(log)), events_(std::make_shared<EventSink>(*this))
 {
     camera_.setEventSink(events_);
     transport_.setEventSink(events_);
@@ -84,6 +87,7 @@ void DesktopController::initialize(Timestamp now)
     initialized_ = true;
     startedAt_ = now;
     (void)world_.registerRobot(robotId_, now);
+    log_.info("Controller initialized; robot registered", robotId_);
     emit applicationStatusChanged(QStringLiteral("Ready — Phase 0 simulation"));
     receiveCameraState(camera_.state());
     receiveConnectionState(robotId_, transport_.connectionState(robotId_));
@@ -115,6 +119,7 @@ void DesktopController::shutdown()
 {
     if (shuttingDown_) return;
     shuttingDown_ = true;
+    log_.info("Shutdown requested; stopping camera and disconnecting robot");
     camera_.stop();
     transport_.disconnect(robotId_);
     emit applicationStatusChanged(QStringLiteral("Shutting down"));
@@ -144,7 +149,13 @@ void DesktopController::receiveCameraState(CameraState state)
 {
     const bool active = state == CameraState::Starting || state == CameraState::Streaming
         || state == CameraState::Stopping;
-    emit cameraStatusChanged(cameraStateText(state), active);
+    const auto text = cameraStateText(state);
+    if (state == CameraState::Fault) {
+        log_.error("Camera state: " + text.toStdString());
+    } else {
+        log_.info("Camera state: " + text.toStdString());
+    }
+    emit cameraStatusChanged(text, active);
 }
 
 void DesktopController::receiveConnectionState(RobotId id, ConnectionState state)
@@ -152,7 +163,13 @@ void DesktopController::receiveConnectionState(RobotId id, ConnectionState state
     if (id != robotId_) return;
     const bool active = state == ConnectionState::Connecting || state == ConnectionState::Connected
         || state == ConnectionState::Disconnecting;
-    emit connectionStatusChanged(connectionStateText(state), state == ConnectionState::Connected, active);
+    const auto text = connectionStateText(state);
+    if (state == ConnectionState::Fault) {
+        log_.error("Connection state: " + text.toStdString(), id);
+    } else {
+        log_.info("Connection state: " + text.toStdString(), id);
+    }
+    emit connectionStatusChanged(text, state == ConnectionState::Connected, active);
     if (state != ConnectionState::Connected) {
         emit telemetryDescriptionChanged(QStringLiteral("No active telemetry"));
     }

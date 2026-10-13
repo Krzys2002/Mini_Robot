@@ -24,6 +24,10 @@ Bluetooth adapter, calibration, ESP32, or configuration file.
 6. Quit stops the timer, requests backend shutdown, advances the fakes once to
    drain terminal events, and destroys objects in dependency-safe order.
 
+Startup, shutdown, controller state changes, and errors are written to stderr
+and to a per-user log file whose path is printed at startup; see
+[Application logging](logging.md).
+
 The 100 ms timer advances both fakes independently of camera start/stop. Pose
 updates occur while connected, including when the camera is stopped. They are
 explicit demo observations, not measurements derived from the image or telemetry.
@@ -48,7 +52,8 @@ as shutting down. It does not itself advance simulation or wait for completion.
 `receiveFrame` ignores a null pointer and formats metadata; valid-frame delivery
 is the backend contract. Connection/telemetry events for other robot IDs are
 ignored. Active flags include pending states, allowing cancellation. Errors are
-diagnostic status-bar messages, not structured experiment logs.
+shown as status-bar messages and logged at Error level through the controller's
+injected `LogChannel`; these are operational logs, not structured experiment data.
 
 [UI tests](../../tests/ui/MainWindowTest.cpp) inject fake and manual backends to
 verify startup, buttons, pending transitions, terminal camera recovery, telemetry,

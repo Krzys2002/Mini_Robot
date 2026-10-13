@@ -15,6 +15,11 @@ reports are scope/history, not evidence that future modules are present.
 | [src/common/Time.hpp](../../src/common/Time.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Types.hpp](../../src/common/Types.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Units.hpp](../../src/common/Units.hpp) | [common](architecture.md#domain-conventions) |
+| [src/infrastructure/logging/LogRecord.hpp](../../src/infrastructure/logging/LogRecord.hpp) | [logging](logging.md) |
+| [src/infrastructure/logging/LogSinks.cpp](../../src/infrastructure/logging/LogSinks.cpp) | [logging](logging.md) |
+| [src/infrastructure/logging/LogSinks.hpp](../../src/infrastructure/logging/LogSinks.hpp) | [logging](logging.md) |
+| [src/infrastructure/logging/Logger.cpp](../../src/infrastructure/logging/Logger.cpp) | [logging](logging.md) |
+| [src/infrastructure/logging/Logger.hpp](../../src/infrastructure/logging/Logger.hpp) | [logging](logging.md) |
 | [src/simulation/FakeCameraSource.cpp](../../src/simulation/FakeCameraSource.cpp) | [simulation](simulation.md) |
 | [src/simulation/FakeCameraSource.hpp](../../src/simulation/FakeCameraSource.hpp) | [simulation](simulation.md) |
 | [src/simulation/SimulationTransport.cpp](../../src/simulation/SimulationTransport.cpp) | [simulation](simulation.md) |
@@ -37,10 +42,11 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_api | micro_robot_common |
 | micro_robot_transport_api | micro_robot_common |
 | micro_robot_world | micro_robot_common |
+| micro_robot_logging | micro_robot_common |
 | micro_robot_simulation | camera and transport API targets |
-| micro_robot_desktop_controller | camera API, transport API, world, Qt6::Core |
+| micro_robot_desktop_controller | camera API, transport API, world, logging, Qt6::Core |
 | micro_robot_ui | controller, Qt6::Widgets |
-| micro_robot_desktop | UI, simulation |
+| micro_robot_desktop | UI, simulation, logging |
 
 See [root configuration](../../CMakeLists.txt) and [test targets](../../tests/CMakeLists.txt).
 Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
@@ -48,9 +54,10 @@ Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 ## Implementation limits
 
 Only common types, asynchronous camera/transport contracts, deterministic fakes,
-robot pose storage, and a Qt simulation window are implemented. There are no
-vision, calibration, tracking, planning, supervisory controller, physical BLE,
-Zigbee, replay decoding, settings loader, or structured logging modules. OpenCV
+robot pose storage, human-readable application logging, and a Qt simulation
+window are implemented. There are no vision, calibration, tracking, planning,
+supervisory controller, physical BLE, Zigbee, replay decoding, settings loader,
+or structured measurement-recording modules. OpenCV
 and other proposed dependencies are absent from current CMake targets. The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.
 

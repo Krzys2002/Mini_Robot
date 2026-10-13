@@ -32,6 +32,16 @@ add_library(micro_robot_world STATIC
 target_link_libraries(micro_robot_world PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_world)
 
+add_library(micro_robot_logging STATIC
+    infrastructure/logging/LogRecord.hpp
+    infrastructure/logging/Logger.hpp
+    infrastructure/logging/Logger.cpp
+    infrastructure/logging/LogSinks.hpp
+    infrastructure/logging/LogSinks.cpp
+)
+target_link_libraries(micro_robot_logging PUBLIC micro_robot_common)
+micro_robot_target_defaults(micro_robot_logging)
+
 add_library(micro_robot_simulation STATIC
     simulation/FakeCameraSource.hpp
     simulation/FakeCameraSource.cpp
@@ -50,7 +60,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     )
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
-        micro_robot_camera_api micro_robot_transport_api micro_robot_world Qt6::Core
+        micro_robot_camera_api micro_robot_transport_api micro_robot_world micro_robot_logging
+        Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
 
@@ -64,7 +75,12 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_target_defaults(micro_robot_ui)
 
     add_executable(micro_robot_desktop WIN32 MACOSX_BUNDLE app/main.cpp)
-    target_link_libraries(micro_robot_desktop PRIVATE micro_robot_ui micro_robot_simulation)
+    target_link_libraries(micro_robot_desktop PRIVATE
+        micro_robot_ui micro_robot_simulation micro_robot_logging
+    )
+    target_compile_definitions(micro_robot_desktop PRIVATE
+        MICRO_ROBOT_VERSION="${PROJECT_VERSION}"
+    )
     set_target_properties(micro_robot_desktop PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME "Micro Robot"
         MACOSX_BUNDLE_GUI_IDENTIFIER "org.microrobot.desktop"
