@@ -9,6 +9,7 @@
 - [WorldModel](world-model.md): registration, timestamp ordering, and snapshots.
 - [Simulation](simulation.md): virtual time and deterministic fake behavior.
 - [Desktop demo](desktop-demo.md): controls, composition, and shutdown.
+- [Logging](logging.md): logger/channel API, record format, sinks, and log file location.
 - [Milestone roadmap](../planning/MILESTONES.md): planned capability progression.
 - [Build and test guide](../development/testing.md): command-line verification.
 

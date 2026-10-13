@@ -2,20 +2,50 @@
 #include "app/DesktopController.hpp"
 #include "app/CameraDiscoveryController.hpp"
 #include "camera/QtCameraDeviceDiscovery.hpp"
+#include "infrastructure/logging/LogSinks.hpp"
+#include "infrastructure/logging/Logger.hpp"
 #include "simulation/FakeCameraSource.hpp"
 #include "simulation/SimulationTransport.hpp"
 
 #include <QApplication>
+#include <QDir>
+#include <QStandardPaths>
 #include <QTimer>
 
+#include <filesystem>
+#include <iostream>
 #include <memory>
+#include <string>
 
 int main(int argc, char* argv[])
 {
     QApplication application(argc, argv);
     QApplication::setApplicationName(QStringLiteral("Micro Robot"));
+    QApplication::setApplicationVersion(QStringLiteral(MICRO_ROBOT_VERSION));
 
     using namespace micro_robot;
+    // The logger is declared first so that it outlives every module that logs.
+    // Records go to stderr and are appended to a per-user log file.
+    Logger logger{LogLevel::Info};
+    logger.addSink(std::make_shared<StreamLogSink>(std::clog));
+    const auto logPath = QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
+        .filePath(QStringLiteral("logs/micro_robot.log"));
+    const auto logPathUtf8 = logPath.toUtf8();
+    const auto logFile = std::make_shared<FileLogSink>(
+        std::filesystem::path{std::u8string(logPathUtf8.begin(), logPathUtf8.end())});
+    const auto appLog = logger.channel("app");
+    const auto displayedLogPath = QDir::toNativeSeparators(logPath).toStdString();
+    if (logFile->isOpen()) {
+        logger.addSink(logFile);
+    }
+    appLog.info("Application starting (version " + QApplication::applicationVersion().toStdString()
+        + ")");
+    if (logFile->isOpen()) {
+        appLog.info("Log file: " + displayedLogPath);
+    } else {
+        appLog.warning("File logging disabled; cannot open " + displayedLogPath);
+    }
+
     // Composition root alone chooses concrete implementations. Declaration order
     // keeps sources/model alive until after the controller detaches its event sink.
     auto camera = std::make_unique<FakeCameraSource>();
@@ -23,7 +53,8 @@ int main(int argc, char* argv[])
     QtCameraDeviceDiscovery cameraDiscovery;
     CameraDiscoveryController discoveryController{cameraDiscovery};
     WorldModel world;
-    DesktopController controller{*camera, *transport, world, RobotId{1}};
+    DesktopController controller{*camera, *transport, world, RobotId{1},
+                                 logger.channel("controller")};
     MainWindow window{controller};
     QObject::connect(&discoveryController,
         &CameraDiscoveryController::cameraDevicesDescriptionChanged,
@@ -46,6 +77,7 @@ int main(int argc, char* argv[])
         }
     });
     QObject::connect(&application, &QCoreApplication::aboutToQuit, &window, [&] {
+        appLog.info("Application shutting down");
         simulationTimer.stop();
         controller.shutdown();
         const auto now = MonotonicClock::now();
@@ -57,6 +89,9 @@ int main(int argc, char* argv[])
     discoveryController.initialize();
     window.show();
     simulationTimer.start();
+    appLog.info("Application started");
 
-    return application.exec();
+    const int exitCode = application.exec();
+    appLog.info("Application shutdown complete (exit code " + std::to_string(exitCode) + ")");
+    return exitCode;
 }

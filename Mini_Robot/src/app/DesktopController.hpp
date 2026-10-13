@@ -1,6 +1,7 @@
 #pragma once
 
 #include "camera/ICameraSource.hpp"
+#include "infrastructure/logging/Logger.hpp"
 #include "transport/IRobotTransport.hpp"
 #include "world/WorldModel.hpp"
 
@@ -13,12 +14,14 @@ namespace micro_robot {
 
 // Qt application adapter. Dependencies must outlive the controller; all calls and
 // backend callbacks run on its owning thread. No concrete backend or widgets here.
+// Lifecycle, camera/connection state changes, and backend errors are logged to `log`.
 class DesktopController final : public QObject {
     Q_OBJECT
 
 public:
     DesktopController(ICameraSource& camera, IRobotTransport& transport,
-                      WorldModel& world, RobotId robotId, QObject* parent = nullptr);
+                      WorldModel& world, RobotId robotId, LogChannel log,
+                      QObject* parent = nullptr);
     ~DesktopController() override;
 
     void initialize(Timestamp now);
@@ -56,6 +59,7 @@ private:
     IRobotTransport& transport_;
     WorldModel& world_;
     RobotId robotId_;
+    LogChannel log_;
     std::shared_ptr<EventSink> events_;
     Timestamp startedAt_{};
     bool initialized_{};

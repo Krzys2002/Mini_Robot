@@ -1,5 +1,6 @@
 #include "app/CameraDiscoveryController.hpp"
 #include "app/DesktopController.hpp"
+#include "infrastructure/logging/Logger.hpp"
 #include "ui/MainWindow.hpp"
 #include "simulation/FakeCameraSource.hpp"
 #include "simulation/SimulationTransport.hpp"
@@ -34,12 +35,13 @@ private:
 };
 
 struct DiscoveryFixture {
+    Logger logger; // Outlives the controller's non-owning log channel.
     ManualDiscovery discovery;
     CameraDiscoveryController presenter{discovery};
     FakeCameraSource camera;
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}};
+    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
 
     DiscoveryFixture()

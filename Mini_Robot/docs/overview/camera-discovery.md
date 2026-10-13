@@ -54,8 +54,9 @@ steady-clock milliseconds. From Mini_Robot after the Debug recipe in
 QT_LOGGING_RULES='micro_robot.camera.discovery.info=true' ./build/debug/src/micro_robot_desktop.app/Contents/MacOS/micro_robot_desktop
 ```
 
-This category is issue-scoped diagnostics, not the future application-wide
-structured logging/configuration subsystem. No camera buffers or images are logged.
+This category is issue-scoped Qt diagnostics, separate from the
+[application Logger](logging.md) and its file sink. It does not provide structured
+experiment measurements or configuration. No camera buffers or images are logged.
 
 ## macOS and verification
 
