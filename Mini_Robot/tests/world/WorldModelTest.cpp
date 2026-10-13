@@ -5,11 +5,58 @@
 #include <chrono>
 #include <limits>
 #include <numbers>
+#include <type_traits>
 
 namespace micro_robot {
 namespace {
 
 using namespace std::chrono_literals;
+
+TEST(WorldModelTest, AuthoritativeRegistryCannotBeCopiedOrMovedButSnapshotsCan)
+{
+    EXPECT_FALSE(std::is_copy_constructible_v<WorldModel>);
+    EXPECT_FALSE(std::is_copy_assignable_v<WorldModel>);
+    EXPECT_FALSE(std::is_move_constructible_v<WorldModel>);
+    EXPECT_FALSE(std::is_move_assignable_v<WorldModel>);
+    EXPECT_TRUE(std::is_copy_constructible_v<WorldSnapshot>);
+    EXPECT_TRUE(std::is_copy_assignable_v<WorldSnapshot>);
+    EXPECT_TRUE(std::is_move_constructible_v<WorldSnapshot>);
+    EXPECT_TRUE(std::is_move_assignable_v<WorldSnapshot>);
+}
+
+TEST(WorldModelTest, RejectedUpdateDoesNotAffectAnotherRobotsStateOrOrdering)
+{
+    WorldModel world;
+    const RobotId first{1};
+    const RobotId second{2};
+    ASSERT_TRUE(world.registerRobot(first, Timestamp{1s}));
+    ASSERT_TRUE(world.registerRobot(second, Timestamp{2s}));
+    ASSERT_EQ(world.updatePose(first, {Meters{1.0}, Meters{2.0}, Radians{0.5}},
+                              Timestamp{10s}), PoseUpdateResult::Applied);
+    ASSERT_EQ(world.updatePose(second, {Meters{3.0}, Meters{4.0}, Radians{-0.5}},
+                              Timestamp{3s}), PoseUpdateResult::Applied);
+
+    EXPECT_EQ(world.updatePose(first, Pose2D{}, Timestamp{9s}),
+              PoseUpdateResult::StaleTimestamp);
+    // A later accepted update for the second robot may still precede the first's.
+    EXPECT_EQ(world.updatePose(second, {Meters{5.0}, Meters{6.0}, Radians{1.0}},
+                              Timestamp{4s}), PoseUpdateResult::Applied);
+    const auto firstState = world.robot(first);
+    const auto secondState = world.robot(second);
+    ASSERT_TRUE(firstState && firstState->pose);
+    ASSERT_TRUE(secondState && secondState->pose);
+    EXPECT_EQ(firstState->registeredAt, Timestamp{1s});
+    EXPECT_EQ(firstState->poseUpdatedAt, Timestamp{10s});
+    EXPECT_DOUBLE_EQ(firstState->pose->x.value, 1.0);
+    EXPECT_DOUBLE_EQ(firstState->pose->y.value, 2.0);
+    EXPECT_DOUBLE_EQ(firstState->pose->heading.value, 0.5);
+    EXPECT_EQ(secondState->registeredAt, Timestamp{2s});
+    EXPECT_EQ(secondState->poseUpdatedAt, Timestamp{4s});
+    EXPECT_DOUBLE_EQ(secondState->pose->x.value, 5.0);
+    EXPECT_DOUBLE_EQ(secondState->pose->y.value, 6.0);
+    EXPECT_DOUBLE_EQ(secondState->pose->heading.value, 1.0);
+    EXPECT_EQ(world.robotCount(), 2U);
+}
 
 TEST(WorldModelTest, EmptyRegistryAndUnknownRobotAreExplicit)
 {

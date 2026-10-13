@@ -13,8 +13,18 @@ enum class PoseUpdateResult { Applied, UnknownRobot, StaleTimestamp, InvalidPose
 // One authoritative registry, used on its owning thread. No background work,
 // automatic clock reads, filtering, communication, capture, or rendering.
 // Snapshot copies may be handed off to other threads through the application.
+// The composition root owns one instance and injects references into services.
+// Copying/moving the registry is forbidden; use snapshot() for detached state.
+// Future workspace/obstacle/task domain storage belongs here, with corresponding
+// value fields in WorldSnapshot, rather than separate authoritative registries.
 class WorldModel final {
 public:
+    WorldModel() = default;
+    WorldModel(const WorldModel&) = delete;
+    WorldModel& operator=(const WorldModel&) = delete;
+    WorldModel(WorldModel&&) = delete;
+    WorldModel& operator=(WorldModel&&) = delete;
+
     // False for an existing ID; duplicates never reset its pose or timestamps.
     [[nodiscard]] bool registerRobot(RobotId id, Timestamp registeredAt);
     [[nodiscard]] bool removeRobot(RobotId id);

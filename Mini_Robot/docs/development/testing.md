@@ -1,5 +1,8 @@
 # GoogleTest and CTest
 
+Source: [test targets](../../tests/CMakeLists.txt) and
+[offscreen UI entry point](../../tests/main.cpp).
+
 Configure with `-DBUILD_TESTING=ON` (the default) to build the GoogleTest
 executables in `tests/`. They are separate from `micro_robot_desktop`; running
 domain tests does not start the application or require physical hardware.
@@ -28,16 +31,34 @@ selection rather than reporting successful verification with no tests run.
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
+| `micro_robot_camera_tests` | none | Packed frame validation, malformed metadata, storage and overflow checks |
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
 | `micro_robot_simulation_tests` | `core` | Deterministic backends and substitution |
 | `micro_robot_world_tests` | `core` | World registry and pose update rules |
 | `micro_robot_logging_tests` | `core` | Log formatting, levels, channels, sink failures, file sink |
 | `micro_robot_tests` | `ui` | Offscreen Qt window and controller integration |
 
+The camera suite currently has no CTest label; `-L core` does not include it.
+Use unfiltered CTest for all suites, or add a separate `-R '^CameraFrameTest\.'`
+selection when testing by label.
+
 Core executables link domain libraries and `GTest::gtest_main`, without Qt or a
 `QApplication`. The UI executable has its own test entry point using GoogleTest
 and an offscreen `QApplication`; it is built only when
 `MICRO_ROBOT_BUILD_DESKTOP=ON`.
+
+World tests cover insert/query/update/removal, unknown poses, duplicate IDs,
+finite-pose validation, per-robot timestamp ordering (including rejected updates),
+detached query/snapshot values, and the non-copyable authoritative model contract.
+Run only this suite with:
+
+```sh
+ctest --test-dir build -R '^WorldModelTest\.' --output-on-failure --no-tests=error
+```
+
+Issue #45 requires no manual camera/BLE checks: its domain model has no hardware
+dependencies. Desktop integration tests verify its existing controller consumers;
+a Qt-free build verifies that the world target remains independent of Qt.
 
 Select suites or individual cases:
 
@@ -59,6 +80,39 @@ to the build command and `-C Debug` to CTest. Direct execution uses the selected
 configuration's subdirectory, for example
 `build/tests/Debug/micro_robot_common_tests.exe` on Windows.
 
+## macOS continuous integration
+
+The repository-level `.github/workflows/macos-build-test.yml` runs when a pull
+request is opened, reopened, or updated with new commits. Its `macOS Apple Silicon / Debug`
+job uses the `macos-15` runner and the default AppleClang toolchain. It checks out
+the repository with read-only permissions and without persisted credentials,
+installs CMake/Ninja/Qt using Homebrew, configures the desktop and tests explicitly,
+builds all targets, and runs every CTest case (including offscreen Qt tests).
+
+Each run uses a fresh build directory with no workflow dependency/build cache.
+GoogleTest is resolved through the existing CMake package lookup or pinned
+FetchContent fallback. No secrets or developer-specific paths are required.
+The Qt prefix comes from `brew --prefix qt`, and commands run in `Mini_Robot`
+relative to the checkout. Configure/build/test failures fail the job; CTest also
+fails if no tests are discovered. Logs are available in the repository's Actions
+tab and the pull request checks. New runs cancel superseded runs for the same ref.
+Push and manual triggers are omitted to avoid duplicate runs for PR branches.
+
+To run the same commands locally on macOS, start in `Mini_Robot` with a fresh
+`build/ci` directory and installed Xcode Command Line Tools:
+
+```sh
+brew install cmake ninja qt
+cmake -S . -B build/ci -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DMICRO_ROBOT_BUILD_DESKTOP=ON -DBUILD_TESTING=ON \
+  -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+cmake --build build/ci --parallel 3
+ctest --test-dir build/ci --output-on-failure --no-tests=error
+```
+
+This workflow verifies compilation and automated tests, without camera/BLE
+hardware or deployment packaging. Windows CI is separate Issue #106.
+
 ## Qt-free verification
 
 Use a separate build directory to verify the core without discovering Qt:
@@ -67,7 +121,7 @@ Use a separate build directory to verify the core without discovering Qt:
 cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DMICRO_ROBOT_BUILD_DESKTOP=OFF -DBUILD_TESTING=ON
 cmake --build build/core --parallel
-ctest --test-dir build/core -L core --output-on-failure --no-tests=error
+ctest --test-dir build/core --output-on-failure --no-tests=error
 ```
 
 ## Adding tests

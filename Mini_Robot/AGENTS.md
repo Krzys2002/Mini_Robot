@@ -13,8 +13,11 @@ Primary platform:
 - Qt 6;
 - CMake.
 
-Required secondary platform:
-- Windows with the same core source tree.
+Required additional platforms:
+- Linux (Ubuntu LTS reference environment), supported from the earliest M1 foundation work;
+- Windows with the same core source tree (retain as a project target; do not imply Windows validation has already been completed).
+
+Cross-platform policy: develop on macOS, but do not introduce changes that knowingly break Linux. Keep Linux compilation and headless tests in CI as early as practical. Hardware-dependent capabilities may be verified separately.
 
 Robot platform:
 - ESP32-C6;
@@ -85,6 +88,7 @@ Core application logic must not directly depend on:
 - ESP32 hardware;
 - Apple-only APIs;
 - Windows-only APIs;
+- Linux-only APIs;
 - concrete GUI widgets.
 
 Use abstractions such as:
@@ -358,6 +362,23 @@ Hardware-in-the-loop tests complement but do not replace unit/integration tests.
 ## 17. Build rules
 
 The project must build from the command line with CMake.
+
+### Early Linux compatibility requirements (M1)
+
+- Maintain one C++20/CMake/Qt6/OpenCV source tree for macOS and Linux; preserve the existing Windows portability goal.
+- Prefer portable CMake targets and `find_package()` over hardcoded Homebrew prefixes, macOS SDK paths, or Linux-specific include/library paths.
+- Use platform conditionals only at well-defined adapter/build boundaries; do not leak operating-system APIs into the domain core.
+- Validate Ubuntu LTS builds in GitHub Actions with GCC; include Clang validation when the corresponding Linux build issue is implemented. Continue macOS CI.
+- Run GoogleTest/CTest tests on Linux without cameras, Bluetooth adapters, or physical robots; use mock `ICameraSource` and `IRobotTransport` implementations.
+- Keep Qt6 GUI behavior portable; manually check startup, input, and scaling on Linux X11 and Wayland when GUI work is in scope. Headless CI alone does not prove GUI compatibility.
+- Keep camera selection behind `ICameraSource`: use OpenCV/V4L2 on Linux where appropriate and a supported native/OpenCV backend on macOS. Report unavailable devices and permission errors without crashing.
+- Keep BLE behind `IRobotTransport`; investigate Qt Bluetooth/BlueZ on Linux, but do not assume CI has Bluetooth hardware. Zigbee remains a separate future transport.
+- Use Qt or standard C++ facilities for paths, timers, threads, and configuration wherever practical.
+- Document reproducible Ubuntu LTS setup, dependencies, CMake build/test commands, camera permissions, and BlueZ requirements in `docs/development/linux-setup.md` when the documentation issue is implemented.
+- Track the Linux foundation work through LNX-01 to LNX-08: build, CI, abstraction boundaries, camera discovery, transport preparation, GUI verification, setup documentation, and regression tests. Follow each GitHub issue's scope and acceptance criteria; do not implement all eight as part of an unrelated issue.
+- Linux compatibility is an early requirement, not a reason to postpone core M1 features. Later milestones still own full hardware validation and packaging.
+
+### Build and verification workflow
 
 After meaningful changes:
 1. configure if required;
