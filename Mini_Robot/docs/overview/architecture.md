@@ -14,7 +14,7 @@ Windows remains a project target with deployment work assigned to M8.
 
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
-| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, application logging, tests, macOS CI. | Configuration loading, physical camera enumeration/selection/capture/preview, source recovery implementation, recorded-video decoding, and Ubuntu build/GUI validation. |
+| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, application logging, configuration loading, tests, macOS CI. | Physical camera enumeration/selection/capture/preview, source recovery implementation, recorded-video decoding, and Ubuntu build/GUI validation. |
 | M2 — Vision, Calibration & Robot Localization | Planned; metric Pose2D and timestamped frames are prerequisites already supplied by M1. | AprilTag detection, intrinsic/workspace calibration, image-to-world conversion, tracking, freshness/quality estimates, and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Planned; IRobotTransport and semantic commands/telemetry are M1 prerequisites. | Wire protocol/GATT, physical BLE, RobotManager, manual motion controls, E-stop, reconnect, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Planned; a stored demo pose is not closed-loop feedback. | Kinematics, supervisory scheduler/controller, target selection, command limits, tracking/connection safety transitions, and control experiments. |
@@ -134,10 +134,12 @@ adapters must asynchronously establish quiescence before destruction.
 ### M1 completion gaps
 
 The application foundation is runnable, but M1 exit criteria are not all met.
-There is no configuration-file loader or structured measurement recorder.
+There is no structured measurement recorder.
 [Application logging](logging.md) records startup, shutdown, controller state
 changes, and errors as human-readable lines; thesis measurements remain separate.
-Constructor parameters such as FakeCameraConfig are not a settings subsystem.
+[Configuration](configuration.md) is loaded once by the composition root from an
+optional INI file and injected into modules as typed values; per-camera
+calibration and workspace profiles are not implemented yet.
 Camera discovery/selection, live pixel preview, actual device disconnect/recovery,
 and recorded-video decoding are not implemented; interface and test-double
 support for those events is not physical backend verification.
