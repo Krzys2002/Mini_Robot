@@ -14,6 +14,7 @@ target_link_libraries(micro_robot_camera_api INTERFACE micro_robot_common)
 target_sources(micro_robot_camera_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/CameraTypes.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraSource.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraDeviceDiscovery.hpp"
 )
 
 add_library(micro_robot_transport_api INTERFACE)
@@ -62,9 +63,20 @@ target_link_libraries(micro_robot_simulation PUBLIC
 micro_robot_target_defaults(micro_robot_simulation)
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
+    add_library(micro_robot_camera_discovery STATIC
+        camera/QtCameraDeviceDiscovery.hpp
+        camera/QtCameraDeviceDiscovery.cpp
+    )
+    target_link_libraries(micro_robot_camera_discovery PUBLIC
+        micro_robot_camera_api Qt6::Multimedia
+    )
+    micro_robot_target_defaults(micro_robot_camera_discovery)
+
     add_library(micro_robot_desktop_controller STATIC
         app/DesktopController.hpp
         app/DesktopController.cpp
+        app/CameraDiscoveryController.hpp
+        app/CameraDiscoveryController.cpp
     )
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
@@ -84,7 +96,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
 
     add_executable(micro_robot_desktop WIN32 MACOSX_BUNDLE app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
-        micro_robot_ui micro_robot_simulation micro_robot_logging micro_robot_configuration
+        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery
+        micro_robot_logging micro_robot_configuration
     )
     target_compile_definitions(micro_robot_desktop PRIVATE
         MICRO_ROBOT_VERSION="${PROJECT_VERSION}"
@@ -94,6 +107,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         MACOSX_BUNDLE_GUI_IDENTIFIER "org.microrobot.desktop"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/app/Info.plist.in"
     )
     micro_robot_target_defaults(micro_robot_desktop)
 endif()

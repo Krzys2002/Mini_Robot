@@ -10,14 +10,19 @@ one level above it in the repository's `.github` directory.
 
 - A C++20 compiler and CMake 3.24 or newer.
 - Ninja for the examples below; other CMake generators may also be used.
-- Qt 6 Widgets for the desktop build. Qt Core is used by the controller.
+- Qt 6 Widgets and Multimedia for the desktop build. Qt Core is used by the
+  application controllers; Multimedia is isolated in the device-discovery adapter.
 - GoogleTest when BUILD_TESTING is ON (the default). CMake first uses an installed
   GTest CONFIG package, then downloads pinned GoogleTest 1.17.0 if unavailable.
 
 The current source does not discover or link OpenCV, Eigen, spdlog, JSON,
-Qt Multimedia, Qt Bluetooth, or network libraries. They are planned dependencies,
+Qt Bluetooth, or network libraries. They are planned dependencies,
 not prerequisites for today's simulation demo. The optional runtime settings file is
 described in [Application configuration](../overview/configuration.md).
+
+Qt Multimedia supplies read-only [system camera discovery](../overview/camera-discovery.md).
+It does not enable physical capture or replace the fake source. Install this
+component from the same Qt distribution/version as Widgets.
 
 ## macOS
 
@@ -41,7 +46,8 @@ The current [macOS CI](testing.md#macos-continuous-integration) uses Debug only.
 The [Ubuntu setup guide](linux-setup.md) provides GCC/Clang and headless recipes
 for the current source, with explicit verification limits.
 
-For Windows, install a C++20 toolchain, CMake, and Qt 6 built for that toolchain.
+For Windows, install a C++20 toolchain, CMake, and Qt 6 Widgets/Multimedia
+built for that toolchain.
 Run from its developer terminal and pass the matching Qt prefix:
 
 ```sh

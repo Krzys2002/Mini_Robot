@@ -5,11 +5,17 @@ reports are scope/history, not evidence that future modules are present.
 
 | Source file | Behavior guide |
 | --- | --- |
+| [src/app/CameraDiscoveryController.cpp](../../src/app/CameraDiscoveryController.cpp) | [Discovery presentation](camera-discovery.md) |
+| [src/app/CameraDiscoveryController.hpp](../../src/app/CameraDiscoveryController.hpp) | [Discovery presentation](camera-discovery.md) |
+| [src/app/Info.plist.in](../../src/app/Info.plist.in) | [macOS discovery metadata](camera-discovery.md#macos-and-verification) |
 | [src/app/DesktopController.cpp](../../src/app/DesktopController.cpp) | [app](desktop-demo.md) |
 | [src/app/DesktopController.hpp](../../src/app/DesktopController.hpp) | [app](desktop-demo.md) |
 | [src/app/main.cpp](../../src/app/main.cpp) | [app](desktop-demo.md) |
 | [src/camera/CameraTypes.hpp](../../src/camera/CameraTypes.hpp) | [camera](camera-source.md) |
 | [src/camera/ICameraSource.hpp](../../src/camera/ICameraSource.hpp) | [camera](camera-source.md) |
+| [src/camera/ICameraDeviceDiscovery.hpp](../../src/camera/ICameraDeviceDiscovery.hpp) | [Discovery contract](camera-discovery.md) |
+| [src/camera/QtCameraDeviceDiscovery.cpp](../../src/camera/QtCameraDeviceDiscovery.cpp) | [Qt discovery adapter](camera-discovery.md) |
+| [src/camera/QtCameraDeviceDiscovery.hpp](../../src/camera/QtCameraDeviceDiscovery.hpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/common/Pose2D.hpp](../../src/common/Pose2D.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/RobotId.hpp](../../src/common/RobotId.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Time.hpp](../../src/common/Time.hpp) | [common](architecture.md#domain-conventions) |
@@ -44,13 +50,14 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_common | C++20 headers only |
 | micro_robot_camera_api | micro_robot_common |
 | micro_robot_transport_api | micro_robot_common |
+| micro_robot_camera_discovery | camera API, Qt6::Multimedia |
 | micro_robot_world | micro_robot_common |
 | micro_robot_logging | micro_robot_common |
 | micro_robot_configuration | micro_robot_common, micro_robot_logging |
 | micro_robot_simulation | camera and transport API targets |
 | micro_robot_desktop_controller | camera API, transport API, world, logging, Qt6::Core |
 | micro_robot_ui | controller, Qt6::Widgets |
-| micro_robot_desktop | UI, simulation, logging, configuration |
+| micro_robot_desktop | UI, simulation, camera discovery, logging, configuration |
 
 See [root configuration](../../CMakeLists.txt) and [test targets](../../tests/CMakeLists.txt).
 Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
@@ -58,10 +65,12 @@ Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 ## Implementation limits
 
 Only common types, asynchronous camera/transport contracts, deterministic fakes,
-robot pose storage, human-readable application logging, INI configuration
-loading, and a Qt simulation window are implemented. There are no vision,
+robot pose storage, read-only system device discovery, human-readable application
+logging, INI configuration loading, and a Qt simulation window are implemented.
+Discovery diagnostics use a separate Qt logging category. There are no vision,
 calibration, tracking, planning, supervisory controller, physical BLE, Zigbee,
-replay decoding, or structured measurement-recording modules. OpenCV
+replay decoding, or structured measurement-recording modules. Qt Multimedia is
+used only by the concrete discovery adapter; OpenCV
 and other proposed dependencies are absent from current CMake targets. The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.
 

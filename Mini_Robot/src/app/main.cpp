@@ -1,5 +1,7 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
+#include "app/CameraDiscoveryController.hpp"
+#include "camera/QtCameraDeviceDiscovery.hpp"
 #include "infrastructure/configuration/ConfigLoader.hpp"
 #include "infrastructure/logging/LogSinks.hpp"
 #include "infrastructure/logging/Logger.hpp"
@@ -97,11 +99,16 @@ int main(int argc, char* argv[])
     cameraConfig.frameInterval = config.simulation.cameraFrameInterval;
     auto camera = std::make_unique<FakeCameraSource>(cameraConfig);
     auto transport = std::make_unique<SimulationTransport>();
+    QtCameraDeviceDiscovery cameraDiscovery;
+    CameraDiscoveryController discoveryController{cameraDiscovery};
     WorldModel world;
     const RobotId robotId = config.robot.id;
     DesktopController controller{*camera, *transport, world, robotId,
                                  logger.channel("controller")};
     MainWindow window{controller};
+    QObject::connect(&discoveryController,
+        &CameraDiscoveryController::cameraDevicesDescriptionChanged,
+        &window, &MainWindow::setCameraDevicesDescription);
     QTimer simulationTimer;
     simulationTimer.setInterval(config.simulation.updateInterval);
 
@@ -129,6 +136,7 @@ int main(int argc, char* argv[])
     });
 
     controller.initialize(MonotonicClock::now());
+    discoveryController.initialize();
     window.show();
     simulationTimer.start();
     appLog.info("Application started");

@@ -9,12 +9,13 @@ proof that all Linux acceptance criteria (#125–#132) have been satisfied.
 
 ```sh
 sudo apt update
-sudo apt install build-essential clang cmake ninja-build qt6-base-dev libgtest-dev
+sudo apt install build-essential clang cmake ninja-build qt6-base-dev qt6-multimedia-dev libgtest-dev
 ```
 
 Package names are documented by Ubuntu's official catalog:
 [CMake](https://packages.ubuntu.com/noble/cmake),
-[Qt 6 development files](https://packages.ubuntu.com/noble/qt6-base-dev), and
+[Qt 6 development files](https://packages.ubuntu.com/noble/qt6-base-dev),
+[Qt Multimedia development files](https://packages.ubuntu.com/noble/qt6-multimedia-dev), and
 [GoogleTest development files](https://packages.ubuntu.com/noble/libgtest-dev).
 Some packages are in Ubuntu's universe component; enable that component if apt
 cannot locate them. Check `cmake --version` (minimum 3.24) and compiler support
@@ -52,8 +53,10 @@ ctest --test-dir build/linux-core --output-on-failure --no-tests=error
 ## Planned camera and BLE dependencies
 
 OpenCV and BlueZ are not used by current [source targets](../../src/CMakeLists.txt),
-so installing them will not enable hardware. Camera enumeration/V4L2, configurable
-capture, and permission handling belong to #128; Qt Bluetooth/BlueZ integration
+so installing them will not enable capture or BLE. Qt Multimedia now queries
+the system camera inventory through [the discovery adapter](../overview/camera-discovery.md);
+Linux device visibility/hotplug has not been tested. V4L2 capture, configurable
+resolution, and permission handling belong to #128; Qt Bluetooth/BlueZ integration
 belongs to #129. Those issues must select and document their exact packages.
 
 Camera adapters will need to report missing devices and permissions for
