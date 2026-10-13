@@ -113,7 +113,10 @@ terminal failures and recovery, but current production capture is fake only.
 submission, and connection/telemetry/error events. Commands contain Stop or
 velocity intent with local issue time and positive validity duration. Telemetry
 has optional measurements and local receipt time. Submission is not confirmation
-of execution. Radio identities, packet encoding, protocol counters, and device
+of execution. Commands/telemetry reserve a domain schema version and optional
+sequence metadata without wire-ordering or acknowledgement semantics. Unsupported
+domain command versions report an error; metadata handling stays outside widgets.
+Radio identities, packet encoding, protocol sequence allocation, and device
 clock conversion belong to future adapters.
 
 ### Simulation and authoritative state
