@@ -5,6 +5,7 @@ The current M1 foundation uses a fake camera and simulated robot transport; no
 physical hardware is required. M1 is not yet complete.
 
 For controls and shutdown behavior, see the [desktop demo guide](docs/overview/desktop-demo.md).
+For log output and the log file location, see [application logging](docs/overview/logging.md).
 For platform setup and troubleshooting, see [build setup](docs/development/build.md).
 
 ## Prerequisites
@@ -43,7 +44,7 @@ redistributable bundle.
 
 ## Core-only build
 
-Build and test the domain types, interfaces, simulation, and WorldModel without Qt:
+Build and test the domain types, interfaces, simulation, WorldModel, and logging without Qt:
 
 ```sh
 cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug \
