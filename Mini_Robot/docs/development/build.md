@@ -17,7 +17,8 @@ one level above it in the repository's `.github` directory.
 
 The current source does not discover or link OpenCV, Eigen, spdlog, JSON,
 Qt Bluetooth, or network libraries. They are planned dependencies,
-not prerequisites for today's simulation demo. No runtime settings file exists.
+not prerequisites for today's simulation demo. The optional runtime settings file is
+described in [Application configuration](../overview/configuration.md).
 
 Qt Multimedia supplies read-only [system camera discovery](../overview/camera-discovery.md).
 It does not enable physical capture or replace the fake source. Install this

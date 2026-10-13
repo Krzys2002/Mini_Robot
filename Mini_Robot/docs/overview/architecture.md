@@ -14,7 +14,7 @@ Windows remains a project target with deployment work assigned to M8.
 
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
-| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, read-only system camera discovery, application logging, tests, macOS CI. | Configuration loading, USB discovery/hotplug acceptance, camera selection/capture/preview, source recovery implementation, recorded-video decoding, and Ubuntu build/GUI validation. |
+| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, read-only system camera discovery, application logging, configuration loading, tests, macOS CI. | USB discovery/hotplug acceptance, camera selection/capture/preview, source recovery implementation, recorded-video decoding, and Ubuntu build/GUI validation. |
 | M2 — Vision, Calibration & Robot Localization | Planned; metric Pose2D and timestamped frames are prerequisites already supplied by M1. | AprilTag detection, intrinsic/workspace calibration, image-to-world conversion, tracking, freshness/quality estimates, and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Planned; IRobotTransport and semantic commands/telemetry are M1 prerequisites. | Wire protocol/GATT, physical BLE, RobotManager, manual motion controls, E-stop, reconnect, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Planned; a stored demo pose is not closed-loop feedback. | Kinematics, supervisory scheduler/controller, target selection, command limits, tracking/connection safety transitions, and control experiments. |
@@ -41,6 +41,8 @@ The current layers are:
   depending only on common types.
 - `micro_robot_logging`: Qt-free, thread-safe application logger with per-module
   channels and stream/file sinks, depending only on common types.
+- `micro_robot_configuration`: Qt-free INI loading and validation, depending on
+  common types and logging; the composition root injects typed settings.
 - `micro_robot_simulation`: deterministic implementations of the camera and
   transport interfaces; no Qt, physical hardware, or network dependency.
 - `micro_robot_desktop_controller`: Qt Core adapters using interface references;
@@ -78,7 +80,8 @@ flowchart LR
 ```
 
 [main.cpp](../../src/app/main.cpp) owns the backends, model, controller, window,
-and 100 ms timer. Startup registers Robot 1 with an unknown pose and leaves the
+and the configured simulation timer (100 ms by default). Startup registers the
+configured robot ID (1 by default) with an unknown pose and leaves the
 camera stopped and transport disconnected. While connected, composition supplies
 a static pose (0.25 m, 0.15 m, 0 rad). This happens independently of frame events
 and remains active when the fake camera is stopped. Telemetry does not update pose.
@@ -156,12 +159,14 @@ adapters must asynchronously establish quiescence before destruction.
 The application foundation is runnable, but M1 exit criteria are not all met.
 System camera enumeration is implemented: the production adapter detected a Mac
 internal camera and an exposed iPhone camera on the validation host. USB-camera
-visibility and physical hotplug remain unverified. There is no configuration-file
-loader or structured measurement recorder. [Application logging](logging.md)
-records startup, shutdown, controller state changes, and errors as human-readable
-lines; thesis measurements remain separate. Discovery retains its own Qt logging
-category, separate from the application's Logger channels and file sink.
-Constructor parameters such as FakeCameraConfig are not a settings subsystem.
+visibility and physical hotplug remain unverified. There is no structured
+measurement recorder. [Application logging](logging.md) records startup,
+shutdown, controller state changes, and errors as human-readable lines; thesis
+measurements remain separate. Discovery retains its own Qt logging category,
+separate from the application's Logger channels and file sink.
+[Configuration](configuration.md) is loaded once by the composition root from an
+optional INI file and injected into modules as typed values; per-camera
+calibration and workspace profiles are not implemented yet.
 Camera selection, live pixel preview, actual capture-device disconnect/recovery,
 and recorded-video decoding are not implemented; interface and test-double
 support for those events is not physical backend verification.

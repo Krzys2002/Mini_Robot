@@ -43,6 +43,14 @@ add_library(micro_robot_logging STATIC
 target_link_libraries(micro_robot_logging PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_logging)
 
+add_library(micro_robot_configuration STATIC
+    infrastructure/configuration/ApplicationConfig.hpp
+    infrastructure/configuration/ConfigLoader.hpp
+    infrastructure/configuration/ConfigLoader.cpp
+)
+target_link_libraries(micro_robot_configuration PUBLIC micro_robot_common micro_robot_logging)
+micro_robot_target_defaults(micro_robot_configuration)
+
 add_library(micro_robot_simulation STATIC
     simulation/FakeCameraSource.hpp
     simulation/FakeCameraSource.cpp
@@ -88,7 +96,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
 
     add_executable(micro_robot_desktop WIN32 MACOSX_BUNDLE app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
-        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery micro_robot_logging
+        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery
+        micro_robot_logging micro_robot_configuration
     )
     target_compile_definitions(micro_robot_desktop PRIVATE
         MICRO_ROBOT_VERSION="${PROJECT_VERSION}"
