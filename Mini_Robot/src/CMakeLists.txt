@@ -42,6 +42,14 @@ add_library(micro_robot_logging STATIC
 target_link_libraries(micro_robot_logging PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_logging)
 
+add_library(micro_robot_configuration STATIC
+    infrastructure/configuration/ApplicationConfig.hpp
+    infrastructure/configuration/ConfigLoader.hpp
+    infrastructure/configuration/ConfigLoader.cpp
+)
+target_link_libraries(micro_robot_configuration PUBLIC micro_robot_common micro_robot_logging)
+micro_robot_target_defaults(micro_robot_configuration)
+
 add_library(micro_robot_simulation STATIC
     simulation/FakeCameraSource.hpp
     simulation/FakeCameraSource.cpp
