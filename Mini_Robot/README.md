@@ -1,8 +1,11 @@
 # Micro-Robot Swarm Desktop
 
 C++20 / Qt 6 desktop application for the micro-robot swarm project.
-Phase 0 uses a fake camera and simulated robot transport; no physical hardware
-is required.
+The current M1 foundation uses a fake camera and simulated robot transport; no
+physical hardware is required. M1 is not yet complete.
+
+For controls and shutdown behavior, see the [desktop demo guide](docs/overview/desktop-demo.md).
+For platform setup and troubleshooting, see [build setup](docs/development/build.md).
 
 ## Prerequisites
 
@@ -22,7 +25,7 @@ Run these commands from the `Mini_Robot` directory:
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+ctest --test-dir build --output-on-failure --no-tests=error
 ```
 
 If CMake cannot find Qt, add `-DCMAKE_PREFIX_PATH=/path/to/your/Qt/installation`
@@ -46,11 +49,16 @@ Build and test the domain types, interfaces, simulation, and WorldModel without 
 cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DMICRO_ROBOT_BUILD_DESKTOP=OFF -DBUILD_TESTING=ON
 cmake --build build/core --parallel
-ctest --test-dir build/core --output-on-failure
+ctest --test-dir build/core --output-on-failure --no-tests=error
 ```
 
 For selecting suites, running an individual test executable, and adding tests,
-see [docs/testing.md](docs/testing.md).
+see [the testing guide](docs/development/testing.md).
 The macOS build/test workflow runs on pull requests and their new commits; its local
-equivalent commands are in [macOS continuous integration](docs/testing.md#macos-continuous-integration).
-For architectural details, see [docs/architecture.md](docs/architecture.md).
+equivalent commands are in [macOS continuous integration](docs/development/testing.md#macos-continuous-integration).
+For architectural details, see [the architecture overview](docs/overview/architecture.md).
+
+## Documentation
+
+See the [documentation index](docs/README.md) for project overviews, planning,
+development guides, and archived historical records.

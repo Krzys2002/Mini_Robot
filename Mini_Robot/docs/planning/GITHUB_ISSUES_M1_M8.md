@@ -2,7 +2,7 @@
 
 Project: **Design and implementation of a control system for a micro-robot swarm using external visual feedback**
 
-This catalog is written as implementation contracts for Codex and maintainers. Create each section as a GitHub Issue and assign the listed milestone. Actual GitHub issue numbers are assigned by GitHub; branch names use that real number.
+This catalog is written as implementation contracts for Codex and maintainers. The sections have already been imported into GitHub; use the [import mapping](../archive/GITHUB_IMPORT_REPORT.md) to resolve catalog IDs and consult the live assigned issue before implementation. Do not recreate issues from this catalog. Branch names use the actual GitHub issue number.
 
 ## Global Codex execution contract
 

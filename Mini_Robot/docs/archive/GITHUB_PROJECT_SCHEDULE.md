@@ -1,5 +1,11 @@
 # GitHub Project Schedule — Applied and Verified
 
+> Historical snapshot from 2026-10-10. Counts, statuses, dependencies, and dates
+> reflect that recorded operation and omit later Linux issues. For current state,
+> use [GitHub issues](https://github.com/Krzys2002/Mini_Robot/issues),
+> [Project #4](https://github.com/users/Krzys2002/projects/4), and the
+> [planning index](../planning/README.md).
+
 **APPLIED AND VERIFIED. Scope: M1–M5 only. M6–M8 excluded. All approved dates fit the 2026-11-28 hard deadline (Europe/Warsaw).**
 
 Prepared 2026-10-10T18:02:38+02:00. [Repository](https://github.com/Krzys2002/Mini_Robot) · [Project #4](https://github.com/users/Krzys2002/projects/4). Live issues, milestones, Project fields/values and all 106 native dependency relationships were refreshed for this revision. Original Markdown sources remain unchanged.

@@ -1,5 +1,8 @@
 # GoogleTest and CTest
 
+Source: [test targets](../../tests/CMakeLists.txt) and
+[offscreen UI entry point](../../tests/main.cpp).
+
 Configure with `-DBUILD_TESTING=ON` (the default) to build the GoogleTest
 executables in `tests/`. They are separate from `micro_robot_desktop`; running
 domain tests does not start the application or require physical hardware.
@@ -28,10 +31,15 @@ selection rather than reporting successful verification with no tests run.
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
+| `micro_robot_camera_tests` | none | Packed frame validation, malformed metadata, storage and overflow checks |
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
 | `micro_robot_simulation_tests` | `core` | Deterministic backends and substitution |
 | `micro_robot_world_tests` | `core` | World registry and pose update rules |
 | `micro_robot_tests` | `ui` | Offscreen Qt window and controller integration |
+
+The camera suite currently has no CTest label; `-L core` does not include it.
+Use unfiltered CTest for all suites, or add a separate `-R '^CameraFrameTest\.'`
+selection when testing by label.
 
 Core executables link domain libraries and `GTest::gtest_main`, without Qt or a
 `QApplication`. The UI executable has its own test entry point using GoogleTest
@@ -112,7 +120,7 @@ Use a separate build directory to verify the core without discovering Qt:
 cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DMICRO_ROBOT_BUILD_DESKTOP=OFF -DBUILD_TESTING=ON
 cmake --build build/core --parallel
-ctest --test-dir build/core -L core --output-on-failure --no-tests=error
+ctest --test-dir build/core --output-on-failure --no-tests=error
 ```
 
 ## Adding tests
