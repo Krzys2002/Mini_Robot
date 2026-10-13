@@ -238,6 +238,108 @@ TEST(SimulationTransportTest, CopiesCommandsAndProducesDeterministicTelemetry)
     EXPECT_EQ(firstEvents->telemetry.back().angularRadiansPerSecond, 0.0);
 }
 
+TEST(SimulationTransportTest, PreservesReservedMetadataWithoutSequenceOrdering)
+{
+    SimulationTransport transport;
+    const RobotId id{7};
+    transport.connect(id);
+    RobotCommand command{VelocityCommand{0.2, 0.5}, Timestamp{1s}, 1s};
+    command.metadata.sequence = std::numeric_limits<std::uint64_t>::max();
+    transport.sendCommand(id, command);
+    command.metadata.sequence.reset();
+    transport.advanceTo(Timestamp{1s});
+    ASSERT_TRUE(transport.lastSentCommand(id));
+    EXPECT_EQ(transport.lastSentCommand(id)->metadata.modelVersion, currentTransportModelVersion);
+    EXPECT_EQ(transport.lastSentCommand(id)->metadata.sequence,
+              std::numeric_limits<std::uint64_t>::max());
+    // Reservation alone does not establish wire ordering or deduplication.
+    command.metadata.sequence = 0;
+    transport.sendCommand(id, command);
+    transport.advanceTo(Timestamp{1s});
+    EXPECT_EQ(transport.lastSentCommand(id)->metadata.sequence, 0u);
+    command.payload = StopCommand{};
+    transport.sendCommand(id, command);
+    transport.advanceTo(Timestamp{1s});
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.lastSentCommand(id)->payload));
+}
+
+TEST(SimulationTransportTest, UnsupportedVersionsReportDeferredErrorsWithoutReplacingAcceptedCommand)
+{
+    SimulationTransport transport;
+    auto events = std::make_shared<TransportEvents>();
+    transport.setEventSink(events);
+    const RobotId id{7};
+    transport.connect(id);
+    transport.sendCommand(id, {VelocityCommand{0.2, 0.5}, Timestamp{1s}, 1s});
+    transport.advanceTo(Timestamp{1s});
+    const std::vector<std::uint16_t> versions{0, 2, std::numeric_limits<std::uint16_t>::max()};
+    for (const auto version : versions) {
+        RobotCommand command{StopCommand{}, Timestamp{1s}, 1s};
+        command.metadata.modelVersion = version;
+        const auto previousErrors = events->errors.size();
+        transport.sendCommand(id, command);
+        EXPECT_EQ(events->errors.size(), previousErrors);
+        transport.advanceTo(Timestamp{1s});
+        ASSERT_EQ(events->errors.size(), previousErrors + 1);
+        EXPECT_EQ(events->errors.back().code, TransportErrorCode::UnsupportedVersion);
+        EXPECT_EQ(events->errors.back().operation, TransportOperation::SendCommand);
+        EXPECT_EQ(events->errors.back().robotId, id);
+        EXPECT_EQ(events->errors.back().occurredAt, Timestamp{1s});
+        ASSERT_TRUE(transport.lastSentCommand(id));
+        EXPECT_TRUE(std::holds_alternative<VelocityCommand>(transport.lastSentCommand(id)->payload));
+    }
+    transport.sendCommand(id, {StopCommand{}, Timestamp{1s}, 1s});
+    transport.advanceTo(Timestamp{1s});
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.lastSentCommand(id)->payload));
+}
+
+TEST(SimulationTransportTest, TelemetryMetadataDoesNotImplyCommandAcknowledgement)
+{
+    SimulationTransport transport;
+    auto events = std::make_shared<TransportEvents>();
+    transport.setEventSink(events);
+    const RobotId id{7};
+    transport.connect(id);
+    transport.sendCommand(id, {StopCommand{}, Timestamp{1s}, 1s,
+                              {currentTransportModelVersion, 42}});
+    transport.advanceTo(Timestamp{1s});
+    ASSERT_EQ(events->telemetry.size(), 1u);
+    EXPECT_EQ(events->telemetry.back().metadata.modelVersion, currentTransportModelVersion);
+    EXPECT_FALSE(events->telemetry.back().metadata.sequence);
+}
+
+TEST(SimulationTransportTest, FreshnessHasExclusiveDeadlineAndHandlesExtremeTimestamps)
+{
+    SimulationTransport transport;
+    auto events = std::make_shared<TransportEvents>();
+    transport.setEventSink(events);
+    const RobotId id{7};
+    transport.connect(id);
+    transport.sendCommand(id, {VelocityCommand{0.2, 0.5}, Timestamp::min(), Duration::max()});
+    transport.advanceTo(Timestamp::min());
+    ASSERT_TRUE(transport.lastSentCommand(id));
+    EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.2);
+    // No signed duration subtraction overflow on expiry or new validation.
+    transport.sendCommand(id, {StopCommand{}, Timestamp::min(), Duration::max()});
+    transport.advanceTo(Timestamp::max());
+    ASSERT_EQ(events->errors.size(), 1u);
+    EXPECT_EQ(events->errors.back().code, TransportErrorCode::InvalidCommand);
+    EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.0);
+
+    SimulationTransport boundary;
+    boundary.setEventSink(events);
+    boundary.connect(id);
+    const RobotCommand command{VelocityCommand{0.3, 0.5}, Timestamp{1s}, 100ms};
+    boundary.sendCommand(id, command);
+    boundary.advanceTo(Timestamp{1s + 100ms} - Duration{1});
+    ASSERT_TRUE(boundary.lastSentCommand(id));
+    EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.3);
+    boundary.sendCommand(id, command);
+    boundary.advanceTo(Timestamp{1s + 100ms});
+    EXPECT_EQ(events->errors.size(), 2u);
+    EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.0);
+}
+
 TEST(SimulationTransportTest, LatestPendingCommandWinsAndDisconnectClearsIt)
 {
     SimulationTransport transport;
