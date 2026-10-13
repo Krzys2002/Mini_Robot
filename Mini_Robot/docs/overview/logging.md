@@ -65,8 +65,9 @@ resolved with `QStandardPaths`, not hard-coded per platform, for example:
 | Windows | `%LOCALAPPDATA%/Micro Robot/logs/micro_robot.log` |
 
 The resolved path is logged at startup. If the file cannot be opened, a warning
-is logged to stderr and the application continues. The path and minimum level
-are fixed in the composition root until a configuration subsystem exists.
+is logged to stderr and the application continues. The minimum level, whether a
+log file is written, and its path come from the `[logging]` section of the
+[configuration](configuration.md); the table above lists the default location.
 
 The composition root logs `Application starting`, `Application started`,
 `Application shutting down`, and `Application shutdown complete`.

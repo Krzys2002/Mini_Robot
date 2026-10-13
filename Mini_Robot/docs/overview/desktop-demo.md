@@ -8,7 +8,9 @@ Source: [main.cpp](../../src/app/main.cpp),
 
 Build and launch using the [development guide](../development/build.md).
 The current application demonstrates the implemented M1 foundation. It requires no camera,
-Bluetooth adapter, calibration, ESP32, or configuration file.
+Bluetooth adapter, calibration, ESP32, or configuration file. An optional
+[configuration file](configuration.md) selects the robot ID, simulation timing,
+and logging options.
 
 ## System camera inventory
 

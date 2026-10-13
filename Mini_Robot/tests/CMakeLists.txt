@@ -58,3 +58,14 @@ add_executable(micro_robot_logging_tests logging/LoggerTest.cpp)
 target_link_libraries(micro_robot_logging_tests PRIVATE micro_robot_logging GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_logging_tests)
 gtest_discover_tests(micro_robot_logging_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
+add_executable(micro_robot_configuration_tests configuration/ConfigLoaderTest.cpp)
+target_link_libraries(micro_robot_configuration_tests PRIVATE
+    micro_robot_configuration GTest::gtest_main
+)
+# The shipped example file must stay valid and match the built-in defaults.
+target_compile_definitions(micro_robot_configuration_tests PRIVATE
+    MICRO_ROBOT_EXAMPLE_CONFIG="${PROJECT_SOURCE_DIR}/config/micro_robot.example.ini"
+)
+micro_robot_target_defaults(micro_robot_configuration_tests)
+gtest_discover_tests(micro_robot_configuration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")

@@ -23,6 +23,9 @@ reports are scope/history, not evidence that future modules are present.
 | [src/common/Time.hpp](../../src/common/Time.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Types.hpp](../../src/common/Types.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Units.hpp](../../src/common/Units.hpp) | [common](architecture.md#domain-conventions) |
+| [src/infrastructure/configuration/ApplicationConfig.hpp](../../src/infrastructure/configuration/ApplicationConfig.hpp) | [configuration](configuration.md) |
+| [src/infrastructure/configuration/ConfigLoader.cpp](../../src/infrastructure/configuration/ConfigLoader.cpp) | [configuration](configuration.md) |
+| [src/infrastructure/configuration/ConfigLoader.hpp](../../src/infrastructure/configuration/ConfigLoader.hpp) | [configuration](configuration.md) |
 | [src/infrastructure/logging/LogRecord.hpp](../../src/infrastructure/logging/LogRecord.hpp) | [logging](logging.md) |
 | [src/infrastructure/logging/LogSinks.cpp](../../src/infrastructure/logging/LogSinks.cpp) | [logging](logging.md) |
 | [src/infrastructure/logging/LogSinks.hpp](../../src/infrastructure/logging/LogSinks.hpp) | [logging](logging.md) |
@@ -53,10 +56,11 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_replay | camera API, private OpenCV core/imgproc/videoio |
 | micro_robot_world | micro_robot_common |
 | micro_robot_logging | micro_robot_common |
+| micro_robot_configuration | micro_robot_common, micro_robot_logging |
 | micro_robot_simulation | camera and transport API targets |
 | micro_robot_desktop_controller | camera API, transport API, world, logging, Qt6::Core |
 | micro_robot_ui | controller, Qt6::Widgets |
-| micro_robot_desktop | UI, simulation, camera discovery, logging |
+| micro_robot_desktop | UI, simulation, camera discovery, logging, configuration |
 
 See [root configuration](../../CMakeLists.txt) and [test targets](../../tests/CMakeLists.txt).
 Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
@@ -65,12 +69,13 @@ Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 
 Only common types, asynchronous camera/transport contracts, deterministic fakes,
 robot pose storage, read-only system device discovery, human-readable application
-logging, recorded-video replay, and a Qt simulation window are implemented.
-Discovery diagnostics use a separate Qt logging category. There are no vision, calibration, tracking, planning,
-supervisory controller, physical BLE, Zigbee, settings loader,
-or structured measurement-recording modules. Qt Multimedia is used only by the
-concrete discovery adapter. OpenCV is isolated in the optional replay adapter;
-other proposed dependencies are absent from current CMake targets. The desktop
+logging, INI configuration loading, recorded-video replay, and a Qt simulation
+window are implemented. Discovery diagnostics use a separate Qt logging category.
+There are no vision, calibration, tracking, planning, supervisory controller,
+physical BLE, Zigbee, or structured measurement-recording modules. Qt Multimedia
+is used only by the concrete discovery adapter. OpenCV is isolated in the optional
+replay adapter; other proposed dependencies are absent from current CMake targets.
+The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.
 
 ## Documentation maintenance

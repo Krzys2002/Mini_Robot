@@ -37,6 +37,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_world_tests` | `core` | World registry and pose update rules |
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink |
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
+| `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
 | `micro_robot_tests` | `ui` | Offscreen Qt window and controller integration |
 
 The camera suite currently has no CTest label; `-L core` does not include it.
