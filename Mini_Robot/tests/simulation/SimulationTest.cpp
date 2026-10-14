@@ -1,4 +1,5 @@
 #include "simulation/FakeCameraSource.hpp"
+#include "simulation/FakeCameraSourceFactory.hpp"
 #include "simulation/SimulationTransport.hpp"
 
 #include <gtest/gtest.h>
@@ -168,6 +169,53 @@ TEST(FakeCameraTest, RejectsInvalidCadenceAndBackwardOrRecursiveTime)
     };
     source.start();
     source.advanceTo(Timestamp{3s});
+}
+
+TEST(FakeCameraSourceFactoryTest, CreatesStoppedSimulatedSourcesNamedAfterTheDevice)
+{
+    FakeCameraSourceFactory factory;
+    EXPECT_TRUE(factory.supports({"usb", "USB Camera"}));
+    EXPECT_FALSE(factory.supports({"", "No ID"}));
+    EXPECT_EQ(factory.create({"", "No ID"}), nullptr);
+
+    auto source = factory.create({"usb", "USB Camera"});
+    ASSERT_NE(source, nullptr);
+    EXPECT_EQ(source->state(), CameraState::Stopped);
+    EXPECT_EQ(source->info().sourceId, "simulated:usb");
+    EXPECT_EQ(source->info().displayName, "USB Camera (simulated feed)");
+    EXPECT_EQ(factory.create({"unnamed", ""})->info().displayName, "Unnamed camera (simulated feed)");
+    EXPECT_THROW(FakeCameraSourceFactory(FakeCameraConfig{{}, Duration::zero(), 0}),
+                 std::invalid_argument);
+}
+
+TEST(FakeCameraSourceFactoryTest, AdvancesOnlyLiveSourcesIndependently)
+{
+    FakeCameraSourceFactory factory{FakeCameraConfig{{}, 10ms, 0}};
+    auto first = factory.create({"a", "A"});
+    auto second = factory.create({"b", "B"});
+    auto firstEvents = std::make_shared<CameraEvents>();
+    auto secondEvents = std::make_shared<CameraEvents>();
+    first->setEventSink(firstEvents);
+    second->setEventSink(secondEvents);
+    EXPECT_EQ(factory.liveSourceCount(), 2U);
+
+    first->start();
+    factory.advanceTo(Timestamp{1s});
+    EXPECT_EQ(first->state(), CameraState::Streaming);
+    EXPECT_EQ(second->state(), CameraState::Stopped);
+    EXPECT_EQ(firstEvents->frames.size(), 1U);
+    EXPECT_TRUE(secondEvents->frames.empty());
+
+    first->stop();
+    factory.advanceTo(Timestamp{1s + 10ms});
+    first.reset();
+    EXPECT_EQ(factory.liveSourceCount(), 1U);
+    second->start();
+    EXPECT_NO_THROW(factory.advanceTo(Timestamp{1s + 20ms}));
+    EXPECT_EQ(second->state(), CameraState::Streaming);
+    EXPECT_EQ(firstEvents->states.back().first, CameraState::Stopped);
+    second.reset();
+    EXPECT_EQ(factory.liveSourceCount(), 0U);
 }
 
 TEST(SimulationTransportTest, ConnectionsAreDeferredIdempotentAndCancellable)

@@ -63,6 +63,8 @@ micro_robot_target_defaults(micro_robot_configuration)
 add_library(micro_robot_simulation STATIC
     simulation/FakeCameraSource.hpp
     simulation/FakeCameraSource.cpp
+    simulation/FakeCameraSourceFactory.hpp
+    simulation/FakeCameraSourceFactory.cpp
     simulation/SimulationTransport.hpp
     simulation/SimulationTransport.cpp
 )
