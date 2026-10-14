@@ -3,6 +3,7 @@
 #include <QMainWindow>
 
 class QLabel;
+class QPushButton;
 
 namespace micro_robot {
 
@@ -24,7 +25,14 @@ signals:
     void robotDisconnectRequested();
 
 private:
-    QLabel* cameraDevicesDescription_{}; // Non-owning; Qt parent owns the label.
+    void updateCameraButtons();
+
+    // Non-owning; the Qt parent owns the widgets.
+    QLabel* cameraDevicesDescription_{};
+    QPushButton* startCamera_{};
+    QPushButton* stopCamera_{};
+    bool cameraPresent_{};
+    bool cameraActive_{};
 };
 
 } // namespace micro_robot

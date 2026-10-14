@@ -2,7 +2,6 @@
 #include "app/DesktopController.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include "ui/MainWindow.hpp"
-#include "simulation/FakeCameraSource.hpp"
 #include "simulation/SimulationTransport.hpp"
 
 #include <QLabel>
@@ -38,10 +37,9 @@ struct DiscoveryFixture {
     Logger logger; // Outlives the controller's non-owning log channel.
     ManualDiscovery discovery;
     CameraDiscoveryController presenter{discovery};
-    FakeCameraSource camera;
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
+    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
 
     DiscoveryFixture()
@@ -62,7 +60,7 @@ TEST(CameraDiscoveryTest, InitialRefreshIsIdempotentAndEmptySnapshotIsExplicit)
     EXPECT_EQ(fixture.inventory()->text(), QStringLiteral("Looking for cameras…"));
     fixture.discovery.publish({});
     EXPECT_EQ(fixture.inventory()->text(), QStringLiteral("No cameras available"));
-    EXPECT_EQ(fixture.camera.state(), CameraState::Stopped);
+    EXPECT_FALSE(fixture.controller.hasCameraSource());
     EXPECT_EQ(fixture.world.robotCount(), 0U);
 }
 
