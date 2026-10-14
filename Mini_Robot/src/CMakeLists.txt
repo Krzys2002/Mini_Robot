@@ -58,7 +58,7 @@ add_library(micro_robot_simulation STATIC
     simulation/SimulationTransport.cpp
 )
 target_link_libraries(micro_robot_simulation PUBLIC
-    micro_robot_camera_api micro_robot_transport_api
+    micro_robot_camera_api micro_robot_transport_api micro_robot_logging
 )
 micro_robot_target_defaults(micro_robot_simulation)
 

@@ -1,8 +1,13 @@
 #include "simulation/SimulationTransport.hpp"
 
 #include <cmath>
+#include <iomanip>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -24,6 +29,17 @@ bool fresh(const RobotCommand& command, Timestamp now)
     return now - command.issuedAt < command.validFor;
 }
 
+// Requires from <= to. Like fresh(), avoids signed overflow across clock extremes.
+bool elapsedAtLeast(Timestamp from, Timestamp to, Duration interval)
+{
+    const auto start = from.time_since_epoch().count();
+    const auto end = to.time_since_epoch().count();
+    if (start < 0 && end > std::numeric_limits<Duration::rep>::max() + start) {
+        return true;
+    }
+    return to - from >= interval;
+}
+
 bool valid(const RobotCommand& command, Timestamp now)
 {
     if (!fresh(command, now)) {
@@ -36,7 +52,69 @@ bool valid(const RobotCommand& command, Timestamp now)
     return true;
 }
 
+std::string_view toString(ConnectionState state)
+{
+    switch (state) {
+    case ConnectionState::Disconnected: return "Disconnected";
+    case ConnectionState::Connecting: return "Connecting";
+    case ConnectionState::Connected: return "Connected";
+    case ConnectionState::Disconnecting: return "Disconnecting";
+    case ConnectionState::Fault: return "Fault";
+    }
+    return "Unknown";
+}
+
+std::string_view toString(TransportErrorCode code)
+{
+    switch (code) {
+    case TransportErrorCode::Unavailable: return "Unavailable";
+    case TransportErrorCode::NotConnected: return "NotConnected";
+    case TransportErrorCode::InvalidCommand: return "InvalidCommand";
+    case TransportErrorCode::BackendFailure: return "BackendFailure";
+    case TransportErrorCode::UnsupportedVersion: return "UnsupportedVersion";
+    }
+    return "Unknown";
+}
+
+// Locale-independent fixed-point text, so log lines are identical on every host.
+std::ostringstream logStream()
+{
+    std::ostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << std::fixed << std::setprecision(3);
+    return stream;
+}
+
+std::string describe(const RobotCommand& command)
+{
+    auto text = logStream();
+    if (const auto* velocity = std::get_if<VelocityCommand>(&command.payload)) {
+        text << "velocity linear=" << velocity->linearMetersPerSecond
+             << " m/s angular=" << velocity->angularRadiansPerSecond << " rad/s";
+    } else {
+        text << "stop";
+    }
+    text << " validFor=" << std::chrono::duration_cast<std::chrono::milliseconds>(
+        command.validFor).count() << " ms";
+    if (command.metadata.sequence) {
+        text << " sequence=" << *command.metadata.sequence;
+    }
+    return text.str();
+}
+
 } // namespace
+
+SimulationTransport::SimulationTransport(SimulationTransportConfig config,
+                                         std::optional<LogChannel> log)
+    : config_(config), log_(std::move(log))
+{
+    if (config_.telemetryInterval < Duration::zero()) {
+        throw std::invalid_argument("Simulation telemetry interval must not be negative");
+    }
+    if (!std::isfinite(config_.batteryVoltageVolts) || config_.batteryVoltageVolts <= 0.0) {
+        throw std::invalid_argument("Simulation battery voltage must be finite and positive");
+    }
+}
 
 void SimulationTransport::setEventSink(std::weak_ptr<IRobotTransportEvents> sink)
 {
@@ -49,11 +127,16 @@ ConnectionState SimulationTransport::connectionState(RobotId id) const
     return found == sessions_.end() ? ConnectionState::Disconnected : found->second.state;
 }
 
-void SimulationTransport::connect(RobotId id) { sessions_[id].desiredConnected = true; }
+void SimulationTransport::connect(RobotId id)
+{
+    sessions_[id].desiredConnected = true;
+    if (log_) log_->debug("Simulated connect requested", id);
+}
 
 void SimulationTransport::disconnect(RobotId id)
 {
     auto& session = sessions_[id];
+    if (log_) log_->debug("Simulated disconnect requested", id);
     session.desiredConnected = false;
     session.pendingCommand.reset();
 }
@@ -61,6 +144,7 @@ void SimulationTransport::disconnect(RobotId id)
 void SimulationTransport::sendCommand(RobotId id, const RobotCommand& command)
 {
     sessions_[id].pendingCommand = command;
+    if (log_) log_->debug("Simulated command submitted: " + describe(command), id);
 }
 
 std::optional<RobotCommand> SimulationTransport::lastSentCommand(RobotId id) const
@@ -95,6 +179,9 @@ void SimulationTransport::advanceTo(Timestamp now)
         auto& session = sessions_.at(id);
         auto changeState = [&](ConnectionState state) {
             session.state = state;
+            if (log_) {
+                log_->info("Simulated connection state: " + std::string{toString(state)}, id);
+            }
             if (auto sink = sink_.lock()) {
                 sink->onConnectionStateChanged(id, state, now);
             }
@@ -122,20 +209,28 @@ void SimulationTransport::advanceTo(Timestamp now)
                 error = TransportErrorCode::InvalidCommand;
             } else {
                 session.lastSentCommand = *command;
+                if (log_) log_->debug("Simulated command accepted: " + describe(*command), id);
             }
             if (error) {
+                const std::string message = *error == TransportErrorCode::NotConnected
+                    ? "Robot is disconnected"
+                    : *error == TransportErrorCode::UnsupportedVersion
+                        ? "Unsupported transport domain model version"
+                        : "Command is invalid or stale";
+                if (log_) {
+                    log_->warning("Simulated command rejected (" + std::string{toString(*error)}
+                        + "): " + message + "; " + describe(*command), id);
+                }
                 if (auto sink = sink_.lock()) {
-                    sink->onTransportError({id, TransportOperation::SendCommand, *error,
-                        *error == TransportErrorCode::NotConnected ? "Robot is disconnected"
-                        : *error == TransportErrorCode::UnsupportedVersion
-                            ? "Unsupported transport domain model version"
-                            : "Command is invalid or stale", now});
+                    sink->onTransportError(
+                        {id, TransportOperation::SendCommand, *error, message, now});
                 }
             }
         }
 
         if (session.state != ConnectionState::Connected || !session.desiredConnected
-            || (session.lastTelemetryAt && *session.lastTelemetryAt == now)) {
+            || (session.lastTelemetryAt && (*session.lastTelemetryAt == now
+                || !elapsedAtLeast(*session.lastTelemetryAt, now, config_.telemetryInterval)))) {
             continue;
         }
         VelocityCommand velocity{};
@@ -145,8 +240,15 @@ void SimulationTransport::advanceTo(Timestamp now)
             }
         }
         session.lastTelemetryAt = now;
+        if (log_) {
+            auto text = logStream();
+            text << "Simulated telemetry: battery=" << config_.batteryVoltageVolts
+                 << " V linear=" << velocity.linearMetersPerSecond
+                 << " m/s angular=" << velocity.angularRadiansPerSecond << " rad/s";
+            log_->debug(text.str(), id);
+        }
         if (auto sink = sink_.lock()) {
-            sink->onTelemetry({id, now, 3.7,
+            sink->onTelemetry({id, now, config_.batteryVoltageVolts,
                 velocity.linearMetersPerSecond, velocity.angularRadiansPerSecond});
         }
     }
