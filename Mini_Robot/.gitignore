@@ -1,1 +1,8 @@
+# Generated CMake build trees: presets/docs (build/), CLion (cmake-build-*/),
+# and Visual Studio (out/).
 /build/
+/cmake-build-*/
+/out/
+
+# Machine-local CMake presets layered over CMakePresets.json.
+/CMakeUserPresets.json
