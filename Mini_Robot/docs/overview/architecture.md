@@ -14,7 +14,7 @@ Windows remains a project target with deployment work assigned to M8.
 
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
-| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, read-only system camera discovery, application logging, configuration loading, recorded-video replay, tests, macOS CI. | USB discovery/hotplug acceptance, camera selection/capture/preview, source recovery implementation, and Ubuntu build/GUI validation. |
+| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery and selection (simulated feed), application logging, configuration loading, recorded-video replay, tests, macOS CI. | USB discovery/hotplug acceptance, physical capture/preview, source recovery implementation, and Ubuntu build/GUI validation. |
 | M2 — Vision, Calibration & Robot Localization | Planned; metric Pose2D and timestamped frames are prerequisites already supplied by M1. | AprilTag detection, intrinsic/workspace calibration, image-to-world conversion, tracking, freshness/quality estimates, and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Planned; IRobotTransport and semantic commands/telemetry are M1 prerequisites. | Wire protocol/GATT, physical BLE, RobotManager, manual motion controls, E-stop, reconnect, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Planned; a stored demo pose is not closed-loop feedback. | Kinematics, supervisory scheduler/controller, target selection, command limits, tracking/connection safety transitions, and control experiments. |
@@ -33,8 +33,10 @@ The current layers are:
 
 - `micro_robot_common`: header-only identity, units, pose, and steady-clock types.
 - `micro_robot_camera_api` / `micro_robot_transport_api`: Qt-free asynchronous
-  interfaces and event values, including the separate device-discovery boundary,
-  depending only on common types.
+  interfaces and event values, including the separate device-discovery and
+  source-factory boundaries, depending only on common types.
+- `micro_robot_camera_selection`: Qt-free rules deciding which discovered devices
+  are selectable, depending on the camera API.
 - `micro_robot_camera_discovery`: concrete Qt Multimedia system-inventory adapter,
   depending on the camera API and linked only by composition code.
 - `micro_robot_camera_replay`: OpenCV local-file decoding behind the camera API,
@@ -45,17 +47,20 @@ The current layers are:
   channels and stream/file sinks, depending only on common types.
 - `micro_robot_configuration`: Qt-free INI loading and validation, depending on
   common types and logging; the composition root injects typed settings.
-- `micro_robot_simulation`: deterministic implementations of the camera and
-  transport interfaces; no Qt, physical hardware, or network dependency.
+- `micro_robot_simulation`: deterministic implementations of the camera,
+  camera-factory, and transport interfaces; no Qt, physical hardware, or network
+  dependency.
 - `micro_robot_desktop_controller`: Qt Core adapters using interface references;
-  DesktopController coordinates the demo/model, while CameraDiscoveryController
-  presents device inventories without a Qt Multimedia dependency.
+  DesktopController coordinates the demo/model and owns the active camera source,
+  while CameraSelectionController presents device inventories and creates the
+  selected source through the factory, without a Qt Multimedia dependency.
 - `micro_robot_ui`: Qt Widgets presentation and operator request signals.
-- `micro_robot_desktop`: composition root selecting fake capture/transport and
-  the real system device-inventory adapter.
+- `micro_robot_desktop`: composition root selecting the fake camera factory and
+  transport and the real system device-inventory adapter.
 
-The controller receives interface references; widgets receive the controller.
-Neither layer selects a physical device or depends on simulation classes.
+Controllers receive interface references; widgets receive the controllers. The
+operator selects a device, but neither layer knows the capture backend or depends
+on simulation classes.
 The composition root owns the [logger](logging.md) and injects a module channel
 into the controller; there is no global logger.
 
@@ -63,13 +68,18 @@ into the controller; there is no global logger.
 
 ```mermaid
 flowchart LR
-    Main[main.cpp / QTimer] -->|advance virtual time| Camera[FakeCameraSource]
+    Main[main.cpp / QTimer] -->|advance virtual time| Factory[FakeCameraSourceFactory]
+    Factory -->|advance live sources| Camera[Active camera source]
     Main -->|advance virtual time| Transport[SimulationTransport]
-    Main -->|initialize inventory presenter| Presenter[CameraDiscoveryController]
-    Presenter -->|request refresh| Discovery[QtCameraDeviceDiscovery]
-    Discovery -->|inventory snapshots on startup / device changes| Presenter
-    Presenter -->|read-only device description| UI[MainWindow]
+    Main -->|initialize selection| Selection[CameraSelectionController]
+    Selection -->|request refresh| Discovery[QtCameraDeviceDiscovery]
+    Discovery -->|inventory snapshots on startup / device changes| Selection
+    Selection -->|choices and selection| UI[MainWindow]
+    UI -->|selection requests| Selection
+    Selection -->|create source for device| Factory
+    Selection -->|hand over / clear source| Controller
     Main -->|explicit demo pose| Controller[DesktopController]
+    Controller -->|owns| Camera
     Camera -->|frame metadata and state events| Controller
     Transport -->|connection and telemetry events| Controller
     UI -->|operator requests| Controller
@@ -79,18 +89,20 @@ flowchart LR
     Controller -->|presentation signals| UI
     Main -->|startup / shutdown records| Log[Logger]
     Controller -->|state and error records| Log
+    Selection -->|inventory and selection records| Log
 ```
 
 [main.cpp](../../src/app/main.cpp) owns the backends, model, controller, window,
 and the configured simulation timer (100 ms by default). Startup registers the
-configured robot ID (1 by default) with an unknown pose and leaves the
-camera stopped and transport disconnected. While connected, composition supplies
+configured robot ID (1 by default) with an unknown pose, with no camera
+selected and the transport disconnected. While connected, composition supplies
 a static pose (0.25 m, 0.15 m, 0 rad). This happens independently of frame events
-and remains active when the fake camera is stopped. Telemetry does not update pose.
+and remains active when the camera is stopped or not selected. Telemetry does not update pose.
 
 The GUI describes frame sequence/dimensions/timing; it does not render pixels.
-It also displays a separate system-camera inventory, connection state, fake battery
-telemetry, and stored pose. Inventory updates do not select/open a camera. No velocity
+It also displays the camera selector, the active source, connection state, fake
+battery telemetry, and stored pose. Inventory updates never select a camera on
+their own; losing the selected device clears the selection. No velocity
 command, target, path, calibration, or E-stop UI is present. See the
 [desktop demo guide](desktop-demo.md) for controls and lifecycle details.
 
@@ -99,9 +111,12 @@ command, target, path, calibration, or E-stop UI is present. See the
 [ICameraDeviceDiscovery](camera-discovery.md) supplies copied device ID/name
 inventories through weak subscriptions. The Qt adapter queries QMediaDevices
 video inputs and coalesces change notifications into queued full snapshots.
-CameraDiscoveryController formats names/IDs and the zero-device state for plain
-text display; MainWindow performs no discovery queries. IDs are hex-encoded Qt
-bytes, without a guarantee of persistence across OS/backend changes.
+CameraSelectionController turns them into selector rows, marks devices with a
+missing, duplicate, or unsupported ID unselectable, and keys the selection by ID;
+MainWindow performs no discovery queries. IDs are hex-encoded Qt bytes, without a
+guarantee of persistence across OS/backend changes. A selected device's source is
+created through [ICameraSourceFactory](camera-selection.md) and handed to
+DesktopController, which stops a running source before replacing it.
 
 
 [ICameraSource](camera-source.md) exposes prompt start/stop requests, source
@@ -111,7 +126,7 @@ owned storage. `isValidFrame` validates layout/storage without overflow;
 sequence/time ordering remains the source's responsibility. The contract allows
 terminal failures and recovery. [Recorded-video replay](recorded-video.md)
 implements this boundary with deterministic timing and EOF/loop lifecycle; the
-desktop composition still uses fake capture.
+desktop composition still uses fake capture, created per selected device.
 
 [IRobotTransport](transport.md) exposes per-ID connect/disconnect, semantic command
 submission, and connection/telemetry/error events. Commands contain Stop or
@@ -125,7 +140,7 @@ clock conversion belong to future adapters.
 
 ### Simulation and authoritative state
 
-[FakeCameraSource and SimulationTransport](simulation.md) execute pending requests
+[FakeCameraSource (via its factory) and SimulationTransport](simulation.md) execute pending requests
 only when composition/tests call `advanceTo`. They use nondecreasing supplied time,
 with no clock reads, worker threads, or sleeps. The camera emits at most one 8 by 6
 Gray8 frame per advancement, skipping missed intervals. The transport has one
@@ -146,8 +161,9 @@ explicit results and preserve state.
 The standalone replay adapter performs file I/O on its owning acquisition/test
 thread and is not wired into the GUI demo. All current application callbacks and
 model access are serialized on the GUI thread. Capture, transport, and discovery retain weak event subscriptions;
-DesktopController and CameraDiscoveryController own their respective plain C++
-event sinks. Discovery refreshes use a context-bound queued timer cancelled on
+DesktopController and CameraSelectionController own their respective plain C++
+event sinks. A camera source is never destroyed inside its own callback; source
+replacement completes through a queued call. Discovery refreshes use a context-bound queued timer cancelled on
 adapter destruction. Borrowed event values must be copied when retained; immutable
 frames may be retained directly. Callbacks must be prompt and non-throwing.
 
@@ -156,8 +172,9 @@ use an explicit queued boundary to GUI consumers. Thread safety or a worker queu
 is not supplied by the current interfaces. Frame handoffs must remain bounded and
 prefer the newest useful frame.
 
-Qt owns widgets through parent relationships. Injected backend/model references
-outlive the controller. Shutdown stops the timer, requests stop/disconnect, drains
+Qt owns widgets through parent relationships. Injected backend/model references,
+including the camera factory, outlive the controllers; DesktopController owns the
+active camera source. Shutdown stops the timer, requests stop/disconnect, drains
 fake terminal events with one advancement, and then destroys objects in dependency
 order. The controller detaches subscriptions on destruction. Future physical
 adapters must asynchronously establish quiescence before destruction.
@@ -165,8 +182,10 @@ adapters must asynchronously establish quiescence before destruction.
 ### M1 completion gaps
 
 The application foundation is runnable, but M1 exit criteria are not all met.
-System camera enumeration is implemented: the production adapter detected a Mac
-internal camera and an exposed iPhone camera on the validation host. USB-camera
+System camera enumeration and selection are implemented: the production adapter
+detected a Mac internal camera and an exposed iPhone camera on the validation
+host. A selected camera is served by a simulated feed until physical capture
+(#31) exists. USB-camera
 visibility and physical hotplug remain unverified. There is no structured
 measurement recorder. [Application logging](logging.md) records startup,
 shutdown, controller state changes, and errors as human-readable lines; thesis

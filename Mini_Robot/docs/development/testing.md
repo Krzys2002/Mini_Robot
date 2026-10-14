@@ -31,31 +31,32 @@ selection rather than reporting successful verification with no tests run.
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
-| `micro_robot_camera_tests` | none | Packed frame validation, malformed metadata, storage and overflow checks |
+| `micro_robot_camera_tests` | none | Packed frame validation, malformed metadata, storage and overflow checks; camera selection rules |
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
 | `micro_robot_transport_tests` | `core` | Transport domain versions, sequence reservation, metadata defaults and copying |
-| `micro_robot_simulation_tests` | `core` | Deterministic backends and substitution |
+| `micro_robot_simulation_tests` | `core` | Deterministic backends, fake camera factory, and substitution |
 | `micro_robot_world_tests` | `core` | World registry and pose update rules |
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink |
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
-| `micro_robot_tests` | `ui` | Offscreen Qt window and controller integration |
+| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, and camera selection |
 
 The camera suite currently has no CTest label; `-L core` does not include it.
-Use unfiltered CTest for all suites, or add a separate `-R '^CameraFrameTest\.'`
-selection when testing by label.
+Use unfiltered CTest for all suites, or add a separate
+`-R '^(CameraFrameTest|CameraSelectionTest)\.'` selection when testing by label.
 
 Core executables link domain libraries and `GTest::gtest_main`, without Qt or a
 `QApplication`. The UI executable has its own test entry point using GoogleTest
 and an offscreen `QApplication`; it is built only when
 `MICRO_ROBOT_BUILD_DESKTOP=ON`.
 
-[CameraDiscoveryTest](../../tests/ui/CameraDiscoveryTest.cpp) uses an injected
-manual inventory provider without Qt
-Multimedia or hardware. It checks empty inventories, duplicate names/distinct
-IDs, add/remove/rename refresh, missing metadata, plain-text presentation, copied
-snapshots, and subscription teardown. Camera contract tests also compile the
-discovery interface without Qt. Physical visibility/hotplug checks are listed
+[CameraSelectionControllerTest](../../tests/ui/CameraSelectionControllerTest.cpp) uses
+injected manual inventory, factory, and camera backends without Qt Multimedia or
+hardware. It checks empty inventories, disabled rows, duplicate names/distinct
+IDs, selection and source replacement, rejected choices, removal/reconnection,
+renames, plain-text presentation, and subscription teardown. Camera contract
+tests also compile the discovery and factory interfaces and the selection rules
+without Qt. Physical visibility/hotplug checks are listed
 in [camera discovery](../overview/camera-discovery.md).
 
 World tests cover insert/query/update/removal, unknown poses, duplicate IDs,

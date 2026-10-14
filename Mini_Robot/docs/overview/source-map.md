@@ -5,15 +5,18 @@ reports are scope/history, not evidence that future modules are present.
 
 | Source file | Behavior guide |
 | --- | --- |
-| [src/app/CameraDiscoveryController.cpp](../../src/app/CameraDiscoveryController.cpp) | [Discovery presentation](camera-discovery.md) |
-| [src/app/CameraDiscoveryController.hpp](../../src/app/CameraDiscoveryController.hpp) | [Discovery presentation](camera-discovery.md) |
+| [src/app/CameraSelectionController.cpp](../../src/app/CameraSelectionController.cpp) | [Camera selection](camera-selection.md) |
+| [src/app/CameraSelectionController.hpp](../../src/app/CameraSelectionController.hpp) | [Camera selection](camera-selection.md) |
 | [src/app/Info.plist.in](../../src/app/Info.plist.in) | [macOS discovery metadata](camera-discovery.md#macos-and-verification) |
 | [src/app/DesktopController.cpp](../../src/app/DesktopController.cpp) | [app](desktop-demo.md) |
 | [src/app/DesktopController.hpp](../../src/app/DesktopController.hpp) | [app](desktop-demo.md) |
 | [src/app/main.cpp](../../src/app/main.cpp) | [app](desktop-demo.md) |
+| [src/camera/CameraSelection.cpp](../../src/camera/CameraSelection.cpp) | [Selection rules](camera-selection.md#architecture-and-api) |
+| [src/camera/CameraSelection.hpp](../../src/camera/CameraSelection.hpp) | [Selection rules](camera-selection.md#architecture-and-api) |
 | [src/camera/CameraTypes.hpp](../../src/camera/CameraTypes.hpp) | [camera](camera-source.md) |
 | [src/camera/ICameraSource.hpp](../../src/camera/ICameraSource.hpp) | [camera](camera-source.md) |
 | [src/camera/ICameraDeviceDiscovery.hpp](../../src/camera/ICameraDeviceDiscovery.hpp) | [Discovery contract](camera-discovery.md) |
+| [src/camera/ICameraSourceFactory.hpp](../../src/camera/ICameraSourceFactory.hpp) | [Source factory](camera-selection.md#architecture-and-api) |
 | [src/camera/QtCameraDeviceDiscovery.cpp](../../src/camera/QtCameraDeviceDiscovery.cpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/camera/QtCameraDeviceDiscovery.hpp](../../src/camera/QtCameraDeviceDiscovery.hpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/camera/RecordedVideoSource.cpp](../../src/camera/RecordedVideoSource.cpp) | [Replay adapter](recorded-video.md) |
@@ -33,6 +36,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/infrastructure/logging/Logger.hpp](../../src/infrastructure/logging/Logger.hpp) | [logging](logging.md) |
 | [src/simulation/FakeCameraSource.cpp](../../src/simulation/FakeCameraSource.cpp) | [simulation](simulation.md) |
 | [src/simulation/FakeCameraSource.hpp](../../src/simulation/FakeCameraSource.hpp) | [simulation](simulation.md) |
+| [src/simulation/FakeCameraSourceFactory.cpp](../../src/simulation/FakeCameraSourceFactory.cpp) | [Stand-in capture backend](camera-selection.md#stand-in-capture-backend) |
+| [src/simulation/FakeCameraSourceFactory.hpp](../../src/simulation/FakeCameraSourceFactory.hpp) | [Stand-in capture backend](camera-selection.md#stand-in-capture-backend) |
 | [src/simulation/SimulationTransport.cpp](../../src/simulation/SimulationTransport.cpp) | [simulation](simulation.md) |
 | [src/simulation/SimulationTransport.hpp](../../src/simulation/SimulationTransport.hpp) | [simulation](simulation.md) |
 | [src/transport/IRobotTransport.hpp](../../src/transport/IRobotTransport.hpp) | [transport](transport.md) |
@@ -51,6 +56,7 @@ reports are scope/history, not evidence that future modules are present.
 | --- | --- |
 | micro_robot_common | C++20 headers only |
 | micro_robot_camera_api | micro_robot_common |
+| micro_robot_camera_selection | camera API |
 | micro_robot_transport_api | micro_robot_common |
 | micro_robot_camera_discovery | camera API, Qt6::Multimedia |
 | micro_robot_camera_replay | camera API, private OpenCV core/imgproc/videoio |
@@ -58,7 +64,7 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_logging | micro_robot_common |
 | micro_robot_configuration | micro_robot_common, micro_robot_logging |
 | micro_robot_simulation | camera and transport API targets |
-| micro_robot_desktop_controller | camera API, transport API, world, logging, Qt6::Core |
+| micro_robot_desktop_controller | camera API, camera selection, transport API, world, logging, Qt6::Core |
 | micro_robot_ui | controller, Qt6::Widgets |
 | micro_robot_desktop | UI, simulation, camera discovery, logging, configuration |
 
@@ -68,7 +74,7 @@ Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 ## Implementation limits
 
 Only common types, asynchronous camera/transport contracts, deterministic fakes,
-robot pose storage, read-only system device discovery, human-readable application
+robot pose storage, system device discovery and selection, human-readable application
 logging, INI configuration loading, recorded-video replay, and a Qt simulation
 window are implemented. Discovery diagnostics use a separate Qt logging category.
 There are no vision, calibration, tracking, planning, supervisory controller,
