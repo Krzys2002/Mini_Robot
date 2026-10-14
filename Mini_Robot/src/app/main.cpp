@@ -1,6 +1,6 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
-#include "app/CameraDiscoveryController.hpp"
+#include "app/CameraSelectionController.hpp"
 #include "camera/QtCameraDeviceDiscovery.hpp"
 #include "infrastructure/configuration/ConfigLoader.hpp"
 #include "infrastructure/logging/LogSinks.hpp"
@@ -95,21 +95,20 @@ int main(int argc, char* argv[])
 
     // Composition root alone chooses concrete implementations. Declaration order
     // keeps sources/model alive until after the controller detaches its event sink;
-    // the camera factory outlives the sources the controller owns.
+    // the camera factory outlives the sources the controller owns. Until a physical
+    // capture backend exists, a selected device is served by a simulated feed.
     FakeCameraConfig cameraConfig;
     cameraConfig.frameInterval = config.simulation.cameraFrameInterval;
     FakeCameraSourceFactory cameraFactory{cameraConfig};
     auto transport = std::make_unique<SimulationTransport>();
     QtCameraDeviceDiscovery cameraDiscovery;
-    CameraDiscoveryController discoveryController{cameraDiscovery};
     WorldModel world;
     const RobotId robotId = config.robot.id;
     DesktopController controller{*transport, world, robotId, logger.channel("controller")};
-    controller.setCameraSource(cameraFactory.create({"fake-camera", "Fake camera"}));
+    CameraSelectionController cameraSelection{cameraDiscovery, cameraFactory, controller,
+                                              logger.channel("camera")};
     MainWindow window{controller};
-    QObject::connect(&discoveryController,
-        &CameraDiscoveryController::cameraDevicesDescriptionChanged,
-        &window, &MainWindow::setCameraDevicesDescription);
+    window.bindCameraSelection(cameraSelection);
     QTimer simulationTimer;
     simulationTimer.setInterval(config.simulation.updateInterval);
 
@@ -137,7 +136,7 @@ int main(int argc, char* argv[])
     });
 
     controller.initialize(MonotonicClock::now());
-    discoveryController.initialize();
+    cameraSelection.initialize();
     window.show();
     simulationTimer.start();
     appLog.info("Application started");

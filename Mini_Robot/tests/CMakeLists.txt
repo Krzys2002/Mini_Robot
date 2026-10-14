@@ -15,7 +15,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_executable(micro_robot_tests
         main.cpp
         ui/MainWindowTest.cpp
-        ui/CameraDiscoveryTest.cpp
+        ui/CameraSelectionControllerTest.cpp
         ui/ManualBackends.hpp
     )
     target_link_libraries(micro_robot_tests PRIVATE micro_robot_ui micro_robot_simulation GTest::gtest)

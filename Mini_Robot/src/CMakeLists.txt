@@ -98,13 +98,13 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_desktop_controller STATIC
         app/DesktopController.hpp
         app/DesktopController.cpp
-        app/CameraDiscoveryController.hpp
-        app/CameraDiscoveryController.cpp
+        app/CameraSelectionController.hpp
+        app/CameraSelectionController.cpp
     )
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
-        micro_robot_camera_api micro_robot_transport_api micro_robot_world micro_robot_logging
-        Qt6::Core
+        micro_robot_camera_api micro_robot_camera_selection micro_robot_transport_api
+        micro_robot_world micro_robot_logging Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
 
