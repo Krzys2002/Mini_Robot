@@ -98,7 +98,10 @@ int main(int argc, char* argv[])
     FakeCameraConfig cameraConfig;
     cameraConfig.frameInterval = config.simulation.cameraFrameInterval;
     auto camera = std::make_unique<FakeCameraSource>(cameraConfig);
-    auto transport = std::make_unique<SimulationTransport>();
+    SimulationTransportConfig transportConfig;
+    transportConfig.telemetryInterval = config.simulation.telemetryInterval;
+    auto transport = std::make_unique<SimulationTransport>(transportConfig,
+                                                           logger.channel("simulation"));
     QtCameraDeviceDiscovery cameraDiscovery;
     CameraDiscoveryController discoveryController{cameraDiscovery};
     WorldModel world;

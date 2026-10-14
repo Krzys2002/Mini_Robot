@@ -29,6 +29,7 @@ void expectDefaults(const ApplicationConfig& config)
     EXPECT_EQ(config.robot.id, defaults.robot.id);
     EXPECT_EQ(config.simulation.updateInterval, defaults.simulation.updateInterval);
     EXPECT_EQ(config.simulation.cameraFrameInterval, defaults.simulation.cameraFrameInterval);
+    EXPECT_EQ(config.simulation.telemetryInterval, defaults.simulation.telemetryInterval);
 }
 
 // Asserts exactly one warning whose message contains every fragment.
@@ -51,6 +52,7 @@ TEST(ConfigDefaultsTest, MatchCurrentApplicationBehavior)
     EXPECT_EQ(config.robot.id, RobotId{1});
     EXPECT_EQ(config.simulation.updateInterval, 100ms);
     EXPECT_EQ(config.simulation.cameraFrameInterval, 33ms);
+    EXPECT_EQ(config.simulation.telemetryInterval, 0ms);
 }
 
 TEST(ConfigParseTest, EmptyTextYieldsDefaultsWithoutDiagnostics)
@@ -71,7 +73,8 @@ TEST(ConfigParseTest, ReadsEverySetting)
         "id = 42\n"
         "[simulation]\n"
         "update_interval_ms = 20\n"
-        "camera_frame_interval_ms = 50\n",
+        "camera_frame_interval_ms = 50\n"
+        "telemetry_interval_ms = 250\n",
         "test.ini");
 
     EXPECT_TRUE(result.diagnostics.empty());
@@ -81,6 +84,7 @@ TEST(ConfigParseTest, ReadsEverySetting)
     EXPECT_EQ(result.config.robot.id, RobotId{42});
     EXPECT_EQ(result.config.simulation.updateInterval, 20ms);
     EXPECT_EQ(result.config.simulation.cameraFrameInterval, 50ms);
+    EXPECT_EQ(result.config.simulation.telemetryInterval, 250ms);
 }
 
 TEST(ConfigParseTest, IgnoresCommentsBlankLinesWhitespaceBomAndCrLf)
@@ -109,12 +113,18 @@ TEST(ConfigParseTest, AcceptsBoundaryValues)
 {
     const auto result = parseConfig(
         "[robot]\nid = 4294967295\n"
-        "[simulation]\nupdate_interval_ms = 1\ncamera_frame_interval_ms = 10000\n",
+        "[simulation]\nupdate_interval_ms = 1\ncamera_frame_interval_ms = 10000\n"
+        "telemetry_interval_ms = 0\n",
         "test.ini");
     EXPECT_TRUE(result.diagnostics.empty());
     EXPECT_EQ(result.config.robot.id, RobotId{4294967295U});
     EXPECT_EQ(result.config.simulation.updateInterval, 1ms);
     EXPECT_EQ(result.config.simulation.cameraFrameInterval, 10000ms);
+    EXPECT_EQ(result.config.simulation.telemetryInterval, 0ms);
+
+    const auto upper = parseConfig("[simulation]\ntelemetry_interval_ms = 10000\n", "test.ini");
+    EXPECT_TRUE(upper.diagnostics.empty());
+    EXPECT_EQ(upper.config.simulation.telemetryInterval, 10000ms);
 }
 
 TEST(ConfigParseTest, EmptyFilePathSelectsDefaultLocation)
@@ -140,6 +150,13 @@ TEST(ConfigParseTest, RejectsOutOfRangeAndMalformedNumbers)
             std::string{"[simulation]\nupdate_interval_ms = "} + value + "\n", "test.ini");
         expectSingleWarning(result, {"simulation.update_interval_ms", "1 to 10000", "keeping 100"});
         EXPECT_EQ(result.config.simulation.updateInterval, 100ms);
+    }
+    for (const auto* value : {"-1", "10001", "x"}) {
+        SCOPED_TRACE(value);
+        const auto result = parseConfig(
+            std::string{"[simulation]\ntelemetry_interval_ms = "} + value + "\n", "test.ini");
+        expectSingleWarning(result, {"simulation.telemetry_interval_ms", "0 to 10000", "keeping 0"});
+        EXPECT_EQ(result.config.simulation.telemetryInterval, 0ms);
     }
     const auto overflow = parseConfig("[robot]\nid = 4294967296\n", "test.ini");
     expectSingleWarning(overflow, {"robot.id"});
