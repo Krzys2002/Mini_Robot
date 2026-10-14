@@ -12,10 +12,12 @@ one level above it in the repository's `.github` directory.
 - Ninja for the examples below; other CMake generators may also be used.
 - Qt 6 Widgets and Multimedia for the desktop build. Qt Core is used by the
   application controllers; Multimedia is isolated in the device-discovery adapter.
+- OpenCV core, imgproc, and videoio for recorded-video replay (default ON).
+  Set `-DMICRO_ROBOT_BUILD_REPLAY=OFF` to omit that adapter and its tests.
 - GoogleTest when BUILD_TESTING is ON (the default). CMake first uses an installed
   GTest CONFIG package, then downloads pinned GoogleTest 1.17.0 if unavailable.
 
-The current source does not discover or link OpenCV, Eigen, spdlog, JSON,
+The current source does not discover or link Eigen, spdlog, JSON,
 Qt Bluetooth, or network libraries. They are planned dependencies,
 not prerequisites for today's simulation demo. The optional runtime settings file is
 described in [Application configuration](../overview/configuration.md).
@@ -30,7 +32,7 @@ Install Xcode Command Line Tools, then install CMake, Ninja, and Qt through
 Homebrew or provide equivalent installations. With Homebrew:
 
 ```sh
-brew install cmake ninja qt
+brew install cmake ninja qt opencv
 cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug   -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DBUILD_TESTING=ON
 cmake --build build/debug --parallel 3
 ctest --test-dir build/debug --output-on-failure --no-tests=error
@@ -47,7 +49,7 @@ The [Ubuntu setup guide](linux-setup.md) provides GCC/Clang and headless recipes
 for the current source, with explicit verification limits.
 
 For Windows, install a C++20 toolchain, CMake, and Qt 6 Widgets/Multimedia
-built for that toolchain.
+built for that toolchain, plus compatible OpenCV core/imgproc/videoio packages.
 Run from its developer terminal and pass the matching Qt prefix:
 
 ```sh
@@ -68,7 +70,8 @@ cmake --build build/core --parallel
 ctest --test-dir build/core --output-on-failure --no-tests=error
 ```
 
-This omits Qt discovery and all GUI targets. All domain tests, including the
+This omits Qt discovery and all GUI targets, but includes the OpenCV replay adapter.
+Disable `MICRO_ROBOT_BUILD_REPLAY` as well for a build with neither Qt nor OpenCV. All domain tests, including the
 unlabelled camera tests, run when no label filter is given. For offline builds,
 install GTest or add `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`.
 Use `-DBUILD_TESTING=OFF` to omit tests and the GTest dependency entirely.
@@ -78,6 +81,7 @@ Use `-DBUILD_TESTING=OFF` to omit tests and the GTest dependency entirely.
 | Symptom | Check |
 | --- | --- |
 | Qt6 package not found | Pass the matching installation prefix via CMAKE_PREFIX_PATH, or disable desktop for a domain-only build. |
+| OpenCV package not found | Install OpenCV or set OpenCV_DIR to its CMake package directory; disable replay to omit it. |
 | GoogleTest download fails | Network access or installed GTest; alternatively provide an existing source checkout. |
 | No tests found | Configure BUILD_TESTING=ON, build test targets, then run CTest from that build directory. |
 | Old compiler/Qt or generator persists | Use a fresh build directory when switching toolchains/platforms. |

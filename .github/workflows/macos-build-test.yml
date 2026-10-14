@@ -2,6 +2,7 @@ name: macOS build and test
 
 on:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,7 +27,7 @@ jobs:
           persist-credentials: false
 
       - name: Install build dependencies
-        run: brew install cmake ninja qt
+        run: brew install cmake ninja qt opencv
 
       - name: Configure desktop and tests
         run: >-

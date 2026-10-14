@@ -14,7 +14,7 @@ Windows remains a project target with deployment work assigned to M8.
 
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
-| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, read-only system camera discovery, application logging, configuration loading, tests, macOS CI. | USB discovery/hotplug acceptance, camera selection/capture/preview, source recovery implementation, recorded-video decoding, and Ubuntu build/GUI validation. |
+| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, read-only system camera discovery, application logging, configuration loading, recorded-video replay, tests, macOS CI. | USB discovery/hotplug acceptance, camera selection/capture/preview, source recovery implementation, and Ubuntu build/GUI validation. |
 | M2 — Vision, Calibration & Robot Localization | Planned; metric Pose2D and timestamped frames are prerequisites already supplied by M1. | AprilTag detection, intrinsic/workspace calibration, image-to-world conversion, tracking, freshness/quality estimates, and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Planned; IRobotTransport and semantic commands/telemetry are M1 prerequisites. | Wire protocol/GATT, physical BLE, RobotManager, manual motion controls, E-stop, reconnect, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Planned; a stored demo pose is not closed-loop feedback. | Kinematics, supervisory scheduler/controller, target selection, command limits, tracking/connection safety transitions, and control experiments. |
@@ -37,6 +37,8 @@ The current layers are:
   depending only on common types.
 - `micro_robot_camera_discovery`: concrete Qt Multimedia system-inventory adapter,
   depending on the camera API and linked only by composition code.
+- `micro_robot_camera_replay`: OpenCV local-file decoding behind the camera API,
+  driven on an acquisition worker/test thread by supplied virtual time.
 - `micro_robot_world`: private robot registry and timestamp-aware pose storage,
   depending only on common types.
 - `micro_robot_logging`: Qt-free, thread-safe application logger with per-module
@@ -107,7 +109,9 @@ metadata, and state/frame/error events. Frames have local capture timestamps,
 increasing sequences, dimensions, packed pixel layout, stride, and immutable
 owned storage. `isValidFrame` validates layout/storage without overflow;
 sequence/time ordering remains the source's responsibility. The contract allows
-terminal failures and recovery, but current production capture is fake only.
+terminal failures and recovery. [Recorded-video replay](recorded-video.md)
+implements this boundary with deterministic timing and EOF/loop lifecycle; the
+desktop composition still uses fake capture.
 
 [IRobotTransport](transport.md) exposes per-ID connect/disconnect, semantic command
 submission, and connection/telemetry/error events. Commands contain Stop or
@@ -139,8 +143,9 @@ explicit results and preserve state.
 
 ### Ownership, threading, and shutdown
 
-All current application callbacks and model access are serialized on the GUI
-thread. Capture, transport, and discovery retain weak event subscriptions;
+The standalone replay adapter performs file I/O on its owning acquisition/test
+thread and is not wired into the GUI demo. All current application callbacks and
+model access are serialized on the GUI thread. Capture, transport, and discovery retain weak event subscriptions;
 DesktopController and CameraDiscoveryController own their respective plain C++
 event sinks. Discovery refreshes use a context-bound queued timer cancelled on
 adapter destruction. Borrowed event values must be copied when retained; immutable
@@ -170,8 +175,8 @@ separate from the application's Logger channels and file sink.
 [Configuration](configuration.md) is loaded once by the composition root from an
 optional INI file and injected into modules as typed values; per-camera
 calibration and workspace profiles are not implemented yet.
-Camera selection, live pixel preview, actual capture-device disconnect/recovery,
-and recorded-video decoding are not implemented; interface and test-double
+Camera selection, live pixel preview, and actual capture-device disconnect/recovery
+are not implemented; interface and test-double
 support for those events is not physical backend verification.
 
 [Build setup](../development/build.md) and

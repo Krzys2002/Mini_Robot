@@ -37,6 +37,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_simulation_tests` | `core` | Deterministic backends and substitution |
 | `micro_robot_world_tests` | `core` | World registry and pose update rules |
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink |
+| `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
 | `micro_robot_tests` | `ui` | Offscreen Qt window and controller integration |
 
@@ -96,7 +97,7 @@ The repository-level `.github/workflows/macos-build-test.yml` runs when a pull
 request is opened, reopened, or updated with new commits. Its `macOS Apple Silicon / Debug`
 job uses the `macos-15` runner and the default AppleClang toolchain. It checks out
 the repository with read-only permissions and without persisted credentials,
-installs CMake/Ninja/Qt using Homebrew, configures the desktop and tests explicitly,
+installs CMake/Ninja/Qt/OpenCV using Homebrew, configures the desktop and tests explicitly,
 builds all targets, and runs every CTest case (including offscreen Qt tests).
 
 Each run uses a fresh build directory with no workflow dependency/build cache.
@@ -106,13 +107,19 @@ The Qt prefix comes from `brew --prefix qt`, and commands run in `Mini_Robot`
 relative to the checkout. Configure/build/test failures fail the job; CTest also
 fails if no tests are discovered. Logs are available in the repository's Actions
 tab and the pull request checks. New runs cancel superseded runs for the same ref.
-Push and manual triggers are omitted to avoid duplicate runs for PR branches.
+Push triggers are omitted to avoid duplicate runs for PR branches. Manual
+`workflow_dispatch` runs can validate a selected branch even when PR merge
+conflicts prevent automatic CI:
+
+```sh
+gh workflow run macos-build-test.yml --repo Krzys2002/Mini_Robot --ref your-branch
+```
 
 To run the same commands locally on macOS, start in `Mini_Robot` with a fresh
 `build/ci` directory and installed Xcode Command Line Tools:
 
 ```sh
-brew install cmake ninja qt
+brew install cmake ninja qt opencv
 cmake -S . -B build/ci -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DMICRO_ROBOT_BUILD_DESKTOP=ON -DBUILD_TESTING=ON \
   -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
@@ -133,6 +140,10 @@ cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build/core --parallel
 ctest --test-dir build/core --output-on-failure --no-tests=error
 ```
+
+Replay tests run without Qt or hardware and require an MJPEG-capable OpenCV
+video backend. See the [replay fixture strategy](../overview/recorded-video.md#fixtures-and-verification).
+Set `MICRO_ROBOT_BUILD_REPLAY=OFF` to omit that suite and OpenCV discovery.
 
 ## Adding tests
 

@@ -62,6 +62,18 @@ target_link_libraries(micro_robot_simulation PUBLIC
 )
 micro_robot_target_defaults(micro_robot_simulation)
 
+if(MICRO_ROBOT_BUILD_REPLAY)
+    add_library(micro_robot_camera_replay STATIC
+        camera/RecordedVideoSource.hpp
+        camera/RecordedVideoSource.cpp
+    )
+    target_link_libraries(micro_robot_camera_replay PUBLIC micro_robot_camera_api
+        PRIVATE ${OpenCV_LIBS}
+    )
+    target_include_directories(micro_robot_camera_replay SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    micro_robot_target_defaults(micro_robot_camera_replay)
+endif()
+
 if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_camera_discovery STATIC
         camera/QtCameraDeviceDiscovery.hpp

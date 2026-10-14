@@ -99,5 +99,6 @@ manual source into the same controller/window, including pending and failure
 states. Tests do not prove future physical backend scheduling behavior.
 
 Issue #26 defines this interface. [Read-only discovery](camera-discovery.md) is
-implemented separately by #29. Device selection, physical capture, recorded-video
-decoding, pixel preview, and worker adapters remain separate issue work.
+implemented separately by #29. [Recorded-video replay](recorded-video.md) is
+implemented by #47 through this same interface. Device selection UI, physical
+capture, pixel preview, and GUI worker adapters remain separate issue work.
