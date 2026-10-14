@@ -30,8 +30,10 @@ micro_robot_target_defaults(micro_robot_common_tests)
 gtest_discover_tests(micro_robot_common_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
 # Camera contract tests compile without Qt, transport, or a concrete backend.
-add_executable(micro_robot_camera_tests camera/CameraTypesTest.cpp)
-target_link_libraries(micro_robot_camera_tests PRIVATE micro_robot_camera_api GTest::gtest_main)
+add_executable(micro_robot_camera_tests camera/CameraTypesTest.cpp camera/CameraSelectionTest.cpp)
+target_link_libraries(micro_robot_camera_tests PRIVATE
+    micro_robot_camera_selection GTest::gtest_main
+)
 micro_robot_target_defaults(micro_robot_camera_tests)
 gtest_discover_tests(micro_robot_camera_tests DISCOVERY_MODE PRE_TEST)
 

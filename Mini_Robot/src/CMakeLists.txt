@@ -15,7 +15,16 @@ target_sources(micro_robot_camera_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/CameraTypes.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraSource.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraDeviceDiscovery.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraSourceFactory.hpp"
 )
+
+# Qt-free selection rules shared by presentation code and core tests.
+add_library(micro_robot_camera_selection STATIC
+    camera/CameraSelection.hpp
+    camera/CameraSelection.cpp
+)
+target_link_libraries(micro_robot_camera_selection PUBLIC micro_robot_camera_api)
+micro_robot_target_defaults(micro_robot_camera_selection)
 
 add_library(micro_robot_transport_api INTERFACE)
 target_link_libraries(micro_robot_transport_api INTERFACE micro_robot_common)
