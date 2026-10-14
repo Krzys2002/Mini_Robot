@@ -56,6 +56,9 @@ The current layers are:
 
 The controller receives interface references; widgets receive the controller.
 Neither layer selects a physical device or depends on simulation classes.
+[Platform boundaries](platform-boundaries.md) records the OS-dependency audit and
+layer rules; configuration and CTest reject OS APIs, unallowed libraries, and
+concrete-backend dependencies in platform-independent targets.
 The composition root owns the [logger](logging.md) and injects a module channel
 into the controller; there is no global logger.
 
@@ -244,7 +247,8 @@ M1 work. No future feature should be implemented merely to complete this overvie
 [Tests](../development/testing.md) exercise common types, packed camera frame
 validation, abstract interfaces, deterministic backends, pose storage, discovery
 inventory presentation, and Qt controller/window integration. Domain targets run without Qt when the desktop is
-disabled; offscreen UI tests remain separate. These checks establish implemented
+disabled; offscreen UI tests remain separate. Platform-boundary checks scan
+platform-independent targets for OS and backend dependencies. These checks establish implemented
 contracts, not physical camera/BLE operation or completion of M2–M8.
 
 Update this overview when source capabilities change: map them to the relevant

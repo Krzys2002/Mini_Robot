@@ -44,6 +44,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/world/WorldModel.hpp](../../src/world/WorldModel.hpp) | [world](world-model.md) |
 | [src/world/WorldSnapshot.hpp](../../src/world/WorldSnapshot.hpp) | [world](world-model.md) |
 | [src/CMakeLists.txt](../../src/CMakeLists.txt) | [Build targets](../development/build.md) |
+| [cmake/MicroRobotBoundaries.cmake](../../cmake/MicroRobotBoundaries.cmake) | [Platform boundaries](platform-boundaries.md#enforcement) |
+| [cmake/CheckPlatformBoundary.cmake](../../cmake/CheckPlatformBoundary.cmake) | [Platform boundaries](platform-boundaries.md#enforcement) |
 
 ## Target boundaries
 
@@ -64,6 +66,8 @@ reports are scope/history, not evidence that future modules are present.
 
 See [root configuration](../../CMakeLists.txt) and [test targets](../../tests/CMakeLists.txt).
 Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
+Each target's layer and the configure/test-time checks that enforce it are listed
+in [platform boundaries](platform-boundaries.md).
 
 ## Implementation limits
 
