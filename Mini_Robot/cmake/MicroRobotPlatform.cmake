@@ -1,0 +1,80 @@
+# Platform and toolchain configuration for the Micro Robot desktop build.
+#
+# Operating-system and compiler conditionals belong in this module. Target
+# definitions in src/ and tests/ stay platform-neutral and call the helpers
+# below instead of branching on APPLE, WIN32, or compiler IDs themselves.
+include_guard(GLOBAL)
+
+# Detect the target operating system once and expose it to the rest of the build.
+if(APPLE)
+    set(MICRO_ROBOT_PLATFORM "macOS")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(MICRO_ROBOT_PLATFORM "Linux")
+elseif(WIN32)
+    set(MICRO_ROBOT_PLATFORM "Windows")
+else()
+    set(MICRO_ROBOT_PLATFORM "${CMAKE_SYSTEM_NAME}")
+endif()
+
+# Supported compilers per platform, with the oldest version expected to provide
+# the C++20 language and library features the sources use. Windows/MSVC remains
+# a portability target; its listing does not imply that it has been validated.
+set(_micro_robot_compilers_macOS AppleClang)
+set(_micro_robot_minimum_AppleClang 14.0)
+set(_micro_robot_compilers_Linux GNU Clang)
+set(_micro_robot_minimum_GNU 11.0)
+set(_micro_robot_minimum_Clang 14.0)
+set(_micro_robot_compilers_Windows MSVC)
+set(_micro_robot_minimum_MSVC 19.29)
+
+set(_micro_robot_compiler "${CMAKE_CXX_COMPILER_ID}")
+if(NOT DEFINED _micro_robot_compilers_${MICRO_ROBOT_PLATFORM})
+    message(WARNING
+        "Micro Robot: platform '${MICRO_ROBOT_PLATFORM}' is not a supported target; "
+        "macOS, Linux, and Windows are. Continuing without platform guarantees."
+    )
+elseif(NOT _micro_robot_compiler IN_LIST _micro_robot_compilers_${MICRO_ROBOT_PLATFORM})
+    list(JOIN _micro_robot_compilers_${MICRO_ROBOT_PLATFORM} ", " _micro_robot_expected)
+    message(WARNING
+        "Micro Robot: compiler '${_micro_robot_compiler}' is not supported on "
+        "${MICRO_ROBOT_PLATFORM} (expected: ${_micro_robot_expected}). Continuing untested."
+    )
+elseif(CMAKE_CXX_COMPILER_VERSION VERSION_LESS _micro_robot_minimum_${_micro_robot_compiler})
+    message(WARNING
+        "Micro Robot: ${_micro_robot_compiler} ${CMAKE_CXX_COMPILER_VERSION} is older than "
+        "the supported minimum ${_micro_robot_minimum_${_micro_robot_compiler}}; "
+        "C++20 support may be incomplete."
+    )
+endif()
+
+message(STATUS
+    "Micro Robot: ${MICRO_ROBOT_PLATFORM} with ${_micro_robot_compiler} "
+    "${CMAKE_CXX_COMPILER_VERSION}, C++${CMAKE_CXX_STANDARD}"
+)
+
+# Common compile settings for first-party targets.
+function(micro_robot_target_defaults target)
+    target_compile_features(${target} PRIVATE cxx_std_${CMAKE_CXX_STANDARD})
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
+# Platform packaging for the desktop GUI executable: an application bundle on
+# macOS and a GUI-subsystem executable on Windows. Linux needs no extra settings.
+function(micro_robot_configure_desktop_executable target info_plist)
+    if(APPLE)
+        set_target_properties(${target} PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_BUNDLE_NAME "Micro Robot"
+            MACOSX_BUNDLE_GUI_IDENTIFIER "org.microrobot.desktop"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+            MACOSX_BUNDLE_INFO_PLIST "${info_plist}"
+        )
+    elseif(WIN32)
+        set_target_properties(${target} PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
+endfunction()
