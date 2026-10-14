@@ -1,6 +1,8 @@
 # Build and development setup
 
 Source: [root CMakeLists.txt](../../CMakeLists.txt),
+[platform/toolchain module](../../cmake/MicroRobotPlatform.cmake),
+[CMake presets](../../CMakePresets.json),
 [source targets](../../src/CMakeLists.txt), and
 [test targets](../../tests/CMakeLists.txt).
 Commands run from the checkout's `Mini_Robot` directory; GitHub workflows live
@@ -25,6 +27,60 @@ described in [Application configuration](../overview/configuration.md).
 Qt Multimedia supplies read-only [system camera discovery](../overview/camera-discovery.md).
 It does not enable physical capture or replace the fake source. Install this
 component from the same Qt distribution/version as Widgets.
+
+## Platform and compiler configuration
+
+One CMake configuration serves macOS, Linux, and Windows; switching platform or
+compiler needs a fresh build directory but no edits to CMake files.
+
+- The root `CMakeLists.txt` sets C++20 (required, no compiler extensions) for every
+  target, including a downloaded GoogleTest.
+- [cmake/MicroRobotPlatform.cmake](../../cmake/MicroRobotPlatform.cmake) holds all
+  operating-system and compiler conditionals: OS detection, compiler checks, warning
+  flags (`micro_robot_target_defaults()`), and desktop executable packaging
+  (`micro_robot_configure_desktop_executable()`: app bundle on macOS, GUI subsystem
+  on Windows). `src/` and `tests/` CMake files stay platform-neutral.
+- Qt 6, OpenCV, and GoogleTest are located with `find_package()`. No Homebrew,
+  SDK, or distribution-specific paths are hardcoded; non-standard installations
+  are supplied at configure time through `CMAKE_PREFIX_PATH` or `<Package>_DIR`.
+- Configure prints the detected platform and compiler, for example
+  `Micro Robot: Linux with GNU 15.2.0, C++20`.
+
+| Platform | Supported compilers | Minimum | Validation |
+| --- | --- | --- | --- |
+| macOS | Apple Clang | 14 | macOS CI (Debug) |
+| Linux | GCC, Clang | GCC 11, Clang 14 | Local builds; see [Ubuntu setup](linux-setup.md#verification-status) |
+| Windows | MSVC | 19.29 (VS 2019 16.10) | Portability target only; not validated (#106) |
+
+Other compilers, older versions, or other platforms produce a configure warning
+but are not blocked.
+
+### CMake presets
+
+[CMakePresets.json](../../CMakePresets.json) provides Debug presets with tests
+enabled, each building into `build/<preset>`. Presets are filtered by host, so
+`cmake --list-presets` shows only those for the current OS.
+
+| Preset | Host | Compiler |
+| --- | --- | --- |
+| `macos` | macOS | `clang++` (Apple Clang) |
+| `linux-gcc` | Linux | `g++` |
+| `linux-clang` | Linux | `clang++` |
+
+Each name works for configure, build, and test:
+
+```sh
+cmake --preset linux-gcc
+cmake --build --preset linux-gcc
+ctest --preset linux-gcc
+```
+
+Extra cache variables can be appended to the configure command, for example
+`cmake --preset macos -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"`. Machine-specific
+presets belong in an untracked `CMakeUserPresets.json`. CLion and other
+preset-aware IDEs list the presets as build profiles. Build directories
+(`build/`, CLion's `cmake-build-*/`, Visual Studio's `out/`) and
+`CMakeUserPresets.json` are ignored by Git.
 
 ## macOS
 
@@ -85,6 +141,8 @@ Use `-DBUILD_TESTING=OFF` to omit tests and the GTest dependency entirely.
 | GoogleTest download fails | Network access or installed GTest; alternatively provide an existing source checkout. |
 | No tests found | Configure BUILD_TESTING=ON, build test targets, then run CTest from that build directory. |
 | Old compiler/Qt or generator persists | Use a fresh build directory when switching toolchains/platforms. |
+| Configure warns that a compiler is unsupported or too old | Use a compiler from the platform table above, e.g. via a preset or `-DCMAKE_CXX_COMPILER`. |
+| A preset is missing from `cmake --list-presets` | Presets are host-specific; use one for the current OS, and CMake 3.24 or newer. |
 | UI tests need a display | The UI test entry point sets QT_QPA_PLATFORM=offscreen; domain tests need no QApplication. |
 
 See [testing](testing.md) for suite selection and test additions, and

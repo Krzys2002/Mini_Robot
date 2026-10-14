@@ -62,7 +62,7 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_ui | controller, Qt6::Widgets |
 | micro_robot_desktop | UI, simulation, camera discovery, logging, configuration |
 
-See [root configuration](../../CMakeLists.txt) and [test targets](../../tests/CMakeLists.txt).
+See [root configuration](../../CMakeLists.txt), [platform/toolchain module](../../cmake/MicroRobotPlatform.cmake), and [test targets](../../tests/CMakeLists.txt).
 Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 
 ## Implementation limits
