@@ -1,3 +1,7 @@
+# Targets registered with micro_robot_platform_boundary() are platform-independent:
+# no OS APIs or device-backend libraries, and no dependency on concrete backends
+# (cmake/MicroRobotBoundaries.cmake). Platform adapters and the composition root
+# are deliberately not registered.
 add_library(micro_robot_common INTERFACE)
 target_include_directories(micro_robot_common INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(micro_robot_common INTERFACE cxx_std_20)
@@ -8,6 +12,7 @@ target_sources(micro_robot_common INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Units.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Time.hpp"
 )
+micro_robot_platform_boundary(micro_robot_common)
 
 add_library(micro_robot_camera_api INTERFACE)
 target_link_libraries(micro_robot_camera_api INTERFACE micro_robot_common)
@@ -16,6 +21,7 @@ target_sources(micro_robot_camera_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraSource.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraDeviceDiscovery.hpp"
 )
+micro_robot_platform_boundary(micro_robot_camera_api)
 
 add_library(micro_robot_transport_api INTERFACE)
 target_link_libraries(micro_robot_transport_api INTERFACE micro_robot_common)
@@ -23,6 +29,7 @@ target_sources(micro_robot_transport_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/transport/TransportTypes.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/transport/IRobotTransport.hpp"
 )
+micro_robot_platform_boundary(micro_robot_transport_api)
 
 add_library(micro_robot_world STATIC
     world/RobotState.hpp
@@ -32,6 +39,7 @@ add_library(micro_robot_world STATIC
 )
 target_link_libraries(micro_robot_world PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_world)
+micro_robot_platform_boundary(micro_robot_world)
 
 add_library(micro_robot_logging STATIC
     infrastructure/logging/LogRecord.hpp
@@ -42,6 +50,7 @@ add_library(micro_robot_logging STATIC
 )
 target_link_libraries(micro_robot_logging PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_logging)
+micro_robot_platform_boundary(micro_robot_logging)
 
 add_library(micro_robot_configuration STATIC
     infrastructure/configuration/ApplicationConfig.hpp
@@ -50,6 +59,7 @@ add_library(micro_robot_configuration STATIC
 )
 target_link_libraries(micro_robot_configuration PUBLIC micro_robot_common micro_robot_logging)
 micro_robot_target_defaults(micro_robot_configuration)
+micro_robot_platform_boundary(micro_robot_configuration)
 
 add_library(micro_robot_simulation STATIC
     simulation/FakeCameraSource.hpp
@@ -61,6 +71,8 @@ target_link_libraries(micro_robot_simulation PUBLIC
     micro_robot_camera_api micro_robot_transport_api
 )
 micro_robot_target_defaults(micro_robot_simulation)
+# Platform-independent, but a concrete backend: selected by composition/tests only.
+micro_robot_platform_boundary(micro_robot_simulation BACKEND)
 
 if(MICRO_ROBOT_BUILD_REPLAY)
     add_library(micro_robot_camera_replay STATIC
@@ -96,6 +108,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
+    # Application adapters use Qt Core only; device backends stay in adapter targets.
+    micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
         ui/MainWindow.cpp
@@ -105,6 +119,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     target_include_directories(micro_robot_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(micro_robot_ui PUBLIC Qt6::Widgets micro_robot_desktop_controller)
     micro_robot_target_defaults(micro_robot_ui)
+    micro_robot_platform_boundary(micro_robot_ui ALLOW Qt6::Core Qt6::Widgets)
 
     add_executable(micro_robot_desktop WIN32 MACOSX_BUNDLE app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
