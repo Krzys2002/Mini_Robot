@@ -46,7 +46,8 @@ The current layers are:
 - `micro_robot_configuration`: Qt-free INI loading and validation, depending on
   common types and logging; the composition root injects typed settings.
 - `micro_robot_simulation`: deterministic implementations of the camera and
-  transport interfaces; no Qt, physical hardware, or network dependency.
+  transport interfaces, with optional injected logging; no Qt, physical
+  hardware, or network dependency.
 - `micro_robot_desktop_controller`: Qt Core adapters using interface references;
   DesktopController coordinates the demo/model, while CameraDiscoveryController
   presents device inventories without a Qt Multimedia dependency.

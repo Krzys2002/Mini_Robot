@@ -57,7 +57,7 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_world | micro_robot_common |
 | micro_robot_logging | micro_robot_common |
 | micro_robot_configuration | micro_robot_common, micro_robot_logging |
-| micro_robot_simulation | camera and transport API targets |
+| micro_robot_simulation | camera and transport API targets, logging |
 | micro_robot_desktop_controller | camera API, transport API, world, logging, Qt6::Core |
 | micro_robot_ui | controller, Qt6::Widgets |
 | micro_robot_desktop | UI, simulation, camera discovery, logging, configuration |

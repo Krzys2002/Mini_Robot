@@ -147,6 +147,15 @@ const std::array settings{
         [](const ApplicationConfig& config) {
             return std::to_string(config.simulation.cameraFrameInterval.count());
         }},
+    Setting{"simulation.telemetry_interval_ms", "an integer from 0 to 10000",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto interval = parseMilliseconds(value, milliseconds{0}, maxInterval);
+            if (interval) config.simulation.telemetryInterval = *interval;
+            return interval.has_value();
+        },
+        [](const ApplicationConfig& config) {
+            return std::to_string(config.simulation.telemetryInterval.count());
+        }},
 };
 
 const Setting* findSetting(std::string_view key)

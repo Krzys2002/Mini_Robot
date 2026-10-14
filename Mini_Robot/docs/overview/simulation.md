@@ -39,6 +39,11 @@ permissions, disconnection, configurable resolution, or optics.
 
 ## Simulated transport
 
+`SimulationTransportConfig` defaults to a zero telemetry interval and a 3.7 V
+battery. A negative interval, or a non-finite or non-positive voltage, throws
+`std::invalid_argument` at construction. The desktop composition sets the interval
+from `simulation.telemetry_interval_ms` (see [configuration](configuration.md)).
+
 Robots are processed in ascending RobotId order. Connect/disconnect requests
 coalesce, with direct Disconnected/Connected transitions at advancement.
 Each robot has one pending command: the most recent submission wins. Disconnect
@@ -55,12 +60,24 @@ without allocation, ordering, or deduplication. `lastSentCommand(id)` is an opti
 last accepted command; it may still exist after expiry and is not proof of
 current actuation.
 
-Telemetry is emitted once per distinct timestamp per connected robot. It reports
-3.7 V and echoes fresh accepted velocity intent; Stop or expired intent reports
-zero velocity. Telemetry uses the current domain model version and an unassigned
+Telemetry is emitted at most once per distinct timestamp per connected robot: on
+the first advancement of a session, then whenever at least `telemetryInterval`
+has elapsed since that robot's previous sample (zero means every new timestamp).
+It reports the configured battery voltage and echoes fresh accepted velocity
+intent; Stop or expired intent reports zero velocity. Telemetry uses the current domain model version and an unassigned
 sequence; it does not acknowledge the command's sequence. Disconnect requested in a callback suppresses that session's
 telemetry. There is no movement integration, protocol encoding, radio latency,
 command acknowledgement, local actuator limit, or real robot watchdog.
+
+### Communication log
+
+An optional `LogChannel` passed at construction records simulated traffic with
+the robot ID; the desktop composition uses the `simulation` module. Connect and
+disconnect requests, submitted and accepted commands, and telemetry samples are
+Debug records; connection state changes are Info; rejected commands are Warning
+with the error code. Numbers use fixed three-decimal, locale-independent text, so
+the same inputs produce the same messages. Without a channel nothing is logged.
+Higher-level code still observes only `IRobotTransport` events.
 
 ```cpp
 #include "simulation/FakeCameraSource.hpp"

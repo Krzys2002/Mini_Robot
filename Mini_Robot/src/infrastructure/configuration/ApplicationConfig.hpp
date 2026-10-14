@@ -30,6 +30,9 @@ struct SimulationConfig {
     std::chrono::milliseconds updateInterval{100};
     // Frame period of the fake camera source.
     std::chrono::milliseconds cameraFrameInterval{33};
+    // Minimum spacing between simulated robot telemetry samples; zero reports on
+    // every simulation update.
+    std::chrono::milliseconds telemetryInterval{0};
 };
 
 struct ApplicationConfig {
