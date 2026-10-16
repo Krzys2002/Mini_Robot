@@ -14,10 +14,11 @@ if(NOT MANIFEST OR NOT EXISTS "${MANIFEST}")
 endif()
 include("${MANIFEST}")
 
-# Operating-system/platform conditionals. Platform branches belong in adapters
-# or the build configuration, never in platform-independent code.
+# Operating-system/platform conditionals, including Qt's Q_OS_* macros. Platform
+# branches belong in adapters or the build configuration, never in
+# platform-independent code.
 set(platform_macro_pattern
-    "(__APPLE__|__MACH__|TARGET_OS_[A-Z_]+|_WIN32|_WIN64|__CYGWIN__|__linux__|__linux|__unix__|__gnu_linux__|__ANDROID__)")
+    "(__APPLE__|__MACH__|TARGET_OS_[A-Z_]+|_WIN32|_WIN64|__CYGWIN__|__linux__|__linux|__unix__|__gnu_linux__|__ANDROID__|Q_OS_[A-Z0-9_]+)")
 
 # Operating-system, native-framework, and device-backend headers.
 set(include_prefix "^[ \t]*#[ \t]*(include|import)[ \t]*[<\"]")

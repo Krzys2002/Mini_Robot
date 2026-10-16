@@ -65,6 +65,19 @@ foreach(fragment IN ITEMS "#include <QObject>" "QtCameraDeviceDiscovery.hpp")
     endif()
 endforeach()
 
+# Qt's own platform macros are platform conditionals too.
+run_checker(qt_platform ON "${FIXTURES}/QtPlatformLeak.hpp" "" result output)
+if(result EQUAL 0)
+    list(APPEND failures "qt_platform: checker passed Qt platform conditionals")
+endif()
+expect_reported("${output}" qt_platform
+    "#ifdef Q_OS_MACOS" "#elif defined(Q_OS_LINUX)" "#if defined(Q_OS_WIN)")
+
+run_checker(qt_neutral ON "${FIXTURES}/QtNeutral.hpp" "${backend_headers}" result output)
+if(NOT result EQUAL 0)
+    list(APPEND failures "qt_neutral: checker rejected ordinary Qt Core usage:\n${output}")
+endif()
+
 run_checker(objc OFF "${WORK_DIR}/Adapter.mm" "" result output)
 if(result EQUAL 0)
     list(APPEND failures "objc: checker accepted an Objective-C++ source")
