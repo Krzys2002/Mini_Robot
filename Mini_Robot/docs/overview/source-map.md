@@ -17,6 +17,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/camera/ICameraSource.hpp](../../src/camera/ICameraSource.hpp) | [camera](camera-source.md) |
 | [src/camera/ICameraDeviceDiscovery.hpp](../../src/camera/ICameraDeviceDiscovery.hpp) | [Discovery contract](camera-discovery.md) |
 | [src/camera/ICameraSourceFactory.hpp](../../src/camera/ICameraSourceFactory.hpp) | [Source factory](camera-selection.md#architecture-and-api) |
+| [src/camera/QtCameraSource.hpp](../../src/camera/QtCameraSource.hpp) | [Native camera streaming](camera-streaming.md) |
+| [src/camera/QtCameraSource.cpp](../../src/camera/QtCameraSource.cpp) | [Native camera streaming](camera-streaming.md) |
 | [src/camera/QtCameraDeviceDiscovery.cpp](../../src/camera/QtCameraDeviceDiscovery.cpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/camera/QtCameraDeviceDiscovery.hpp](../../src/camera/QtCameraDeviceDiscovery.hpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/camera/RecordedVideoSource.cpp](../../src/camera/RecordedVideoSource.cpp) | [Replay adapter](recorded-video.md) |
@@ -83,7 +85,7 @@ logging, INI configuration loading, recorded-video replay, and a Qt simulation
 window are implemented. Discovery diagnostics use a separate Qt logging category.
 There are no vision, calibration, tracking, planning, supervisory controller,
 physical BLE, Zigbee, or structured measurement-recording modules. Qt Multimedia
-is used only by the concrete discovery adapter. OpenCV is isolated in the optional
+is isolated in the concrete discovery and [streaming](camera-streaming.md) adapters. OpenCV is isolated in the optional
 replay adapter; other proposed dependencies are absent from current CMake targets.
 The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.

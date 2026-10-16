@@ -28,7 +28,7 @@ not prerequisites for today's simulation demo. The optional runtime settings fil
 described in [Application configuration](../overview/configuration.md).
 
 Qt Multimedia supplies read-only [system camera discovery](../overview/camera-discovery.md).
-It does not enable physical capture; selected cameras use a simulated feed. Install this
+The [streaming adapter](../overview/camera-streaming.md) uses the same component for physical capture. Install this
 component from the same Qt distribution/version as Widgets.
 
 ## Platform and compiler configuration

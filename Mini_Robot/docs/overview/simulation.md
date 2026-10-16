@@ -20,8 +20,8 @@ backends keep only weak subscriptions. Callbacks may request stop/disconnect,
 but must not throw, destroy the backend, or call advanceTo recursively.
 
 The desktop composition uses a QTimer and passes `MonotonicClock::now()` to the
-camera factory and the transport;
-[tests](../../tests/simulation/SimulationTest.cpp) instead supply fixed timestamps.
+simulated transport; the fake camera factory is used by alternate compositions and tests.
+[Tests](../../tests/simulation/SimulationTest.cpp) instead supply fixed timestamps.
 Consumers depend on interfaces; only composition/tests drive concrete fake time.
 
 ## Fake camera
@@ -32,7 +32,8 @@ Frames are always 8 by 6 Gray8, stride 8, with owned immutable storage. For each
 pixel index, the value is `(patternSeed + sequence + index) % 256`.
 
 Start/stop requests coalesce and transition directly between Stopped and Streaming
-at advancement. At most one frame is emitted per call; missed intervals are
+at advancement. Cancelling a pending start emits a quiescent state acknowledgement
+even if the state was still Stopped. At most one frame is emitted per call; missed intervals are
 skipped. Sequence begins at 0, can have gaps, and remains increasing across
 restarts. A repeated advancement in the same cadence tick emits no extra frame.
 Frames use the supplied capture timestamp. Retained frames survive later advances
@@ -41,7 +42,7 @@ that call's frame. This fake does not decode recorded media or simulate camera
 permissions, disconnection, configurable resolution, or optics.
 
 `FakeCameraSourceFactory` implements [ICameraSourceFactory](camera-selection.md)
-for the desktop until physical capture exists. It supports any device with an ID
+for deterministic tests and alternate compositions. It supports any device with an ID
 and creates a fake source per selection, named `<device name> (simulated feed)`
 with source ID `simulated:<device id>`; the configured interval and seed apply to
 every source. Its `advanceTo(now)` advances each live created source in creation

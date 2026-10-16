@@ -19,8 +19,8 @@ The Camera selection panel lists every discovered device in a drop-down. Its
 initial “Looking for cameras…” placeholder is replaced by an asynchronous
 snapshot; zero devices show “No cameras available”. Device changes refresh the
 full list. Devices without a usable ID are listed but disabled. Choosing a device
-makes it the active camera source; until physical capture exists (#31) that
-source is a simulated feed named after the device. See
+makes it the active physical camera source. [Streaming](camera-streaming.md)
+describes permissions, worker ownership, request guards, and manual checks. See
 [camera selection](camera-selection.md) and [camera discovery](camera-discovery.md)
 for identifiers, replacement rules, logging, and manual checks.
 
@@ -30,7 +30,7 @@ for identifiers, replacement rules, logging, and manual checks.
    disconnected robot, and registered Robot 1 with an unknown pose.
 2. Select a camera. The Active camera source panel names it and shows Stopped.
 3. Start camera enables the source. The display shows frame sequence,
-   8 by 6 dimensions, and elapsed capture time. Pixels are not rendered as video.
+   actual capture dimensions, and elapsed capture time. Pixels are not rendered as video.
 4. Stop camera disables frame production. The last frame description remains.
    Selecting another camera stops a running source first; the new one starts
    stopped. Removing the selected device clears the selection.
@@ -38,14 +38,15 @@ for identifiers, replacement rules, logging, and manual checks.
    The composition supplies a static world pose of (0.25 m, 0.15 m, 0 rad).
 6. Disconnect robot ends telemetry; the last stored pose remains visible. A real
    pending connection can be cancelled through the same disconnect button.
-7. Quit stops the timer, requests backend shutdown, advances the fakes once to
-   drain terminal events, and destroys objects in dependency-safe order.
+7. Closing the last window requests backend shutdown and keeps the event loop
+   running until camera stop and simulated transport disconnect complete, then
+   stops the timer and destroys objects in dependency-safe order.
 
 Startup, shutdown, controller state changes, and errors are written to stderr
 and to a per-user log file whose path is printed at startup; see
 [Application logging](logging.md).
 
-The 100 ms timer advances both fakes independently of camera start/stop. Pose
+The 100 ms timer advances the simulated transport independently of camera start/stop. Pose
 updates occur while connected, including when the camera is stopped. They are
 explicit demo observations, not measurements derived from the image or telemetry.
 The UI offers no velocity command, path execution, robot selection, or E-stop.
@@ -59,7 +60,8 @@ through the injected factory, and detaches on destruction. DesktopController own
 the active camera source; the factory and other references outlive it. Its
 destructor detaches the shared event sink from both weak backend subscriptions. MainWindow emits requests and displays
 controller signals. Widgets use Qt parent ownership and receiver-context
-connections. All current calls and callbacks are serialized on the GUI thread.
+connections. Public interface calls and callbacks are serialized on the GUI thread;
+native camera work and pixel conversion run on a dedicated worker.
 
 `initialize(now)` is idempotent, records startup time, registers the configured
 robot ID, and publishes initial state. It cannot restart a shutdown controller.

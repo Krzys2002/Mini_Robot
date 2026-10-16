@@ -21,7 +21,8 @@ ID. `state()` returns the current state without device I/O.
 
 `start()` and `stop()` are prompt, asynchronous, idempotent requests. They never
 dispatch events inline. Stop cancels pending startup and suppresses subsequent
-frames once shutdown completes. The source starts in `Stopped`:
+frames once shutdown completes. Cancellation of a pending start acknowledges a
+quiescent state asynchronously even when that state is unchanged. The source starts in `Stopped`:
 
 | State | Meaning |
 | --- | --- |
@@ -65,7 +66,7 @@ Consumers may retain a frame or its pixel storage after the callback, after newe
 frames, and after source destruction. Producers must never mutate the published
 frame or buffer through another alias. Copy borrowed capture buffers or transfer
 exclusive ownership before publishing; `shared_ptr<const ...>` alone does not
-freeze a separate mutable alias. Future Qt/OpenCV conversions belong in adapters.
+freeze a separate mutable alias. Qt/OpenCV conversions belong in adapters.
 
 ## Threading and subscriptions
 
@@ -97,10 +98,11 @@ Qt or concrete backends. Existing interface and simulation tests exercise frame
 retention, weak subscription lifetimes, deferred requests, cancellation, and
 polymorphism. GUI integration tests inject both `FakeCameraSource` and a test-only
 manual source into the same controller/window, including pending and failure
-states. Tests do not prove future physical backend scheduling behavior.
+states. [Native adapter tests](../../tests/ui/QtCameraSourceTest.cpp) exercise asynchronous
+failure/cancellation without hardware; successful physical capture remains manual.
 
 Issue #26 defines this interface. [Read-only discovery](camera-discovery.md) is
 implemented separately by #29. [Recorded-video replay](recorded-video.md) is
 implemented by #47 through this same interface. [Device selection](camera-selection.md)
-(#30) creates sources through a factory. Physical capture, pixel preview, and GUI
-worker adapters remain separate issue work.
+(#30) creates sources through a factory. [Physical capture](camera-streaming.md)
+(#31) uses a Qt worker adapter. Pixel preview remains separate work.
