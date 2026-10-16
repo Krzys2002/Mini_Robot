@@ -79,12 +79,14 @@ may omit it, and a lower/repeated value alone does not invalidate a command.
 Do not use sequence as a substitute for `issuedAt`/`validFor` or treat telemetry's
 sequence as acknowledgement of a command.
 
-These are domain values, not a wire header. [Issue #64](https://github.com/Krzys2002/Mini_Robot/issues/64)
-will define wire versions, sequence allocation/session scope/wraparound, correlation
-and acknowledgements, encoding, byte order, remote clock conversion, and BLE GATT.
-Adapters may map a wire version into domain version 1; they must not assume the
-two numbers coincide. No GATT layout, command saturation, robot motor controller,
-or real safety watchdog is implemented by #44.
+These are domain values, not a wire header. The [robot message protocol](../protocol/robot-protocol.md)
+defines wire versions, sequence allocation/session scope/wraparound, correlation
+and acknowledgements, encoding, byte order, and freshness without clock
+synchronization. The [BLE GATT contract](../protocol/ble-gatt.md) defines the
+service layout. Its [domain mapping](../protocol/robot-protocol.md#domain-mapping)
+maps wire version 1 to domain version 1 explicitly; adapters must not assume the
+two numbers coincide. Domain `sequence` is not transmitted. No adapter, command
+saturation, robot motor controller, or real safety watchdog is implemented yet.
 
 Simulation preserves submitted metadata in `lastSentCommand()`, rejects unsupported
 versions without replacing the prior accepted command, and emits version-1
