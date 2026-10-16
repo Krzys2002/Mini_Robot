@@ -100,7 +100,10 @@ int main(int argc, char* argv[])
     FakeCameraConfig cameraConfig;
     cameraConfig.frameInterval = config.simulation.cameraFrameInterval;
     FakeCameraSourceFactory cameraFactory{cameraConfig};
-    auto transport = std::make_unique<SimulationTransport>();
+    SimulationTransportConfig transportConfig;
+    transportConfig.telemetryInterval = config.simulation.telemetryInterval;
+    auto transport = std::make_unique<SimulationTransport>(transportConfig,
+                                                           logger.channel("simulation"));
     QtCameraDeviceDiscovery cameraDiscovery;
     WorldModel world;
     const RobotId robotId = config.robot.id;

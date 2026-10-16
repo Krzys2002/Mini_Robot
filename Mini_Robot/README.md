@@ -17,6 +17,8 @@ For platform setup and troubleshooting, see [build setup](docs/development/build
 - CMake 3.24 or newer.
 - Ninja for the commands below.
 - Qt 6 with the Widgets and Multimedia components for the desktop build.
+- OpenCV core, imgproc, and videoio for recorded-video replay (omit with
+  `-DMICRO_ROBOT_BUILD_REPLAY=OFF`).
 
 GoogleTest is used for testing. CMake uses an installed GoogleTest package when
 available; otherwise it downloads GoogleTest 1.17.0 during configuration, which
@@ -31,6 +33,11 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure --no-tests=error
 ```
+
+On macOS and Linux, `cmake --preset macos`, `linux-gcc`, or `linux-clang` runs the
+same configuration with a per-preset build directory; see
+[CMake presets](docs/development/build.md#cmake-presets) and the
+[Ubuntu setup guide](docs/development/linux-setup.md).
 
 If CMake cannot find Qt, add `-DCMAKE_PREFIX_PATH=/path/to/your/Qt/installation`
 to the configure command. Use the installation prefix containing Qt's `lib/cmake`

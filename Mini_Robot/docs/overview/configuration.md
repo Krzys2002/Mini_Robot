@@ -15,7 +15,8 @@ common types and logging. It builds and is tested with
 `simulation`). Member initializers are the built-in defaults. The composition
 root ([main.cpp](../../src/app/main.cpp)) loads one instance at startup and
 injects the individual values that each module needs, for example the robot ID
-into `DesktopController` and the frame interval into `FakeCameraConfig`. There
+into `DesktopController`, the frame interval into `FakeCameraConfig`, and the
+telemetry interval into `SimulationTransportConfig`. There
 is no global settings object; modules do not read files or know key names, and
 no GUI widget stores settings. All file keys are mapped to typed fields in one
 table in `ConfigLoader.cpp`.
@@ -49,6 +50,7 @@ accepted. Every setting is optional.
 | `robot.id` | integer 0 to 4294967295 | `1` |
 | `simulation.update_interval_ms` | integer 1 to 10000 | `100` |
 | `simulation.camera_frame_interval_ms` | integer 1 to 10000 | `33` |
+| `simulation.telemetry_interval_ms` | integer 0 to 10000; `0` reports on every update | `0` |
 
 Calibration and workspace profiles are not part of this file; they will use
 their own per-camera profile format when the calibration issues are implemented.

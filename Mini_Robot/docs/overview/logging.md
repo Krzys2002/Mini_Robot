@@ -13,8 +13,8 @@ common types. It builds and is tested with `MICRO_ROBOT_BUILD_DESKTOP=OFF`.
 
 There is no global logger. The composition root owns one `Logger` and injects
 it, or per-module `LogChannel` handles derived from it, into modules that need
-to log. A channel fixes the module name (currently `app` and `controller`;
-later, for example, `camera` or `transport`). Channels are cheap, copyable, and
+to log. A channel fixes the module name (currently `app`, `config`,
+`controller`, and `simulation`; later, for example, `camera` or `transport`). Channels are cheap, copyable, and
 non-owning; the logger must outlive every channel.
 
 ## Records and format

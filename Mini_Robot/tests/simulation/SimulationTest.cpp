@@ -4,12 +4,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -58,6 +60,19 @@ public:
     std::vector<TransportError> errors;
     std::function<void(RobotId, ConnectionState)> onState;
 };
+
+class CapturingLogSink final : public ILogSink {
+public:
+    void write(const LogRecord& record) override { records.push_back(record); }
+    std::vector<LogRecord> records;
+};
+
+bool containsLog(const std::vector<LogRecord>& records, LogLevel level, const std::string& text)
+{
+    return std::any_of(records.begin(), records.end(), [&](const LogRecord& record) {
+        return record.level == level && record.message.find(text) != std::string::npos;
+    });
+}
 
 TEST(FakeCameraTest, GeneratesRepeatableLatestFramesAndRetainsStorage)
 {
@@ -284,6 +299,93 @@ TEST(SimulationTransportTest, CopiesCommandsAndProducesDeterministicTelemetry)
     first.advanceTo(Timestamp{2s});
     EXPECT_TRUE(std::holds_alternative<StopCommand>(first.lastSentCommand(id)->payload));
     EXPECT_EQ(firstEvents->telemetry.back().angularRadiansPerSecond, 0.0);
+}
+
+TEST(SimulationTransportTest, TelemetryCadenceAndBatteryAreConfigurable)
+{
+    SimulationTransport transport{{100ms, 4.1}};
+    auto events = std::make_shared<TransportEvents>();
+    transport.setEventSink(events);
+    const RobotId id{2};
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1s});
+    ASSERT_EQ(events->telemetry.size(), 1U);
+    EXPECT_EQ(events->telemetry[0].batteryVoltageVolts, 4.1);
+    transport.advanceTo(Timestamp{1s + 99ms});
+    EXPECT_EQ(events->telemetry.size(), 1U);
+    transport.advanceTo(Timestamp{1s + 100ms});
+    transport.advanceTo(Timestamp{1s + 150ms});
+    ASSERT_EQ(events->telemetry.size(), 2U);
+    EXPECT_EQ(events->telemetry[1].receivedAt, Timestamp{1s + 100ms});
+
+    // A new session reports immediately instead of continuing the old cadence.
+    transport.disconnect(id);
+    transport.advanceTo(Timestamp{1s + 160ms});
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1s + 170ms});
+    ASSERT_EQ(events->telemetry.size(), 3U);
+    EXPECT_EQ(events->telemetry[2].receivedAt, Timestamp{1s + 170ms});
+
+    // Extreme timestamps do not overflow the elapsed-time check.
+    SimulationTransport extremes{{1s}};
+    extremes.setEventSink(events);
+    extremes.connect(id);
+    extremes.advanceTo(Timestamp::min());
+    extremes.advanceTo(Timestamp::max());
+    EXPECT_EQ(events->telemetry.back().receivedAt, Timestamp::max());
+}
+
+TEST(SimulationTransportTest, RejectsInvalidConfiguration)
+{
+    EXPECT_THROW(SimulationTransport({-1ms}), std::invalid_argument);
+    EXPECT_THROW(SimulationTransport({0ms, 0.0}), std::invalid_argument);
+    EXPECT_THROW(SimulationTransport({0ms, -3.7}), std::invalid_argument);
+    EXPECT_THROW(SimulationTransport({0ms, std::numeric_limits<double>::quiet_NaN()}),
+                 std::invalid_argument);
+    EXPECT_NO_THROW(SimulationTransport({0ms, 3.7}));
+}
+
+TEST(SimulationTransportTest, LogsSimulatedCommunicationDeterministically)
+{
+    auto run = [] {
+        Logger logger{LogLevel::Debug, [] { return WallTime{}; }};
+        auto sink = std::make_shared<CapturingLogSink>();
+        logger.addSink(sink);
+        SimulationTransport transport{{}, logger.channel("simulation")};
+        const RobotId id{3};
+        transport.connect(id);
+        transport.sendCommand(id, {VelocityCommand{0.2, -0.5}, Timestamp{1s}, 100ms});
+        transport.advanceTo(Timestamp{1s});
+        transport.sendCommand(id, {VelocityCommand{0.1, 0.0}, Timestamp{0s}, 100ms});
+        transport.advanceTo(Timestamp{2s});
+        transport.disconnect(id);
+        transport.advanceTo(Timestamp{3s});
+        transport.sendCommand(id, {StopCommand{}, Timestamp{3s}, 100ms});
+        transport.advanceTo(Timestamp{3s});
+        return sink->records;
+    };
+    const auto records = run();
+    EXPECT_TRUE(containsLog(records, LogLevel::Debug, "Simulated connect requested"));
+    EXPECT_TRUE(containsLog(records, LogLevel::Info, "Simulated connection state: Connected"));
+    EXPECT_TRUE(containsLog(records, LogLevel::Debug,
+        "Simulated command accepted: velocity linear=0.200 m/s angular=-0.500 rad/s"));
+    EXPECT_TRUE(containsLog(records, LogLevel::Debug,
+        "Simulated telemetry: battery=3.700 V linear=0.200 m/s angular=-0.500 rad/s"));
+    EXPECT_TRUE(containsLog(records, LogLevel::Warning, "Simulated command rejected (InvalidCommand)"));
+    EXPECT_TRUE(containsLog(records, LogLevel::Debug, "Simulated disconnect requested"));
+    EXPECT_TRUE(containsLog(records, LogLevel::Info, "Simulated connection state: Disconnected"));
+    EXPECT_TRUE(containsLog(records, LogLevel::Warning, "Simulated command rejected (NotConnected)"));
+    for (const auto& record : records) {
+        EXPECT_EQ(record.module, "simulation");
+        EXPECT_EQ(record.robotId, RobotId{3});
+    }
+
+    const auto repeated = run();
+    ASSERT_EQ(repeated.size(), records.size());
+    for (std::size_t i = 0; i < records.size(); ++i) {
+        EXPECT_EQ(repeated[i].level, records[i].level);
+        EXPECT_EQ(repeated[i].message, records[i].message);
+    }
 }
 
 TEST(SimulationTransportTest, PreservesReservedMetadataWithoutSequenceOrdering)
