@@ -95,29 +95,45 @@ function(_micro_robot_target_sources target out_var)
     set(${out_var} "${sources}" PARENT_SCOPE)
 endfunction()
 
+# Targets defined in a directory and, recursively, in its subdirectories.
+function(_micro_robot_directory_targets directory out_var)
+    get_property(found DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    get_property(children DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+    foreach(child IN LISTS children)
+        _micro_robot_directory_targets("${child}" child_targets)
+        list(APPEND found ${child_targets})
+    endforeach()
+    set(${out_var} "${found}" PARENT_SCOPE)
+endfunction()
+
+# A first-party target is a concrete backend unless it is registered without BACKEND.
+function(_micro_robot_is_backend target out_var)
+    get_property(targets GLOBAL PROPERTY MICRO_ROBOT_BOUNDARY_TARGETS)
+    set(is_backend ON)
+    if(target IN_LIST targets)
+        get_target_property(is_backend ${target} MICRO_ROBOT_BOUNDARY_BACKEND)
+    endif()
+    set(${out_var} ${is_backend} PARENT_SCOPE)
+endfunction()
+
 # micro_robot_check_platform_boundaries(<source-root>)
 #
 # Validates link dependencies of every registered target and writes the source
-# manifests used by the CTest scan. <source-root> is the directory whose targets
-# are checked and the include root for first-party headers. Every first-party
-# target there that is not registered is treated as a platform adapter. Call
-# after all targets have been defined.
+# manifests used by the CTest scan. Every first-party dependency is classified by
+# its own registration, wherever it is defined: unregistered targets are treated
+# as platform adapters. <source-root> is the include root for first-party headers;
+# headers of backends defined in it or its subdirectories are forbidden includes.
+# Call after all targets have been defined.
 function(micro_robot_check_platform_boundaries source_root)
     get_property(targets GLOBAL PROPERTY MICRO_ROBOT_BOUNDARY_TARGETS)
-    get_property(all_targets DIRECTORY "${source_root}" PROPERTY BUILDSYSTEM_TARGETS)
+    _micro_robot_directory_targets("${source_root}" all_targets)
 
-    # Concrete backends: unregistered adapters plus registered BACKEND targets.
-    set(backends)
     set(backend_headers)
     foreach(target IN LISTS all_targets)
-        set(is_backend ON)
-        if(target IN_LIST targets)
-            get_target_property(is_backend ${target} MICRO_ROBOT_BOUNDARY_BACKEND)
-        endif()
+        _micro_robot_is_backend(${target} is_backend)
         if(NOT is_backend)
             continue()
         endif()
-        list(APPEND backends ${target})
         _micro_robot_target_sources(${target} sources)
         foreach(source IN LISTS sources)
             if(source MATCHES "\\.(h|hh|hpp|hxx)$")
@@ -144,7 +160,8 @@ function(micro_robot_check_platform_boundaries source_root)
         if(NOT is_backend)
             set(forbidden_headers "${backend_headers}")
             foreach(dependency IN LISTS internal)
-                if(dependency IN_LIST backends)
+                _micro_robot_is_backend(${dependency} dependency_is_backend)
+                if(dependency_is_backend)
                     list(APPEND violations
                         "  ${target} -> ${dependency} (concrete backend or unregistered target)")
                 endif()
