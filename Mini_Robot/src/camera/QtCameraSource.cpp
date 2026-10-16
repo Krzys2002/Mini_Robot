@@ -25,6 +25,7 @@ namespace micro_robot {
 class QtCameraSource::Backend final : public QObject {
 public:
     explicit Backend(QtCameraSource& owner) : owner_(owner) {}
+    ~Backend() override { releaseCapture(); }
 
     void start(std::uint64_t generation, const std::string& id)
     {
@@ -62,16 +63,19 @@ public:
         // The multimedia backend may emit from another thread. Retain only its
         // newest native frame before scheduling conversion on our worker.
         const auto nativeMailbox = std::make_shared<NativeMailbox>();
+        nativeMailbox->target = this;
         connect(video_.get(), &QVideoSink::videoFrameChanged, this,
-                [this, nativeMailbox](const QVideoFrame& frame) {
-            {
-                std::lock_guard lock{nativeMailbox->mutex};
-                nativeMailbox->frame = frame;
-                nativeMailbox->capturedAt = MonotonicClock::now();
-                if (nativeMailbox->scheduled) return;
-                nativeMailbox->scheduled = true;
-            }
-            QMetaObject::invokeMethod(this, [this, nativeMailbox] {
+                [nativeMailbox](const QVideoFrame& frame) {
+            // Teardown invalidates target under the same lock. A callback already
+            // in flight can retain the mailbox without accessing a dead backend.
+            std::lock_guard lock{nativeMailbox->mutex};
+            auto* target = nativeMailbox->target;
+            if (!target) return;
+            nativeMailbox->frame = frame;
+            nativeMailbox->capturedAt = MonotonicClock::now();
+            if (nativeMailbox->scheduled) return;
+            nativeMailbox->scheduled = true;
+            QMetaObject::invokeMethod(target, [target, nativeMailbox] {
                 QVideoFrame latest;
                 Timestamp capturedAt;
                 {
@@ -80,8 +84,8 @@ public:
                     capturedAt = nativeMailbox->capturedAt;
                     nativeMailbox->scheduled = false;
                 }
-                if (nativeMailbox != nativeMailbox_) return;
-                receiveFrame(latest, capturedAt);
+                if (nativeMailbox != target->nativeMailbox_) return;
+                target->receiveFrame(latest, capturedAt);
             }, Qt::QueuedConnection);
         }, Qt::DirectConnection);
         nativeMailbox_ = nativeMailbox;
@@ -102,6 +106,7 @@ private:
     struct NativeMailbox {
         std::mutex mutex;
         QVideoFrame frame;
+        Backend* target{}; // Protected by mutex; nulled before native teardown.
         Timestamp capturedAt{};
         bool scheduled{};
     };
@@ -134,6 +139,10 @@ private:
         // Disconnect before stopping: inactive/error signals during teardown are
         // not a new capture failure. Release native resources on the worker before
         // acknowledging quiescence to the owner.
+        if (nativeMailbox_) {
+            std::lock_guard lock{nativeMailbox_->mutex};
+            nativeMailbox_->target = nullptr;
+        }
         if (camera_) {
             QObject::disconnect(camera_.get(), nullptr, this, nullptr);
             camera_->stop();
@@ -142,7 +151,7 @@ private:
         camera_.reset();
         video_.reset();
         nativeMailbox_.reset();
-        mailbox_ = std::make_shared<Mailbox>();
+        mailbox_.reset();
     }
 
     void fail(CameraErrorCode code, const std::string& message)
@@ -199,7 +208,7 @@ private:
     std::unique_ptr<QCamera> camera_;
     std::unique_ptr<QMediaCaptureSession> session_;
     std::shared_ptr<NativeMailbox> nativeMailbox_;
-    std::shared_ptr<Mailbox> mailbox_{std::make_shared<Mailbox>()};
+    std::shared_ptr<Mailbox> mailbox_;
     std::optional<CameraState> lastState_;
     std::uint64_t generation_{};
     std::uint64_t sequence_{};
