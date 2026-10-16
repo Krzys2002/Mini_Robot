@@ -59,12 +59,12 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_world | micro_robot_common |
 | micro_robot_logging | micro_robot_common |
 | micro_robot_configuration | micro_robot_common, micro_robot_logging |
-| micro_robot_simulation | camera and transport API targets |
+| micro_robot_simulation | camera and transport API targets, logging |
 | micro_robot_desktop_controller | camera API, transport API, world, logging, Qt6::Core |
 | micro_robot_ui | controller, Qt6::Widgets |
 | micro_robot_desktop | UI, simulation, camera discovery, logging, configuration |
 
-See [root configuration](../../CMakeLists.txt) and [test targets](../../tests/CMakeLists.txt).
+See [root configuration](../../CMakeLists.txt), [platform/toolchain module](../../cmake/MicroRobotPlatform.cmake), and [test targets](../../tests/CMakeLists.txt).
 Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 Each target's layer and the configure/test-time checks that enforce it are listed
 in [platform boundaries](platform-boundaries.md).

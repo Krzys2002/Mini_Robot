@@ -6,7 +6,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-include("${PROJECT_SOURCE_DIR}/cmake/MicroRobotBoundaries.cmake")
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+include(MicroRobotPlatform)
+include(MicroRobotBoundaries)
 
 option(MICRO_ROBOT_BUILD_DESKTOP "Build the Qt desktop application and UI tests" ON)
 option(MICRO_ROBOT_BUILD_REPLAY "Build the OpenCV recorded-video adapter and tests" ON)
@@ -16,15 +18,6 @@ endif()
 if(MICRO_ROBOT_BUILD_DESKTOP)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
 endif()
-
-function(micro_robot_target_defaults target)
-    target_compile_features(${target} PRIVATE cxx_std_20)
-    if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive-)
-    else()
-        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
-    endif()
-endfunction()
 
 add_subdirectory(src)
 # Fails configuration if a platform-independent target links a platform library or a

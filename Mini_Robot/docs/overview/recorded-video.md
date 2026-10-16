@@ -86,6 +86,7 @@ ctest --test-dir build/debug -L replay --output-on-failure --no-tests=error
 
 Enable `MICRO_ROBOT_BUILD_REPLAY` (default ON) with OpenCV core/imgproc/videoio.
 It also works with `MICRO_ROBOT_BUILD_DESKTOP=OFF`, without Qt. Disable replay
-explicitly for a build without OpenCV. macOS automated decoding/lifecycle tests
-were executed; Linux/Windows builds and other installed codecs remain unverified.
+explicitly for a build without OpenCV. macOS and Linux (Ubuntu, GCC and Clang, OpenCV 4.10)
+automated decoding/lifecycle tests were executed; Windows builds and other installed
+codecs remain unverified.
 No physical camera or robot check is required for this local-file adapter.

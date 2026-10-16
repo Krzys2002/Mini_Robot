@@ -1,0 +1,100 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "macos",
+      "displayName": "macOS (Apple Clang, Debug)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "linux-gcc",
+      "displayName": "Linux (GCC, Debug)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-clang",
+      "displayName": "Linux (Clang, Debug)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "macos",
+      "configurePreset": "macos"
+    },
+    {
+      "name": "linux-gcc",
+      "configurePreset": "linux-gcc"
+    },
+    {
+      "name": "linux-clang",
+      "configurePreset": "linux-clang"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "test-defaults",
+      "hidden": true,
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "macos",
+      "inherits": "test-defaults",
+      "configurePreset": "macos"
+    },
+    {
+      "name": "linux-gcc",
+      "inherits": "test-defaults",
+      "configurePreset": "linux-gcc"
+    },
+    {
+      "name": "linux-clang",
+      "inherits": "test-defaults",
+      "configurePreset": "linux-clang"
+    }
+  ]
+}
