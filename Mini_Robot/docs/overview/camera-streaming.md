@@ -15,6 +15,8 @@ as a video preview. Selection alone never opens a camera.
 
 **Stop camera** cancels a pending start or stops a running stream. The label shows
 Stopping until completion, then Stopped. The last frame description remains.
+The window respects the layout minimum size as selection details wrap, and
+stream buttons retain at least their native style’s preferred height.
 Start is disabled while starting, streaming, stopping, replacing a source, or
 shutting down. Stop is enabled during startup and streaming; both buttons are
 disabled while stopping. Repeated requests are guarded in `DesktopController`,
@@ -86,9 +88,10 @@ Manual acceptance procedure (macOS, then Linux X11/Wayland as available):
 6. Switch devices during capture; confirm the replacement stays stopped. Close
    the window while streaming; confirm the process exits and releases the device.
 
-Physical capture/permission behavior, native visual inspection, Linux X11/Wayland,
-and Windows runtime validation remain manual checks. No hardware success is
-claimed by the automated tests.
+On 2026-10-16, the maintainer confirmed successful physical capture and correct
+reported resolution on macOS after the permission-plugin fix. Physical stop and
+repeated cycles, further permission checks, Linux X11/Wayland, and Windows runtime
+validation remain manual checks. No hardware success is claimed by automated tests.
 
 Qt references: [QCamera](https://doc.qt.io/qt-6/qcamera.html),
 [QVideoSink](https://doc.qt.io/qt-6/qvideosink.html), and

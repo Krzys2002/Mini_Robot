@@ -21,6 +21,9 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
 
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
+    // Selection details can add wrapped lines; grow the window instead of
+    // compressing controls below their usable size.
+    layout->setSizeConstraint(QLayout::SetMinimumSize);
     auto* title = new QLabel(QStringLiteral("Micro Robot — Phase 0"), central);
     layout->addWidget(title);
     auto* applicationStatus = new QLabel(QStringLiteral("Starting…"), central);
@@ -55,6 +58,8 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     startCamera_->setObjectName(QStringLiteral("startCamera"));
     stopCamera_ = new QPushButton(QStringLiteral("Stop camera"), cameraGroup);
     stopCamera_->setObjectName(QStringLiteral("stopCamera"));
+    startCamera_->setMinimumHeight(startCamera_->sizeHint().height());
+    stopCamera_->setMinimumHeight(stopCamera_->sizeHint().height());
     startCamera_->setEnabled(false);
     stopCamera_->setEnabled(false);
     cameraButtons->addWidget(startCamera_);
