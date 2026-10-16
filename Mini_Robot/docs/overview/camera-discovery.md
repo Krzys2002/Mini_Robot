@@ -3,11 +3,12 @@
 Source: [discovery interface](../../src/camera/ICameraDeviceDiscovery.hpp),
 [Qt adapter header](../../src/camera/QtCameraDeviceDiscovery.hpp),
 [Qt adapter implementation](../../src/camera/QtCameraDeviceDiscovery.cpp),
-[presenter header](../../src/app/CameraDiscoveryController.hpp), and
-[presenter implementation](../../src/app/CameraDiscoveryController.cpp).
+[presenter header](../../src/app/CameraSelectionController.hpp), and
+[presenter implementation](../../src/app/CameraSelectionController.cpp).
 
-Issue #29 adds a read-only inventory of operating-system cameras. It does not
-select/open a camera, capture frames, or replace the existing fake source.
+Issue #29 adds a read-only inventory of operating-system cameras. Discovery itself
+does not open a camera or capture frames; [camera selection](camera-selection.md)
+(Issue #30) consumes its snapshots.
 
 ## Architecture and API
 
@@ -31,12 +32,12 @@ persistence across OS/backend changes. An unavailable ID remains empty; it is no
 fabricated from a name or list index. Consumers must not use the display name as
 identity. Every reported device is retained, including duplicate names.
 
-[CameraDiscoveryController](../../src/app/CameraDiscoveryController.cpp) subscribes
-through the interface and formats presentation text. The composition root wires
-its signal to MainWindow; widgets contain no device queries or discovery logic.
-Names and IDs are displayed as plain text. Empty lists show “No cameras available”;
-missing names/IDs have explicit presentation fallbacks. Device selection remains
-Issue #30; physical capture remains Issue #31.
+[CameraSelectionController](../../src/app/CameraSelectionController.cpp) (formerly
+CameraDiscoveryController) subscribes through the interface and turns snapshots
+into selector rows; MainWindow binds to it and contains no device queries or
+discovery logic. Names are displayed as plain text with the ID as a tooltip.
+Empty lists show “No cameras available”; missing names/IDs have explicit
+presentation fallbacks. Physical capture remains Issue #31.
 
 ## Build and logging
 
@@ -67,11 +68,10 @@ no Apple API is called from the domain core. Discovery does not start capture or
 request capture authorization. A missing/empty list is handled safely, and visibility
 may depend on OS permissions, hardware connection, Qt version, and backend.
 
-[Automated discovery tests](../../tests/ui/CameraDiscoveryTest.cpp) inject a manual
-discovery implementation, without cameras, and
+[Automated selection tests](../../tests/ui/CameraSelectionControllerTest.cpp) inject a
+manual discovery implementation, without cameras, and
 cover initial/empty snapshots, duplicate names/distinct IDs, add/remove/rename
-updates, missing metadata, plain-text display, copied inventory, and subscription
-teardown. They do not prove physical device visibility or hotplug behavior.
+updates, missing metadata, plain-text display, and subscription teardown. They do not prove physical device visibility or hotplug behavior.
 
 The production adapter probe detected the FaceTime HD and an exposed iPhone
 camera on macOS, with distinct IDs and discovery logs. USB visibility/hotplug
@@ -81,7 +81,7 @@ do not change the following outstanding manual acceptance procedure.
 
 Manual acceptance checks:
 
-1. Launch the app and inspect Available system cameras and discovery logs.
+1. Launch the app and inspect the Camera selection list and discovery logs.
 2. Confirm the Mac internal camera's description and ID appear.
 3. Connect a USB camera; confirm it appears with a distinguishable ID.
 4. Disconnect it; confirm the list updates without a crash.

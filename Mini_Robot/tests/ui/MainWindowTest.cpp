@@ -1,7 +1,7 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
 #include "infrastructure/logging/Logger.hpp"
-#include "simulation/FakeCameraSource.hpp"
+#include "simulation/FakeCameraSourceFactory.hpp"
 #include "simulation/SimulationTransport.hpp"
 #include "ManualBackends.hpp"
 
@@ -35,16 +35,33 @@ public:
     std::vector<LogRecord> records;
 };
 
+// Hands a manual camera to the controller and returns it for event publication.
+test::ManualCamera& installManualCamera(DesktopController& controller,
+                                        CameraInfo info = {"manual-camera", "Manual test camera"})
+{
+    auto camera = std::make_unique<test::ManualCamera>(std::move(info));
+    auto& installed = *camera;
+    controller.setCameraSource(std::move(camera));
+    return installed;
+}
+
 struct DesktopFixture {
     Logger logger;
-    FakeCameraSource camera;
+    FakeCameraSourceFactory cameras; // Outlives the source owned by the controller.
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
+    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
+    ICameraSource* camera{};
     Timestamp now{1s};
 
-    DesktopFixture() { controller.initialize(now); }
+    DesktopFixture()
+    {
+        auto source = cameras.create({"fake", "Fake camera"});
+        camera = source.get();
+        controller.setCameraSource(std::move(source));
+        controller.initialize(now);
+    }
     ~DesktopFixture()
     {
         controller.shutdown();
@@ -53,7 +70,7 @@ struct DesktopFixture {
     void advanceTo(Timestamp at)
     {
         now = at;
-        camera.advanceTo(at);
+        cameras.advanceTo(at);
         transport.advanceTo(at);
     }
     QLabel* label(const char* name) { return window.findChild<QLabel*>(QString::fromLatin1(name)); }
@@ -81,6 +98,7 @@ TEST(DesktopIntegrationTest, StartupRegistersRobotAndShowsIdleControls)
 {
     DesktopFixture fixture;
     EXPECT_TRUE(fixture.label("applicationStatus")->text().contains(QStringLiteral("Ready")));
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Fake camera (simulated feed)"));
     EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Stopped"));
     EXPECT_EQ(fixture.label("connectionStatus")->text(), QStringLiteral("Disconnected"));
     EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
@@ -99,7 +117,7 @@ TEST(DesktopIntegrationTest, ButtonsRequestCameraChangesAndFrameEventsUpdateTheV
 {
     DesktopFixture fixture;
     fixture.button("startCamera")->click();
-    EXPECT_EQ(fixture.camera.state(), CameraState::Stopped);
+    EXPECT_EQ(fixture.camera->state(), CameraState::Stopped);
     EXPECT_EQ(fixture.label("frameDescription")->text(), QStringLiteral("No frames received"));
     fixture.advanceTo(Timestamp{1s + 100ms});
     EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Streaming"));
@@ -161,42 +179,42 @@ TEST(DesktopIntegrationTest, ErrorsAreVisibleAndShutdownStopsBothBackends)
     fixture.controller.startCamera();
     fixture.controller.connectRobot();
     fixture.advanceTo(Timestamp{1s + 300ms});
-    EXPECT_EQ(fixture.camera.state(), CameraState::Stopped);
+    EXPECT_EQ(fixture.camera->state(), CameraState::Stopped);
     EXPECT_EQ(fixture.transport.connectionState(RobotId{1}), ConnectionState::Disconnected);
     EXPECT_EQ(fixture.label("applicationStatus")->text(), QStringLiteral("Shutting down"));
 }
 
-TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptions)
+TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptionsAndReleasesCamera)
 {
     Logger logger;
-    FakeCameraSource camera;
+    FakeCameraSourceFactory cameras;
     SimulationTransport transport;
     WorldModel world;
     {
-        auto controller = std::make_unique<DesktopController>(camera, transport, world, RobotId{1},
+        auto controller = std::make_unique<DesktopController>(transport, world, RobotId{1},
                                                               logger.channel("controller"));
+        controller->setCameraSource(cameras.create({"fake", "Fake camera"}));
         controller->initialize(Timestamp{1s});
         controller->startCamera();
         controller->connectRobot();
-        camera.advanceTo(Timestamp{2s});
+        cameras.advanceTo(Timestamp{2s});
         transport.advanceTo(Timestamp{2s});
         controller->shutdown();
-        camera.advanceTo(Timestamp{3s});
+        cameras.advanceTo(Timestamp{3s});
         transport.advanceTo(Timestamp{3s});
     }
-    camera.start();
+    EXPECT_EQ(cameras.liveSourceCount(), 0U);
     transport.connect(RobotId{1});
-    EXPECT_NO_THROW(camera.advanceTo(Timestamp{4s}));
     EXPECT_NO_THROW(transport.advanceTo(Timestamp{4s}));
 }
 
 TEST(DesktopIntegrationTest, CameraTerminalStatesPermitRecoveryThroughTheInterface)
 {
     Logger logger;
-    test::ManualCamera camera;
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
+    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.initialize(Timestamp{1s});
     auto* start = window.findChild<QPushButton*>(QStringLiteral("startCamera"));
@@ -235,10 +253,10 @@ TEST(DesktopIntegrationTest, CameraTerminalStatesPermitRecoveryThroughTheInterfa
 TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellation)
 {
     Logger logger;
-    test::ManualCamera camera;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
+    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.initialize(Timestamp{1s});
     auto button = [&](const char* name) {
@@ -296,10 +314,10 @@ TEST(DesktopIntegrationTest, ControllerLogsLifecycleStateChangesAndErrors)
     Logger logger{LogLevel::Debug};
     auto sink = std::make_shared<CapturingLogSink>();
     logger.addSink(sink);
-    test::ManualCamera camera;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
+    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    auto& camera = installManualCamera(controller);
 
     controller.initialize(Timestamp{1s});
     EXPECT_TRUE(sink->contains(LogLevel::Info, "Controller initialized"));
@@ -325,10 +343,10 @@ TEST(DesktopIntegrationTest, ControllerLogsLifecycleStateChangesAndErrors)
 TEST(DesktopIntegrationTest, InitializationCannotRestartAShutdownController)
 {
     Logger logger;
-    test::ManualCamera camera;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{camera, transport, world, RobotId{1}, logger.channel("controller")};
+    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.shutdown();
     controller.initialize(Timestamp{1s});
@@ -339,6 +357,135 @@ TEST(DesktopIntegrationTest, InitializationCannotRestartAShutdownController)
     controller.connectRobot();
     EXPECT_EQ(camera.startRequests, 0);
     EXPECT_TRUE(transport.connectRequests.empty());
+}
+
+struct ReplacementFixture {
+    Logger logger;
+    test::ManualTransport transport;
+    WorldModel world;
+    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    MainWindow window{controller};
+
+    ReplacementFixture() { controller.initialize(Timestamp{1s}); }
+    ~ReplacementFixture() { controller.shutdown(); }
+    QLabel* label(const char* name) { return window.findChild<QLabel*>(QString::fromLatin1(name)); }
+    QPushButton* button(const char* name)
+    {
+        return window.findChild<QPushButton*>(QString::fromLatin1(name));
+    }
+};
+
+TEST(CameraReplacementTest, WithoutASourceCameraControlsAreDisabled)
+{
+    ReplacementFixture fixture;
+    EXPECT_FALSE(fixture.controller.hasCameraSource());
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("No camera selected"));
+    EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("No camera selected"));
+    EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+    EXPECT_FALSE(fixture.button("stopCamera")->isEnabled());
+    EXPECT_NO_THROW(fixture.controller.startCamera());
+    EXPECT_NO_THROW(fixture.controller.stopCamera());
+}
+
+TEST(CameraReplacementTest, StoppedSourceIsReplacedImmediately)
+{
+    ReplacementFixture fixture;
+    auto& first = installManualCamera(fixture.controller, {"a", "Camera A"});
+    const auto firstAlive = first.alive;
+    EXPECT_TRUE(first.hasSink());
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Camera A"));
+    EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Stopped"));
+    EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
+
+    auto& second = installManualCamera(fixture.controller, {"b", "Camera B"});
+    EXPECT_FALSE(*firstAlive);
+    EXPECT_TRUE(second.hasSink());
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Camera B"));
+    fixture.button("startCamera")->click();
+    EXPECT_EQ(second.startRequests, 1);
+    second.publishState(CameraState::Streaming, Timestamp{2s});
+    EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Streaming"));
+    second.publishState(CameraState::Stopped, Timestamp{3s});
+
+    const auto secondAlive = second.alive;
+    fixture.controller.setCameraSource(nullptr);
+    EXPECT_FALSE(*secondAlive);
+    EXPECT_FALSE(fixture.controller.hasCameraSource());
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("No camera selected"));
+    EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+}
+
+TEST(CameraReplacementTest, RunningSourceStopsBeforeDeferredReplacement)
+{
+    ReplacementFixture fixture;
+    auto& first = installManualCamera(fixture.controller, {"a", "Camera A"});
+    const auto firstAlive = first.alive;
+    fixture.controller.startCamera();
+    first.publishState(CameraState::Streaming, Timestamp{2s});
+    first.publishFrame(std::make_shared<const Frame>(Frame{
+        3, Timestamp{2s}, 1, 1, 1, PixelFormat::Gray8,
+        std::make_shared<const std::vector<std::byte>>(1, std::byte{0x10})
+    }));
+
+    auto superseded = std::make_unique<test::ManualCamera>(CameraInfo{"b", "Camera B"});
+    const auto supersededAlive = superseded->alive;
+    fixture.controller.setCameraSource(std::move(superseded));
+    EXPECT_EQ(first.stopRequests, 1);
+    EXPECT_TRUE(*firstAlive);
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Camera A"));
+    // A later selection replaces the pending one; the stop request is idempotent.
+    auto& third = installManualCamera(fixture.controller, {"c", "Camera C"});
+    EXPECT_FALSE(*supersededAlive);
+    EXPECT_EQ(first.stopRequests, 2);
+    // Restarting the outgoing source would race the replacement.
+    fixture.controller.startCamera();
+    EXPECT_EQ(first.startRequests, 1);
+
+    first.publishState(CameraState::Stopped, Timestamp{3s});
+    // Never destroyed inside its own callback.
+    EXPECT_TRUE(*firstAlive);
+    EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Stopped"));
+    QApplication::processEvents();
+    EXPECT_FALSE(*firstAlive);
+    EXPECT_TRUE(third.hasSink());
+    EXPECT_EQ(third.startRequests, 0);
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Camera C"));
+    EXPECT_EQ(fixture.label("frameDescription")->text(), QStringLiteral("No frames received"));
+    EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
+    fixture.controller.startCamera();
+    EXPECT_EQ(third.startRequests, 1);
+}
+
+TEST(CameraReplacementTest, TerminalSourceIsReplacedImmediately)
+{
+    ReplacementFixture fixture;
+    auto& first = installManualCamera(fixture.controller, {"a", "Camera A"});
+    const auto firstAlive = first.alive;
+    first.publishState(CameraState::Streaming, Timestamp{2s});
+    first.publishState(CameraState::Disconnected, Timestamp{3s});
+    installManualCamera(fixture.controller, {"b", "Camera B"});
+    // Quiescent: released at once, without awaiting a stop.
+    EXPECT_FALSE(*firstAlive);
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Camera B"));
+}
+
+TEST(CameraReplacementTest, ShutdownDropsAPendingReplacement)
+{
+    ReplacementFixture fixture;
+    auto& first = installManualCamera(fixture.controller, {"a", "Camera A"});
+    const auto firstAlive = first.alive;
+    first.publishState(CameraState::Streaming, Timestamp{2s});
+    auto pending = std::make_unique<test::ManualCamera>(CameraInfo{"b", "Camera B"});
+    const auto pendingAlive = pending->alive;
+    fixture.controller.setCameraSource(std::move(pending));
+    fixture.controller.shutdown();
+    EXPECT_FALSE(*pendingAlive);
+    first.publishState(CameraState::Stopped, Timestamp{3s});
+    QApplication::processEvents();
+    EXPECT_TRUE(*firstAlive);
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Camera A"));
+    fixture.controller.setCameraSource(std::make_unique<test::ManualCamera>());
+    EXPECT_TRUE(*firstAlive);
 }
 
 } // namespace

@@ -1,10 +1,13 @@
 #include "ui/MainWindow.hpp"
+#include "app/CameraSelectionController.hpp"
 #include "app/DesktopController.hpp"
 
+#include <QComboBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QStandardItemModel>
 #include <QStatusBar>
 #include <QVBoxLayout>
 
@@ -24,29 +27,38 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     applicationStatus->setObjectName(QStringLiteral("applicationStatus"));
     layout->addWidget(applicationStatus);
 
-    auto* deviceGroup = new QGroupBox(QStringLiteral("Available system cameras"), central);
+    auto* deviceGroup = new QGroupBox(QStringLiteral("Camera selection"), central);
     auto* deviceLayout = new QVBoxLayout(deviceGroup);
-    cameraDevicesDescription_ = new QLabel(QStringLiteral("Looking for cameras…"), deviceGroup);
-    cameraDevicesDescription_->setObjectName(QStringLiteral("cameraDevicesDescription"));
-    cameraDevicesDescription_->setTextFormat(Qt::PlainText);
-    cameraDevicesDescription_->setWordWrap(true);
-    deviceLayout->addWidget(cameraDevicesDescription_);
+    cameraSelector_ = new QComboBox(deviceGroup);
+    cameraSelector_->setObjectName(QStringLiteral("cameraSelector"));
+    cameraSelector_->setPlaceholderText(QStringLiteral("Looking for cameras…"));
+    cameraSelector_->setEnabled(false);
+    selectedCamera_ = new QLabel(QStringLiteral("No camera selected"), deviceGroup);
+    selectedCamera_->setObjectName(QStringLiteral("selectedCamera"));
+    selectedCamera_->setTextFormat(Qt::PlainText);
+    selectedCamera_->setWordWrap(true);
+    deviceLayout->addWidget(cameraSelector_);
+    deviceLayout->addWidget(selectedCamera_);
     layout->addWidget(deviceGroup);
 
-    auto* cameraGroup = new QGroupBox(QStringLiteral("Fake camera source"), central);
+    auto* cameraGroup = new QGroupBox(QStringLiteral("Active camera source"), central);
     auto* cameraLayout = new QVBoxLayout(cameraGroup);
-    auto* cameraStatus = new QLabel(QStringLiteral("Stopped"), cameraGroup);
+    auto* activeCamera = new QLabel(QStringLiteral("No camera selected"), cameraGroup);
+    activeCamera->setObjectName(QStringLiteral("activeCamera"));
+    activeCamera->setTextFormat(Qt::PlainText);
+    auto* cameraStatus = new QLabel(QStringLiteral("No camera selected"), cameraGroup);
     cameraStatus->setObjectName(QStringLiteral("cameraStatus"));
     auto* frameDescription = new QLabel(QStringLiteral("No frames received"), cameraGroup);
     frameDescription->setObjectName(QStringLiteral("frameDescription"));
     auto* cameraButtons = new QHBoxLayout;
-    auto* startCamera = new QPushButton(QStringLiteral("Start camera"), cameraGroup);
-    startCamera->setObjectName(QStringLiteral("startCamera"));
-    auto* stopCamera = new QPushButton(QStringLiteral("Stop camera"), cameraGroup);
-    stopCamera->setObjectName(QStringLiteral("stopCamera"));
-    stopCamera->setEnabled(false);
-    cameraButtons->addWidget(startCamera);
-    cameraButtons->addWidget(stopCamera);
+    startCamera_ = new QPushButton(QStringLiteral("Start camera"), cameraGroup);
+    startCamera_->setObjectName(QStringLiteral("startCamera"));
+    stopCamera_ = new QPushButton(QStringLiteral("Stop camera"), cameraGroup);
+    stopCamera_->setObjectName(QStringLiteral("stopCamera"));
+    updateCameraButtons();
+    cameraButtons->addWidget(startCamera_);
+    cameraButtons->addWidget(stopCamera_);
+    cameraLayout->addWidget(activeCamera);
     cameraLayout->addWidget(cameraStatus);
     cameraLayout->addWidget(frameDescription);
     cameraLayout->addLayout(cameraButtons);
@@ -81,8 +93,12 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     layout->addStretch();
     setCentralWidget(central);
 
-    connect(startCamera, &QPushButton::clicked, this, &MainWindow::cameraStartRequested);
-    connect(stopCamera, &QPushButton::clicked, this, &MainWindow::cameraStopRequested);
+    // activated fires for user choices only, never for programmatic updates.
+    connect(cameraSelector_, &QComboBox::activated, this, [this](int index) {
+        emit cameraSelectionRequested(cameraSelector_->itemData(index).toString());
+    });
+    connect(startCamera_, &QPushButton::clicked, this, &MainWindow::cameraStartRequested);
+    connect(stopCamera_, &QPushButton::clicked, this, &MainWindow::cameraStopRequested);
     connect(connectRobot, &QPushButton::clicked, this, &MainWindow::robotConnectRequested);
     connect(disconnectRobot, &QPushButton::clicked, this, &MainWindow::robotDisconnectRequested);
     connect(this, &MainWindow::cameraStartRequested, &controller, &DesktopController::startCamera);
@@ -96,11 +112,17 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
             frameDescription, &QLabel::setText);
     connect(&controller, &DesktopController::telemetryDescriptionChanged, telemetry, &QLabel::setText);
     connect(&controller, &DesktopController::worldDescriptionChanged, worldDescription, &QLabel::setText);
+    connect(&controller, &DesktopController::activeCameraChanged, this,
+            [this, activeCamera](const QString& description, bool present) {
+        activeCamera->setText(description);
+        cameraPresent_ = present;
+        updateCameraButtons();
+    });
     connect(&controller, &DesktopController::cameraStatusChanged, this,
-            [cameraStatus, startCamera, stopCamera](const QString& status, bool active) {
+            [this, cameraStatus](const QString& status, bool active) {
         cameraStatus->setText(status);
-        startCamera->setEnabled(!active);
-        stopCamera->setEnabled(active);
+        cameraActive_ = active;
+        updateCameraButtons();
     });
     connect(&controller, &DesktopController::connectionStatusChanged, this,
             [connectionStatus, connectRobot, disconnectRobot](const QString& status, bool, bool active) {
@@ -113,9 +135,46 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     });
 }
 
-void MainWindow::setCameraDevicesDescription(const QString& description)
+void MainWindow::updateCameraButtons()
 {
-    cameraDevicesDescription_->setText(description);
+    startCamera_->setEnabled(cameraPresent_ && !cameraActive_);
+    stopCamera_->setEnabled(cameraPresent_ && cameraActive_);
+}
+
+void MainWindow::bindCameraSelection(CameraSelectionController& selection)
+{
+    connect(this, &MainWindow::cameraSelectionRequested,
+            &selection, &CameraSelectionController::selectCamera);
+    connect(&selection, &CameraSelectionController::camerasChanged,
+            this, &MainWindow::showCameraChoices);
+    connect(&selection, &CameraSelectionController::selectionChanged,
+            this, &MainWindow::showSelectedCamera);
+    connect(&selection, &CameraSelectionController::errorOccurred, this, [this](const QString& message) {
+        statusBar()->showMessage(message);
+    });
+}
+
+void MainWindow::showCameraChoices(const QList<CameraChoiceItem>& cameras)
+{
+    cameraSelector_->clear();
+    cameraSelector_->setPlaceholderText(cameras.isEmpty() ? QStringLiteral("No cameras available")
+                                                          : QStringLiteral("Select a camera…"));
+    cameraSelector_->setEnabled(!cameras.isEmpty());
+    auto* model = qobject_cast<QStandardItemModel*>(cameraSelector_->model());
+    for (const auto& camera : cameras) {
+        cameraSelector_->addItem(camera.label, camera.id);
+        const int index = cameraSelector_->count() - 1;
+        cameraSelector_->setItemData(index, camera.detail, Qt::ToolTipRole);
+        if (!camera.selectable && model) model->item(index)->setEnabled(false);
+    }
+    showSelectedCamera(selectedCameraId_, selectedCamera_->text());
+}
+
+void MainWindow::showSelectedCamera(const QString& id, const QString& description)
+{
+    selectedCameraId_ = id;
+    cameraSelector_->setCurrentIndex(id.isEmpty() ? -1 : cameraSelector_->findData(id));
+    selectedCamera_->setText(description);
 }
 
 } // namespace micro_robot

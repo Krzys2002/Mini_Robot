@@ -4,7 +4,8 @@
 C++20 and common monotonic time types. They expose no Qt objects, UI widgets,
 physical camera handles, or perception algorithms. Live, recorded, and simulated
 sources can implement the same boundary; only composition code selects a concrete
-implementation. The existing `DesktopController` accepts `ICameraSource&`, and
+implementation. `DesktopController` owns the active source, which an
+[ICameraSourceFactory](camera-selection.md) creates for the selected device, and
 `MainWindow` interacts with controller signals/slots.
 
 Source: [ICameraSource.hpp](../../src/camera/ICameraSource.hpp),
@@ -100,5 +101,6 @@ states. Tests do not prove future physical backend scheduling behavior.
 
 Issue #26 defines this interface. [Read-only discovery](camera-discovery.md) is
 implemented separately by #29. [Recorded-video replay](recorded-video.md) is
-implemented by #47 through this same interface. Device selection UI, physical
-capture, pixel preview, and GUI worker adapters remain separate issue work.
+implemented by #47 through this same interface. [Device selection](camera-selection.md)
+(#30) creates sources through a factory. Physical capture, pixel preview, and GUI
+worker adapters remain separate issue work.
