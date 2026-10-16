@@ -135,7 +135,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_target_defaults(micro_robot_ui)
     micro_robot_platform_boundary(micro_robot_ui ALLOW Qt6::Core Qt6::Widgets)
 
-    add_executable(micro_robot_desktop app/main.cpp)
+    # Qt finalization imports the macOS permission plugins selected by Info.plist.
+    qt_add_executable(micro_robot_desktop app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
         micro_robot_ui micro_robot_simulation micro_robot_camera_discovery
         micro_robot_logging micro_robot_configuration

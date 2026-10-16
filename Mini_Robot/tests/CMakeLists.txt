@@ -12,6 +12,7 @@ if(MICRO_ROBOT_BUILD_REPLAY)
 endif()
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
+    micro_robot_add_desktop_packaging_tests(micro_robot_desktop)
     add_executable(micro_robot_tests
         main.cpp
         ui/QtCameraSourceTest.cpp

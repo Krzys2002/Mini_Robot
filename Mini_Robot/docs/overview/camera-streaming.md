@@ -29,7 +29,10 @@ automatic reconnection remains separate work in Issue #46.
 On Qt 6.5 or later, camera authorization is checked/requested asynchronously on
 the owner thread before capture starts. Permission denial explains that camera
 access must be enabled in system settings. On older Qt versions, backend errors
-provide diagnostics. macOS bundles include `NSCameraUsageDescription`. Missing
+provide diagnostics. macOS bundles include `NSCameraUsageDescription`. The desktop target uses
+`qt_add_executable()` so Qt finalization imports the native permission plugin
+selected by that plist key. Plain CMake `add_executable()` skips this step even
+when the usage description is present. Missing
 devices fail without prompting for permission.
 
 ## Native adapter and lifecycle
@@ -61,7 +64,9 @@ cancels context-bound queued events.
 [Native adapter tests](../../tests/ui/QtCameraSourceTest.cpp) cover stopped factory
 creation, malformed IDs, absent-device asynchronous failure and retry, repeated
 pending-start cancellation, callback thread/state guarantees, and cancellation
-from a callback. They require no camera and never request capture permission.
+from a callback. They require no camera and never request capture permission. A macOS packaging
+test also checks the production bundle’s usage description and linked camera
+permission plugin without requesting authorization.
 [Controller/window tests](../../tests/ui/MainWindowTest.cpp) cover repeated stream
 cycles with deterministic frames, frozen metadata after stop, immediate request
 guards, failure visibility/logging/retry, switching during pending startup, and

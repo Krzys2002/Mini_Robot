@@ -78,3 +78,19 @@ function(micro_robot_configure_desktop_executable target info_plist)
         set_target_properties(${target} PROPERTIES WIN32_EXECUTABLE TRUE)
     endif()
 endfunction()
+
+# On macOS Qt >= 6.5, camera authorization needs a statically imported native
+# permission plugin as well as the usage description. Verify the production app,
+# since hardware-free camera tests deliberately never request authorization.
+function(micro_robot_add_desktop_packaging_tests target)
+    if(APPLE AND Qt6Core_VERSION VERSION_GREATER_EQUAL 6.5)
+        add_test(NAME DesktopPackaging.CameraPermission
+            COMMAND "${CMAKE_COMMAND}"
+                "-DAPP_BINARY=$<TARGET_FILE:${target}>"
+                "-DAPP_PLIST=$<TARGET_BUNDLE_DIR:${target}>/Contents/Info.plist"
+                "-DNM=${CMAKE_NM}"
+                -P "${PROJECT_SOURCE_DIR}/tests/platform/VerifyMacCameraPermission.cmake"
+        )
+        set_tests_properties(DesktopPackaging.CameraPermission PROPERTIES LABELS "packaging")
+    endif()
+endfunction()

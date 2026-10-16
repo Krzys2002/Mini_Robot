@@ -146,6 +146,7 @@ Use `-DBUILD_TESTING=OFF` to omit tests and the GTest dependency entirely.
 | Old compiler/Qt or generator persists | Use a fresh build directory when switching toolchains/platforms. |
 | Configure warns that a compiler is unsupported or too old | Use a compiler from the platform table above, e.g. via a preset or `-DCMAKE_CXX_COMPILER`. |
 | A preset is missing from `cmake --list-presets` | Presets are host-specific; use one for the current OS, and CMake 3.24 or newer. |
+| macOS logs “Could not find permission plugin for QCameraPermission” | Reload CMake and rebuild the desktop target, which must use `qt_add_executable()` to import the native plugin. Run the rebuilt `.app`; a correct Info.plist alone is insufficient. |
 | UI tests need a display | The UI test entry point sets QT_QPA_PLATFORM=offscreen; domain tests need no QApplication. |
 
 See [testing](testing.md) for suite selection and test additions, and
