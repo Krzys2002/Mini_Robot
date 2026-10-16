@@ -76,3 +76,24 @@ target_compile_definitions(micro_robot_configuration_tests PRIVATE
 )
 micro_robot_target_defaults(micro_robot_configuration_tests)
 gtest_discover_tests(micro_robot_configuration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
+# Platform-boundary scans run on every host without building or linking anything.
+micro_robot_add_platform_boundary_tests()
+add_test(NAME PlatformBoundary.CheckerSelfTest
+    COMMAND "${CMAKE_COMMAND}"
+        "-DCHECKER=${PROJECT_SOURCE_DIR}/cmake/CheckPlatformBoundary.cmake"
+        "-DFIXTURES=${CMAKE_CURRENT_SOURCE_DIR}/boundaries/fixtures"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/boundaries"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/boundaries/VerifyBoundaryCheck.cmake")
+set_tests_properties(PlatformBoundary.CheckerSelfTest PROPERTIES LABELS "core;boundary")
+add_test(NAME PlatformBoundary.LinkCheckSelfTest
+    COMMAND "${CMAKE_COMMAND}"
+        "-DMODULE=${PROJECT_SOURCE_DIR}/cmake/MicroRobotBoundaries.cmake"
+        "-DFIXTURE_PROJECT=${CMAKE_CURRENT_SOURCE_DIR}/boundaries/link_project"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/boundaries/link"
+        "-DGENERATOR=${CMAKE_GENERATOR}"
+        "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/boundaries/VerifyBoundaryConfigure.cmake")
+set_tests_properties(PlatformBoundary.LinkCheckSelfTest PROPERTIES LABELS "core;boundary")

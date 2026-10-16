@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(MicroRobotPlatform)
+include(MicroRobotBoundaries)
 
 option(MICRO_ROBOT_BUILD_DESKTOP "Build the Qt desktop application and UI tests" ON)
 option(MICRO_ROBOT_BUILD_REPLAY "Build the OpenCV recorded-video adapter and tests" ON)
@@ -19,6 +20,9 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
 endif()
 
 add_subdirectory(src)
+# Fails configuration if a platform-independent target links a platform library or a
+# concrete backend.
+micro_robot_check_platform_boundaries("${PROJECT_SOURCE_DIR}/src")
 
 include(CTest)
 if(BUILD_TESTING)

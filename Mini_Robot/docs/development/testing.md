@@ -40,6 +40,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
 | `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, and camera selection |
+| `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs, Qt platform macros, or concrete-backend includes in platform-independent targets; scanner and link-check self-tests |
 
 The camera suite currently has no CTest label; `-L core` does not include it.
 Use unfiltered CTest for all suites, or add a separate
@@ -156,5 +157,7 @@ Add a test source to the corresponding executable in `tests/CMakeLists.txt` and
 link the domain target it exercises. For a new module, create a separate executable
 linked with `GTest::gtest_main`, apply `micro_robot_target_defaults()`, and register
 it with `gtest_discover_tests(... DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")`.
-Keep pure logic tests independent of widgets and physical backends. Future path
+Register a new platform-independent source target with
+`micro_robot_platform_boundary()` so its boundary checks run; platform adapters
+stay unregistered. Keep pure logic tests independent of widgets and physical backends. Future path
 or calibration tests should use deterministic inputs through their module APIs.

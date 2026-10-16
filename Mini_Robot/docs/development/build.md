@@ -19,6 +19,9 @@ one level above it in the repository's `.github` directory.
 - GoogleTest when BUILD_TESTING is ON (the default). CMake first uses an installed
   GTest CONFIG package, then downloads pinned GoogleTest 1.17.0 if unavailable.
 
+Configuration fails if a platform-independent target links a platform library
+or a concrete backend; see [platform boundaries](../overview/platform-boundaries.md).
+
 The current source does not discover or link Eigen, spdlog, JSON,
 Qt Bluetooth, or network libraries. They are planned dependencies,
 not prerequisites for today's simulation demo. The optional runtime settings file is
