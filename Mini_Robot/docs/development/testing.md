@@ -40,7 +40,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
 | `micro_robot_tests` | `ui` | Offscreen Qt window and controller integration |
-| `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs or concrete-backend includes in platform-independent targets; checker self-test |
+| `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs, Qt platform macros, or concrete-backend includes in platform-independent targets; scanner and link-check self-tests |
 
 The camera suite currently has no CTest label; `-L core` does not include it.
 Use unfiltered CTest for all suites, or add a separate `-R '^CameraFrameTest\.'`

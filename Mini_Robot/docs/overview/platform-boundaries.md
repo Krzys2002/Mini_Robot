@@ -10,7 +10,8 @@ application while preserving the `ICameraSource`, `ICameraDeviceDiscovery`, and
 `IRobotTransport` abstractions. This guide records the dependency audit, defines
 which layer may use which facilities, and describes the checks that keep those
 rules true. Build-level platform and compiler configuration (application bundle,
-Windows subsystem, compiler support) is LNX-01 (#125); Linux camera capture and
+Windows subsystem, compiler support) is LNX-01 (#125), implemented in the
+[platform/toolchain module](../../cmake/MicroRobotPlatform.cmake); Linux camera capture and
 robot communication are LNX-04 (#128) and LNX-05 (#129).
 
 ## Layers
@@ -47,8 +48,8 @@ APIs, and backend libraries, and every target's link dependencies.
 | Timers | The simulation tick is a `QTimer` in the composition root; discovery coalescing uses `QTimer::singleShot` inside its adapter. Core components read only the steady clock or receive time as a parameter. | Qt at the edges |
 | Threads | No threads are created. The logger serializes with `std::mutex`. | Portable standard C++ |
 | Environment | The UI test entry point sets `QT_QPA_PLATFORM` through `qputenv`. | Qt, test-only |
-| macOS-only | [Info.plist.in](../../src/app/Info.plist.in) (camera usage description, Continuity Camera opt-in) and the bundle target properties. Other platforms ignore them. | Build/packaging (LNX-01) |
-| Windows-only | The `WIN32` executable property. | Build/packaging (LNX-01) |
+| macOS-only | [Info.plist.in](../../src/app/Info.plist.in) (camera usage description, Continuity Camera opt-in) and the bundle target properties. Since LNX-01, `micro_robot_configure_desktop_executable()` applies them on Apple platforms only. | Build/packaging (LNX-01) |
+| Windows-only | The GUI-subsystem executable property, applied only on Windows since LNX-01. | Build/packaging (LNX-01) |
 | Radio stacks | None present. `IRobotTransport` exposes no radio addressing or handles. | Compliant |
 
 No core code depends directly on a macOS-only API, so no source move was
@@ -132,26 +133,38 @@ Configuration fails when a registered target reaches:
 - a concrete backend. A concrete backend is any unregistered first-party target
   or a `BACKEND` target. This rule does not apply to `BACKEND` targets themselves.
 
+Each first-party dependency is classified by its own registration, wherever it
+is defined, including targets added through nested `add_subdirectory()` calls.
 Unregistered first-party targets are treated as backends, so the check fails
 closed: a new platform-independent target must be registered before other
-registered targets can depend on it. This is checked on every configure,
-independent of `BUILD_TESTING`.
+registered targets can depend on it. Headers of backends defined anywhere under
+`src/` become forbidden includes for the source scan. This is checked on every
+configure, independent of `BUILD_TESTING`.
 
 **At test time**, one CTest per registered target, `PlatformBoundary.<target>`
 (labels `core` and `boundary`), scans the preprocessor lines of the target's
 sources. It reports:
 
 - OS and platform conditionals, such as `__APPLE__`, `TARGET_OS_*`, `_WIN32`,
-  or `__linux__`;
+  `__linux__`, or Qt's `Q_OS_*` macros (also in targets that may use Qt);
 - POSIX, Linux, Windows, and Apple framework headers;
 - OpenCV, GStreamer, FFmpeg, and Qt Multimedia/Bluetooth/SerialPort headers;
 - any Qt header in a target that does not allow a Qt module;
 - quoted includes of concrete backend headers;
 - Objective-C(++) sources.
 
-Comments may mention platforms freely. `PlatformBoundary.CheckerSelfTest` checks
-that the scanner reports each class of violation and accepts a platform-neutral
-fixture. Run the checks alone with:
+Comments may mention platforms freely. Two self-tests cover the checks themselves:
+
+- `PlatformBoundary.CheckerSelfTest` checks that the scanner reports each class of
+  violation, including `Q_OS_MACOS`, `Q_OS_LINUX`, and `Q_OS_WIN` conditionals. It
+  also checks that platform-neutral and ordinary Qt Core fixtures pass.
+- `PlatformBoundary.LinkCheckSelfTest` configures a
+  [fixture project](../../tests/boundaries/link_project/CMakeLists.txt). A
+  registered core target must be rejected when it links an unregistered backend
+  or a `BACKEND` target defined in child directories, and accepted when it links
+  a registered platform-independent target there.
+
+Run the checks alone with:
 
 ```sh
 ctest --test-dir build -L boundary --output-on-failure --no-tests=error
@@ -170,8 +183,11 @@ the boundary checks. Deliberately injected violations were rejected at configure
 time (a core target linking `Qt6::Core`, an application adapter reaching
 `Qt6::Multimedia` or the simulation backend through another target, a plain
 system library) and by the source scan (an OS header, an `__APPLE__` conditional,
-a Qt include in the logger, a simulation header in the controller).
+a Qt include in the logger, a simulation header in the controller). The
+child-directory backend and `Q_OS_*` self-tests fail against the first revision
+of these checks and pass against the current one.
 
-macOS was not built as part of this change; its CI workflow runs the same CTest
-suite, so the boundary checks also run there. Hardware behavior is unaffected by
-this issue.
+A clean macOS build with all tests passing was reported in review of the first
+revision. The review follow-up was built and tested on Linux only. The macOS CI
+workflow runs the same CTest suite, including the boundary checks. Hardware
+behavior is unaffected by this issue.
