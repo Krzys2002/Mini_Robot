@@ -133,17 +133,19 @@ TEST(FakeCameraTest, RequestsAreIdempotentAndPendingStartCanBeCancelled)
     source.advanceTo(Timestamp{1s});
     EXPECT_EQ(source.state(), CameraState::Stopped);
     EXPECT_TRUE(events->frames.empty());
+    ASSERT_EQ(events->states.size(), 1U);
+    EXPECT_EQ(events->states.back().first, CameraState::Stopped);
     source.start();
     source.start();
     source.advanceTo(Timestamp{2s});
     source.start();
     source.advanceTo(Timestamp{2s});
-    EXPECT_EQ(events->states.size(), 1U);
+    EXPECT_EQ(events->states.size(), 2U);
     EXPECT_EQ(events->frames.size(), 1U);
     source.stop();
     source.stop();
     source.advanceTo(Timestamp{3s});
-    EXPECT_EQ(events->states.size(), 2U);
+    EXPECT_EQ(events->states.size(), 3U);
     EXPECT_EQ(events->frames.size(), 1U);
 }
 

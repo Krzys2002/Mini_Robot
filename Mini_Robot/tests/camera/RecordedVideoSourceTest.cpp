@@ -140,8 +140,13 @@ TEST_F(RecordedVideoTest, StopCancelsPendingStartAndRestartRewindsWithIncreasing
     source.setEventSink(events);
     source.start();
     source.stop();
+    EXPECT_TRUE(events->states.empty()); // No inline cancellation callback.
     source.advanceTo(Timestamp{});
-    EXPECT_TRUE(events->states.empty());
+    EXPECT_EQ(events->states, std::vector{CameraState::Stopped});
+    EXPECT_TRUE(events->frames.empty());
+    source.stop();
+    source.advanceTo(Timestamp{});
+    EXPECT_EQ(events->states.size(), 1U); // Repeated stop adds no event.
     source.start();
     source.advanceTo(Timestamp{});
     ASSERT_EQ(events->frames.size(), 1u);

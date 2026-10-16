@@ -102,6 +102,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_camera_discovery STATIC
         camera/QtCameraDeviceDiscovery.hpp
         camera/QtCameraDeviceDiscovery.cpp
+        camera/QtCameraSource.hpp
+        camera/QtCameraSource.cpp
     )
     target_link_libraries(micro_robot_camera_discovery PUBLIC
         micro_robot_camera_api Qt6::Multimedia
