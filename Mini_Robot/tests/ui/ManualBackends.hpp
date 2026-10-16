@@ -14,8 +14,14 @@ namespace micro_robot::test {
 // explicitly to exercise asynchronous states omitted by the immediate fakes.
 class ManualCamera final : public ICameraSource {
 public:
+    explicit ManualCamera(CameraInfo info = {"manual-camera", "Manual test camera"})
+        : info_(std::move(info)) {}
+    ~ManualCamera() override { *alive = false; }
+    ManualCamera(const ManualCamera&) = delete;
+    ManualCamera& operator=(const ManualCamera&) = delete;
+
     void setEventSink(std::weak_ptr<ICameraEvents> sink) override { sink_ = std::move(sink); }
-    CameraInfo info() const override { return {"manual-camera", "Manual test camera"}; }
+    CameraInfo info() const override { return info_; }
     CameraState state() const override { return state_; }
     void start() override { ++startRequests; }
     void stop() override { ++stopRequests; }
@@ -34,10 +40,15 @@ public:
         if (auto sink = sink_.lock()) sink->onCameraError(error);
     }
 
+    [[nodiscard]] bool hasSink() const { return !sink_.expired(); }
+
     int startRequests{};
     int stopRequests{};
+    // Copy before handing ownership away to observe destruction afterwards.
+    std::shared_ptr<bool> alive{std::make_shared<bool>(true)};
 
 private:
+    CameraInfo info_;
     CameraState state_{CameraState::Stopped};
     std::weak_ptr<ICameraEvents> sink_;
 };

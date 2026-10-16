@@ -3,8 +3,9 @@
 C++20 / Qt 6 desktop application for the micro-robot swarm project.
 The current M1 foundation uses a fake camera and simulated robot transport; no
 physical hardware is required. M1 is not yet complete.
-The read-only system camera inventory refreshes on device changes; it does not
-select a device or start physical capture. See [camera discovery](docs/overview/camera-discovery.md).
+The system camera list refreshes on device changes and lets the operator select
+the active camera; physical capture is not implemented yet, so a selected device is
+served by a simulated feed. See [camera selection](docs/overview/camera-selection.md).
 
 For controls and shutdown behavior, see the [desktop demo guide](docs/overview/desktop-demo.md).
 For log output and the log file location, see [application logging](docs/overview/logging.md).

@@ -1,5 +1,7 @@
 #include "app/DesktopController.hpp"
 
+#include <QMetaObject>
+
 #include <chrono>
 #include <utility>
 
@@ -17,6 +19,17 @@ QString cameraStateText(CameraState state)
     case CameraState::Fault: return QStringLiteral("Fault");
     }
     return QStringLiteral("Unknown");
+}
+
+bool isCameraActive(CameraState state)
+{
+    return state == CameraState::Starting || state == CameraState::Streaming
+        || state == CameraState::Stopping;
+}
+
+QString cameraDescription(const CameraInfo& info)
+{
+    return QString::fromStdString(info.displayName.empty() ? info.sourceId : info.displayName);
 }
 
 QString connectionStateText(ConnectionState state)
@@ -63,19 +76,17 @@ private:
     DesktopController& owner_;
 };
 
-DesktopController::DesktopController(ICameraSource& camera, IRobotTransport& transport,
-                                     WorldModel& world, RobotId robotId, LogChannel log,
-                                     QObject* parent)
-    : QObject(parent), camera_(camera), transport_(transport), world_(world), robotId_(robotId),
+DesktopController::DesktopController(IRobotTransport& transport, WorldModel& world,
+                                     RobotId robotId, LogChannel log, QObject* parent)
+    : QObject(parent), transport_(transport), world_(world), robotId_(robotId),
       log_(std::move(log)), events_(std::make_shared<EventSink>(*this))
 {
-    camera_.setEventSink(events_);
     transport_.setEventSink(events_);
 }
 
 DesktopController::~DesktopController()
 {
-    camera_.setEventSink({});
+    if (camera_) camera_->setEventSink({});
     transport_.setEventSink({});
 }
 
@@ -89,20 +100,57 @@ void DesktopController::initialize(Timestamp now)
     (void)world_.registerRobot(robotId_, now);
     log_.info("Controller initialized; robot registered", robotId_);
     emit applicationStatusChanged(QStringLiteral("Ready — Phase 0 simulation"));
-    receiveCameraState(camera_.state());
+    publishActiveCamera();
     receiveConnectionState(robotId_, transport_.connectionState(robotId_));
-    emit frameDescriptionChanged(QStringLiteral("No frames received"));
     publishWorld();
+}
+
+void DesktopController::setCameraSource(std::unique_ptr<ICameraSource> source)
+{
+    if (shuttingDown_) return;
+    pendingCamera_ = std::move(source);
+    replacementPending_ = true;
+    if (camera_ && isCameraActive(camera_->state())) {
+        log_.info("Stopping camera before switching source");
+        camera_->stop(); // Completed by receiveCameraState once quiescent.
+        return;
+    }
+    applyCameraReplacement();
+}
+
+void DesktopController::applyCameraReplacement()
+{
+    if (!replacementPending_ || shuttingDown_) return;
+    if (camera_ && isCameraActive(camera_->state())) return;
+    replacementPending_ = false;
+    if (camera_) camera_->setEventSink({});
+    camera_ = std::move(pendingCamera_); // Destroys the previous, quiescent source.
+    if (camera_) camera_->setEventSink(events_);
+    log_.info(camera_ ? "Active camera: " + cameraDescription(camera_->info()).toStdString()
+                      : std::string{"Active camera cleared"});
+    publishActiveCamera();
+}
+
+void DesktopController::publishActiveCamera()
+{
+    emit activeCameraChanged(camera_ ? cameraDescription(camera_->info())
+                                     : QStringLiteral("No camera selected"), camera_ != nullptr);
+    emit frameDescriptionChanged(QStringLiteral("No frames received"));
+    if (camera_) {
+        receiveCameraState(camera_->state());
+    } else {
+        emit cameraStatusChanged(QStringLiteral("No camera selected"), false);
+    }
 }
 
 void DesktopController::startCamera()
 {
-    if (initialized_ && !shuttingDown_) camera_.start();
+    if (initialized_ && !shuttingDown_ && camera_ && !replacementPending_) camera_->start();
 }
 
 void DesktopController::stopCamera()
 {
-    if (initialized_ && !shuttingDown_) camera_.stop();
+    if (initialized_ && !shuttingDown_ && camera_) camera_->stop();
 }
 
 void DesktopController::connectRobot()
@@ -120,7 +168,9 @@ void DesktopController::shutdown()
     if (shuttingDown_) return;
     shuttingDown_ = true;
     log_.info("Shutdown requested; stopping camera and disconnecting robot");
-    camera_.stop();
+    replacementPending_ = false;
+    pendingCamera_.reset();
+    if (camera_) camera_->stop();
     transport_.disconnect(robotId_);
     emit applicationStatusChanged(QStringLiteral("Shutting down"));
 }
@@ -147,8 +197,7 @@ void DesktopController::receiveFrame(FramePtr frame)
 
 void DesktopController::receiveCameraState(CameraState state)
 {
-    const bool active = state == CameraState::Starting || state == CameraState::Streaming
-        || state == CameraState::Stopping;
+    const bool active = isCameraActive(state);
     const auto text = cameraStateText(state);
     if (state == CameraState::Fault) {
         log_.error("Camera state: " + text.toStdString());
@@ -156,6 +205,14 @@ void DesktopController::receiveCameraState(CameraState state)
         log_.info("Camera state: " + text.toStdString());
     }
     emit cameraStatusChanged(text, active);
+    if (replacementPending_ && !active && !replacementScheduled_) {
+        // The source may be inside its own callback; destroy it only afterwards.
+        replacementScheduled_ = true;
+        QMetaObject::invokeMethod(this, [this] {
+            replacementScheduled_ = false;
+            applyCameraReplacement();
+        }, Qt::QueuedConnection);
+    }
 }
 
 void DesktopController::receiveConnectionState(RobotId id, ConnectionState state)

@@ -18,7 +18,7 @@ robot communication are LNX-04 (#128) and LNX-05 (#129).
 
 | Layer | Targets | May depend on | Must not depend on |
 | --- | --- | --- | --- |
-| Domain core | `micro_robot_common`, `micro_robot_camera_api`, `micro_robot_transport_api`, `micro_robot_world`, `micro_robot_logging`, `micro_robot_configuration` | C++20 standard library and other core targets | Qt, OpenCV, OS headers or platform macros, native frameworks, radio stacks, concrete backends |
+| Domain core | `micro_robot_common`, `micro_robot_camera_api`, `micro_robot_camera_selection`, `micro_robot_transport_api`, `micro_robot_world`, `micro_robot_logging`, `micro_robot_configuration` | C++20 standard library and other core targets | Qt, OpenCV, OS headers or platform macros, native frameworks, radio stacks, concrete backends |
 | Platform-independent backend | `micro_robot_simulation` | Core targets | Same as the core; only composition and tests may depend on it |
 | Application adapters | `micro_robot_desktop_controller` | Core targets, `Qt6::Core` | Device backends (Qt Multimedia/Bluetooth, OpenCV), widgets, OS APIs, concrete backends |
 | Presentation | `micro_robot_ui` | Application adapters, `Qt6::Core`, `Qt6::Widgets` | Device backends, OS APIs, concrete backends |
@@ -98,6 +98,7 @@ discovery belongs to LNX-04 (#128).
 | Interface | Current implementations | Planned backends |
 | --- | --- | --- |
 | `ICameraDeviceDiscovery` | `QtCameraDeviceDiscovery`; manual test double | Linux enumeration validation (LNX-04) |
+| `ICameraSourceFactory` | `FakeCameraSourceFactory`; test doubles | Live-capture factory creating physical sources (#31, LNX-04) |
 | `ICameraSource` | `FakeCameraSource`, `RecordedVideoSource`; test doubles | Live capture (#31, LNX-04): OpenCV/V4L2 on Linux, a supported macOS backend |
 | `IRobotTransport` | `SimulationTransport`; test doubles | BLE (#65, #66, LNX-05), Zigbee gateway (#107) |
 
@@ -108,12 +109,13 @@ To add or swap a backend:
 2. Do not register the adapter with `micro_robot_platform_boundary()`. If it is
    platform-independent, register it with `BACKEND`.
 3. Construct it in the composition root and inject it by interface reference.
+   Camera sources reach the controller through an `ICameraSourceFactory`.
 
-`DesktopController`, `CameraDiscoveryController`, `WorldModel`, and the UI do
+`DesktopController`, `CameraSelectionController`, `WorldModel`, and the UI do
 not change. The UI integration test
 `AlternativeBackendsSupportPendingStatesAndCancellation` runs the same controller
-against non-simulation backends. The discovery tests drive the presenter through a
-manual inventory provider without Qt Multimedia.
+against non-simulation backends. The camera-selection tests drive the presenter
+through manual inventory, factory, and camera backends without Qt Multimedia.
 
 ## Enforcement
 

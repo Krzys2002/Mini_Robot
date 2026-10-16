@@ -2,6 +2,8 @@
 
 Source: [FakeCameraSource.hpp](../../src/simulation/FakeCameraSource.hpp),
 [FakeCameraSource.cpp](../../src/simulation/FakeCameraSource.cpp),
+[FakeCameraSourceFactory.hpp](../../src/simulation/FakeCameraSourceFactory.hpp),
+[FakeCameraSourceFactory.cpp](../../src/simulation/FakeCameraSourceFactory.cpp),
 [SimulationTransport.hpp](../../src/simulation/SimulationTransport.hpp), and
 [SimulationTransport.cpp](../../src/simulation/SimulationTransport.cpp).
 Both implement the [camera](camera-source.md) and [transport](transport.md)
@@ -17,7 +19,8 @@ non-movable. Keep an event sink alive with shared ownership if events are needed
 backends keep only weak subscriptions. Callbacks may request stop/disconnect,
 but must not throw, destroy the backend, or call advanceTo recursively.
 
-The desktop composition uses a QTimer and passes `MonotonicClock::now()`;
+The desktop composition uses a QTimer and passes `MonotonicClock::now()` to the
+camera factory and the transport;
 [tests](../../tests/simulation/SimulationTest.cpp) instead supply fixed timestamps.
 Consumers depend on interfaces; only composition/tests drive concrete fake time.
 
@@ -36,6 +39,13 @@ Frames use the supplied capture timestamp. Retained frames survive later advance
 and source destruction. A stop requested in the Streaming callback suppresses
 that call's frame. This fake does not decode recorded media or simulate camera
 permissions, disconnection, configurable resolution, or optics.
+
+`FakeCameraSourceFactory` implements [ICameraSourceFactory](camera-selection.md)
+for the desktop until physical capture exists. It supports any device with an ID
+and creates a fake source per selection, named `<device name> (simulated feed)`
+with source ID `simulated:<device id>`; the configured interval and seed apply to
+every source. Its `advanceTo(now)` advances each live created source in creation
+order. Sources unregister on destruction and must not outlive the factory.
 
 ## Simulated transport
 

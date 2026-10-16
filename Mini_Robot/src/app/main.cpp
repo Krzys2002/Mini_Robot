@@ -1,11 +1,11 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
-#include "app/CameraDiscoveryController.hpp"
+#include "app/CameraSelectionController.hpp"
 #include "camera/QtCameraDeviceDiscovery.hpp"
 #include "infrastructure/configuration/ConfigLoader.hpp"
 #include "infrastructure/logging/LogSinks.hpp"
 #include "infrastructure/logging/Logger.hpp"
-#include "simulation/FakeCameraSource.hpp"
+#include "simulation/FakeCameraSourceFactory.hpp"
 #include "simulation/SimulationTransport.hpp"
 
 #include <QApplication>
@@ -94,24 +94,24 @@ int main(int argc, char* argv[])
     }
 
     // Composition root alone chooses concrete implementations. Declaration order
-    // keeps sources/model alive until after the controller detaches its event sink.
+    // keeps sources/model alive until after the controller detaches its event sink;
+    // the camera factory outlives the sources the controller owns. Until a physical
+    // capture backend exists, a selected device is served by a simulated feed.
     FakeCameraConfig cameraConfig;
     cameraConfig.frameInterval = config.simulation.cameraFrameInterval;
-    auto camera = std::make_unique<FakeCameraSource>(cameraConfig);
+    FakeCameraSourceFactory cameraFactory{cameraConfig};
     SimulationTransportConfig transportConfig;
     transportConfig.telemetryInterval = config.simulation.telemetryInterval;
     auto transport = std::make_unique<SimulationTransport>(transportConfig,
                                                            logger.channel("simulation"));
     QtCameraDeviceDiscovery cameraDiscovery;
-    CameraDiscoveryController discoveryController{cameraDiscovery};
     WorldModel world;
     const RobotId robotId = config.robot.id;
-    DesktopController controller{*camera, *transport, world, robotId,
-                                 logger.channel("controller")};
+    DesktopController controller{*transport, world, robotId, logger.channel("controller")};
+    CameraSelectionController cameraSelection{cameraDiscovery, cameraFactory, controller,
+                                              logger.channel("camera")};
     MainWindow window{controller};
-    QObject::connect(&discoveryController,
-        &CameraDiscoveryController::cameraDevicesDescriptionChanged,
-        &window, &MainWindow::setCameraDevicesDescription);
+    window.bindCameraSelection(cameraSelection);
     QTimer simulationTimer;
     simulationTimer.setInterval(config.simulation.updateInterval);
 
@@ -120,7 +120,7 @@ int main(int argc, char* argv[])
                      [&robotConnected](const QString&, bool connected) { robotConnected = connected; });
     QObject::connect(&simulationTimer, &QTimer::timeout, &window, [&] {
         const auto now = MonotonicClock::now();
-        camera->advanceTo(now);
+        cameraFactory.advanceTo(now);
         transport->advanceTo(now);
         if (robotConnected) {
             // Explicit demo observation, independent of camera frames or telemetry.
@@ -134,12 +134,12 @@ int main(int argc, char* argv[])
         simulationTimer.stop();
         controller.shutdown();
         const auto now = MonotonicClock::now();
-        camera->advanceTo(now);
+        cameraFactory.advanceTo(now);
         transport->advanceTo(now);
     });
 
     controller.initialize(MonotonicClock::now());
-    discoveryController.initialize();
+    cameraSelection.initialize();
     window.show();
     simulationTimer.start();
     appLog.info("Application started");

@@ -20,8 +20,18 @@ target_sources(micro_robot_camera_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/CameraTypes.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraSource.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraDeviceDiscovery.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/camera/ICameraSourceFactory.hpp"
 )
 micro_robot_platform_boundary(micro_robot_camera_api)
+
+# Qt-free selection rules shared by presentation code and core tests.
+add_library(micro_robot_camera_selection STATIC
+    camera/CameraSelection.hpp
+    camera/CameraSelection.cpp
+)
+target_link_libraries(micro_robot_camera_selection PUBLIC micro_robot_camera_api)
+micro_robot_target_defaults(micro_robot_camera_selection)
+micro_robot_platform_boundary(micro_robot_camera_selection)
 
 add_library(micro_robot_transport_api INTERFACE)
 target_link_libraries(micro_robot_transport_api INTERFACE micro_robot_common)
@@ -64,6 +74,8 @@ micro_robot_platform_boundary(micro_robot_configuration)
 add_library(micro_robot_simulation STATIC
     simulation/FakeCameraSource.hpp
     simulation/FakeCameraSource.cpp
+    simulation/FakeCameraSourceFactory.hpp
+    simulation/FakeCameraSourceFactory.cpp
     simulation/SimulationTransport.hpp
     simulation/SimulationTransport.cpp
 )
@@ -99,13 +111,13 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_desktop_controller STATIC
         app/DesktopController.hpp
         app/DesktopController.cpp
-        app/CameraDiscoveryController.hpp
-        app/CameraDiscoveryController.cpp
+        app/CameraSelectionController.hpp
+        app/CameraSelectionController.cpp
     )
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
-        micro_robot_camera_api micro_robot_transport_api micro_robot_world micro_robot_logging
-        Qt6::Core
+        micro_robot_camera_api micro_robot_camera_selection micro_robot_transport_api
+        micro_robot_world micro_robot_logging Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
     # Application adapters use Qt Core only; device backends stay in adapter targets.
