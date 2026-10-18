@@ -1,0 +1,64 @@
+name: Linux build and test
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-build-test-${{ github.workflow }}-${{ github.ref }}
+  # Superseded pull request runs are cancelled; a running default-branch run is allowed to finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-test:
+    name: Ubuntu 24.04 / ${{ matrix.compiler }} / Debug
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: GCC
+            preset: linux-gcc
+          - compiler: Clang
+            preset: linux-clang
+    defaults:
+      run:
+        shell: bash
+        working-directory: Mini_Robot
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Same package list as docs/development/linux-setup.md.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential clang cmake ninja-build \
+            qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
+
+      - name: Report tool versions
+        run: |
+          cmake --version
+          ninja --version
+          g++ --version
+          clang++ --version
+
+      - name: Configure desktop and tests
+        run: >-
+          cmake --preset ${{ matrix.preset }}
+          -DMICRO_ROBOT_BUILD_DESKTOP=ON
+          -DMICRO_ROBOT_BUILD_REPLAY=ON
+
+      - name: Build application and tests
+        run: cmake --build --preset ${{ matrix.preset }} --parallel 4
+
+      - name: Run all tests
+        run: ctest --preset ${{ matrix.preset }}
