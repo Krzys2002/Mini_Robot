@@ -14,7 +14,7 @@ Windows remains a project target with deployment work assigned to M8.
 
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
-| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery and selection (simulated feed), application logging, configuration loading, recorded-video replay, tests, macOS CI. | USB discovery/hotplug acceptance, physical capture/preview, source recovery implementation, and Ubuntu build/GUI validation. |
+| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery and selection (simulated feed), application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug acceptance, physical capture/preview, source recovery implementation, and Ubuntu GUI validation. |
 | M2 — Vision, Calibration & Robot Localization | Planned; metric Pose2D and timestamped frames are prerequisites already supplied by M1. | AprilTag detection, intrinsic/workspace calibration, image-to-world conversion, tracking, freshness/quality estimates, and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Planned; IRobotTransport and semantic commands/telemetry are M1 prerequisites; the [version 1 wire protocol and BLE GATT contract](../protocol/README.md) is specified. | Protocol adapter and firmware implementation, physical BLE, RobotManager, manual motion controls, E-stop, reconnect, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Planned; a stored demo pose is not closed-loop feedback. | Kinematics, supervisory scheduler/controller, target selection, command limits, tracking/connection safety transitions, and control experiments. |
@@ -204,8 +204,10 @@ support for those events is not physical backend verification.
 
 [Build setup](../development/build.md) and
 [Ubuntu setup](../development/linux-setup.md) document current recipes. The
-committed build/test workflow runs macOS only. Ubuntu GCC/Clang, Linux X11/Wayland,
-Windows builds, packaging, and device behavior require their own executed checks.
+committed build/test workflows run on macOS and on Ubuntu 24.04 with GCC and Clang
+(see [continuous integration](../development/testing.md#linux-continuous-integration)).
+Linux X11/Wayland, Windows builds, packaging, and device behavior require their own
+executed checks.
 
 ## Domain conventions
 

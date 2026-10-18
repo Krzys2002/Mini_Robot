@@ -3,9 +3,10 @@
 Ubuntu 24.04 LTS is the documented reference environment for these recipes.
 The GCC and Clang builds below, including the OpenCV replay adapter, were
 executed for #125 on Ubuntu 26.04 LTS (see [verification status](#verification-status));
-apt installation on a clean 24.04 machine and X11/Wayland GUI checks have not
-been executed. The remaining Linux acceptance criteria (#126–#132) are tracked
-by their own issues.
+[Linux CI](testing.md#linux-continuous-integration) (#126) runs the apt installation
+and GCC/Clang builds on a clean 24.04 runner; X11/Wayland GUI checks have not been
+executed. The other Linux acceptance criteria (#127–#132) are tracked by their own
+issues.
 
 ## Build requirements
 
@@ -113,6 +114,8 @@ device-access policy. Avoid running the whole GUI as root to bypass access error
 BLE validation requires a compatible adapter, BlueZ service, and robot hardware;
 none are required for the current fake transport or automated domain tests.
 
-The committed build/test workflow currently targets macOS only. Ubuntu CI is
-planned by #126; configuration/filesystem regression expansion is #132. This guide
-must be updated with actual Linux results when those checks are performed.
+[Linux CI](testing.md#linux-continuous-integration) installs the packages above on an
+`ubuntu-24.04` GitHub runner and builds and tests the `linux-gcc` and `linux-clang`
+presets on every pull request and push to `master`; see that workflow's runs for
+results. Configuration/filesystem regression expansion is #132. This guide must be
+updated with actual Linux results when those checks are performed.
