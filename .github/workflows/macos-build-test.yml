@@ -2,6 +2,8 @@ name: macOS build and test
 
 on:
   pull_request:
+  push:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -9,7 +11,8 @@ permissions:
 
 concurrency:
   group: macos-build-test-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded pull request runs are cancelled; a running default-branch run is allowed to finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-test:
