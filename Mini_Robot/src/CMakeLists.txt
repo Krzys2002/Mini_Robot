@@ -41,6 +41,14 @@ target_sources(micro_robot_transport_api INTERFACE
 )
 micro_robot_platform_boundary(micro_robot_transport_api)
 
+add_library(micro_robot_control STATIC
+    control/DifferentialDrive.hpp
+    control/DifferentialDrive.cpp
+)
+target_link_libraries(micro_robot_control PUBLIC micro_robot_common micro_robot_transport_api)
+micro_robot_target_defaults(micro_robot_control)
+micro_robot_platform_boundary(micro_robot_control)
+
 add_library(micro_robot_world STATIC
     world/RobotState.hpp
     world/WorldSnapshot.hpp

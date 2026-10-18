@@ -10,6 +10,7 @@
 - [Camera source contract](camera-source.md): lifecycle, frames, and subscriptions.
 - [Recorded-video replay](recorded-video.md): local files, virtual timing, EOF, and fixtures.
 - [Transport contract](transport.md): commands, telemetry, and async ownership.
+- [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
 - [WorldModel](world-model.md): registration, timestamp ordering, and snapshots.
 - [Simulation](simulation.md): virtual time and deterministic fake behavior.
 - [Desktop demo](desktop-demo.md): controls, composition, and shutdown.
