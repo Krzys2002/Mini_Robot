@@ -40,6 +40,8 @@ public:
     [[nodiscard]] virtual CameraInfo info() const = 0;
     [[nodiscard]] virtual CameraState state() const = 0;
     // Repeated start/stop requests are idempotent. Stop cancels a pending start.
+    // Cancelling a pending start emits a quiescent state event even if the state
+    // is unchanged, so callers can await cancellation before source teardown.
     // Initial state is Stopped. Starting/Stopping are optional pending states;
     // successful start completes in Streaming, stop completes in Stopped.
     // Disconnected means the source is unavailable; Fault means capture failed.

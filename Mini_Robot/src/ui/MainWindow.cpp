@@ -21,6 +21,9 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
 
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
+    // Selection details can add wrapped lines; grow the window instead of
+    // compressing controls below their usable size.
+    layout->setSizeConstraint(QLayout::SetMinimumSize);
     auto* title = new QLabel(QStringLiteral("Micro Robot — Phase 0"), central);
     layout->addWidget(title);
     auto* applicationStatus = new QLabel(QStringLiteral("Starting…"), central);
@@ -55,7 +58,10 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     startCamera_->setObjectName(QStringLiteral("startCamera"));
     stopCamera_ = new QPushButton(QStringLiteral("Stop camera"), cameraGroup);
     stopCamera_->setObjectName(QStringLiteral("stopCamera"));
-    updateCameraButtons();
+    startCamera_->setMinimumHeight(startCamera_->sizeHint().height());
+    stopCamera_->setMinimumHeight(stopCamera_->sizeHint().height());
+    startCamera_->setEnabled(false);
+    stopCamera_->setEnabled(false);
     cameraButtons->addWidget(startCamera_);
     cameraButtons->addWidget(stopCamera_);
     cameraLayout->addWidget(activeCamera);
@@ -113,16 +119,13 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     connect(&controller, &DesktopController::telemetryDescriptionChanged, telemetry, &QLabel::setText);
     connect(&controller, &DesktopController::worldDescriptionChanged, worldDescription, &QLabel::setText);
     connect(&controller, &DesktopController::activeCameraChanged, this,
-            [this, activeCamera](const QString& description, bool present) {
-        activeCamera->setText(description);
-        cameraPresent_ = present;
-        updateCameraButtons();
-    });
+            [activeCamera](const QString& description, bool) { activeCamera->setText(description); });
     connect(&controller, &DesktopController::cameraStatusChanged, this,
-            [this, cameraStatus](const QString& status, bool active) {
-        cameraStatus->setText(status);
-        cameraActive_ = active;
-        updateCameraButtons();
+            [cameraStatus](const QString& status, bool) { cameraStatus->setText(status); });
+    connect(&controller, &DesktopController::cameraActionsChanged, this,
+            [this](bool canStart, bool canStop) {
+        startCamera_->setEnabled(canStart);
+        stopCamera_->setEnabled(canStop);
     });
     connect(&controller, &DesktopController::connectionStatusChanged, this,
             [connectionStatus, connectRobot, disconnectRobot](const QString& status, bool, bool active) {
@@ -133,12 +136,6 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     connect(&controller, &DesktopController::errorOccurred, this, [this](const QString& message) {
         statusBar()->showMessage(message);
     });
-}
-
-void MainWindow::updateCameraButtons()
-{
-    startCamera_->setEnabled(cameraPresent_ && !cameraActive_);
-    stopCamera_->setEnabled(cameraPresent_ && cameraActive_);
 }
 
 void MainWindow::bindCameraSelection(CameraSelectionController& selection)

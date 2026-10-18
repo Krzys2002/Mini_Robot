@@ -110,9 +110,9 @@ void DesktopController::setCameraSource(std::unique_ptr<ICameraSource> source)
     if (shuttingDown_) return;
     pendingCamera_ = std::move(source);
     replacementPending_ = true;
-    if (camera_ && isCameraActive(camera_->state())) {
+    if (camera_ && (isCameraActive(camera_->state()) || cameraRequest_)) {
         log_.info("Stopping camera before switching source");
-        camera_->stop(); // Completed by receiveCameraState once quiescent.
+        requestCameraStop(); // Completed by receiveCameraState once quiescent.
         return;
     }
     applyCameraReplacement();
@@ -121,7 +121,7 @@ void DesktopController::setCameraSource(std::unique_ptr<ICameraSource> source)
 void DesktopController::applyCameraReplacement()
 {
     if (!replacementPending_ || shuttingDown_) return;
-    if (camera_ && isCameraActive(camera_->state())) return;
+    if (camera_ && (isCameraActive(camera_->state()) || cameraRequest_)) return;
     replacementPending_ = false;
     if (camera_) camera_->setEventSink({});
     camera_ = std::move(pendingCamera_); // Destroys the previous, quiescent source.
@@ -141,16 +141,49 @@ void DesktopController::publishActiveCamera()
     } else {
         emit cameraStatusChanged(QStringLiteral("No camera selected"), false);
     }
+    publishCameraActions();
+}
+
+void DesktopController::publishCameraActions()
+{
+    const bool ready = initialized_ && !shuttingDown_ && camera_ && !replacementPending_;
+    const auto state = camera_ ? camera_->state() : CameraState::Stopped;
+    const bool active = isCameraActive(state);
+    const bool stopping = cameraRequest_ == CameraState::Stopping || state == CameraState::Stopping;
+    emit cameraActionsChanged(ready && !cameraRequest_ && !active,
+                              ready && !stopping && (active || cameraRequest_.has_value()));
 }
 
 void DesktopController::startCamera()
 {
-    if (initialized_ && !shuttingDown_ && camera_ && !replacementPending_) camera_->start();
+    if (!initialized_ || shuttingDown_ || !camera_ || replacementPending_
+        || cameraRequest_ || isCameraActive(camera_->state())) return;
+    cameraRequest_ = CameraState::Starting;
+    log_.info("Camera start requested: " + cameraDescription(camera_->info()).toStdString());
+    camera_->start(); // Contract: no inline backend callbacks.
+    emit cameraStatusChanged(QStringLiteral("Starting"), true);
+    publishCameraActions();
+}
+
+void DesktopController::requestCameraStop()
+{
+    if (!camera_ || cameraRequest_ == CameraState::Stopping) {
+        publishCameraActions();
+        return;
+    }
+    cameraRequest_ = CameraState::Stopping;
+    log_.info("Camera stop requested: " + cameraDescription(camera_->info()).toStdString());
+    camera_->stop();
+    emit cameraStatusChanged(QStringLiteral("Stopping"), true);
+    publishCameraActions();
 }
 
 void DesktopController::stopCamera()
 {
-    if (initialized_ && !shuttingDown_ && camera_) camera_->stop();
+    if (!initialized_ || shuttingDown_ || !camera_
+        || camera_->state() == CameraState::Stopping || cameraRequest_ == CameraState::Stopping
+        || (!cameraRequest_ && !isCameraActive(camera_->state()))) return;
+    requestCameraStop();
 }
 
 void DesktopController::connectRobot()
@@ -170,7 +203,8 @@ void DesktopController::shutdown()
     log_.info("Shutdown requested; stopping camera and disconnecting robot");
     replacementPending_ = false;
     pendingCamera_.reset();
-    if (camera_) camera_->stop();
+    if (camera_ && (cameraRequest_ || isCameraActive(camera_->state()))) requestCameraStop();
+    publishCameraActions();
     transport_.disconnect(robotId_);
     emit applicationStatusChanged(QStringLiteral("Shutting down"));
 }
@@ -189,7 +223,7 @@ double DesktopController::elapsedSeconds(Timestamp at) const
 
 void DesktopController::receiveFrame(FramePtr frame)
 {
-    if (!frame) return;
+    if (!frame || shuttingDown_ || cameraRequest_ == CameraState::Stopping) return;
     emit frameDescriptionChanged(QStringLiteral("Frame #%1 · %2 × %3 · capture +%4 s")
         .arg(static_cast<qulonglong>(frame->sequence)).arg(frame->width).arg(frame->height)
         .arg(elapsedSeconds(frame->capturedAt), 0, 'f', 2));
@@ -197,6 +231,10 @@ void DesktopController::receiveFrame(FramePtr frame)
 
 void DesktopController::receiveCameraState(CameraState state)
 {
+    if (!isCameraActive(state)
+        || (state == CameraState::Streaming && cameraRequest_ == CameraState::Starting)) {
+        cameraRequest_.reset();
+    }
     const bool active = isCameraActive(state);
     const auto text = cameraStateText(state);
     if (state == CameraState::Fault) {
@@ -204,7 +242,9 @@ void DesktopController::receiveCameraState(CameraState state)
     } else {
         log_.info("Camera state: " + text.toStdString());
     }
-    emit cameraStatusChanged(text, active);
+    emit cameraStatusChanged(cameraRequest_ == CameraState::Stopping
+        ? QStringLiteral("Stopping") : text, active);
+    publishCameraActions();
     if (replacementPending_ && !active && !replacementScheduled_) {
         // The source may be inside its own callback; destroy it only afterwards.
         replacementScheduled_ = true;

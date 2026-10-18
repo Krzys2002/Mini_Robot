@@ -17,7 +17,7 @@
     <key>CFBundleVersion</key>
     <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
     <key>NSCameraUsageDescription</key>
-    <string>Micro Robot lists available cameras for the tabletop workspace.</string>
+    <string>Micro Robot captures camera frames to supervise the tabletop robot workspace.</string>
     <key>NSCameraUseContinuityCameraDeviceType</key>
     <true/>
 </dict>

@@ -19,8 +19,12 @@ void FakeCameraSource::setEventSink(std::weak_ptr<ICameraEvents> sink)
 
 CameraInfo FakeCameraSource::info() const { return config_.info; }
 CameraState FakeCameraSource::state() const { return state_; }
-void FakeCameraSource::start() { desiredActive_ = true; }
-void FakeCameraSource::stop() { desiredActive_ = false; }
+void FakeCameraSource::start() { desiredActive_ = true; cancelledStart_ = false; }
+void FakeCameraSource::stop()
+{
+    cancelledStart_ = cancelledStart_ || (desiredActive_ && state_ == CameraState::Stopped);
+    desiredActive_ = false;
+}
 
 void FakeCameraSource::advanceTo(Timestamp now)
 {
@@ -49,7 +53,8 @@ void FakeCameraSource::advanceTo(Timestamp now)
     }
     // A state callback may request stop; do not deliver a frame afterwards.
     if (!desiredActive_) {
-        if (state_ != CameraState::Stopped) {
+        if (state_ != CameraState::Stopped || cancelledStart_) {
+            cancelledStart_ = false;
             state_ = CameraState::Stopped;
             if (auto sink = sink_.lock()) {
                 sink->onCameraStateChanged(state_, now);

@@ -107,3 +107,7 @@ defaults, every key, whitespace/comments/BOM/CRLF, boundary and invalid values,
 unknown and malformed entries, duplicates, missing and unreadable files, log
 output, and that the shipped example file is valid and matches the defaults.
 See the [testing guide](../development/testing.md).
+
+With native camera streaming (#31), `simulation.camera_frame_interval_ms` remains
+a fake-camera setting for alternate compositions/tests; it does not change a
+physical device’s capture rate.

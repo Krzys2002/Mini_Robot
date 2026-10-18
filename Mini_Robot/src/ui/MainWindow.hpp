@@ -31,7 +31,6 @@ signals:
     void robotDisconnectRequested();
 
 private:
-    void updateCameraButtons();
     void showCameraChoices(const QList<CameraChoiceItem>& cameras);
     void showSelectedCamera(const QString& id, const QString& description);
 
@@ -41,8 +40,6 @@ private:
     QPushButton* startCamera_{};
     QPushButton* stopCamera_{};
     QString selectedCameraId_;
-    bool cameraPresent_{};
-    bool cameraActive_{};
 };
 
 } // namespace micro_robot

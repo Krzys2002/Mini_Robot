@@ -436,7 +436,7 @@ TEST(CameraReplacementTest, RunningSourceStopsBeforeDeferredReplacement)
     // A later selection replaces the pending one; the stop request is idempotent.
     auto& third = installManualCamera(fixture.controller, {"c", "Camera C"});
     EXPECT_FALSE(*supersededAlive);
-    EXPECT_EQ(first.stopRequests, 2);
+    EXPECT_EQ(first.stopRequests, 1);
     // Restarting the outgoing source would race the replacement.
     fixture.controller.startCamera();
     EXPECT_EQ(first.startRequests, 1);
@@ -486,6 +486,137 @@ TEST(CameraReplacementTest, ShutdownDropsAPendingReplacement)
     EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Camera A"));
     fixture.controller.setCameraSource(std::make_unique<test::ManualCamera>());
     EXPECT_TRUE(*firstAlive);
+}
+
+
+TEST(CameraStreamControlTest, RepeatedCyclesStopFramesAndResumeWithoutRestartingApplication)
+{
+    DesktopFixture fixture;
+    for (int cycle = 0; cycle < 4; ++cycle) {
+        fixture.button("startCamera")->click();
+        EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Starting"));
+        EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+        fixture.advanceTo(fixture.now + 100ms);
+        EXPECT_EQ(fixture.camera->state(), CameraState::Streaming);
+        const auto frame = fixture.label("frameDescription")->text();
+        EXPECT_TRUE(frame.contains(QStringLiteral("Frame #")));
+        fixture.button("stopCamera")->click();
+        EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Stopping"));
+        EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+        EXPECT_FALSE(fixture.button("stopCamera")->isEnabled());
+        fixture.advanceTo(fixture.now + 100ms);
+        EXPECT_EQ(fixture.camera->state(), CameraState::Stopped);
+        fixture.advanceTo(fixture.now + 100ms);
+        EXPECT_EQ(fixture.label("frameDescription")->text(), frame);
+        EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
+    }
+}
+
+TEST(CameraStreamControlTest, CancelBeforeFirstBackendEventAcknowledgesStop)
+{
+    DesktopFixture fixture;
+    fixture.controller.startCamera();
+    fixture.controller.stopCamera();
+    EXPECT_EQ(fixture.camera->state(), CameraState::Stopped);
+    EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+    fixture.advanceTo(fixture.now + 100ms);
+    EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Stopped"));
+    EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
+    EXPECT_EQ(fixture.label("frameDescription")->text(), QStringLiteral("No frames received"));
+}
+
+TEST(CameraStreamControlTest, GuardsRequestsBeforeAndBetweenBackendEventsAndDuringShutdown)
+{
+    ReplacementFixture fixture;
+    auto& camera = installManualCamera(fixture.controller);
+    fixture.controller.stopCamera();
+    EXPECT_EQ(camera.stopRequests, 0);
+    fixture.controller.startCamera();
+    fixture.controller.startCamera();
+    EXPECT_EQ(camera.startRequests, 1);
+    EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+    EXPECT_TRUE(fixture.button("stopCamera")->isEnabled());
+    fixture.controller.stopCamera();
+    fixture.controller.stopCamera();
+    fixture.controller.startCamera();
+    EXPECT_EQ(camera.stopRequests, 1);
+    EXPECT_EQ(camera.startRequests, 1);
+    camera.publishState(CameraState::Starting, Timestamp{2s});
+    camera.publishState(CameraState::Streaming, Timestamp{3s});
+    EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Stopping"));
+    EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+    EXPECT_FALSE(fixture.button("stopCamera")->isEnabled());
+    camera.publishState(CameraState::Stopped, Timestamp{4s});
+    fixture.controller.startCamera();
+    EXPECT_EQ(camera.startRequests, 2);
+    fixture.controller.shutdown();
+    camera.publishState(CameraState::Stopped, Timestamp{5s});
+    EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+    EXPECT_FALSE(fixture.button("stopCamera")->isEnabled());
+}
+
+TEST(CameraStreamControlTest, SwitchingBeforeStartCompletesWaitsForCancellation)
+{
+    ReplacementFixture fixture;
+    auto& first = installManualCamera(fixture.controller);
+    const auto alive = first.alive;
+    fixture.controller.startCamera();
+    installManualCamera(fixture.controller, {"second", "Second camera"});
+    EXPECT_TRUE(*alive);
+    EXPECT_EQ(first.stopRequests, 1);
+    EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+    first.publishState(CameraState::Stopped, Timestamp{2s});
+    // The outgoing callback cannot enable Start before replacement is applied.
+    EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+    QApplication::processEvents();
+    EXPECT_FALSE(*alive);
+    EXPECT_EQ(fixture.label("activeCamera")->text(), QStringLiteral("Second camera"));
+    EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
+}
+
+TEST(CameraStreamControlTest, FailedStartIsVisibleLoggedAndRetryable)
+{
+    Logger logger;
+    auto logs = std::make_shared<CapturingLogSink>();
+    logger.addSink(logs);
+    test::ManualTransport transport;
+    WorldModel world;
+    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    MainWindow window{controller};
+    auto& camera = installManualCamera(controller);
+    controller.startCamera(); // No requests before initialization.
+    EXPECT_EQ(camera.startRequests, 0);
+    controller.initialize(Timestamp{1s});
+    controller.startCamera();
+    camera.publishState(CameraState::Starting, Timestamp{2s});
+    camera.publishError({CameraErrorCode::PermissionDenied, "Camera permission denied", Timestamp{2s}});
+    camera.publishState(CameraState::Fault, Timestamp{2s});
+    EXPECT_EQ(window.statusBar()->currentMessage(), QStringLiteral("Camera permission denied"));
+    EXPECT_TRUE(logs->contains(LogLevel::Error, "Camera permission denied"));
+    EXPECT_TRUE(window.findChild<QPushButton*>(QStringLiteral("startCamera"))->isEnabled());
+    controller.startCamera();
+    EXPECT_EQ(camera.startRequests, 2);
+    camera.publishState(CameraState::Streaming, Timestamp{3s});
+    controller.stopCamera();
+    camera.publishState(CameraState::Stopped, Timestamp{4s});
+    EXPECT_TRUE(logs->contains(LogLevel::Info, "Camera start requested: Manual test camera"));
+    EXPECT_TRUE(logs->contains(LogLevel::Info, "Camera stop requested: Manual test camera"));
+    controller.shutdown();
+}
+
+TEST(CameraStreamControlTest, StatusObserverCanCancelStartBeforeBackendDispatch)
+{
+    DesktopFixture fixture;
+    QObject::connect(&fixture.controller, &DesktopController::cameraStatusChanged,
+                     &fixture.window, [&](const QString& status, bool) {
+        if (status == QStringLiteral("Starting")) fixture.controller.stopCamera();
+    });
+    fixture.controller.startCamera();
+    fixture.advanceTo(fixture.now + 100ms);
+    EXPECT_EQ(fixture.camera->state(), CameraState::Stopped);
+    EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Stopped"));
+    EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
+    EXPECT_EQ(fixture.label("frameDescription")->text(), QStringLiteral("No frames received"));
 }
 
 } // namespace

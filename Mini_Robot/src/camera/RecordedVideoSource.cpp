@@ -82,6 +82,10 @@ public:
         lastAdvance = now;
 
         if (!desiredActive) {
+            if (cancelledStart) {
+                cancelledStart = false;
+                if (auto recipient = sink.lock()) recipient->onCameraStateChanged(currentState, now);
+            }
             if (currentState == CameraState::Streaming) {
                 finish(CameraState::Stopped, now);
             }
@@ -177,6 +181,7 @@ public:
     cv::VideoCapture capture;
     CameraState currentState{CameraState::Stopped};
     bool desiredActive{};
+    bool cancelledStart{};
     bool advancing{};
     std::optional<Timestamp> lastAdvance;
     std::optional<Timestamp> lastCapture;
@@ -194,8 +199,13 @@ void RecordedVideoSource::setEventSink(std::weak_ptr<ICameraEvents> sink)
 }
 CameraInfo RecordedVideoSource::info() const { return impl_->cameraInfo; }
 CameraState RecordedVideoSource::state() const { return impl_->currentState; }
-void RecordedVideoSource::start() { impl_->desiredActive = true; }
-void RecordedVideoSource::stop() { impl_->desiredActive = false; }
+void RecordedVideoSource::start() { impl_->desiredActive = true; impl_->cancelledStart = false; }
+void RecordedVideoSource::stop()
+{
+    impl_->cancelledStart = impl_->cancelledStart
+        || (impl_->desiredActive && impl_->currentState != CameraState::Streaming);
+    impl_->desiredActive = false;
+}
 void RecordedVideoSource::advanceTo(Timestamp now) { impl_->advance(now); }
 
 } // namespace micro_robot
