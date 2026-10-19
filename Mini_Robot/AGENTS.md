@@ -449,7 +449,7 @@ After the issue is complete and verified:
 1. push only the issue branch to the remote;
 2. create a Pull Request automatically;
 3. target the repository default branch;
-4. use a concise descriptive PR title;
+4. use a concise descriptive PR title in Conventional Commit style: `type(scope): description` (omit the scope when unnecessary);
 5. include `Closes #<issue-number>` when the PR should close the issue after merge;
 6. summarize implementation by logical feature point;
 7. list tests/build commands actually run and their results;
@@ -457,6 +457,13 @@ After the issue is complete and verified:
 9. never merge the PR automatically.
 
 Codex may create/update the PR, but final review and merge belong to the human maintainer.
+
+PR titles must follow the same naming convention as commit messages. Choose the
+type and optional scope for the final change, for example:
+
+- `feat(camera): implement native stream start/stop`
+- `docs(vision): define AprilTag family, print sizes, and robot ID mapping`
+- `ci: add Linux build validation to GitHub Actions`
 
 Never force-push unless explicitly instructed.
 
