@@ -3,9 +3,10 @@
 Ubuntu 24.04 LTS is the documented reference environment for these recipes.
 The GCC and Clang builds below, including the OpenCV replay adapter, were
 executed for #125 on Ubuntu 26.04 LTS (see [verification status](#verification-status));
-apt installation on a clean 24.04 machine and X11/Wayland GUI checks have not
-been executed. The remaining Linux acceptance criteria (#126–#132) are tracked
-by their own issues.
+[Linux CI](testing.md#linux-continuous-integration) (#126) runs the apt installation
+and GCC/Clang builds on a clean 24.04 runner; X11/Wayland GUI checks have not been
+executed. The other Linux acceptance criteria (#127–#132) are tracked by their own
+issues.
 
 ## Build requirements
 
@@ -93,8 +94,12 @@ with CLion), Qt 6.10.2, OpenCV 4.10.0 (`libopencv-dev`), and system GoogleTest
 | `linux-clang` preset, Clang 21.1.8, desktop and replay ON | Configured and built without warnings; 113/113 CTest cases passed (core, ui, replay) |
 | GCC 15.2.0, desktop OFF (Qt-free), replay ON | Built; 97/97 CTest cases passed |
 
-Not yet executed on Linux: a clean Ubuntu 24.04 apt installation and the minimum
-compiler versions listed above.
+For #126, the Ubuntu 24.04 GitHub Actions jobs completed successfully with both
+GCC and Clang, including apt dependency installation, build, and all CTest cases:
+[GCC run](https://github.com/Krzys2002/Mini_Robot/actions/runs/39126604407/job/117672944975)
+and [Clang run](https://github.com/Krzys2002/Mini_Robot/actions/runs/39126604407/job/117672944787).
+These results cover the earlier PR revision; updated revisions must pass their own
+checks. The minimum compiler versions listed above remain unverified.
 
 ## Replay, camera, and BLE dependencies
 
@@ -113,6 +118,8 @@ device-access policy. Avoid running the whole GUI as root to bypass access error
 BLE validation requires a compatible adapter, BlueZ service, and robot hardware;
 none are required for the current fake transport or automated domain tests.
 
-The committed build/test workflow currently targets macOS only. Ubuntu CI is
-planned by #126; configuration/filesystem regression expansion is #132. This guide
-must be updated with actual Linux results when those checks are performed.
+[Linux CI](testing.md#linux-continuous-integration) installs the packages above on an
+`ubuntu-24.04` GitHub runner and builds and tests the `linux-gcc` and `linux-clang`
+presets on every pull request and push to `master`; see that workflow's runs for
+results. Configuration/filesystem regression expansion is #132. This guide must be
+updated with actual Linux results when those checks are performed.

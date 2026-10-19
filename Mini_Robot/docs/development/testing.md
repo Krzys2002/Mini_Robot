@@ -97,7 +97,8 @@ configuration's subdirectory, for example
 ## macOS continuous integration
 
 The repository-level `.github/workflows/macos-build-test.yml` runs when a pull
-request is opened, reopened, or updated with new commits. Its `macOS Apple Silicon / Debug`
+request is opened, reopened, or updated with new commits, and on pushes to `master`.
+Its `macOS Apple Silicon / Debug`
 job uses the `macos-15` runner and the default AppleClang toolchain. It checks out
 the repository with read-only permissions and without persisted credentials,
 installs CMake/Ninja/Qt/OpenCV using Homebrew, configures the desktop and tests explicitly,
@@ -109,8 +110,10 @@ FetchContent fallback. No secrets or developer-specific paths are required.
 The Qt prefix comes from `brew --prefix qt`, and commands run in `Mini_Robot`
 relative to the checkout. Configure/build/test failures fail the job; CTest also
 fails if no tests are discovered. Logs are available in the repository's Actions
-tab and the pull request checks. New runs cancel superseded runs for the same ref.
-Push triggers are omitted to avoid duplicate runs for PR branches. Manual
+tab and the pull request checks. New pull request runs cancel superseded runs for
+the same ref; a running `master` run is allowed to finish so the README badge reports
+a completed result. Pushes to other branches do not trigger it, which avoids
+duplicate runs for PR branches. Manual
 `workflow_dispatch` runs can validate a selected branch even when PR merge
 conflicts prevent automatic CI:
 
@@ -132,6 +135,54 @@ ctest --test-dir build/ci --output-on-failure --no-tests=error
 
 This workflow verifies compilation and automated tests, without camera/BLE
 hardware or deployment packaging. Windows CI is separate Issue #106.
+
+## Linux continuous integration
+
+The repository-level `.github/workflows/linux-build-test.yml` uses the same
+triggers, permissions, checkout, and concurrency rules as the macOS workflow. It
+runs two jobs on the `ubuntu-24.04` runner, one per compiler preset:
+
+| Job (status check name) | Preset | Compiler |
+| --- | --- | --- |
+| `Ubuntu 24.04 / GCC / Debug` | `linux-gcc` | Ubuntu's default `g++` |
+| `Ubuntu 24.04 / Clang / Debug` | `linux-clang` | Ubuntu's default `clang++` |
+
+Each job installs the apt packages listed in the
+[Ubuntu setup guide](linux-setup.md#build-requirements), prints the CMake, Ninja,
+and compiler versions, configures with the desktop and replay adapters explicitly
+ON, builds all targets, and runs every CTest case through the test preset (output
+on failure, error when no tests are found). Qt UI tests use the offscreen platform,
+so no display, camera, Bluetooth adapter, or robot is needed. GoogleTest comes from
+the system `libgtest-dev` CONFIG package. The jobs do not use a dependency or build
+cache. One compiler's failure does not cancel the other job, and each job reports
+its own pass/fail status on the pull request and in the Actions tab.
+
+To run a job's commands locally on Ubuntu 24.04, start in `Mini_Robot`:
+
+```sh
+sudo apt-get update
+sudo apt-get install --yes build-essential clang cmake ninja-build \
+  qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
+cmake --preset linux-gcc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON
+cmake --build --preset linux-gcc --parallel 4
+ctest --preset linux-gcc
+```
+
+Use `linux-clang` in place of `linux-gcc` for the Clang job. Start a manual run with:
+
+```sh
+gh workflow run linux-build-test.yml --repo Krzys2002/Mini_Robot --ref your-branch
+```
+
+### Required status checks
+
+Branch protection can require these job names as status checks:
+`macOS Apple Silicon / Debug`, `Ubuntu 24.04 / GCC / Debug`, and
+`Ubuntu 24.04 / Clang / Debug`. GitHub lists a check as selectable only after it
+has run at least once in the repository. Renaming a job or matrix entry changes
+its check name, so update the branch protection rule at the same time. Branch
+protection is configured by a repository administrator; it is not part of the
+workflow files.
 
 ## Qt-free verification
 
