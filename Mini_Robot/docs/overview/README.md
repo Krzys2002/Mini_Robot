@@ -6,10 +6,12 @@
 - [Platform boundaries](platform-boundaries.md): OS-dependency audit, layer rules,
   device-discovery pattern, backend replacement, and enforcement checks.
 - [Camera discovery](camera-discovery.md): system inventory, opaque IDs, refresh, and verification limits.
+- [Camera streaming](camera-streaming.md): native start/stop, failure reporting, and worker lifecycle.
 - [Camera selection](camera-selection.md): selectable devices, source factory, and active-source replacement.
 - [Camera source contract](camera-source.md): lifecycle, frames, and subscriptions.
 - [Recorded-video replay](recorded-video.md): local files, virtual timing, EOF, and fixtures.
 - [Transport contract](transport.md): commands, telemetry, and async ownership.
+- [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
 - [WorldModel](world-model.md): registration, timestamp ordering, and snapshots.
 - [Simulation](simulation.md): virtual time and deterministic fake behavior.
 - [Desktop demo](desktop-demo.md): controls, composition, and shutdown.

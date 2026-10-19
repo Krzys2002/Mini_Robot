@@ -31,6 +31,7 @@ selection rather than reporting successful verification with no tests run.
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
+| `micro_robot_control_tests` | `core` | [Differential-drive kinematics](../overview/differential-drive.md): analytical wheel targets, inverse conversion, world derivatives, signs, bounds, invalid inputs and overflow |
 | `micro_robot_camera_tests` | none | Packed frame validation, malformed metadata, storage and overflow checks; camera selection rules |
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
 | `micro_robot_transport_tests` | `core` | Transport domain versions, sequence reservation, metadata defaults and copying |

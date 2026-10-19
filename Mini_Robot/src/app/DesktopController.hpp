@@ -9,6 +9,7 @@
 #include <QString>
 
 #include <memory>
+#include <optional>
 
 namespace micro_robot {
 
@@ -47,6 +48,8 @@ signals:
     void applicationStatusChanged(const QString& status);
     // Present is false when no source is selected; description names the source.
     void activeCameraChanged(const QString& description, bool present);
+    // Availability includes pending requests, source replacement, and shutdown.
+    void cameraActionsChanged(bool canStart, bool canStop);
     void cameraStatusChanged(const QString& status, bool active);
     void frameDescriptionChanged(const QString& description);
     // Active includes connecting/disconnecting, so the UI can cancel a connection
@@ -60,6 +63,8 @@ private:
     class EventSink;
     void publishWorld();
     void publishActiveCamera();
+    void publishCameraActions();
+    void requestCameraStop();
     void applyCameraReplacement();
     void receiveFrame(FramePtr frame);
     void receiveCameraState(CameraState state);
@@ -74,6 +79,7 @@ private:
     std::shared_ptr<EventSink> events_;
     std::unique_ptr<ICameraSource> camera_;
     std::unique_ptr<ICameraSource> pendingCamera_;
+    std::optional<CameraState> cameraRequest_;
     Timestamp startedAt_{};
     bool initialized_{};
     bool shuttingDown_{};

@@ -94,8 +94,12 @@ with CLion), Qt 6.10.2, OpenCV 4.10.0 (`libopencv-dev`), and system GoogleTest
 | `linux-clang` preset, Clang 21.1.8, desktop and replay ON | Configured and built without warnings; 113/113 CTest cases passed (core, ui, replay) |
 | GCC 15.2.0, desktop OFF (Qt-free), replay ON | Built; 97/97 CTest cases passed |
 
-Not yet executed on Linux: a clean Ubuntu 24.04 apt installation and the minimum
-compiler versions listed above.
+For #126, the Ubuntu 24.04 GitHub Actions jobs completed successfully with both
+GCC and Clang, including apt dependency installation, build, and all CTest cases:
+[GCC run](https://github.com/Krzys2002/Mini_Robot/actions/runs/39126604407/job/117672944975)
+and [Clang run](https://github.com/Krzys2002/Mini_Robot/actions/runs/39126604407/job/117672944787).
+These results cover the earlier PR revision; updated revisions must pass their own
+checks. The minimum compiler versions listed above remain unverified.
 
 ## Replay, camera, and BLE dependencies
 

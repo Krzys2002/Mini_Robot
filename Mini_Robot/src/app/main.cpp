@@ -2,10 +2,10 @@
 #include "app/DesktopController.hpp"
 #include "app/CameraSelectionController.hpp"
 #include "camera/QtCameraDeviceDiscovery.hpp"
+#include "camera/QtCameraSource.hpp"
 #include "infrastructure/configuration/ConfigLoader.hpp"
 #include "infrastructure/logging/LogSinks.hpp"
 #include "infrastructure/logging/Logger.hpp"
-#include "simulation/FakeCameraSourceFactory.hpp"
 #include "simulation/SimulationTransport.hpp"
 
 #include <QApplication>
@@ -93,13 +93,8 @@ int main(int argc, char* argv[])
         appLog.warning("File logging disabled; cannot open " + toDisplayString(logFile->path()));
     }
 
-    // Composition root alone chooses concrete implementations. Declaration order
-    // keeps sources/model alive until after the controller detaches its event sink;
-    // the camera factory outlives the sources the controller owns. Until a physical
-    // capture backend exists, a selected device is served by a simulated feed.
-    FakeCameraConfig cameraConfig;
-    cameraConfig.frameInterval = config.simulation.cameraFrameInterval;
-    FakeCameraSourceFactory cameraFactory{cameraConfig};
+    // Composition root selects the native adapter; controllers depend on interfaces.
+    QtCameraSourceFactory cameraFactory;
     SimulationTransportConfig transportConfig;
     transportConfig.telemetryInterval = config.simulation.telemetryInterval;
     auto transport = std::make_unique<SimulationTransport>(transportConfig,
@@ -115,12 +110,33 @@ int main(int argc, char* argv[])
     QTimer simulationTimer;
     simulationTimer.setInterval(config.simulation.updateInterval);
 
+    application.setQuitOnLastWindowClosed(false);
+    bool closing = false;
+    bool cameraActive = false;
+    bool transportActive = false;
+    const auto finishShutdown = [&] {
+        if (closing && !cameraActive && !transportActive) application.quit();
+    };
+    QObject::connect(&controller, &DesktopController::cameraStatusChanged, &window,
+                     [&](const QString&, bool active) {
+        cameraActive = active;
+        finishShutdown();
+    });
+    QObject::connect(&controller, &DesktopController::connectionStatusChanged, &window,
+                     [&](const QString&, bool, bool active) {
+        transportActive = active;
+        finishShutdown();
+    });
+    QObject::connect(&application, &QGuiApplication::lastWindowClosed, &window, [&] {
+        closing = true;
+        controller.shutdown();
+        finishShutdown();
+    });
     bool robotConnected = false;
     QObject::connect(&controller, &DesktopController::connectionStatusChanged, &window,
                      [&robotConnected](const QString&, bool connected) { robotConnected = connected; });
     QObject::connect(&simulationTimer, &QTimer::timeout, &window, [&] {
         const auto now = MonotonicClock::now();
-        cameraFactory.advanceTo(now);
         transport->advanceTo(now);
         if (robotConnected) {
             // Explicit demo observation, independent of camera frames or telemetry.
@@ -134,7 +150,6 @@ int main(int argc, char* argv[])
         simulationTimer.stop();
         controller.shutdown();
         const auto now = MonotonicClock::now();
-        cameraFactory.advanceTo(now);
         transport->advanceTo(now);
     });
 

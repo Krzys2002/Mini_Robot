@@ -14,10 +14,10 @@ Windows remains a project target with deployment work assigned to M8.
 
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
-| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery and selection (simulated feed), application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug acceptance, physical capture/preview, source recovery implementation, and Ubuntu GUI validation. |
+| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery, selection, and native stream control, application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug and physical capture acceptance, pixel preview, source recovery implementation, and Ubuntu GUI validation. |
 | M2 — Vision, Calibration & Robot Localization | Planned; metric Pose2D and timestamped frames are prerequisites already supplied by M1. | AprilTag detection, intrinsic/workspace calibration, image-to-world conversion, tracking, freshness/quality estimates, and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Planned; IRobotTransport and semantic commands/telemetry are M1 prerequisites; the [version 1 wire protocol and BLE GATT contract](../protocol/README.md) is specified. | Protocol adapter and firmware implementation, physical BLE, RobotManager, manual motion controls, E-stop, reconnect, and hardware communication measurements. |
-| M4 — External-Vision Closed-Loop Robot Control | Planned; a stored demo pose is not closed-loop feedback. | Kinematics, supervisory scheduler/controller, target selection, command limits, tracking/connection safety transitions, and control experiments. |
+| M4 — External-Vision Closed-Loop Robot Control | Pure [differential-drive kinematics](differential-drive.md), inverse conversion and bounded wheel targets implemented; a stored demo pose is not closed-loop feedback. | Supervisory scheduler/controller, target selection, body-command limits, tracking/connection safety transitions, and control experiments. |
 | M5 — Operator Path Drawing, Trajectory Generation & Tracking | Planned; no path or trajectory domain types exist. | World-space editor, simplification/smoothing, timing, Pure Pursuit, execution controls, and tracking metrics. |
 | M6 — Obstacles & Autonomous Single-Robot Path Planning | Planned; WorldModel currently stores robots only. | Obstacle/workspace storage, occupancy grid, footprint inflation, A*, route post-processing, obstacle observations, and planner evaluation. |
 | M7 — Multi-Robot Coordination & Collision Avoidance | Planned; independent registry entries and fake transport sessions are foundation support. | Multi-robot tracking/task execution, collision prediction, reservations/prioritized planning, coordination UI, and experiments; optional CBS/ORCA. |
@@ -37,7 +37,7 @@ The current layers are:
   source-factory boundaries, depending only on common types.
 - `micro_robot_camera_selection`: Qt-free rules deciding which discovered devices
   are selectable, depending on the camera API.
-- `micro_robot_camera_discovery`: concrete Qt Multimedia system-inventory adapter,
+- `micro_robot_camera_discovery`: concrete Qt Multimedia system-inventory and capture adapters,
   depending on the camera API and linked only by composition code.
 - `micro_robot_camera_replay`: OpenCV local-file decoding behind the camera API,
   driven on an acquisition worker/test thread by supplied virtual time.
@@ -55,8 +55,8 @@ The current layers are:
   while CameraSelectionController presents device inventories and creates the
   selected source through the factory, without a Qt Multimedia dependency.
 - `micro_robot_ui`: Qt Widgets presentation and operator request signals.
-- `micro_robot_desktop`: composition root selecting the fake camera factory and
-  transport and the real system device-inventory adapter.
+- `micro_robot_desktop`: composition root selecting the native camera factory, simulated
+  transport, and real system device-inventory adapter.
 
 Controllers receive interface references; widgets receive the controllers. The
 operator selects a device, but neither layer knows the capture backend or depends
@@ -71,8 +71,8 @@ into the controller; there is no global logger.
 
 ```mermaid
 flowchart LR
-    Main[main.cpp / QTimer] -->|advance virtual time| Factory[FakeCameraSourceFactory]
-    Factory -->|advance live sources| Camera[Active camera source]
+    Main[main.cpp / QTimer] -->|compose| Factory[QtCameraSourceFactory]
+    Factory -->|create stopped native source| Camera[Active camera source / worker]
     Main -->|advance virtual time| Transport[SimulationTransport]
     Main -->|initialize selection| Selection[CameraSelectionController]
     Selection -->|request refresh| Discovery[QtCameraDeviceDiscovery]
@@ -129,7 +129,7 @@ owned storage. `isValidFrame` validates layout/storage without overflow;
 sequence/time ordering remains the source's responsibility. The contract allows
 terminal failures and recovery. [Recorded-video replay](recorded-video.md)
 implements this boundary with deterministic timing and EOF/loop lifecycle; the
-desktop composition still uses fake capture, created per selected device.
+desktop composition uses [native capture](camera-streaming.md), created per selected device.
 
 [IRobotTransport](transport.md) exposes per-ID connect/disconnect, semantic command
 submission, and connection/telemetry/error events. Commands contain Stop or
@@ -178,18 +178,19 @@ prefer the newest useful frame.
 
 Qt owns widgets through parent relationships. Injected backend/model references,
 including the camera factory, outlive the controllers; DesktopController owns the
-active camera source. Shutdown stops the timer, requests stop/disconnect, drains
-fake terminal events with one advancement, and then destroys objects in dependency
-order. The controller detaches subscriptions on destruction. Future physical
-adapters must asynchronously establish quiescence before destruction.
+active camera source. Closing the last window requests stop/disconnect and keeps
+the event loop/timer running until both backends are quiescent, then destroys
+objects in dependency order. Native capture and pixel conversion run on a dedicated
+worker with bounded latest-frame handoffs. The controller detaches subscriptions
+on destruction; capture objects are released on the worker before stop acknowledgement.
 
 ### M1 completion gaps
 
 The application foundation is runnable, but M1 exit criteria are not all met.
 System camera enumeration and selection are implemented: the production adapter
 detected a Mac internal camera and an exposed iPhone camera on the validation
-host. A selected camera is served by a simulated feed until physical capture
-(#31) exists. USB-camera
+host. A selected camera uses the native [streaming adapter](camera-streaming.md)
+(#31); successful physical capture still requires manual validation. USB-camera
 visibility and physical hotplug remain unverified. There is no structured
 measurement recorder. [Application logging](logging.md) records startup,
 shutdown, controller state changes, and errors as human-readable lines; thesis
@@ -198,7 +199,7 @@ separate from the application's Logger channels and file sink.
 [Configuration](configuration.md) is loaded once by the composition root from an
 optional INI file and injected into modules as typed values; per-camera
 calibration and workspace profiles are not implemented yet.
-Camera selection, live pixel preview, and actual capture-device disconnect/recovery
+Live pixel preview and automatic capture-device reconnection
 are not implemented; interface and test-double
 support for those events is not physical backend verification.
 

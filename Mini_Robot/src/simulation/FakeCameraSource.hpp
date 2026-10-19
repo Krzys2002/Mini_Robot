@@ -40,6 +40,7 @@ private:
     std::weak_ptr<ICameraEvents> sink_;
     CameraState state_{CameraState::Stopped};
     bool desiredActive_{};
+    bool cancelledStart_{};
     bool advancing_{};
     std::optional<Timestamp> lastAdvance_;
     Timestamp startedAt_{};

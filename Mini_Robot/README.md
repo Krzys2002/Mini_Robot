@@ -4,12 +4,12 @@
 [![Linux build and test](https://github.com/Krzys2002/Mini_Robot/actions/workflows/linux-build-test.yml/badge.svg?branch=master)](https://github.com/Krzys2002/Mini_Robot/actions/workflows/linux-build-test.yml?query=branch%3Amaster)
 
 C++20 / Qt 6 desktop application for the micro-robot swarm project.
-The current M1 foundation uses a fake camera and simulated robot transport; no
-physical hardware is required. M1 is not yet complete.
-The system camera list refreshes on device changes and lets the operator select
-the active camera; physical capture is not implemented yet, so a selected device is
-served by a simulated feed. See [camera selection](docs/overview/camera-selection.md).
-
+The current M1 foundation supports physical camera streaming and simulated robot
+transport. It can launch and run tests without hardware; streaming needs an
+available camera and camera access. M1 is not yet complete.
+The system camera list refreshes on device changes and lets the operator select,
+start, and stop a camera. See [camera selection](docs/overview/camera-selection.md)
+and [streaming](docs/overview/camera-streaming.md).
 For controls and shutdown behavior, see the [desktop demo guide](docs/overview/desktop-demo.md).
 For log output and the log file location, see [application logging](docs/overview/logging.md).
 For platform setup and troubleshooting, see [build setup](docs/development/build.md).

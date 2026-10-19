@@ -37,7 +37,7 @@ CameraDiscoveryController) subscribes through the interface and turns snapshots
 into selector rows; MainWindow binds to it and contains no device queries or
 discovery logic. Names are displayed as plain text with the ID as a tooltip.
 Empty lists show “No cameras available”; missing names/IDs have explicit
-presentation fallbacks. Physical capture remains Issue #31.
+presentation fallbacks. Physical capture is provided by [Issue #31 streaming](camera-streaming.md).
 
 ## Build and logging
 

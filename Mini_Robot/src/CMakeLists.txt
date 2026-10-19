@@ -41,6 +41,14 @@ target_sources(micro_robot_transport_api INTERFACE
 )
 micro_robot_platform_boundary(micro_robot_transport_api)
 
+add_library(micro_robot_control STATIC
+    control/DifferentialDrive.hpp
+    control/DifferentialDrive.cpp
+)
+target_link_libraries(micro_robot_control PUBLIC micro_robot_common micro_robot_transport_api)
+micro_robot_target_defaults(micro_robot_control)
+micro_robot_platform_boundary(micro_robot_control)
+
 add_library(micro_robot_world STATIC
     world/RobotState.hpp
     world/WorldSnapshot.hpp
@@ -102,6 +110,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_camera_discovery STATIC
         camera/QtCameraDeviceDiscovery.hpp
         camera/QtCameraDeviceDiscovery.cpp
+        camera/QtCameraSource.hpp
+        camera/QtCameraSource.cpp
     )
     target_link_libraries(micro_robot_camera_discovery PUBLIC
         micro_robot_camera_api Qt6::Multimedia
@@ -133,7 +143,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_target_defaults(micro_robot_ui)
     micro_robot_platform_boundary(micro_robot_ui ALLOW Qt6::Core Qt6::Widgets)
 
-    add_executable(micro_robot_desktop app/main.cpp)
+    # Qt finalization imports the macOS permission plugins selected by Info.plist.
+    qt_add_executable(micro_robot_desktop app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
         micro_robot_ui micro_robot_simulation micro_robot_camera_discovery
         micro_robot_logging micro_robot_configuration

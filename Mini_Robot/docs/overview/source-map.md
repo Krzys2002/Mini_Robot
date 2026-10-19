@@ -17,6 +17,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/camera/ICameraSource.hpp](../../src/camera/ICameraSource.hpp) | [camera](camera-source.md) |
 | [src/camera/ICameraDeviceDiscovery.hpp](../../src/camera/ICameraDeviceDiscovery.hpp) | [Discovery contract](camera-discovery.md) |
 | [src/camera/ICameraSourceFactory.hpp](../../src/camera/ICameraSourceFactory.hpp) | [Source factory](camera-selection.md#architecture-and-api) |
+| [src/camera/QtCameraSource.hpp](../../src/camera/QtCameraSource.hpp) | [Native camera streaming](camera-streaming.md) |
+| [src/camera/QtCameraSource.cpp](../../src/camera/QtCameraSource.cpp) | [Native camera streaming](camera-streaming.md) |
 | [src/camera/QtCameraDeviceDiscovery.cpp](../../src/camera/QtCameraDeviceDiscovery.cpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/camera/QtCameraDeviceDiscovery.hpp](../../src/camera/QtCameraDeviceDiscovery.hpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/camera/RecordedVideoSource.cpp](../../src/camera/RecordedVideoSource.cpp) | [Replay adapter](recorded-video.md) |
@@ -26,6 +28,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/common/Time.hpp](../../src/common/Time.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Types.hpp](../../src/common/Types.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Units.hpp](../../src/common/Units.hpp) | [common](architecture.md#domain-conventions) |
+| [src/control/DifferentialDrive.hpp](../../src/control/DifferentialDrive.hpp) | [Differential-drive model](differential-drive.md) |
+| [src/control/DifferentialDrive.cpp](../../src/control/DifferentialDrive.cpp) | [Differential-drive model](differential-drive.md) |
 | [src/infrastructure/configuration/ApplicationConfig.hpp](../../src/infrastructure/configuration/ApplicationConfig.hpp) | [configuration](configuration.md) |
 | [src/infrastructure/configuration/ConfigLoader.cpp](../../src/infrastructure/configuration/ConfigLoader.cpp) | [configuration](configuration.md) |
 | [src/infrastructure/configuration/ConfigLoader.hpp](../../src/infrastructure/configuration/ConfigLoader.hpp) | [configuration](configuration.md) |
@@ -60,6 +64,7 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_api | micro_robot_common |
 | micro_robot_camera_selection | camera API |
 | micro_robot_transport_api | micro_robot_common |
+| micro_robot_control | micro_robot_common, micro_robot_transport_api (domain values only) |
 | micro_robot_camera_discovery | camera API, Qt6::Multimedia |
 | micro_robot_camera_replay | camera API, private OpenCV core/imgproc/videoio |
 | micro_robot_world | micro_robot_common |
@@ -79,11 +84,12 @@ in [platform boundaries](platform-boundaries.md).
 
 Only common types, asynchronous camera/transport contracts, deterministic fakes,
 robot pose storage, system device discovery and selection, human-readable application
-logging, INI configuration loading, recorded-video replay, and a Qt simulation
+logging, INI configuration loading, recorded-video replay, pure differential-drive
+kinematics, and a Qt simulation
 window are implemented. Discovery diagnostics use a separate Qt logging category.
 There are no vision, calibration, tracking, planning, supervisory controller,
 physical BLE, Zigbee, or structured measurement-recording modules. Qt Multimedia
-is used only by the concrete discovery adapter. OpenCV is isolated in the optional
+is isolated in the concrete discovery and [streaming](camera-streaming.md) adapters. OpenCV is isolated in the optional
 replay adapter; other proposed dependencies are absent from current CMake targets.
 The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.

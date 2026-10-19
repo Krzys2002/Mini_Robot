@@ -9,8 +9,8 @@ Source: [factory interface](../../src/camera/ICameraSourceFactory.hpp),
 [stand-in factory implementation](../../src/simulation/FakeCameraSourceFactory.cpp).
 
 Issue #30 lets the operator choose one of the [discovered devices](camera-discovery.md)
-and makes it the active [camera source](camera-source.md). Physical capture is
-Issue #31: until it lands, the selected device is served by a simulated feed.
+and makes it the active [camera source](camera-source.md). Issue #31 supplies
+[physical streaming](camera-streaming.md) behind the same factory interface.
 
 ## Architecture and API
 
@@ -49,7 +49,8 @@ DesktopController owns the active source; there is none until a camera is
 selected, and Start/Stop are disabled meanwhile. `setCameraSource(source)`:
 
 1. Replaces a stopped, disconnected, or faulted source immediately.
-2. Asks a starting/streaming/stopping source to stop and waits for its quiescent
+2. Asks a starting/streaming/stopping source (including a start request awaiting
+   its first event) to stop and waits for its quiescent
    state. The swap then completes through a queued call, so a source is never
    destroyed inside its own callback. Start requests are refused while waiting.
 3. Lets a later call supersede a pending replacement (the pending source is
@@ -73,7 +74,8 @@ a non-owning registry of live sources so composition can advance all of them fro
 one clock with `advanceTo(now)`; each source unregisters when destroyed and must
 not outlive the factory. Frames are the deterministic 8 by 6 pattern described in
 [simulation](simulation.md); no camera is opened and no permission is requested.
-Issue #31 is expected to supply a physical factory behind the same interface.
+This remains a test/alternate-composition backend. The desktop uses
+`QtCameraSourceFactory` for physical capture.
 
 ## Logging
 
@@ -101,7 +103,7 @@ operated interactively.
 Manual acceptance checks:
 
 1. Launch the app; confirm the selector lists each camera and Start is disabled.
-2. Select a camera; confirm its name/ID and “(simulated feed)” source appear.
+2. Select a camera; confirm its name/ID and stopped native source appear.
 3. Start, then select another camera; confirm the stream stops and the new
    source becomes active, stopped.
 4. Unplug the selected USB camera; confirm the selection clears without a crash.
