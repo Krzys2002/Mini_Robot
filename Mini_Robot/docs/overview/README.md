@@ -7,6 +7,7 @@
   device-discovery pattern, backend replacement, and enforcement checks.
 - [Camera discovery](camera-discovery.md): system inventory, opaque IDs, refresh, and verification limits.
 - [Camera streaming](camera-streaming.md): native start/stop, failure reporting, and worker lifecycle.
+- [Camera backends](camera-backends.md): Linux V4L2/OpenCV and macOS Qt backends, capture resolution, and failure handling.
 - [Camera selection](camera-selection.md): selectable devices, source factory, and active-source replacement.
 - [Camera source contract](camera-source.md): lifecycle, frames, and subscriptions.
 - [Recorded-video replay](recorded-video.md): local files, virtual timing, EOF, and fixtures.

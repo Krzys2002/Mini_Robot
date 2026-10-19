@@ -3,8 +3,11 @@
 Issue #31 implements physical camera start/stop through
 [QtCameraSource](../../src/camera/QtCameraSource.hpp) and the existing
 [ICameraSource](camera-source.md) / [factory](camera-selection.md) boundaries.
-The desktop composition uses `QtCameraSourceFactory`; deterministic fake and
+The desktop composition uses `QtCameraSourceFactory` on macOS and Windows, and the
+OpenCV V4L2 adapter on Linux ([camera backends](camera-backends.md), #128); deterministic fake and
 recorded-video sources remain available to tests and alternate compositions.
+Both live factories apply the configured
+[capture resolution](camera-backends.md#capture-resolution).
 
 ## Operator behavior
 

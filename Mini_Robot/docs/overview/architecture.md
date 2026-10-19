@@ -39,6 +39,8 @@ The current layers are:
   are selectable, depending on the camera API.
 - `micro_robot_camera_discovery`: concrete Qt Multimedia system-inventory and capture adapters,
   depending on the camera API and linked only by composition code.
+- `micro_robot_camera_v4l2`: Linux V4L2 inventory and OpenCV V4L2 capture adapters
+  (Qt Core for event delivery), built when `MICRO_ROBOT_CAMERA_BACKEND=V4L2`.
 - `micro_robot_camera_replay`: OpenCV local-file decoding behind the camera API,
   driven on an acquisition worker/test thread by supplied virtual time.
 - `micro_robot_world`: private robot registry and timestamp-aware pose storage,
@@ -46,7 +48,7 @@ The current layers are:
 - `micro_robot_logging`: Qt-free, thread-safe application logger with per-module
   channels and stream/file sinks, depending only on common types.
 - `micro_robot_configuration`: Qt-free INI loading and validation, depending on
-  common types and logging; the composition root injects typed settings.
+  common types, camera API value types, and logging; the composition root injects typed settings.
 - `micro_robot_simulation`: deterministic implementations of the camera,
   camera-factory, and transport interfaces, with optional injected logging; no Qt,
   physical hardware, or network dependency.
@@ -56,7 +58,8 @@ The current layers are:
   selected source through the factory, without a Qt Multimedia dependency.
 - `micro_robot_ui`: Qt Widgets presentation and operator request signals.
 - `micro_robot_desktop`: composition root selecting the native camera factory, simulated
-  transport, and real system device-inventory adapter.
+  transport, and real system device-inventory adapter. The build selects the
+  [camera backend](camera-backends.md): V4L2 on Linux, Qt Multimedia elsewhere.
 
 Controllers receive interface references; widgets receive the controllers. The
 operator selects a device, but neither layer knows the capture backend or depends
@@ -71,11 +74,11 @@ into the controller; there is no global logger.
 
 ```mermaid
 flowchart LR
-    Main[main.cpp / QTimer] -->|compose| Factory[QtCameraSourceFactory]
+    Main[main.cpp / QTimer] -->|compose| Factory[V4L2 or Qt camera source factory]
     Factory -->|create stopped native source| Camera[Active camera source / worker]
     Main -->|advance virtual time| Transport[SimulationTransport]
     Main -->|initialize selection| Selection[CameraSelectionController]
-    Selection -->|request refresh| Discovery[QtCameraDeviceDiscovery]
+    Selection -->|request refresh| Discovery[V4L2 or Qt device discovery]
     Discovery -->|inventory snapshots on startup / device changes| Selection
     Selection -->|choices and selection| UI[MainWindow]
     UI -->|selection requests| Selection
