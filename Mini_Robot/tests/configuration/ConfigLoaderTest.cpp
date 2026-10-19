@@ -27,6 +27,7 @@ void expectDefaults(const ApplicationConfig& config)
     EXPECT_EQ(config.logging.fileEnabled, defaults.logging.fileEnabled);
     EXPECT_EQ(config.logging.filePath, defaults.logging.filePath);
     EXPECT_EQ(config.robot.id, defaults.robot.id);
+    EXPECT_EQ(config.camera.capture.resolution, defaults.camera.capture.resolution);
     EXPECT_EQ(config.simulation.updateInterval, defaults.simulation.updateInterval);
     EXPECT_EQ(config.simulation.cameraFrameInterval, defaults.simulation.cameraFrameInterval);
     EXPECT_EQ(config.simulation.telemetryInterval, defaults.simulation.telemetryInterval);
@@ -50,6 +51,7 @@ TEST(ConfigDefaultsTest, MatchCurrentApplicationBehavior)
     EXPECT_TRUE(config.logging.fileEnabled);
     EXPECT_TRUE(config.logging.filePath.empty());
     EXPECT_EQ(config.robot.id, RobotId{1});
+    EXPECT_FALSE(config.camera.capture.resolution);
     EXPECT_EQ(config.simulation.updateInterval, 100ms);
     EXPECT_EQ(config.simulation.cameraFrameInterval, 33ms);
     EXPECT_EQ(config.simulation.telemetryInterval, 0ms);
@@ -71,6 +73,8 @@ TEST(ConfigParseTest, ReadsEverySetting)
         "file_path = /tmp/robot logs/run.log\n"
         "[robot]\n"
         "id = 42\n"
+        "[camera]\n"
+        "resolution = 1280x720\n"
         "[simulation]\n"
         "update_interval_ms = 20\n"
         "camera_frame_interval_ms = 50\n"
@@ -82,6 +86,7 @@ TEST(ConfigParseTest, ReadsEverySetting)
     EXPECT_FALSE(result.config.logging.fileEnabled);
     EXPECT_EQ(result.config.logging.filePath, "/tmp/robot logs/run.log");
     EXPECT_EQ(result.config.robot.id, RobotId{42});
+    EXPECT_EQ(result.config.camera.capture.resolution, (CameraResolution{1280, 720}));
     EXPECT_EQ(result.config.simulation.updateInterval, 20ms);
     EXPECT_EQ(result.config.simulation.cameraFrameInterval, 50ms);
     EXPECT_EQ(result.config.simulation.telemetryInterval, 250ms);
@@ -125,6 +130,36 @@ TEST(ConfigParseTest, AcceptsBoundaryValues)
     const auto upper = parseConfig("[simulation]\ntelemetry_interval_ms = 10000\n", "test.ini");
     EXPECT_TRUE(upper.diagnostics.empty());
     EXPECT_EQ(upper.config.simulation.telemetryInterval, 10000ms);
+}
+
+TEST(ConfigParseTest, CameraResolutionAcceptsAutoAndBoundarySizes)
+{
+    const auto bounds = parseConfig("[camera]\nresolution = 1x8192\n", "test.ini");
+    EXPECT_TRUE(bounds.diagnostics.empty());
+    EXPECT_EQ(bounds.config.camera.capture.resolution, (CameraResolution{1, 8192}));
+
+    const auto spaced = parseConfig("[camera]\nresolution = 640 X 480\n", "test.ini");
+    EXPECT_TRUE(spaced.diagnostics.empty());
+    EXPECT_EQ(spaced.config.camera.capture.resolution, (CameraResolution{640, 480}));
+
+    // A later "auto" restores the device default.
+    const auto reset = parseConfig("[camera]\nresolution = 640x480\nresolution = AUTO\n", "test.ini");
+    ASSERT_EQ(reset.diagnostics.size(), 1U); // Duplicate-key notice only.
+    EXPECT_FALSE(reset.config.camera.capture.resolution);
+}
+
+TEST(ConfigParseTest, CameraResolutionRejectsMalformedAndOutOfRangeSizes)
+{
+    for (const auto* value : {"1280", "1280x", "x720", "0x720", "1280x0", "8193x720", "-1x720",
+                              "1280x720x3", "1280*720", "hd"}) {
+        const auto result = parseConfig("[camera]\nresolution = 1920x1080\nresolution = "
+                                        + std::string{value} + "\n", "test.ini");
+        ASSERT_EQ(result.diagnostics.size(), 2U) << value;
+        const auto& message = result.diagnostics.back().message;
+        EXPECT_NE(message.find("camera.resolution"), std::string::npos) << message;
+        EXPECT_NE(message.find("keeping 1920x1080"), std::string::npos) << message;
+        EXPECT_EQ(result.config.camera.capture.resolution, (CameraResolution{1920, 1080})) << value;
+    }
 }
 
 TEST(ConfigParseTest, EmptyFilePathSelectsDefaultLocation)
@@ -213,8 +248,8 @@ TEST(ConfigParseTest, KeysAreCaseSensitive)
 
 TEST(ConfigParseTest, ReportsUnknownSectionOnceAndIgnoresItsEntries)
 {
-    const auto result = parseConfig("[camera]\nindex = 0\nwidth = 640\n[robot]\nid = 3\n", "test.ini");
-    expectSingleWarning(result, {"test.ini:1:", "unknown section [camera]"});
+    const auto result = parseConfig("[calibration]\nboard = 7x5\nsquare_mm = 25\n[robot]\nid = 3\n", "test.ini");
+    expectSingleWarning(result, {"test.ini:1:", "unknown section [calibration]"});
     EXPECT_EQ(result.config.robot.id, RobotId{3});
 }
 

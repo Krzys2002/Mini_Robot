@@ -75,7 +75,9 @@ add_library(micro_robot_configuration STATIC
     infrastructure/configuration/ConfigLoader.hpp
     infrastructure/configuration/ConfigLoader.cpp
 )
-target_link_libraries(micro_robot_configuration PUBLIC micro_robot_common micro_robot_logging)
+target_link_libraries(micro_robot_configuration PUBLIC
+    micro_robot_common micro_robot_camera_api micro_robot_logging
+)
 micro_robot_target_defaults(micro_robot_configuration)
 micro_robot_platform_boundary(micro_robot_configuration)
 
