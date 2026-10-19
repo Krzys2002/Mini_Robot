@@ -121,8 +121,9 @@ bounded jobs and discarding cancelled results.
 6. Repeat UI checks on Linux X11/Wayland and later Windows as available.
 
 Physical camera/printed-target acceptance, Linux GUI behavior and Windows have
-not been verified by the automated tests. Record their actual outcomes in #53;
-do not infer them from passing deterministic tests.
+not been verified by the automated tests. Physical acceptance is tracked separately
+in [#179](https://github.com/Krzys2002/Mini_Robot/issues/179). Record actual physical
+outcomes there; do not infer them from passing deterministic tests.
 
 OpenCV reference: [chessboard detector documentation](https://docs.opencv.org/4.10.0/d9/d0c/group__calib3d.html).
 
