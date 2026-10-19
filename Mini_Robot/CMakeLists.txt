@@ -12,6 +12,7 @@ include(MicroRobotBoundaries)
 
 option(MICRO_ROBOT_BUILD_DESKTOP "Build the Qt desktop application and UI tests" ON)
 option(MICRO_ROBOT_BUILD_REPLAY "Build the OpenCV recorded-video adapter and tests" ON)
+option(MICRO_ROBOT_BUILD_MARKER_TOOLS "Build offline AprilTag print/verification tools" OFF)
 if(MICRO_ROBOT_BUILD_REPLAY)
     find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio)
 endif()
@@ -20,6 +21,9 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
 endif()
 
 add_subdirectory(src)
+if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
+    add_subdirectory(tools/markers)
+endif()
 # Fails configuration if a platform-independent target links a platform library or a
 # concrete backend.
 micro_robot_check_platform_boundaries("${PROJECT_SOURCE_DIR}/src")
