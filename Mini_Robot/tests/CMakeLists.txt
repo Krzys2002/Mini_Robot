@@ -23,6 +23,10 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     target_link_libraries(micro_robot_tests PRIVATE
         micro_robot_ui micro_robot_simulation micro_robot_camera_discovery GTest::gtest
     )
+    if(TARGET micro_robot_camera_v4l2)
+        target_sources(micro_robot_tests PRIVATE camera/V4l2CameraTest.cpp)
+        target_link_libraries(micro_robot_tests PRIVATE micro_robot_camera_v4l2)
+    endif()
     micro_robot_target_defaults(micro_robot_tests)
     gtest_discover_tests(micro_robot_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "ui")
 endif()

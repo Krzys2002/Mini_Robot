@@ -12,11 +12,13 @@ include(MicroRobotBoundaries)
 
 option(MICRO_ROBOT_BUILD_DESKTOP "Build the Qt desktop application and UI tests" ON)
 option(MICRO_ROBOT_BUILD_REPLAY "Build the OpenCV recorded-video adapter and tests" ON)
-if(MICRO_ROBOT_BUILD_REPLAY)
+if(MICRO_ROBOT_BUILD_REPLAY
+   OR (MICRO_ROBOT_BUILD_DESKTOP AND MICRO_ROBOT_CAMERA_BACKEND STREQUAL "V4L2"))
     find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio)
 endif()
 if(MICRO_ROBOT_BUILD_DESKTOP)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
+    message(STATUS "Micro Robot: live camera backend ${MICRO_ROBOT_CAMERA_BACKEND}")
 endif()
 
 add_subdirectory(src)

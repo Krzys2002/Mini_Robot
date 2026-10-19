@@ -120,6 +120,25 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     )
     micro_robot_target_defaults(micro_robot_camera_discovery)
 
+    if(MICRO_ROBOT_CAMERA_BACKEND STREQUAL "V4L2")
+        # Linux inventory from V4L2 device nodes; capture through OpenCV's V4L2 backend.
+        # Qt Core provides the owner-thread event delivery and the capture worker.
+        add_library(micro_robot_camera_v4l2 STATIC
+            camera/V4l2Device.hpp
+            camera/V4l2Device.cpp
+            camera/V4l2CameraDeviceDiscovery.hpp
+            camera/V4l2CameraDeviceDiscovery.cpp
+            camera/V4l2CameraSource.hpp
+            camera/V4l2CameraSource.cpp
+        )
+        target_link_libraries(micro_robot_camera_v4l2
+            PUBLIC micro_robot_camera_api Qt6::Core
+            PRIVATE ${OpenCV_LIBS}
+        )
+        target_include_directories(micro_robot_camera_v4l2 SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+        micro_robot_target_defaults(micro_robot_camera_v4l2)
+    endif()
+
     add_library(micro_robot_desktop_controller STATIC
         app/DesktopController.hpp
         app/DesktopController.cpp
