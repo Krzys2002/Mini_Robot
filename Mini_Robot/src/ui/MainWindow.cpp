@@ -1,4 +1,6 @@
 #include "ui/MainWindow.hpp"
+#include "ui/CalibrationWizard.hpp"
+#include "app/CalibrationController.hpp"
 #include "app/CameraSelectionController.hpp"
 #include "app/DesktopController.hpp"
 
@@ -135,6 +137,29 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     });
     connect(&controller, &DesktopController::errorOccurred, this, [this](const QString& message) {
         statusBar()->showMessage(message);
+    });
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    if (calibrationWizard_) calibrationWizard_->close();
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::bindCalibration(CalibrationController& calibration)
+{
+    auto* action = new QPushButton(QStringLiteral("Camera calibration…"), this);
+    action->setObjectName(QStringLiteral("openCalibration"));
+    auto* layout = qobject_cast<QVBoxLayout*>(centralWidget()->layout());
+    layout->insertWidget(3, action);
+    auto* wizard = new CalibrationWizard(calibration, this);
+    calibrationWizard_ = wizard;
+    // A child dialog must not trigger application shutdown on its own.
+    wizard->setAttribute(Qt::WA_QuitOnClose, false);
+    connect(action, &QPushButton::clicked, wizard, [wizard, &calibration] {
+        wizard->show();
+        wizard->raise();
+        calibration.showLive();
     });
 }
 
