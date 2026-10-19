@@ -129,7 +129,7 @@ and late-frame rejection, and a silent-source presentation timeout. Existing
 native absent-device tests exercise repeated failure/retry without camera access.
 They do not establish real device hotplug behavior.
 
-Manual procedure still required on macOS and Linux X11/Wayland:
+Manual verification procedure on macOS and Linux X11/Wayland:
 
 1. Start an external camera, confirm increasing frame sequences, then unplug it.
    Confirm no crash, visible error/state, cleared metadata, and refreshed inventory.
@@ -139,5 +139,14 @@ Manual procedure still required on macOS and Linux X11/Wayland:
 4. Exercise a backend stall or capture failure; confirm no-current-frame feedback
    within about three seconds and retry Start after restoring the device.
 
-Physical hotplug, backend stall, Linux GUI, and Windows runtime checks were not
-performed for Issue #46. Automated tests run without physical camera capture.
+On 2026-10-19, the maintainer tested disconnecting an active iPhone Continuity
+Camera on macOS. Their log shows Streaming at 11:37:54.005Z, frame expiry at
+11:38:39.694Z, inventory changing from two cameras to one at 11:38:39.703Z,
+then Stopping, Stopped, and Active camera cleared at 11:38:39.720Z. This confirms
+the inventory-first disconnect path completed without a reported crash. The
+inventory-triggered stop may supersede the adapter's own terminal error event;
+a separate Fault/Disconnected event is not required on this path.
+
+Physical reconnect/restart, repeated physical cycles, actual backend stalls,
+Linux GUI, and Windows runtime remain unverified. Automated tests run without
+physical camera capture.
