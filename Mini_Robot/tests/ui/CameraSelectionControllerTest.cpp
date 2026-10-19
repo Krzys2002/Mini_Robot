@@ -298,6 +298,30 @@ TEST(CameraSelectionControllerTest, RemovingAStreamingDeviceStopsItAndPermitsRes
     EXPECT_TRUE(fixture.controller.hasCameraSource());
 }
 
+TEST(CameraSelectionControllerTest, RepeatedUnplugReconnectCanRestartOriginalOrAlternativeCamera)
+{
+    SelectionFixture fixture;
+    for (int cycle = 0; cycle < 5; ++cycle) {
+        fixture.discovery.publish({{"a", "Camera A"}, {"b", "Camera B"}});
+        fixture.choose(cycle % 2);
+        auto* camera = fixture.cameras.created.back();
+        const auto alive = fixture.cameras.alive.back();
+        fixture.button("startCamera")->click();
+        EXPECT_EQ(camera->startRequests, 1);
+        camera->publishState(CameraState::Streaming, Timestamp{2s});
+        // Exercise both inventory-first and backend-first loss notification.
+        if (cycle % 2) camera->publishState(CameraState::Disconnected, Timestamp{3s});
+        fixture.discovery.publish({});
+        if (!(cycle % 2)) camera->publishState(CameraState::Disconnected, Timestamp{3s});
+        QApplication::processEvents();
+        EXPECT_FALSE(*alive);
+        EXPECT_FALSE(fixture.controller.hasCameraSource());
+        EXPECT_FALSE(fixture.selection.selectedCamera());
+        EXPECT_FALSE(fixture.button("startCamera")->isEnabled());
+        EXPECT_FALSE(fixture.label("frameDescription")->text().contains(QStringLiteral("Frame #")));
+    }
+}
+
 TEST(CameraSelectionControllerTest, SelectionFollowsTheDeviceIdAcrossRenamesOnly)
 {
     SelectionFixture fixture;

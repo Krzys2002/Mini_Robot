@@ -14,7 +14,7 @@ capture dimensions, and local elapsed capture time. Pixels are not yet displayed
 as a video preview. Selection alone never opens a camera.
 
 **Stop camera** cancels a pending start or stops a running stream. The label shows
-Stopping until completion, then Stopped. The last frame description remains.
+Stopping until completion, then Stopped. Frame metadata is cleared when stopping.
 The window respects the layout minimum size as selection details wrap, and
 stream buttons retain at least their native style’s preferred height.
 Start is disabled while starting, streaming, stopping, replacing a source, or
@@ -25,8 +25,7 @@ including requests issued directly through its slots before backend state events
 A failure reports a persistent status-bar message and an Error record through
 the controller's application log channel, then a quiescent Fault state permits
 retry. Start/stop requests and state changes are logged with the source name in
-request records. Device removal still follows the selection clearing rules;
-automatic reconnection remains separate work in Issue #46.
+request records. Issue #46 adds recoverable device loss and stream failure; see below.
 
 On Qt 6.5 or later, camera authorization is checked/requested asynchronously on
 the owner thread before capture starts. Permission denial explains that camera
@@ -70,7 +69,7 @@ from a callback. They require no camera and never request capture permission. A 
 test also checks the production bundle’s usage description and linked camera
 permission plugin without requesting authorization.
 [Controller/window tests](../../tests/ui/MainWindowTest.cpp) cover repeated stream
-cycles with deterministic frames, frozen metadata after stop, immediate request
+cycles with deterministic frames, cleared metadata after stop, immediate request
 guards, failure visibility/logging/retry, switching during pending startup, and
 shutdown. [Fake](../../tests/simulation/SimulationTest.cpp) and
 [replay](../../tests/camera/RecordedVideoSourceTest.cpp) tests verify cancellation
@@ -80,7 +79,7 @@ Manual acceptance procedure (macOS, then Linux X11/Wayland as available):
 
 1. Launch the built application, select a real device, and press Start. Grant
    camera access if prompted. Confirm Streaming and increasing frame sequences.
-2. Press Stop. Confirm Stopped and unchanged frame metadata after waiting.
+2. Press Stop. Confirm Stopped and cleared frame metadata after waiting.
 3. Repeat at least five times; confirm capture resumes and the window responds.
 4. Stop during Starting; confirm completion and that another start works.
 5. Deny camera permission or make the device unavailable. Confirm a visible error
@@ -96,3 +95,58 @@ validation remain manual checks. No hardware success is claimed by automated tes
 Qt references: [QCamera](https://doc.qt.io/qt-6/qcamera.html),
 [QVideoSink](https://doc.qt.io/qt-6/qvideosink.html), and
 [QVideoFrame](https://doc.qt.io/qt-6/qvideoframe.html).
+
+## Source loss and recovery (Issue #46)
+
+The native adapter watches Qt device topology changes. If its selected device
+vanishes it releases capture on the worker, reports an Unavailable error, and
+enters Disconnected. Backend errors and invalid/unconvertible frames enter Fault.
+A precise three-second timer (`CameraFrameTimeout`) also detects silent failure:
+starting capture or receiving a valid frame arms it, so a source which never
+produces a frame cannot remain Starting indefinitely. The timer starts after
+permission is granted; the system permission dialog has no capture deadline.
+Failure invalidates the converted-frame mailbox immediately, and native resources
+are released before the terminal state is delivered. Late events from an earlier
+start are ignored using the existing request generation.
+
+Discovery already refreshes inventory after Qt topology notifications. Removal
+clears selection, stops any active source, and permits a reconnected or alternative
+device to be selected. No camera starts automatically. If a fault occurs while
+the device is still listed, press Start to retry: the native session is recreated.
+Both inventory-first and source-error-first notification orders are supported.
+
+The desktop clears frame metadata on stop, source change, Disconnected, and Fault;
+it only accepts structurally valid frames while Streaming. A separate presentation
+timer clears metadata after three seconds without valid delivery, including for
+alternate sources which fail to report loss. A subsequent valid frame restores
+the description. This is receipt-based UI liveness, not a robot tracking freshness
+policy. UI timers and queued worker events need a running event loop. At this stage
+there is no pixel preview or vision processing pipeline to clear.
+
+Automated checks simulate five unplug/reconnect cycles with both notification
+orders, retry after Fault/Disconnected, alternate-device selection/start, invalid
+and late-frame rejection, and a silent-source presentation timeout. Existing
+native absent-device tests exercise repeated failure/retry without camera access.
+They do not establish real device hotplug behavior.
+
+Manual verification procedure on macOS and Linux X11/Wayland:
+
+1. Start an external camera, confirm increasing frame sequences, then unplug it.
+   Confirm no crash, visible error/state, cleared metadata, and refreshed inventory.
+2. Reconnect it, select it explicitly, press Start, and confirm new frames.
+3. Repeat at least five times, including unplug during Starting and switching to
+   another camera after loss. Close the window during failure/recovery.
+4. Exercise a backend stall or capture failure; confirm no-current-frame feedback
+   within about three seconds and retry Start after restoring the device.
+
+On 2026-10-19, the maintainer tested disconnecting an active iPhone Continuity
+Camera on macOS. Their log shows Streaming at 11:37:54.005Z, frame expiry at
+11:38:39.694Z, inventory changing from two cameras to one at 11:38:39.703Z,
+then Stopping, Stopped, and Active camera cleared at 11:38:39.720Z. This confirms
+the inventory-first disconnect path completed without a reported crash. The
+inventory-triggered stop may supersede the adapter's own terminal error event;
+a separate Fault/Disconnected event is not required on this path.
+
+Physical reconnect/restart, repeated physical cycles, actual backend stalls,
+Linux GUI, and Windows runtime remain unverified. Automated tests run without
+physical camera capture.

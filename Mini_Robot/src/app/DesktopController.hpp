@@ -7,6 +7,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QTimer>
 
 #include <memory>
 #include <optional>
@@ -17,6 +18,7 @@ namespace micro_robot {
 // backend callbacks run on its owning thread. No concrete backend or widgets here.
 // It owns the active camera source, if any; none is active until one is set.
 // Lifecycle, camera/connection state changes, and backend errors are logged to `log`.
+// Frame metadata is cleared on loss/stop/replacement or three seconds of silence.
 class DesktopController final : public QObject {
     Q_OBJECT
 
@@ -80,6 +82,7 @@ private:
     std::unique_ptr<ICameraSource> camera_;
     std::unique_ptr<ICameraSource> pendingCamera_;
     std::optional<CameraState> cameraRequest_;
+    QTimer frameExpiry_;
     Timestamp startedAt_{};
     bool initialized_{};
     bool shuttingDown_{};
