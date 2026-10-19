@@ -6,6 +6,7 @@
 - [Platform boundaries](platform-boundaries.md): OS-dependency audit, layer rules,
   device-discovery pattern, backend replacement, and enforcement checks.
 - [Camera discovery](camera-discovery.md): system inventory, opaque IDs, refresh, and verification limits.
+- [Calibration capture](calibration-capture.md): chessboard target, quality gates, worker wizard and observation review.
 - [Camera streaming](camera-streaming.md): native start/stop, failure reporting, and worker lifecycle.
 - [Camera selection](camera-selection.md): selectable devices, source factory, and active-source replacement.
 - [Camera source contract](camera-source.md): lifecycle, frames, and subscriptions.
