@@ -82,6 +82,12 @@ DesktopController::DesktopController(IRobotTransport& transport, WorldModel& wor
       log_(std::move(log)), events_(std::make_shared<EventSink>(*this))
 {
     transport_.setEventSink(events_);
+    frameExpiry_.setSingleShot(true);
+    frameExpiry_.setTimerType(Qt::PreciseTimer);
+    connect(&frameExpiry_, &QTimer::timeout, this, [this] {
+        log_.warning("Camera frame expired; no current frame");
+        emit frameDescriptionChanged(QStringLiteral("No current frame — waiting for camera"));
+    });
 }
 
 DesktopController::~DesktopController()
@@ -110,6 +116,8 @@ void DesktopController::setCameraSource(std::unique_ptr<ICameraSource> source)
     if (shuttingDown_) return;
     pendingCamera_ = std::move(source);
     replacementPending_ = true;
+    frameExpiry_.stop();
+    emit frameDescriptionChanged(QStringLiteral("No current frame — switching camera"));
     if (camera_ && (isCameraActive(camera_->state()) || cameraRequest_)) {
         log_.info("Stopping camera before switching source");
         requestCameraStop(); // Completed by receiveCameraState once quiescent.
@@ -133,6 +141,7 @@ void DesktopController::applyCameraReplacement()
 
 void DesktopController::publishActiveCamera()
 {
+    frameExpiry_.stop();
     emit activeCameraChanged(camera_ ? cameraDescription(camera_->info())
                                      : QStringLiteral("No camera selected"), camera_ != nullptr);
     emit frameDescriptionChanged(QStringLiteral("No frames received"));
@@ -171,6 +180,8 @@ void DesktopController::requestCameraStop()
         publishCameraActions();
         return;
     }
+    frameExpiry_.stop();
+    emit frameDescriptionChanged(QStringLiteral("No current frame — camera stopping"));
     cameraRequest_ = CameraState::Stopping;
     log_.info("Camera stop requested: " + cameraDescription(camera_->info()).toStdString());
     camera_->stop();
@@ -223,7 +234,10 @@ double DesktopController::elapsedSeconds(Timestamp at) const
 
 void DesktopController::receiveFrame(FramePtr frame)
 {
-    if (!frame || shuttingDown_ || cameraRequest_ == CameraState::Stopping) return;
+    if (!frame || !isValidFrame(*frame) || !camera_
+        || camera_->state() != CameraState::Streaming || replacementPending_
+        || shuttingDown_ || cameraRequest_ == CameraState::Stopping) return;
+    frameExpiry_.start(CameraFrameTimeout);
     emit frameDescriptionChanged(QStringLiteral("Frame #%1 · %2 × %3 · capture +%4 s")
         .arg(static_cast<qulonglong>(frame->sequence)).arg(frame->width).arg(frame->height)
         .arg(elapsedSeconds(frame->capturedAt), 0, 'f', 2));
@@ -236,6 +250,12 @@ void DesktopController::receiveCameraState(CameraState state)
         cameraRequest_.reset();
     }
     const bool active = isCameraActive(state);
+    if (state != CameraState::Streaming) {
+        frameExpiry_.stop();
+        emit frameDescriptionChanged(state == CameraState::Stopped
+            ? QStringLiteral("No frames received")
+            : QStringLiteral("No current frame — %1").arg(cameraStateText(state)));
+    }
     const auto text = cameraStateText(state);
     if (state == CameraState::Fault) {
         log_.error("Camera state: " + text.toStdString());

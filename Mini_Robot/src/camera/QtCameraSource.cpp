@@ -33,11 +33,25 @@ public:
         desired_ = true;
         failed_ = false;
         lastState_.reset();
-        mailbox_ = std::make_shared<Mailbox>();
         // Recreate the native objects on each start, including after a failure.
-        session_.reset();
-        camera_.reset();
-        video_.reset();
+        releaseCapture();
+        mailbox_ = std::make_shared<Mailbox>();
+        devices_ = std::make_unique<QMediaDevices>();
+        connect(devices_.get(), &QMediaDevices::videoInputsChanged, this, [this, id] {
+            const auto inputs = QMediaDevices::videoInputs();
+            if (std::none_of(inputs.begin(), inputs.end(), [&](const QCameraDevice& input) {
+                    return input.id().toHex().toStdString() == id;
+                })) {
+                fail(CameraErrorCode::Unavailable, "Selected camera was disconnected");
+            }
+        });
+        watchdog_ = std::make_unique<QTimer>();
+        watchdog_->setSingleShot(true);
+        watchdog_->setTimerType(Qt::PreciseTimer);
+        connect(watchdog_.get(), &QTimer::timeout, this, [this] {
+            fail(CameraErrorCode::BackendFailure,
+                 "Camera stopped delivering valid frames; select a camera or retry Start");
+        });
         const auto inputs = QMediaDevices::videoInputs();
         const auto found = std::find_if(inputs.begin(), inputs.end(), [&](const QCameraDevice& input) {
             return input.id().toHex().toStdString() == id;
@@ -89,6 +103,7 @@ public:
             }, Qt::QueuedConnection);
         }, Qt::DirectConnection);
         nativeMailbox_ = nativeMailbox;
+        watchdog_->start(CameraFrameTimeout);
         camera_->start();
     }
 
@@ -143,6 +158,8 @@ private:
             std::lock_guard lock{nativeMailbox_->mutex};
             nativeMailbox_->target = nullptr;
         }
+        watchdog_.reset();
+        devices_.reset();
         if (camera_) {
             QObject::disconnect(camera_.get(), nullptr, this, nullptr);
             camera_->stop();
@@ -159,13 +176,20 @@ private:
         if (failed_) return;
         failed_ = true;
         desired_ = false;
+        // Invalidate already queued converted delivery immediately.
+        if (mailbox_) {
+            std::lock_guard lock{mailbox_->mutex};
+            mailbox_->frame.reset();
+        }
+        const auto terminal = code == CameraErrorCode::Unavailable && camera_
+            ? CameraState::Disconnected : CameraState::Fault;
         // Failure may arrive inside a native object's signal. Defer destruction
         // until that callback has returned; a concurrent stop supersedes it.
-        QTimer::singleShot(0, this, [this, generation = generation_, code, message] {
+        QTimer::singleShot(0, this, [this, generation = generation_, code, message, terminal] {
             if (generation != generation_) return;
             releaseCapture();
             reportError(code, message);
-            postState(CameraState::Fault);
+            postState(terminal);
         });
     }
 
@@ -174,9 +198,10 @@ private:
         if (!desired_ || failed_ || lastState_ != CameraState::Streaming) return;
         const auto image = native.toImage().convertToFormat(QImage::Format_RGBA8888);
         if (image.isNull()) {
-            reportError(CameraErrorCode::InvalidFrame, "Could not convert camera frame");
+            fail(CameraErrorCode::InvalidFrame, "Could not convert camera frame");
             return;
         }
+        watchdog_->start(CameraFrameTimeout);
         const auto stride = static_cast<std::size_t>(image.bytesPerLine());
         std::vector<std::byte> pixels(stride * static_cast<std::size_t>(image.height()));
         std::memcpy(pixels.data(), image.constBits(), pixels.size());
@@ -198,12 +223,15 @@ private:
                 latest = std::move(mailbox->frame);
                 mailbox->scheduled = false;
             }
-            if (generation != owner->generation_ || owner->state_ != CameraState::Streaming) return;
+            if (!latest || generation != owner->generation_
+                || owner->state_ != CameraState::Streaming) return;
             if (auto sink = owner->sink_.lock()) sink->onFrame(std::move(latest));
         }, Qt::QueuedConnection);
     }
 
     QtCameraSource& owner_;
+    std::unique_ptr<QMediaDevices> devices_;
+    std::unique_ptr<QTimer> watchdog_;
     std::unique_ptr<QVideoSink> video_;
     std::unique_ptr<QCamera> camera_;
     std::unique_ptr<QMediaCaptureSession> session_;
@@ -309,7 +337,8 @@ void QtCameraSource::receiveState(std::uint64_t generation, CameraState state)
     if (generation != generation_) return;
     state_ = state;
     if (state != CameraState::Starting) startRequested_ = false;
-    if (state == CameraState::Stopped || state == CameraState::Fault) stopRequested_ = false;
+    if (state == CameraState::Stopped || state == CameraState::Disconnected
+        || state == CameraState::Fault) stopRequested_ = false;
     if (auto sink = sink_.lock()) sink->onCameraStateChanged(state, MonotonicClock::now());
 }
 
