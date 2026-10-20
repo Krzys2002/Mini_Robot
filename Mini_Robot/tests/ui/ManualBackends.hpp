@@ -1,5 +1,6 @@
 #pragma once
 
+#include "camera/ICameraDeviceDiscovery.hpp"
 #include "camera/ICameraSource.hpp"
 #include "transport/IRobotTransport.hpp"
 
@@ -51,6 +52,25 @@ private:
     CameraInfo info_;
     CameraState state_{CameraState::Stopped};
     std::weak_ptr<ICameraEvents> sink_;
+};
+
+// Tests publish complete inventories explicitly after refresh requests. No Qt
+// Multimedia object, physical device query, or actual hotplug is involved.
+class ManualDiscovery final : public ICameraDeviceDiscovery {
+public:
+    void setEventSink(std::weak_ptr<ICameraDeviceEvents> sink) override { sink_ = std::move(sink); }
+    std::vector<CameraDevice> devices() const override { return devices_; }
+    void refresh() override { ++refreshRequests; }
+    void publish(std::vector<CameraDevice> devices)
+    {
+        devices_ = std::move(devices);
+        if (auto sink = sink_.lock()) sink->onCameraDevicesChanged(devices_);
+    }
+    bool hasSink() const { return !sink_.expired(); }
+    int refreshRequests{};
+private:
+    std::vector<CameraDevice> devices_;
+    std::weak_ptr<ICameraDeviceEvents> sink_;
 };
 
 class ManualTransport final : public IRobotTransport {
