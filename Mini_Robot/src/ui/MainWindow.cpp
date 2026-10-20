@@ -1,6 +1,7 @@
 #include "ui/MainWindow.hpp"
 #include "ui/CalibrationWizard.hpp"
 #include "app/CalibrationController.hpp"
+#include "app/VisionController.hpp"
 #include "app/CameraSelectionController.hpp"
 #include "app/DesktopController.hpp"
 
@@ -144,6 +145,17 @@ void MainWindow::closeEvent(QCloseEvent* event)
 {
     if (calibrationWizard_) calibrationWizard_->close();
     QMainWindow::closeEvent(event);
+}
+
+void MainWindow::bindVision(VisionController& vision)
+{
+    auto* status = new QLabel(vision.description(), this);
+    status->setObjectName(QStringLiteral("visionStatus"));
+    status->setTextFormat(Qt::PlainText);
+    status->setWordWrap(true);
+    auto* layout = qobject_cast<QVBoxLayout*>(centralWidget()->layout());
+    layout->insertWidget(3, status);
+    connect(&vision, &VisionController::descriptionChanged, status, &QLabel::setText);
 }
 
 void MainWindow::bindCalibration(CalibrationController& calibration)

@@ -50,6 +50,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_add_desktop_packaging_tests(micro_robot_desktop)
     add_executable(micro_robot_tests
         main.cpp
+        ui/VisionControllerTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
         ui/MainWindowTest.cpp
