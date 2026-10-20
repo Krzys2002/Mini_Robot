@@ -4,6 +4,10 @@ Issue #50 implements the `tag36h11` detector selected in
 [the marker profile](apriltag-selection.md). Camera acquisition stays behind
 `ICameraSource`; detection does not own a camera or depend on widgets.
 
+At the maintainer's request, #50 tracks software implementation and deterministic
+acceptance. Physical printed-tag live/recorded acceptance is tracked separately
+in [#191](https://github.com/Krzys2002/Mini_Robot/issues/191).
+
 ## API and coordinates
 
 [`MarkerDetection.hpp`](../../src/vision/MarkerDetection.hpp) defines the Qt/OpenCV-free
@@ -125,8 +129,11 @@ On macOS / AppleClang 21 / Qt 6 / OpenCV 5.0.0, Debug with Ninja and cached Goog
 ## Physical acceptance: NOT RUN
 
 Generated images and generated-video tests do not prove detection of printed tags
-from a physical camera. Issue #50's printed-tag live/recorded acceptance remains
-unverified. Use the profile's commissioning procedure and retain:
+from a physical camera. The original printed-tag live/recorded acceptance
+criterion and the checks below remain open in
+[#191](https://github.com/Krzys2002/Mini_Robot/issues/191). Record actual results
+there; #50's software checklist does not claim physical success.
+Use the profile's commissioning procedure and retain:
 
 1. Actual print/black-edge measurements, camera/OS/OpenCV versions, delivered
    resolution, lighting, coverage and source commit/configuration.
