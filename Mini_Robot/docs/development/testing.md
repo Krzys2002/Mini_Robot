@@ -42,12 +42,20 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink |
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
+| `micro_robot_marker_tests` (opt-in) | `markers` | [AprilTag print tooling](../vision/apriltag-selection.md): all 16 IDs and rotations, quiet margins, invalid inputs, and reproducibility of committed SVG sheets |
 | `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection and calibration wizard lifecycle; with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
 | `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs, Qt platform macros, or concrete-backend includes in platform-independent targets; scanner and link-check self-tests |
 
 The camera suite currently has no CTest label; `-L core` does not include it.
 Use unfiltered CTest for all suites, or add a separate
 `-R '^(CameraFrameTest|CameraSelectionTest)\.'` selection when testing by label.
+
+Enable offline marker generation and its tests with
+`-DMICRO_ROBOT_BUILD_MARKER_TOOLS=ON` (default OFF). This adds OpenCV aruco/objdetect
+and imgcodecs dependencies only to the offline tool/test targets. Run just those
+tests with `ctest --test-dir build -L markers --output-on-failure --no-tests=error`.
+The [print guide](../vision/apriltag-selection.md#printing-and-reproducibility)
+also describes independent SVG rasterization and full-sheet decoding checks.
 
 Core executables link domain libraries and `GTest::gtest_main`, without Qt or a
 `QApplication`. The UI executable has its own test entry point using GoogleTest

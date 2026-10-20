@@ -12,6 +12,7 @@
 - [Camera selection](camera-selection.md): selectable devices, source factory, and active-source replacement.
 - [Camera source contract](camera-source.md): lifecycle, frames, and subscriptions.
 - [Recorded-video replay](recorded-video.md): local files, virtual timing, EOF, and fixtures.
+- [AprilTag selection](../vision/apriltag-selection.md): marker size, identity mapping, camera constraints, and printable sheets.
 - [Transport contract](transport.md): commands, telemetry, and async ownership.
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
 - [WorldModel](world-model.md): registration, timestamp ordering, and snapshots.
