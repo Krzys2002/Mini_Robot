@@ -26,13 +26,15 @@ set(forbidden_include_patterns
     # POSIX/Linux/Windows system headers.
     "${include_prefix}(unistd|fcntl|dlfcn|pthread|termios|dirent|poll|libudev|windows|winsock2|ws2tcpip|dshow|mfapi|mfidl|setupapi|bluetoothapis)\\.h[>\"]"
     "${include_prefix}(sys|linux|asm|mach|dispatch|objc|bluetooth|winrt)/"
+    # D-Bus client libraries, through which BlueZ is reached on Linux.
+    "${include_prefix}(dbus|gio|systemd)/"
     # Apple frameworks.
-    "${include_prefix}(Foundation|CoreFoundation|AVFoundation|CoreMedia|CoreVideo|CoreBluetooth|IOKit|AppKit|Cocoa|ARKit)/"
+    "${include_prefix}(Foundation|CoreFoundation|AVFoundation|CoreMedia|CoreVideo|CoreBluetooth|IOBluetooth|IOKit|AppKit|Cocoa|ARKit)/"
     # Capture/communication backend libraries and their Qt modules. Other Qt
     # modules are governed by the target's allowed link dependencies.
     "${include_prefix}(opencv2/|opencv/|gst/|libavformat/|libavcodec/)"
-    "${include_prefix}(QtMultimedia|QtBluetooth|QtSerialPort)[/>\"]"
-    "${include_prefix}(QCamera|QMedia|QVideo|QImageCapture|QBluetooth|QLowEnergy|QSerialPort)[A-Za-z]*[>\"]"
+    "${include_prefix}(QtMultimedia|QtBluetooth|QtSerialPort|QtDBus)[/>\"]"
+    "${include_prefix}(QCamera|QMedia|QVideo|QImageCapture|QBluetooth|QLowEnergy|QSerialPort|QDBus)[A-Za-z]*[>\"]"
 )
 if(NOT BOUNDARY_ALLOW_QT)
     list(APPEND forbidden_include_patterns "${include_prefix}Q[A-Za-z]*[/>\"]")
