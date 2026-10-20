@@ -155,6 +155,9 @@ void DesktopController::publishActiveCamera()
 
 void DesktopController::publishCameraActions()
 {
+    emit cameraInputChanged(camera_ ? QString::fromStdString(camera_->info().sourceId) : QString{},
+        camera_ && camera_->state() == CameraState::Streaming && !cameraRequest_
+            && !replacementPending_ && !shuttingDown_);
     const bool ready = initialized_ && !shuttingDown_ && camera_ && !replacementPending_;
     const auto state = camera_ ? camera_->state() : CameraState::Stopped;
     const bool active = isCameraActive(state);
@@ -238,6 +241,7 @@ void DesktopController::receiveFrame(FramePtr frame)
         || camera_->state() != CameraState::Streaming || replacementPending_
         || shuttingDown_ || cameraRequest_ == CameraState::Stopping) return;
     frameExpiry_.start(CameraFrameTimeout);
+    emit frameAvailable(frame);
     emit frameDescriptionChanged(QStringLiteral("Frame #%1 · %2 × %3 · capture +%4 s")
         .arg(static_cast<qulonglong>(frame->sequence)).arg(frame->width).arg(frame->height)
         .arg(elapsedSeconds(frame->capturedAt), 0, 'f', 2));

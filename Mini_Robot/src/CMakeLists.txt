@@ -33,6 +33,26 @@ target_link_libraries(micro_robot_camera_selection PUBLIC micro_robot_camera_api
 micro_robot_target_defaults(micro_robot_camera_selection)
 micro_robot_platform_boundary(micro_robot_camera_selection)
 
+# Capture policy/state remains independent of widgets, hardware and OpenCV.
+add_library(micro_robot_calibration STATIC
+    calibration/CalibrationCapture.hpp
+    calibration/CalibrationCapture.cpp
+)
+target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api)
+micro_robot_target_defaults(micro_robot_calibration)
+micro_robot_platform_boundary(micro_robot_calibration)
+
+if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
+    add_library(micro_robot_calibration_opencv STATIC
+        calibration/OpenCvCalibrationDetector.hpp
+        calibration/OpenCvCalibrationDetector.cpp
+    )
+    target_link_libraries(micro_robot_calibration_opencv PUBLIC micro_robot_calibration
+        PRIVATE ${OpenCV_LIBS})
+    target_include_directories(micro_robot_calibration_opencv SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    micro_robot_target_defaults(micro_robot_calibration_opencv)
+endif()
+
 add_library(micro_robot_transport_api INTERFACE)
 target_link_libraries(micro_robot_transport_api INTERFACE micro_robot_common)
 target_sources(micro_robot_transport_api INTERFACE
@@ -119,6 +139,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_target_defaults(micro_robot_camera_discovery)
 
     add_library(micro_robot_desktop_controller STATIC
+        app/CalibrationController.hpp
+        app/CalibrationController.cpp
         app/DesktopController.hpp
         app/DesktopController.cpp
         app/CameraSelectionController.hpp
@@ -127,13 +149,15 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
         micro_robot_camera_api micro_robot_camera_selection micro_robot_transport_api
-        micro_robot_world micro_robot_logging Qt6::Core
+        micro_robot_world micro_robot_logging micro_robot_calibration Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
     # Application adapters use Qt Core only; device backends stay in adapter targets.
     micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
+        ui/CalibrationWizard.hpp
+        ui/CalibrationWizard.cpp
         ui/MainWindow.cpp
         ui/MainWindow.hpp
     )
@@ -146,7 +170,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     # Qt finalization imports the macOS permission plugins selected by Info.plist.
     qt_add_executable(micro_robot_desktop app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
-        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery
+        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery micro_robot_calibration_opencv
         micro_robot_logging micro_robot_configuration
     )
     target_compile_definitions(micro_robot_desktop PRIVATE
