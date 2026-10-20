@@ -93,7 +93,12 @@ public:
             link->service = link->controller->createServiceObject(uuid(1), link);
             if (!link->service) { fail(link, "Cannot create Robot Control service"); return; }
             QObject::connect(link->service, &QLowEnergyService::errorOccurred, link,
-                [this, link](QLowEnergyService::ServiceError) { fail(link, "BLE GATT service operation failed"); });
+                [this, link](QLowEnergyService::ServiceError error) {
+                    if (link->established && usable(link)) {
+                        link->failed = true;
+                        emit writeFailed(link->token, QStringLiteral("BLE GATT write/channel operation failed (%1)").arg(static_cast<int>(error)));
+                    } else fail(link, "BLE GATT service operation failed");
+                });
             QObject::connect(link->service, &QLowEnergyService::stateChanged, link,
                 [this, link](QLowEnergyService::ServiceState state) {
                     if (!usable(link)) return;
@@ -112,6 +117,7 @@ public:
                             ? TransportErrorCode::UnsupportedVersion : TransportErrorCode::BackendFailure);
                         return;
                     }
+                    link->info = *result.info;
                     emit phaseChanged(link->token, BlePhase::EnablingNotifications);
                     link->subscription = 1;
                     link->service->writeDescriptor(link->resultCccd, QByteArray::fromHex("0100"));
@@ -129,8 +135,27 @@ public:
                     } else {
                         link->subscription = 0;
                         link->established = true;
-                        emit ready(link->token);
+                        emit ready(link->token, link->info);
                     }
+                });
+            QObject::connect(link->service, &QLowEnergyService::characteristicChanged, link,
+                [this, link](const QLowEnergyCharacteristic& characteristic, const QByteArray& bytes) {
+                    if (!usable(link)) return;
+                    const auto endpoint = characteristic.uuid() == uuid(5) ? BleEndpoint::Telemetry : BleEndpoint::CommandResult;
+                    if (characteristic.uuid() != uuid(5) && characteristic.uuid() != uuid(6)) return;
+                    // Retain at most one overlength byte so malformed lengths are
+                    // rejected without copying an arbitrarily large payload.
+                    emit notification(link->token, endpoint, bytes.left(21), MonotonicClock::now());
+                });
+            QObject::connect(link->service, &QLowEnergyService::characteristicWritten, link,
+                [this, link](const QLowEnergyCharacteristic& characteristic, const QByteArray& bytes) {
+                    if (!usable(link)) return;
+                    if (characteristic.uuid() != uuid(3) && characteristic.uuid() != uuid(4)) return;
+                    auto& pending = characteristic.uuid() == uuid(4) ? link->emergencyWrite : link->ordinaryWrite;
+                    if (!pending || pending->bytes != bytes) return;
+                    const auto sequence = pending->sequence;
+                    pending.reset();
+                    emit written(link->token, sequence);
                 });
             emit phaseChanged(link->token, BlePhase::DiscoveringCharacteristics);
             link->service->discoverDetails(QLowEnergyService::SkipValueDiscovery);
@@ -146,6 +171,27 @@ public:
         if (link->controller->state() == QLowEnergyController::UnconnectedState) emit closed(token);
         else link->controller->disconnectFromDevice();
     }
+    BleWriteOutcome write(std::uint64_t token, const BleWriteRequest& request) override
+    {
+        const auto found = links_.find(token);
+        if (found == links_.end() || !usable(found->second) || !found->second->established)
+            return {false, {}, TransportErrorCode::NotConnected, "BLE GATT session is not ready"};
+        auto* link = found->second;
+        auto& pending = request.emergencyStop ? link->emergencyWrite : link->ordinaryWrite;
+        if (pending) return {false, {}, TransportErrorCode::Unavailable, "BLE characteristic write is still pending"};
+        const auto now = MonotonicClock::now();
+        auto encoded = request.emergencyStop
+            ? BleEncodeResult{encodeBleEmergencyStop(request.sequence), TransportErrorCode::InvalidCommand, {}}
+            : encodeBleCommand(request.command, link->info, request.sequence, now);
+        if (!encoded.frame) return {false, {}, encoded.code, encoded.error};
+        const auto& frame = *encoded.frame;
+        const QByteArray bytes(reinterpret_cast<const char*>(frame.bytes.data()), static_cast<qsizetype>(frame.bytes.size()));
+        if (frame.withResponse) pending = PendingWrite{request.sequence, bytes};
+        link->service->writeCharacteristic(link->service->characteristic(uuid(request.emergencyStop ? 4 : 3)), bytes,
+            frame.withResponse ? QLowEnergyService::WriteWithResponse : QLowEnergyService::WriteWithoutResponse);
+        if (!frame.withResponse) emit written(token, request.sequence);
+        return {true, now, TransportErrorCode::BackendFailure, {}};
+    }
     void release(std::uint64_t token) override
     {
         const auto found = links_.find(token);
@@ -159,6 +205,7 @@ public:
         delete link;
     }
 private:
+    struct PendingWrite { std::uint16_t sequence{}; QByteArray bytes; };
     struct Link : QObject {
         Link(QObject* parent, std::uint64_t value, RobotId id) : QObject(parent), token(value), expected(id) {}
         std::uint64_t token;
@@ -168,6 +215,8 @@ private:
         QLowEnergyDescriptor resultCccd, telemetryCccd;
         bool active{true}, closing{}, failed{}, readingInfo{}, established{};
         int subscription{};
+        BleRobotInfo info;
+        std::optional<PendingWrite> ordinaryWrite, emergencyWrite;
     };
     static bool usable(const Link* link) { return link->active && !link->closing && !link->failed; }
     void fail(Link* link, const QString& message, TransportErrorCode code = TransportErrorCode::BackendFailure)

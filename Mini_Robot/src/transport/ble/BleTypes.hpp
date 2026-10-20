@@ -27,6 +27,10 @@ struct BleTransportConfig {
     std::chrono::milliseconds phaseTimeout{10000};
     std::chrono::milliseconds disconnectTimeout{3000};
     std::size_t maximumDevices{128};
+    std::chrono::milliseconds emergencyStopRetry{100};
+    std::chrono::milliseconds minimumVelocityInterval{100};
+    std::size_t maximumTrackedCommands{128};
+    std::size_t maximumInvalidNotifications{3};
 };
 struct BleRobotInfo {
     RobotId robotId{0};
@@ -35,7 +39,7 @@ struct BleRobotInfo {
     std::uint16_t maximumValidityMilliseconds{};
     std::uint16_t telemetryPeriodMilliseconds{};
 };
-// Robot Info v1 only. No frame/telemetry codec (#66). On failure output is empty.
+// Robot Info v1. On failure output is empty.
 struct BleInfoResult {
     std::optional<BleRobotInfo> info;
     bool unsupportedVersion{};

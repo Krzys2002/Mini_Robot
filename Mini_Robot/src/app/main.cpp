@@ -65,7 +65,7 @@ int main(int argc, char* argv[])
         QStringLiteral("file")};
     arguments.addOption(configOption);
     const QCommandLineOption bleOption{QStringLiteral("ble"),
-        QStringLiteral("Use the connection-only BLE transport instead of simulation (requires BLE build).")};
+        QStringLiteral("Use the BLE transport instead of simulation (requires BLE build).")};
     arguments.addOption(bleOption);
     arguments.process(application);
 

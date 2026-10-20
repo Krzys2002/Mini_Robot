@@ -1,5 +1,8 @@
 #include "transport/ble/BleTransport.hpp"
 #include "transport/ble/QtBleBackend.hpp"
+#if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
+#include "app/DesktopController.hpp"
+#endif
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -7,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <algorithm>
 
 namespace {
 using namespace micro_robot;
@@ -34,6 +38,24 @@ public:
     { links[expected] = token; lastKey = key; ++opens; }
     void close(std::uint64_t token) override { lastClosed = token; ++closes; }
     void release(std::uint64_t token) override { released.push_back(token); }
+    void ready(std::uint64_t token)
+    {
+        BleRobotInfo info{robot, 300, 6000, 500, 100};
+        for (const auto& [id, value] : links) if (value == token) info.robotId = id;
+        emit IBleBackend::ready(token, info);
+    }
+    BleWriteOutcome write(std::uint64_t token, const BleWriteRequest& request) override
+    {
+        if (writeError) return {false, {}, *writeError, "Injected write failure"};
+        const auto now = MonotonicClock::now() + dispatchDelay;
+        const auto encoded = request.emergencyStop
+            ? BleEncodeResult{encodeBleEmergencyStop(request.sequence), TransportErrorCode::InvalidCommand, {}}
+            : encodeBleCommand(request.command, BleRobotInfo{robot, 300, 6000, 500, 100}, request.sequence, now);
+        if (!encoded.frame) return {false, {}, encoded.code, encoded.error};
+        writes.push_back({token, request, *encoded.frame});
+        if (completeWrites) emit written(token, request.sequence);
+        return {true, now, TransportErrorCode::BackendFailure, {}};
+    }
     void found(const std::string& key = "opaque-a", const std::string& name = "MR-7")
     { emit deviceFound(scanToken, {key, name, {}, {}}); }
     void finish() { emit scanFinished(scanToken); }
@@ -43,6 +65,11 @@ public:
     std::vector<std::uint64_t> released;
     std::string lastKey;
     int scans{}, stops{}, opens{}, closes{};
+    struct Write { std::uint64_t token; BleWriteRequest request; EncodedBleCommand frame; };
+    std::vector<Write> writes;
+    bool completeWrites{true};
+    Duration dispatchDelay{};
+    std::optional<TransportErrorCode> writeError;
 };
 class Events final : public IRobotTransportEvents {
 public:
@@ -51,16 +78,28 @@ public:
     std::vector<TransportError> errors;
     std::function<void(ConnectionState)> onState;
     int telemetry{};
+    std::vector<RobotTelemetry> samples;
     void onConnectionStateChanged(RobotId id, ConnectionState state, Timestamp) override
     {
         EXPECT_EQ(transport->connectionState(id), state);
         states.push_back(state);
         if (onState) onState(state);
     }
-    void onTelemetry(const RobotTelemetry&) override { ++telemetry; }
+    void onTelemetry(const RobotTelemetry& sample) override { ++telemetry; samples.push_back(sample); }
     void onTransportError(const TransportError& error) override { errors.push_back(error); }
 };
+class MemoryLog final : public ILogSink {
+public:
+    void write(const LogRecord& record) override { records.push_back(record); }
+    std::vector<LogRecord> records;
+    bool contains(const std::string& text) const
+    {
+        return std::any_of(records.begin(), records.end(), [&](const auto& r) { return r.message.find(text) != std::string::npos; });
+    }
+};
 struct Fixture {
+    Logger logger{LogLevel::Debug};
+    std::shared_ptr<MemoryLog> logs = std::make_shared<MemoryLog>();
     FakeBleBackend* backend{};
     std::unique_ptr<BleTransport> transport;
     std::shared_ptr<Events> events = std::make_shared<Events>();
@@ -68,7 +107,8 @@ struct Fixture {
     {
         auto implementation = std::make_unique<FakeBleBackend>();
         backend = implementation.get();
-        transport = std::make_unique<BleTransport>(std::move(implementation), config);
+        logger.addSink(logs);
+        transport = std::make_unique<BleTransport>(std::move(implementation), config, logger.channel("ble"));
         events->transport = transport.get();
         transport->setEventSink(events);
     }
@@ -86,6 +126,26 @@ struct Fixture {
         ASSERT_EQ(transport->connectionState(robot), ConnectionState::Connected);
     }
 };
+RobotCommand freshVelocity(double value = 0.15, Duration validity = 250ms)
+{
+    return {VelocityCommand{value, -0.5}, MonotonicClock::now(), validity};
+}
+QByteArray telemetryBytes(std::uint16_t sequence, unsigned state = 1)
+{
+    auto bytes = QByteArray::fromHex("018007000104020140e20100480f94000080");
+    bytes[2] = static_cast<char>(sequence); bytes[3] = static_cast<char>(sequence >> 8);
+    bytes[4] = static_cast<char>(state);
+    return bytes;
+}
+QByteArray resultBytes(std::uint16_t sequence, std::uint16_t commandSequence = 0,
+                       unsigned code = 0, unsigned type = 2, unsigned state = 1)
+{
+    auto bytes = QByteArray::fromHex("018108000000020001");
+    bytes[2] = static_cast<char>(sequence); bytes[3] = static_cast<char>(sequence >> 8);
+    bytes[4] = static_cast<char>(commandSequence); bytes[5] = static_cast<char>(commandSequence >> 8);
+    bytes[6] = static_cast<char>(type); bytes[7] = static_cast<char>(code); bytes[8] = static_cast<char>(state);
+    return bytes;
+}
 TEST(BleTransportTest, DefersRequestsAndPublishesReadyOnlyAfterBackendSetup)
 {
     Fixture f;
@@ -260,7 +320,7 @@ TEST(BleTransportTest, DifferentRobotsShareScanAndHaveIndependentLinkStates)
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connected);
     EXPECT_EQ(f.transport->connectionState(RobotId{8}), ConnectionState::Fault);
 }
-TEST(BleTransportTest, CommandsExplicitlyFailWithoutWritesOrFakeTelemetry)
+TEST(BleTransportTest, CommandsRequireConnectionValidFreshIntentAndSupportedVersion)
 {
     Fixture f;
     RobotCommand command;
@@ -270,7 +330,12 @@ TEST(BleTransportTest, CommandsExplicitlyFailWithoutWritesOrFakeTelemetry)
     EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::NotConnected);
     f.ready();
     f.transport->sendCommand(robot, command); drain();
-    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::InvalidCommand);
+    command = {VelocityCommand{0.15, -0.5}, MonotonicClock::now(), 250ms};
+    f.transport->sendCommand(robot, command); drain();
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    EXPECT_EQ(f.backend->writes[0].frame.endpoint, BleEndpoint::Command);
+    EXPECT_FALSE(f.backend->writes[0].frame.withResponse);
     command.metadata.modelVersion = 99;
     f.transport->sendCommand(robot, command); drain();
     EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::UnsupportedVersion);
@@ -299,4 +364,271 @@ TEST(BleTransportTest, CancelsQueuedCallbacksOnDestructionAndUsesWeakSinks)
     emit detached.backend->ready(detached.backend->links.at(robot)); drain();
     EXPECT_EQ(detached.transport->connectionState(robot), ConnectionState::Connected);
 }
+TEST(BleTransportTest, CoalescesLatestVelocityAndKeepsStopAheadOfUnsentMotion)
+{
+    Fixture f;
+    f.ready();
+    for (int i = 1; i <= 100; ++i) f.transport->sendCommand(robot, freshVelocity(i / 1000.0));
+    EXPECT_TRUE(f.backend->writes.empty());
+    drain();
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    EXPECT_EQ(f.backend->writes[0].frame.bytes[4], 100);
+    f.backend->completeWrites = false;
+    RobotCommand stop{StopCommand{}, MonotonicClock::now(), 500ms};
+    f.transport->sendCommand(robot, stop); drain();
+    ASSERT_EQ(f.backend->writes.size(), 2U);
+    EXPECT_TRUE(f.backend->writes.back().frame.withResponse);
+    f.transport->sendCommand(robot, freshVelocity(0.1));
+    f.transport->sendCommand(robot, stop);
+    f.transport->sendCommand(robot, freshVelocity(0.2)); drain();
+    EXPECT_EQ(f.backend->writes.size(), 2U); // One pending slot, no native backlog.
+    emit f.backend->written(f.backend->links.at(robot), 1); drain();
+    ASSERT_EQ(f.backend->writes.size(), 3U);
+    EXPECT_EQ(f.backend->writes.back().frame.bytes[1], 1); // Stop retained.
+    EXPECT_EQ(f.backend->writes.back().request.sequence, 2);
+}
+TEST(BleTransportTest, RejectsExpiredPendingIntentAndNativeFreshnessFailureWithoutAllocatingSequence)
+{
+    Fixture f;
+    f.ready();
+    f.backend->completeWrites = false;
+    f.transport->sendCommand(robot, {StopCommand{}, MonotonicClock::now(), 1s}); drain();
+    f.transport->sendCommand(robot, freshVelocity(0.1, 10ms));
+    QElapsedTimer elapsed; elapsed.start();
+    ASSERT_TRUE(until([&] { return elapsed.elapsed() >= 15; }));
+    emit f.backend->written(f.backend->links.at(robot), 0); drain();
+    EXPECT_EQ(f.backend->writes.size(), 1U);
+    ASSERT_FALSE(f.events->errors.empty());
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::InvalidCommand);
+    f.backend->dispatchDelay = 1s;
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    EXPECT_EQ(f.backend->writes.size(), 1U);
+    f.backend->dispatchDelay = {};
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    ASSERT_EQ(f.backend->writes.size(), 2U);
+    EXPECT_EQ(f.backend->writes.back().request.sequence, 1);
+}
+TEST(BleTransportTest, PublishesOnlyValidatedTelemetryWithReceiptClockAndSharedUnwrappedSequence)
+{
+    Fixture f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    const auto receipt = MonotonicClock::now();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(65534), receipt);
+    EXPECT_EQ(f.events->telemetry, 0); drain();
+    ASSERT_EQ(f.events->samples.size(), 1U);
+    EXPECT_EQ(f.events->samples[0].robotId, robot);
+    EXPECT_EQ(f.events->samples[0].receivedAt, receipt);
+    EXPECT_EQ(f.events->samples[0].metadata.modelVersion, currentTransportModelVersion);
+    EXPECT_EQ(f.events->samples[0].metadata.sequence, 65534U);
+    EXPECT_DOUBLE_EQ(*f.events->samples[0].batteryVoltageVolts, 3.912);
+    EXPECT_FALSE(f.events->samples[0].angularRadiansPerSecond);
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(65535), MonotonicClock::now());
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(1), MonotonicClock::now());
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0), MonotonicClock::now());
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(1), MonotonicClock::now()); drain();
+    ASSERT_EQ(f.events->samples.size(), 2U);
+    EXPECT_EQ(f.events->samples.back().metadata.sequence, 65537U);
+    EXPECT_TRUE(f.logs->contains("gap=1"));
+    EXPECT_TRUE(f.logs->contains("robot_uptime_ms=123456"));
+    EXPECT_TRUE(f.logs->contains("last_accepted_sequence=258"));
+}
+TEST(BleTransportTest, InvalidFramesDoNotAdvanceReceiveCounterAndRepeatedFailuresFaultTheLink)
+{
+    Fixture f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    auto incompatible = telemetryBytes(20); incompatible[0] = 2;
+    emit f.backend->notification(token, BleEndpoint::Telemetry, incompatible, MonotonicClock::now()); drain();
+    ASSERT_EQ(f.events->errors.size(), 1U);
+    EXPECT_EQ(f.events->errors[0].operation, TransportOperation::ReceiveTelemetry);
+    EXPECT_EQ(f.events->errors[0].code, TransportErrorCode::UnsupportedVersion);
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    EXPECT_TRUE(f.backend->writes.empty()); // Invalid input is conservative for motion.
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0), MonotonicClock::now()); drain();
+    ASSERT_EQ(f.events->telemetry, 1);
+    EXPECT_EQ(f.events->samples.back().metadata.sequence, 0U);
+    for (int i = 0; i < 3; ++i)
+        emit f.backend->notification(token, BleEndpoint::CommandResult, telemetryBytes(1), MonotonicClock::now());
+    drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Fault);
+    EXPECT_EQ(f.events->telemetry, 1);
+    EXPECT_EQ(f.events->errors.back().operation, TransportOperation::ReceiveTelemetry);
+}
+TEST(BleTransportTest, CorrelatesCommandResultsAndMapsRejectionsWithoutTreatingAttAsAcceptance)
+{
+    Fixture f;
+    f.ready();
+    auto command = freshVelocity(); command.metadata.sequence = 123456;
+    f.transport->sendCommand(robot, command); drain();
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    EXPECT_TRUE(f.events->errors.empty());
+    EXPECT_EQ(f.events->telemetry, 0);
+    EXPECT_TRUE(f.logs->contains("domain_sequence=123456"));
+    emit f.backend->notification(f.backend->links.at(robot), BleEndpoint::CommandResult,
+        resultBytes(0, 0, 6), MonotonicClock::now()); drain();
+    ASSERT_EQ(f.events->errors.size(), 1U);
+    EXPECT_EQ(f.events->errors[0].operation, TransportOperation::SendCommand);
+    EXPECT_EQ(f.events->errors[0].code, TransportErrorCode::InvalidCommand);
+    EXPECT_NE(f.events->errors[0].message.find("OutOfRange"), std::string::npos);
+    EXPECT_TRUE(f.logs->contains("round_trip_us="));
+    EXPECT_TRUE(f.logs->contains("steady_us="));
+}
+TEST(BleTransportTest, DropsPendingWorkAndLateFramesAcrossDisconnectAndResetsBothCounters)
+{
+    Fixture f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    f.transport->sendCommand(robot, freshVelocity());
+    f.transport->disconnect(robot);
+    drain(); // The earlier command may hand off, but cannot outlive this generation.
+    emit f.backend->closed(token); drain();
+    const auto writes = f.backend->writes.size();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(500), MonotonicClock::now()); drain();
+    EXPECT_EQ(f.events->telemetry, 0);
+    f.ready();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(501), MonotonicClock::now());
+    emit f.backend->notification(f.backend->links.at(robot), BleEndpoint::Telemetry, telemetryBytes(0), MonotonicClock::now());
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    EXPECT_EQ(f.events->telemetry, 1);
+    EXPECT_EQ(f.events->samples.back().metadata.sequence, 0U);
+    ASSERT_EQ(f.backend->writes.size(), writes + 1);
+    EXPECT_EQ(f.backend->writes.back().request.sequence, 0);
+}
+TEST(BleTransportTest, EmergencyStopBypassesOrdinaryWriteSlotCancelsPendingMotionAndStopsRetriesOnTelemetry)
+{
+    BleTransportConfig config;
+    config.emergencyStopRetry = 10ms;
+    Fixture f{config};
+    f.ready();
+    f.backend->completeWrites = false;
+    f.transport->sendCommand(robot, {StopCommand{}, MonotonicClock::now(), 1s}); drain();
+    f.transport->sendCommand(robot, freshVelocity());
+    f.transport->requestEmergencyStop(robot); drain();
+    ASSERT_EQ(f.backend->writes.size(), 2U);
+    EXPECT_EQ(f.backend->writes[1].frame.endpoint, BleEndpoint::EmergencyStop);
+    EXPECT_TRUE(f.backend->writes[1].frame.withResponse);
+    EXPECT_EQ(f.backend->writes[1].frame.bytes[1], 3);
+    emit f.backend->written(f.backend->links.at(robot), 1);
+    f.backend->completeWrites = true;
+    ASSERT_TRUE(until([&] { return f.backend->writes.size() >= 3; }));
+    EXPECT_EQ(f.backend->writes.back().request.sequence, 2);
+    emit f.backend->notification(f.backend->links.at(robot), BleEndpoint::Telemetry,
+        telemetryBytes(0, 2), MonotonicClock::now()); drain();
+    const auto count = f.backend->writes.size();
+    QElapsedTimer elapsed; elapsed.start();
+    ASSERT_TRUE(until([&] { return elapsed.elapsed() >= 30; }));
+    EXPECT_EQ(f.backend->writes.size(), count);
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::InvalidCommand);
+}
+TEST(BleTransportTest, ReassertsEmergencyIntentBeforePublishingConnectedAfterReconnect)
+{
+    Fixture f;
+    f.transport->requestEmergencyStop(robot);
+    f.connecting();
+    const auto token = f.backend->links.at(robot);
+    emit f.backend->ready(token); drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connecting);
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    EXPECT_EQ(f.backend->writes[0].frame.endpoint, BleEndpoint::EmergencyStop);
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(0, 0, 0, 3, 2), MonotonicClock::now()); drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connected);
+    f.transport->disconnect(robot); drain(); emit f.backend->closed(token); drain();
+    f.connecting(); emit f.backend->ready(f.backend->links.at(robot)); drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connecting);
+    ASSERT_EQ(f.backend->writes.size(), 2U);
+    EXPECT_EQ(f.backend->writes.back().request.sequence, 0);
+}
+TEST(BleTransportTest, WriteErrorsAndMissingAttConfirmationFaultTheSession)
+{
+    Fixture f;
+    f.ready();
+    emit f.backend->writeFailed(f.backend->links.at(robot), "Injected GATT write error"); drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Fault);
+    EXPECT_EQ(f.events->errors.back().operation, TransportOperation::SendCommand);
+    BleTransportConfig config; config.phaseTimeout = 15ms;
+    Fixture silent{config};
+    silent.ready(); silent.backend->completeWrites = false;
+    silent.transport->sendCommand(robot, {StopCommand{}, MonotonicClock::now(), 1s}); drain();
+    ASSERT_TRUE(until([&] { return silent.transport->connectionState(robot) == ConnectionState::Fault; }));
+    EXPECT_EQ(silent.events->errors.back().operation, TransportOperation::SendCommand);
+}
+TEST(BleTransportTest, RobotFaultAndEmergencyStatusBlockVelocityUntilValidReadyStatusReturns)
+{
+    Fixture f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    for (const auto state : {2U, 3U}) {
+        emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(static_cast<std::uint16_t>(state), state), MonotonicClock::now()); drain();
+        f.transport->sendCommand(robot, freshVelocity()); drain();
+        EXPECT_TRUE(f.backend->writes.empty());
+    }
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(4, 0), MonotonicClock::now()); drain();
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    EXPECT_EQ(f.backend->writes.size(), 1U);
+}
+TEST(BleTransportTest, BoundsCorrelationHistoryAndRateLimitsToNewestPendingVelocity)
+{
+    BleTransportConfig config;
+    config.maximumTrackedCommands = 1;
+    config.minimumVelocityInterval = 30ms;
+    Fixture f{config};
+    f.ready();
+    f.transport->sendCommand(robot, freshVelocity(0.1)); drain();
+    f.transport->sendCommand(robot, freshVelocity(0.2)); drain();
+    EXPECT_EQ(f.backend->writes.size(), 1U);
+    f.transport->sendCommand(robot, freshVelocity(0.25)); drain();
+    ASSERT_TRUE(until([&] { return f.backend->writes.size() == 2; }));
+    EXPECT_EQ(f.backend->writes.back().frame.bytes[4], 250);
+    emit f.backend->notification(f.backend->links.at(robot), BleEndpoint::CommandResult,
+        resultBytes(0, 0), MonotonicClock::now()); drain();
+    EXPECT_TRUE(f.logs->contains("round_trip_us=unknown")); // Evicted entry is not an invented RTT.
+}
+TEST(BleTransportTest, PhaseObserversCannotSubmitCommandsAfterIoHasBeenInvalidated)
+{
+    Fixture f;
+    f.ready();
+    QObject::connect(f.transport.get(), &BleTransport::phaseChanged, f.transport.get(),
+        [&](RobotId id, BlePhase phase) {
+            if (phase == BlePhase::Disconnecting || phase == BlePhase::Fault)
+                f.transport->sendCommand(id, freshVelocity());
+        });
+    f.transport->disconnect(robot); drain();
+    EXPECT_TRUE(f.backend->writes.empty());
+    ASSERT_FALSE(f.events->errors.empty());
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::NotConnected);
+    emit f.backend->closed(f.backend->links.at(robot)); drain();
+    f.ready();
+    emit f.backend->writeFailed(f.backend->links.at(robot), "Injected write failure"); drain();
+    EXPECT_TRUE(f.backend->writes.empty());
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::NotConnected);
+}
+#if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
+TEST(BleTransportTest, ValidatedWireTelemetryAndErrorsReachDesktopServicesWithoutWidgets)
+{
+    Fixture f;
+    WorldModel world;
+    DesktopController desktop{*f.transport, world, robot, f.logger.channel("desktop")};
+    QString telemetry, error;
+    QObject::connect(&desktop, &DesktopController::telemetryDescriptionChanged, &desktop,
+        [&](const QString& text) { telemetry = text; });
+    QObject::connect(&desktop, &DesktopController::errorOccurred, &desktop,
+        [&](const QString& text) { error = text; });
+    desktop.initialize(MonotonicClock::now());
+    desktop.connectRobot(); drain();
+    f.backend->found(); f.backend->finish(); drain();
+    const auto token = f.backend->links.at(robot);
+    emit f.backend->ready(token); drain();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0), MonotonicClock::now()); drain();
+    EXPECT_TRUE(telemetry.contains(QStringLiteral("3.91 V")));
+    ASSERT_TRUE(world.robot(robot));
+    EXPECT_FALSE(world.robot(robot)->pose); // Telemetry cannot invent an authoritative camera pose.
+    auto malformed = telemetryBytes(1); malformed[0] = 2;
+    emit f.backend->notification(token, BleEndpoint::Telemetry, malformed, MonotonicClock::now()); drain();
+    EXPECT_TRUE(error.contains(QStringLiteral("Unsupported BLE wire version")));
+    desktop.shutdown(); drain(); emit f.backend->closed(token); drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
+}
+#endif
 } // namespace
