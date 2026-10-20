@@ -152,6 +152,8 @@ void MainWindow::bindCalibration(CalibrationController& calibration)
     action->setObjectName(QStringLiteral("openCalibration"));
     auto* layout = qobject_cast<QVBoxLayout*>(centralWidget()->layout());
     layout->insertWidget(3, action);
+    // Keyboard focus follows the visual order, after the camera selector.
+    setTabOrder(cameraSelector_, action);
     auto* wizard = new CalibrationWizard(calibration, this);
     calibrationWizard_ = wizard;
     // A child dialog must not trigger application shutdown on its own.
