@@ -16,7 +16,7 @@ issues.
 | GCC or Clang with C++20 | GCC 11 / Clang 14 | `build-essential` (GCC 13), `clang` (18) |
 | Ninja (used by presets and examples) | any recent | `ninja-build` |
 | Qt 6 Widgets and Multimedia (desktop build) | Qt 6 | `qt6-base-dev`, `qt6-multimedia-dev` |
-| OpenCV core/imgproc/videoio (replay and the V4L2 camera backend, both default ON) | OpenCV 4 | `libopencv-dev` |
+| OpenCV core/imgproc/videoio (replay/V4L2), calib3d (calibration), aruco (4.2–4.6) or objdetect (4.7+, AprilTag desktop detector) | OpenCV 4.2 for vision | `libopencv-dev` |
 | GoogleTest (tests, default ON) | — | `libgtest-dev` (otherwise 1.17.0 is downloaded) |
 
 ```sh

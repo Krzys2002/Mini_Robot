@@ -6,5 +6,8 @@
 - Printable A4 sheets: [40 mm footprint](markers/tag36h11-40mm-a4.svg) and
   [20 mm footprint](markers/tag36h11-20mm-a4.svg), each containing IDs 0–15.
 
-Detector integration into timestamped frames belongs to Issue #50; this selection
-and its offline tools do not add a live perception pipeline.
+- [AprilTag frame detection](apriltag-detection.md): timestamped multi-tag observations,
+  OpenCV adapter, bounded worker, replay tests and remaining physical acceptance.
+
+Selection/print tooling is separate from runtime detection. Image-to-world pose
+conversion, robot association and tracking remain future work.

@@ -30,6 +30,7 @@ selection rather than reporting successful verification with no tests run.
 
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
+| `micro_robot_vision_tests` | `vision` | AprilTag formats/stride, canonical rotations, multiple IDs, invalid inputs, negative scenes and generated-video replay; desktop or standalone vision ON |
 | `micro_robot_calibration_tests` | `core`, `calibration` | Capture state, target geometry, quality gates, diversity, duplicate detection and memory limits |
 | `micro_robot_calibration_detector_tests` | `calibration` | Generated chessboards, color/stride formats, rotation/perspective, blur/partial/blank inputs; built with desktop or standalone calibration enabled |
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
@@ -43,7 +44,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
 | `micro_robot_marker_tests` (opt-in) | `markers` | [AprilTag print tooling](../vision/apriltag-selection.md): all 16 IDs and rotations, quiet margins, invalid inputs, and reproducibility of committed SVG sheets |
-| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection and calibration wizard lifecycle; with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
+| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection, calibration wizard and bounded vision-worker lifecycle; with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
 | `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs, Qt platform macros, or concrete-backend includes in platform-independent targets; scanner and link-check self-tests |
 
 The camera suite currently has no CTest label; `-L core` does not include it.
@@ -230,3 +231,18 @@ Register a new platform-independent source target with
 `micro_robot_platform_boundary()` so its boundary checks run; platform adapters
 stay unregistered. Keep pure logic tests independent of widgets and physical backends. Future path
 or calibration tests should use deterministic inputs through their module APIs.
+
+## AprilTag pipeline verification
+
+The desktop enables the detector and adds the required OpenCV ArUco/objdetect
+component. For a Qt-free detector/replay build use desktop OFF and
+`MICRO_ROBOT_BUILD_VISION=ON`; see the [vision build guide](../vision/apriltag-detection.md#build-and-verification).
+Run detector, replay and GUI-worker tests together with:
+
+```sh
+ctest --test-dir build -R '^(AprilTag|VisionControllerTest)' --output-on-failure --no-tests=error
+```
+
+Physical printed-tag detection is not established by generated images or videos;
+record the [commissioning checks](../vision/apriltag-detection.md#physical-acceptance-not-run)
+separately. Linux/Windows runtime and legacy OpenCV execution were not run locally.
