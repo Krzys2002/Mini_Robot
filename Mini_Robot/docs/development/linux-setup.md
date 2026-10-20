@@ -16,7 +16,7 @@ issues.
 | GCC or Clang with C++20 | GCC 11 / Clang 14 | `build-essential` (GCC 13), `clang` (18) |
 | Ninja (used by presets and examples) | any recent | `ninja-build` |
 | Qt 6 Widgets and Multimedia (desktop build) | Qt 6 | `qt6-base-dev`, `qt6-multimedia-dev` |
-| OpenCV core/imgproc/videoio (replay, default ON) | OpenCV 4 | `libopencv-dev` |
+| OpenCV core/imgproc/videoio (replay and the V4L2 camera backend, both default ON) | OpenCV 4 | `libopencv-dev` |
 | GoogleTest (tests, default ON) | — | `libgtest-dev` (otherwise 1.17.0 is downloaded) |
 
 ```sh
@@ -67,8 +67,9 @@ cmake --build build/linux-clang --parallel
 ctest --test-dir build/linux-clang --output-on-failure --no-tests=error
 ```
 
-Append `-DMICRO_ROBOT_BUILD_REPLAY=OFF` to a configure command when OpenCV is not
-installed. CTest's Qt test entry point selects offscreen mode. Launch the demo in
+Append `-DMICRO_ROBOT_BUILD_REPLAY=OFF -DMICRO_ROBOT_CAMERA_BACKEND=Qt` to a configure
+command when OpenCV is not installed; the second option replaces the default
+[V4L2 camera backend](../overview/camera-backends.md) with Qt Multimedia. CTest's Qt test entry point selects offscreen mode. Launch the demo in
 a real GUI session with `./build/linux-gcc/src/micro_robot_desktop`. Startup,
 resizing, input, display scaling, and X11/Wayland behavior require separate manual
 checks. For Wayland plugin issues, inspect the Qt platform plugins installed on the
@@ -101,20 +102,65 @@ and [Clang run](https://github.com/Krzys2002/Mini_Robot/actions/runs/39126604407
 These results cover the earlier PR revision; updated revisions must pass their own
 checks. The minimum compiler versions listed above remain unverified.
 
+For #128, on the same host (kernel 7.0.0) with the source tree at that change:
+
+| Configuration | Result |
+| --- | --- |
+| `linux-gcc` preset (V4L2 camera backend) | Built without warnings; 179/179 CTest cases passed, 2 hardware cases skipped without a camera variable |
+| `linux-clang` preset (V4L2 camera backend) | Built without warnings; 179/179 CTest cases passed, 2 skipped as above |
+| GCC, `-DMICRO_ROBOT_CAMERA_BACKEND=Qt` | Built without warnings; 167/167 CTest cases passed |
+| GCC, desktop and replay OFF (no Qt, no OpenCV) | Built; 117/117 CTest cases passed |
+| `V4l2CameraHardwareTest` with `/dev/video0` (integrated USB UVC camera) | Passed at the default size, `1280x720`, and `640x480`; see [camera backends](../overview/camera-backends.md#verification) |
+
 ## Replay, camera, and BLE dependencies
 
-OpenCV core/imgproc/videoio now decode [recorded local video](../overview/recorded-video.md).
-Install `libopencv-dev` for this adapter, or configure `MICRO_ROBOT_BUILD_REPLAY=OFF`
-to omit it. Replay tests require an MJPEG writer/decoder. BlueZ is not used by
-current [source targets](../../src/CMakeLists.txt); installing it does not enable BLE. Qt Multimedia now queries
-the system camera inventory through [the discovery adapter](../overview/camera-discovery.md);
-Linux device visibility/hotplug has not been tested. V4L2 capture, configurable
-resolution, and permission handling belong to #128; Qt Bluetooth/BlueZ integration
-belongs to #129. Those issues must select and document their exact packages.
+OpenCV core/imgproc/videoio decode [recorded local video](../overview/recorded-video.md)
+and, through OpenCV's V4L2 backend, capture from cameras (#128). `libopencv-dev`
+covers both. No other camera package is needed: the V4L2 kernel headers come with
+the C library development files that `build-essential` installs. `v4l-utils`
+(`v4l2-ctl`) is optional for diagnosis. Replay tests require an MJPEG
+writer/decoder. BlueZ is not used by
+current [source targets](../../src/CMakeLists.txt); installing it does not enable BLE.
+Qt Bluetooth/BlueZ integration belongs to #129, which must select and document its
+exact packages.
 
-Camera adapters will need to report missing devices and permissions for
-`/dev/video*`; inspect device ownership/ACLs and use the distribution's appropriate
-device-access policy. Avoid running the whole GUI as root to bypass access errors.
+## Camera device access (`/dev/video*`)
+
+Each camera appears as a V4L2 node such as `/dev/video0`. UVC cameras usually add
+a second metadata node (`/dev/video1`), which the application hides. Nodes belong
+to `root:video` with mode `0660`, so the application needs one of:
+
+- **A local desktop session (usual case).** systemd-logind and udev give the user
+  at the active seat an ACL on each camera node. No group membership is needed.
+  Check with `getfacl /dev/video0`; expect a line such as `user:<you>:rw-`.
+- **SSH, other non-seat sessions, or no logind.** Add the user to the `video` group,
+  then log out and back in (or reboot) so that `id` lists `video`:
+
+  ```sh
+  sudo usermod -aG video "$USER"
+  ```
+
+- **Containers.** Pass the node into the container (for example
+  `--device /dev/video0`) and run as a user with access to it.
+
+Do not run the GUI as root or make nodes world-writable (`chmod 666`) to bypass
+access errors.
+
+Diagnosis:
+
+| Symptom | Check |
+| --- | --- |
+| No camera listed | `ls /sys/class/video4linux` and `ls -l /dev/video*`; check that the kernel driver loaded (`sudo dmesg \| grep -i uvc`). |
+| Camera listed, Start reports "Camera permission denied for /dev/videoN" | `ls -l /dev/videoN`, `getfacl /dev/videoN`, `id`; fix access as above, then press Start again. A camera whose capability query is denied is still listed, so the failure is explicit. |
+| Start reports "... cannot open /dev/videoN; it may be in use by another application" | Close other capture applications (browser, video call, `cheese`); `fuser /dev/videoN` names them. |
+| A requested resolution is not delivered | Look for `camera_resolution_fallback` in stderr; `v4l2-ctl -d /dev/videoN --list-formats-ext` lists supported modes. |
+
+Inventory and capture logs use the Qt categories `micro_robot.camera.discovery` and
+`micro_robot.camera.capture`:
+
+```sh
+QT_LOGGING_RULES='micro_robot.camera.*=true' ./build/linux-gcc/src/micro_robot_desktop
+```
 BLE validation requires a compatible adapter, BlueZ service, and robot hardware;
 none are required for the current fake transport or automated domain tests.
 

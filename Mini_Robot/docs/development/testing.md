@@ -42,7 +42,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink |
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
-| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection and calibration wizard lifecycle |
+| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection and calibration wizard lifecycle; with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
 | `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs, Qt platform macros, or concrete-backend includes in platform-independent targets; scanner and link-check self-tests |
 
 The camera suite currently has no CTest label; `-L core` does not include it.
@@ -62,6 +62,13 @@ renames, plain-text presentation, and subscription teardown. Camera contract
 tests also compile the discovery and factory interfaces and the selection rules
 without Qt. Physical visibility/hotplug checks are listed
 in [camera discovery](../overview/camera-discovery.md).
+
+With the Linux V4L2 backend, `micro_robot_tests` also contains `V4l2DiscoveryScanTest`,
+`V4l2CameraDeviceDiscoveryTest`, and `V4l2CameraSourceTest`. They use temporary
+sysfs/dev trees and need no camera. `V4l2CameraHardwareTest` cases are reported as
+skipped unless `MICRO_ROBOT_TEST_V4L2_DEVICE` names a camera node; see
+[camera backends](../overview/camera-backends.md#verification) for the command and
+the optional resolution check.
 
 World tests cover insert/query/update/removal, unknown poses, duplicate IDs,
 finite-pose validation, per-robot timestamp ordering (including rejected updates),

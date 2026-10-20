@@ -1,5 +1,6 @@
 #pragma once
 
+#include "camera/CameraTypes.hpp"
 #include "common/RobotId.hpp"
 #include "infrastructure/logging/LogRecord.hpp"
 
@@ -35,9 +36,15 @@ struct SimulationConfig {
     std::chrono::milliseconds telemetryInterval{0};
 };
 
+struct CameraConfig {
+    // Applied by the live camera backend to every device it opens.
+    CameraCaptureSettings capture;
+};
+
 struct ApplicationConfig {
     LoggingConfig logging;
     RobotConfig robot;
+    CameraConfig camera;
     SimulationConfig simulation;
 };
 

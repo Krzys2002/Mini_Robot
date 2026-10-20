@@ -29,6 +29,12 @@ reports are scope/history, not evidence that future modules are present.
 | [src/camera/QtCameraSource.cpp](../../src/camera/QtCameraSource.cpp) | [Native camera streaming](camera-streaming.md) |
 | [src/camera/QtCameraDeviceDiscovery.cpp](../../src/camera/QtCameraDeviceDiscovery.cpp) | [Qt discovery adapter](camera-discovery.md) |
 | [src/camera/QtCameraDeviceDiscovery.hpp](../../src/camera/QtCameraDeviceDiscovery.hpp) | [Qt discovery adapter](camera-discovery.md) |
+| [src/camera/V4l2Device.hpp](../../src/camera/V4l2Device.hpp) | [Linux discovery](camera-backends.md#linux-discovery) |
+| [src/camera/V4l2Device.cpp](../../src/camera/V4l2Device.cpp) | [Linux discovery](camera-backends.md#linux-discovery) |
+| [src/camera/V4l2CameraDeviceDiscovery.hpp](../../src/camera/V4l2CameraDeviceDiscovery.hpp) | [Linux discovery](camera-backends.md#linux-discovery) |
+| [src/camera/V4l2CameraDeviceDiscovery.cpp](../../src/camera/V4l2CameraDeviceDiscovery.cpp) | [Linux discovery](camera-backends.md#linux-discovery) |
+| [src/camera/V4l2CameraSource.hpp](../../src/camera/V4l2CameraSource.hpp) | [Linux capture](camera-backends.md#linux-capture-and-failures) |
+| [src/camera/V4l2CameraSource.cpp](../../src/camera/V4l2CameraSource.cpp) | [Linux capture](camera-backends.md#linux-capture-and-failures) |
 | [src/camera/RecordedVideoSource.cpp](../../src/camera/RecordedVideoSource.cpp) | [Replay adapter](recorded-video.md) |
 | [src/camera/RecordedVideoSource.hpp](../../src/camera/RecordedVideoSource.hpp) | [Replay configuration and driving](recorded-video.md) |
 | [src/common/Pose2D.hpp](../../src/common/Pose2D.hpp) | [common](architecture.md#domain-conventions) |
@@ -76,14 +82,15 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_calibration_opencv | calibration, private OpenCV core/imgproc and calib3d (4.x) or objdetect (5.x) |
 | micro_robot_control | micro_robot_common, micro_robot_transport_api (domain values only) |
 | micro_robot_camera_discovery | camera API, Qt6::Multimedia |
+| micro_robot_camera_v4l2 | camera API, Qt6::Core, private OpenCV core/imgproc/videoio; Linux only, when `MICRO_ROBOT_CAMERA_BACKEND=V4L2` |
 | micro_robot_camera_replay | camera API, private OpenCV core/imgproc/videoio |
 | micro_robot_world | micro_robot_common |
 | micro_robot_logging | micro_robot_common |
-| micro_robot_configuration | micro_robot_common, micro_robot_logging |
+| micro_robot_configuration | micro_robot_common, camera API (value types), micro_robot_logging |
 | micro_robot_simulation | camera and transport API targets, logging |
 | micro_robot_desktop_controller | camera API, camera selection, transport API, world, logging, calibration, Qt6::Core |
 | micro_robot_ui | controller, Qt6::Widgets |
-| micro_robot_desktop | UI, simulation, camera discovery, calibration detector, logging, configuration |
+| micro_robot_desktop | UI, simulation, live camera adapter (camera V4L2 or camera discovery), calibration detector, logging, configuration |
 
 See [root configuration](../../CMakeLists.txt), [platform/toolchain module](../../cmake/MicroRobotPlatform.cmake), and [test targets](../../tests/CMakeLists.txt).
 Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
@@ -101,7 +108,7 @@ window are implemented. Discovery diagnostics use a separate Qt logging category
 There are no intrinsic solver/profile persistence, robot tracking, planning, supervisory controller,
 physical BLE, Zigbee, or structured measurement-recording modules. Qt Multimedia
 is isolated in the concrete discovery and [streaming](camera-streaming.md) adapters. OpenCV is isolated in the optional
-replay adapter and calibration detector; other proposed dependencies are absent from current CMake targets.
+replay adapter, calibration detector and the Linux [V4L2 camera adapter](camera-backends.md); other proposed dependencies are absent from current CMake targets.
 The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.
 

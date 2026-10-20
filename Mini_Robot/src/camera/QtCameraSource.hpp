@@ -15,10 +15,11 @@ namespace micro_robot {
 // Device loss, invalid frames, or a three-second capture stall are recoverable
 // terminal states; Start recreates capture. Native capture and pixel conversion
 // run on a dedicated worker; frame delivery has a single latest-frame slot.
-// Creation does not open the device.
+// Creation does not open the device. A requested resolution selects the device's
+// fastest format of exactly that size; without one, Qt's default format is kept.
 class QtCameraSource final : public QObject, public ICameraSource {
 public:
-    explicit QtCameraSource(CameraDevice device);
+    explicit QtCameraSource(CameraDevice device, CameraCaptureSettings settings = {});
     ~QtCameraSource() override;
     QtCameraSource(const QtCameraSource&) = delete;
     QtCameraSource& operator=(const QtCameraSource&) = delete;
@@ -36,6 +37,7 @@ private:
     void receiveError(std::uint64_t generation, const CameraError& error);
 
     CameraDevice device_;
+    CameraCaptureSettings settings_;
     std::weak_ptr<ICameraEvents> sink_;
     QThread worker_;
     Backend* backend_{}; // Worker thread deletes it when that thread finishes.
@@ -47,8 +49,12 @@ private:
 
 class QtCameraSourceFactory final : public ICameraSourceFactory {
 public:
+    explicit QtCameraSourceFactory(CameraCaptureSettings settings = {});
     [[nodiscard]] bool supports(const CameraDevice& device) const override;
     [[nodiscard]] std::unique_ptr<ICameraSource> create(const CameraDevice& device) override;
+
+private:
+    CameraCaptureSettings settings_;
 };
 
 } // namespace micro_robot

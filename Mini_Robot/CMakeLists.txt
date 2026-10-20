@@ -16,7 +16,8 @@ option(MICRO_ROBOT_BUILD_CALIBRATION "Build the OpenCV calibration detector with
 if(MICRO_ROBOT_BUILD_REPLAY OR MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     find_package(OpenCV REQUIRED COMPONENTS core imgproc)
     set(_opencv_components core imgproc)
-    if(MICRO_ROBOT_BUILD_REPLAY)
+    if(MICRO_ROBOT_BUILD_REPLAY
+       OR (MICRO_ROBOT_BUILD_DESKTOP AND MICRO_ROBOT_CAMERA_BACKEND STREQUAL "V4L2"))
         list(APPEND _opencv_components videoio)
     endif()
     if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
@@ -31,6 +32,7 @@ if(MICRO_ROBOT_BUILD_REPLAY OR MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CA
 endif()
 if(MICRO_ROBOT_BUILD_DESKTOP)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
+    message(STATUS "Micro Robot: live camera backend ${MICRO_ROBOT_CAMERA_BACKEND}")
 endif()
 
 add_subdirectory(src)
