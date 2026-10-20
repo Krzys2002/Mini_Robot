@@ -58,6 +58,7 @@ target_link_libraries(micro_robot_transport_api INTERFACE micro_robot_common)
 target_sources(micro_robot_transport_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/transport/TransportTypes.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/transport/IRobotTransport.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/transport/IRobotDiscovery.hpp"
 )
 micro_robot_platform_boundary(micro_robot_transport_api)
 
