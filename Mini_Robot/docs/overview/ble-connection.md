@@ -5,6 +5,10 @@ Issue #65 adds the Qt Bluetooth Central adapter behind
 their GATT service and identity, enables notifications and publishes domain
 connection/error events. Radio-specific objects stay inside `QtBleBackend`.
 
+At the maintainer's request, #65 tracks software implementation and automated
+acceptance. Physical ESP32-C6 acceptance is tracked separately in
+[#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
+
 This is a connection-only implementation. `sendCommand()` asynchronously reports
 `Unavailable` on a connected link, `NotConnected` otherwise, or
 `UnsupportedVersion` for unsupported domain versions. No motor command is sent.
@@ -153,8 +157,10 @@ Physical acceptance remains required; it was **not run**:
 7. Record actual hardware, firmware, Qt/OS versions and logs. Repeat on Linux
    with BlueZ and later Windows; no platform success is inferred from fake tests.
 
-The ESP32-C6 repeated discovery/connect acceptance criterion stays unchecked in
-#65 until these physical results exist. Command delivery/telemetry validation
+The ESP32-C6 repeated discovery/connect acceptance criterion and unexecuted
+hardware checks are tracked in [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
+Record actual physical results and logs there; #65's deterministic acceptance
+does not claim physical success. Command delivery/telemetry validation
 belongs to #66 after this lifecycle work is available.
 
 Qt references: [device discovery](https://doc.qt.io/qt-6/qbluetoothdevicediscoveryagent.html),
@@ -182,4 +188,5 @@ On macOS with Apple Clang 21, Qt 6 and OpenCV 5.0.0:
 - `git diff --check` and local documentation-link checks: passed.
 - Not run: physical ESP32-C6 discovery/connect, actual permission prompts,
   real GATT/CCCD transactions, radio-loss/cancellation/shutdown on hardware,
-  Linux BlueZ/X11/Wayland and Windows runtime. Physical acceptance remains open.
+  Linux BlueZ/X11/Wayland and Windows runtime. Physical acceptance remains open
+  in [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
