@@ -120,9 +120,11 @@ On macOS / AppleClang 21 / Qt 6 / OpenCV 5.0.0, Debug with Ninja and cached Goog
   **144/144 passed**, without Qt.
 - Core configure/build in `build/issue-50-core`, with desktop/calibration/replay/
   vision OFF, passed. Unfiltered CTest: **126/126 passed**, without Qt or OpenCV.
-- The first full desktop run had one failure in the existing camera-silence
-  timer test. Its isolated rerun and the final full 205-test run passed; the
-  unrelated test/implementation were not changed.
+- The initial desktop run and first macOS CI run exposed a camera-silence test
+  race: its coarse timeout could fire before the production precise expiry timer.
+  The test now waits for the actual stale-frame signal with a separate precise
+  watchdog; the production timeout is unchanged. The revised test passed five
+  consecutive local runs using CTest `--repeat until-fail:5`.
 - Diff whitespace checks and all 253 local link targets in changed documentation
   passed. Physical and other-platform results below remain unverified.
 
