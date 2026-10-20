@@ -1,5 +1,17 @@
 include(GoogleTest)
 
+add_executable(micro_robot_ble_contract_tests transport/BleTypesTest.cpp)
+target_link_libraries(micro_robot_ble_contract_tests PRIVATE micro_robot_ble_contract GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_ble_contract_tests)
+gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;ble")
+
+if(MICRO_ROBOT_BUILD_BLE)
+    add_executable(micro_robot_ble_tests transport/ble-main.cpp transport/BleTransportTest.cpp)
+    target_link_libraries(micro_robot_ble_tests PRIVATE micro_robot_ble_qt GTest::gtest)
+    micro_robot_target_defaults(micro_robot_ble_tests)
+    gtest_discover_tests(micro_robot_ble_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "ble")
+endif()
+
 if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
     add_executable(micro_robot_marker_tests vision/MarkerPrintTest.cpp)
     target_link_libraries(micro_robot_marker_tests PRIVATE micro_robot_marker_print GTest::gtest_main)

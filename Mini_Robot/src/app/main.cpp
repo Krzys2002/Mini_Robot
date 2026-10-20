@@ -14,6 +14,10 @@
 #include "infrastructure/logging/LogSinks.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include "simulation/SimulationTransport.hpp"
+#if defined(MICRO_ROBOT_HAS_BLE)
+#include "transport/ble/BleTransport.hpp"
+#include "transport/ble/QtBleBackend.hpp"
+#endif
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -60,6 +64,9 @@ int main(int argc, char* argv[])
         QStringLiteral("Load settings from <file> instead of the per-user configuration file."),
         QStringLiteral("file")};
     arguments.addOption(configOption);
+    const QCommandLineOption bleOption{QStringLiteral("ble"),
+        QStringLiteral("Use the connection-only BLE transport instead of simulation (requires BLE build).")};
+    arguments.addOption(bleOption);
     arguments.process(application);
 
     using namespace micro_robot;
@@ -117,8 +124,23 @@ int main(int argc, char* argv[])
     }
     SimulationTransportConfig transportConfig;
     transportConfig.telemetryInterval = config.simulation.telemetryInterval;
-    auto transport = std::make_unique<SimulationTransport>(transportConfig,
-                                                           logger.channel("simulation"));
+    std::unique_ptr<IRobotTransport> transport;
+    SimulationTransport* simulation = nullptr; // Non-owning alias, only in simulation mode.
+    if (arguments.isSet(bleOption)) {
+#if defined(MICRO_ROBOT_HAS_BLE)
+        auto ble = std::make_unique<BleTransport>(makeQtBleBackend(), BleTransportConfig{}, logger.channel("ble"));
+        QObject::connect(ble.get(), &BleTransport::phaseChanged, &application,
+            [appLog](RobotId id, BlePhase phase) { appLog.info(std::string{"BLE setup: "} + blePhaseName(phase), id); });
+        transport = std::move(ble);
+#else
+        appLog.error("BLE support was not built; configure with -DMICRO_ROBOT_BUILD_BLE=ON");
+        return 2;
+#endif
+    } else {
+        auto backend = std::make_unique<SimulationTransport>(transportConfig, logger.channel("simulation"));
+        simulation = backend.get();
+        transport = std::move(backend);
+    }
     CameraDiscovery cameraDiscovery;
     WorldModel world;
     const RobotId robotId = config.robot.id;
@@ -166,8 +188,8 @@ int main(int argc, char* argv[])
                      [&robotConnected](const QString&, bool connected) { robotConnected = connected; });
     QObject::connect(&simulationTimer, &QTimer::timeout, &window, [&] {
         const auto now = MonotonicClock::now();
-        transport->advanceTo(now);
-        if (robotConnected) {
+        if (simulation) simulation->advanceTo(now);
+        if (simulation && robotConnected) {
             // Explicit demo observation, independent of camera frames or telemetry.
             // No tracking, filtering, physics, or closed-loop control is performed.
             (void)controller.applyPose(robotId,
@@ -180,7 +202,7 @@ int main(int argc, char* argv[])
         calibration.shutdown();
         controller.shutdown();
         const auto now = MonotonicClock::now();
-        transport->advanceTo(now);
+        if (simulation) simulation->advanceTo(now);
     });
 
     controller.initialize(MonotonicClock::now());
