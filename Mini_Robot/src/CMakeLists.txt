@@ -61,7 +61,8 @@ target_sources(micro_robot_transport_api INTERFACE
 )
 micro_robot_platform_boundary(micro_robot_transport_api)
 
-add_library(micro_robot_ble_contract STATIC transport/ble/BleTypes.hpp transport/ble/BleTypes.cpp)
+add_library(micro_robot_ble_contract STATIC transport/ble/BleTypes.hpp transport/ble/BleTypes.cpp
+    transport/ble/BleProtocol.hpp transport/ble/BleProtocol.cpp)
 target_link_libraries(micro_robot_ble_contract PUBLIC micro_robot_transport_api)
 micro_robot_target_defaults(micro_robot_ble_contract)
 micro_robot_platform_boundary(micro_robot_ble_contract)
