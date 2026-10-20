@@ -95,7 +95,9 @@ add_library(micro_robot_configuration STATIC
     infrastructure/configuration/ConfigLoader.hpp
     infrastructure/configuration/ConfigLoader.cpp
 )
-target_link_libraries(micro_robot_configuration PUBLIC micro_robot_common micro_robot_logging)
+target_link_libraries(micro_robot_configuration PUBLIC
+    micro_robot_common micro_robot_camera_api micro_robot_logging
+)
 micro_robot_target_defaults(micro_robot_configuration)
 micro_robot_platform_boundary(micro_robot_configuration)
 
@@ -138,6 +140,28 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     )
     micro_robot_target_defaults(micro_robot_camera_discovery)
 
+    if(MICRO_ROBOT_CAMERA_BACKEND STREQUAL "V4L2")
+        # Linux inventory from V4L2 device nodes; capture through OpenCV's V4L2 backend.
+        # Qt Core provides the owner-thread event delivery and the capture worker.
+        add_library(micro_robot_camera_v4l2 STATIC
+            camera/V4l2Device.hpp
+            camera/V4l2Device.cpp
+            camera/V4l2CameraDeviceDiscovery.hpp
+            camera/V4l2CameraDeviceDiscovery.cpp
+            camera/V4l2CameraSource.hpp
+            camera/V4l2CameraSource.cpp
+        )
+        target_link_libraries(micro_robot_camera_v4l2
+            PUBLIC micro_robot_camera_api Qt6::Core
+            PRIVATE ${OpenCV_LIBS}
+        )
+        target_include_directories(micro_robot_camera_v4l2 SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+        micro_robot_target_defaults(micro_robot_camera_v4l2)
+        set(MICRO_ROBOT_LIVE_CAMERA_TARGET micro_robot_camera_v4l2)
+    else()
+        set(MICRO_ROBOT_LIVE_CAMERA_TARGET micro_robot_camera_discovery)
+    endif()
+
     add_library(micro_robot_desktop_controller STATIC
         app/CalibrationController.hpp
         app/CalibrationController.cpp
@@ -170,11 +194,12 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     # Qt finalization imports the macOS permission plugins selected by Info.plist.
     qt_add_executable(micro_robot_desktop app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
-        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery micro_robot_calibration_opencv
+        micro_robot_ui micro_robot_simulation ${MICRO_ROBOT_LIVE_CAMERA_TARGET} micro_robot_calibration_opencv
         micro_robot_logging micro_robot_configuration
     )
     target_compile_definitions(micro_robot_desktop PRIVATE
         MICRO_ROBOT_VERSION="${PROJECT_VERSION}"
+        $<$<STREQUAL:${MICRO_ROBOT_CAMERA_BACKEND},V4L2>:MICRO_ROBOT_CAMERA_BACKEND_V4L2>
     )
     micro_robot_configure_desktop_executable(micro_robot_desktop
         "${CMAKE_CURRENT_SOURCE_DIR}/app/Info.plist.in"

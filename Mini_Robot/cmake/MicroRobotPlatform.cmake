@@ -52,6 +52,26 @@ message(STATUS
     "${CMAKE_CXX_COMPILER_VERSION}, C++${CMAKE_CXX_STANDARD}"
 )
 
+# Live camera backend wired into the desktop composition root. Linux uses OpenCV's
+# V4L2 backend on device nodes; other platforms use Qt Multimedia, which selects
+# the native backend (AVFoundation on macOS). Qt remains selectable on Linux.
+if(MICRO_ROBOT_PLATFORM STREQUAL "Linux")
+    set(_micro_robot_camera_backend_default V4L2)
+else()
+    set(_micro_robot_camera_backend_default Qt)
+endif()
+set(MICRO_ROBOT_CAMERA_BACKEND "${_micro_robot_camera_backend_default}" CACHE STRING
+    "Live camera backend of the desktop application: V4L2 (Linux only, needs OpenCV) or Qt")
+set_property(CACHE MICRO_ROBOT_CAMERA_BACKEND PROPERTY STRINGS V4L2 Qt)
+if(NOT MICRO_ROBOT_CAMERA_BACKEND MATCHES "^(V4L2|Qt)$")
+    message(FATAL_ERROR
+        "Micro Robot: MICRO_ROBOT_CAMERA_BACKEND must be V4L2 or Qt, not '${MICRO_ROBOT_CAMERA_BACKEND}'")
+endif()
+if(MICRO_ROBOT_CAMERA_BACKEND STREQUAL "V4L2" AND NOT MICRO_ROBOT_PLATFORM STREQUAL "Linux")
+    message(FATAL_ERROR
+        "Micro Robot: the V4L2 camera backend requires Linux; use -DMICRO_ROBOT_CAMERA_BACKEND=Qt")
+endif()
+
 # Common compile settings for first-party targets.
 function(micro_robot_target_defaults target)
     target_compile_features(${target} PRIVATE cxx_std_${CMAKE_CXX_STANDARD})

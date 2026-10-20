@@ -2,8 +2,10 @@
 
 #include <QCamera>
 #include <QCameraDevice>
+#include <QCameraFormat>
 #include <QCoreApplication>
 #include <QImage>
+#include <QLoggingCategory>
 #include <QMediaCaptureSession>
 #include <QMediaDevices>
 #include <QMetaObject>
@@ -21,13 +23,16 @@
 #include <utility>
 
 namespace micro_robot {
+namespace {
+Q_LOGGING_CATEGORY(captureLog, "micro_robot.camera.capture")
+}
 
 class QtCameraSource::Backend final : public QObject {
 public:
     explicit Backend(QtCameraSource& owner) : owner_(owner) {}
     ~Backend() override { releaseCapture(); }
 
-    void start(std::uint64_t generation, const std::string& id)
+    void start(std::uint64_t generation, const std::string& id, CameraCaptureSettings settings)
     {
         generation_ = generation;
         desired_ = true;
@@ -61,6 +66,7 @@ public:
             return;
         }
         camera_ = std::make_unique<QCamera>(*found);
+        if (settings.resolution) requestResolution(*found, *settings.resolution);
         video_ = std::make_unique<QVideoSink>();
         session_ = std::make_unique<QMediaCaptureSession>();
         session_->setCamera(camera_.get());
@@ -131,6 +137,24 @@ private:
         FramePtr frame;
         bool scheduled{};
     };
+
+    // Qt does not adjust an unsupported size itself; keep the default format then.
+    void requestResolution(const QCameraDevice& device, CameraResolution requested)
+    {
+        const QSize size{static_cast<int>(requested.width), static_cast<int>(requested.height)};
+        QCameraFormat best;
+        for (const auto& format : device.videoFormats()) {
+            if (format.resolution() == size
+                && (best.isNull() || format.maxFrameRate() > best.maxFrameRate())) best = format;
+        }
+        if (best.isNull()) {
+            qCWarning(captureLog) << "event=camera_resolution_fallback" << "backend=qt"
+                                  << "id=" << QString::fromLatin1(device.id().toHex())
+                                  << "requested=" << size << "actual=default";
+            return;
+        }
+        camera_->setCameraFormat(best);
+    }
 
     void postState(CameraState state)
     {
@@ -244,7 +268,8 @@ private:
     bool failed_{};
 };
 
-QtCameraSource::QtCameraSource(CameraDevice device) : device_(std::move(device))
+QtCameraSource::QtCameraSource(CameraDevice device, CameraCaptureSettings settings)
+    : device_(std::move(device)), settings_(settings)
 {
     backend_ = new Backend(*this);
     backend_->moveToThread(&worker_);
@@ -311,8 +336,9 @@ void QtCameraSource::start()
 
 void QtCameraSource::beginStart(std::uint64_t generation)
 {
-    QMetaObject::invokeMethod(backend_, [backend = backend_, generation, id = device_.id] {
-        backend->start(generation, id);
+    QMetaObject::invokeMethod(backend_, [backend = backend_, generation, id = device_.id,
+                                         settings = settings_] {
+        backend->start(generation, id, settings);
     }, Qt::QueuedConnection);
 }
 
@@ -348,6 +374,8 @@ void QtCameraSource::receiveError(std::uint64_t generation, const CameraError& e
     if (auto sink = sink_.lock()) sink->onCameraError(error);
 }
 
+QtCameraSourceFactory::QtCameraSourceFactory(CameraCaptureSettings settings) : settings_(settings) {}
+
 bool QtCameraSourceFactory::supports(const CameraDevice& device) const
 {
     const auto id = QByteArray::fromStdString(device.id);
@@ -357,7 +385,7 @@ bool QtCameraSourceFactory::supports(const CameraDevice& device) const
 std::unique_ptr<ICameraSource> QtCameraSourceFactory::create(const CameraDevice& device)
 {
     if (!supports(device)) return nullptr;
-    return std::make_unique<QtCameraSource>(device);
+    return std::make_unique<QtCameraSource>(device, settings_);
 }
 
 } // namespace micro_robot

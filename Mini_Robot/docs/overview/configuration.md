@@ -6,17 +6,18 @@ Source: [ApplicationConfig.hpp](../../src/infrastructure/configuration/Applicati
 [example file](../../config/micro_robot.example.ini).
 
 `micro_robot_configuration` is a Qt-free cross-cutting M1 service that depends on
-common types and logging. It builds and is tested with
+common types, camera API value types, and logging. It builds and is tested with
 `MICRO_ROBOT_BUILD_DESKTOP=OFF`.
 
 ## Ownership and module access
 
 `ApplicationConfig` is a plain struct of typed sections (`logging`, `robot`,
-`simulation`). Member initializers are the built-in defaults. The composition
+`camera`, `simulation`). Member initializers are the built-in defaults. The composition
 root ([main.cpp](../../src/app/main.cpp)) loads one instance at startup and
 injects the individual values that each module needs, for example the robot ID
-into `DesktopController`, the frame interval into `FakeCameraConfig`, and the
-telemetry interval into `SimulationTransportConfig`. There
+into `DesktopController`, the capture settings into the live camera factory, the
+frame interval into `FakeCameraConfig`, and the telemetry interval into
+`SimulationTransportConfig`. There
 is no global settings object; modules do not read files or know key names, and
 no GUI widget stores settings. All file keys are mapped to typed fields in one
 table in `ConfigLoader.cpp`.
@@ -48,6 +49,7 @@ accepted. Every setting is optional.
 | `logging.file_enabled` | `true`/`false` (also `yes`/`no`, `on`/`off`, `1`/`0`) | `true` |
 | `logging.file_path` | UTF-8 path; empty selects the [default log location](logging.md#desktop-application) | empty |
 | `robot.id` | integer 0 to 4294967295 | `1` |
+| `camera.resolution` | `auto` (device default) or `<width>x<height>`, each 1 to 8192 (for example `1280x720`) | `auto` |
 | `simulation.update_interval_ms` | integer 1 to 10000 | `100` |
 | `simulation.camera_frame_interval_ms` | integer 1 to 10000 | `33` |
 | `simulation.telemetry_interval_ms` | integer 0 to 10000; `0` reports on every update | `0` |
@@ -107,6 +109,11 @@ defaults, every key, whitespace/comments/BOM/CRLF, boundary and invalid values,
 unknown and malformed entries, duplicates, missing and unreadable files, log
 output, and that the shipped example file is valid and matches the defaults.
 See the [testing guide](../development/testing.md).
+
+`camera.resolution` is applied by both live camera backends. A size the device
+does not offer falls back to a supported mode and logs a warning; see
+[capture resolution](camera-backends.md#capture-resolution). It does not affect
+the fake camera or recorded video.
 
 With native camera streaming (#31), `simulation.camera_frame_interval_ms` remains
 a fake-camera setting for alternate compositions/tests; it does not change a

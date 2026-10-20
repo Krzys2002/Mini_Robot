@@ -11,8 +11,8 @@ application while preserving the `ICameraSource`, `ICameraDeviceDiscovery`, and
 which layer may use which facilities, and describes the checks that keep those
 rules true. Build-level platform and compiler configuration (application bundle,
 Windows subsystem, compiler support) is LNX-01 (#125), implemented in the
-[platform/toolchain module](../../cmake/MicroRobotPlatform.cmake); Linux camera capture and
-robot communication are LNX-04 (#128) and LNX-05 (#129).
+[platform/toolchain module](../../cmake/MicroRobotPlatform.cmake). Linux camera capture is
+LNX-04 (#128, [camera backends](camera-backends.md)); robot communication is LNX-05 (#129).
 
 ## Layers
 
@@ -22,12 +22,12 @@ robot communication are LNX-04 (#128) and LNX-05 (#129).
 | Platform-independent backend | `micro_robot_simulation` | Core targets | Same as the core; only composition and tests may depend on it |
 | Application adapters | `micro_robot_desktop_controller` | Core targets, `Qt6::Core` | Device backends (Qt Multimedia/Bluetooth, OpenCV), widgets, OS APIs, concrete backends |
 | Presentation | `micro_robot_ui` | Application adapters, `Qt6::Core`, `Qt6::Widgets` | Device backends, OS APIs, concrete backends |
-| Platform adapters | `micro_robot_camera_discovery` (Qt Multimedia), `micro_robot_camera_replay` (OpenCV) | The interface they implement and their backend library | Application adapters, presentation |
+| Platform adapters | `micro_robot_camera_discovery` (Qt Multimedia), `micro_robot_camera_v4l2` (V4L2, OpenCV, Qt Core), `micro_robot_camera_replay` (OpenCV) | The interface they implement and their backend library | Application adapters, presentation |
 | Composition root | `micro_robot_desktop` ([main.cpp](../../src/app/main.cpp)) | Everything | — |
 
 The composition root alone constructs concrete backends and injects them as
-interface references. Future capture (#31, LNX-04), BLE (#65, #66, LNX-05), and
-Zigbee (#107) implementations are new platform-adapter targets. Platform
+interface references. Live capture (#31, LNX-04) uses such adapter targets; future
+BLE (#65, #66, LNX-05) and Zigbee (#107) implementations are new platform-adapter targets. Platform
 conditionals, when a backend differs per operating system, belong in the build
 configuration or the composition root, never in core or adapter-independent code.
 
@@ -43,10 +43,11 @@ APIs, and backend libraries, and every target's link dependencies.
 | Log timestamps | [Logger](../../src/infrastructure/logging/Logger.cpp) uses calendar arithmetic instead of `gmtime_r`/`gmtime_s`. | Portable standard C++ |
 | Core file access | Configuration loading, the file log sink, and replay use `std::filesystem`. | Portable standard C++ |
 | Per-user locations | [main.cpp](../../src/app/main.cpp) resolves the configuration and log locations with `QStandardPaths` and converts Qt paths to UTF-8 `std::filesystem::path` values. | Composition root |
-| Camera inventory | `QMediaDevices` in [QtCameraDeviceDiscovery](../../src/camera/QtCameraDeviceDiscovery.cpp); Qt selects its platform media backend. | Platform adapter |
+| Camera inventory | `QMediaDevices` in [QtCameraDeviceDiscovery](../../src/camera/QtCameraDeviceDiscovery.cpp); Qt selects its platform media backend. On Linux, sysfs, POSIX `open`, and `VIDIOC_QUERYCAP` in [V4l2Device.cpp](../../src/camera/V4l2Device.cpp) (#128). | Platform adapter |
+| Live capture | Qt Multimedia in [QtCameraSource](../../src/camera/QtCameraSource.cpp); OpenCV `videoio` with `cv::CAP_V4L2` in [V4l2CameraSource](../../src/camera/V4l2CameraSource.cpp) on Linux. The build option `MICRO_ROBOT_CAMERA_BACKEND` and [main.cpp](../../src/app/main.cpp) select one. | Platform adapter, composition root |
 | Recorded video | OpenCV `videoio`, linked privately by [RecordedVideoSource](../../src/camera/RecordedVideoSource.cpp). | Platform adapter |
 | Timers | The simulation tick is a `QTimer` in the composition root; discovery coalescing uses `QTimer::singleShot` inside its adapter. Core components read only the steady clock or receive time as a parameter. | Qt at the edges |
-| Threads | No threads are created. The logger serializes with `std::mutex`. | Portable standard C++ |
+| Threads | Live camera adapters each run one `QThread` capture worker. Core targets create no threads; the logger serializes with `std::mutex`. | Qt at the edges |
 | Environment | The UI test entry point sets `QT_QPA_PLATFORM` through `qputenv`. | Qt, test-only |
 | macOS-only | [Info.plist.in](../../src/app/Info.plist.in) (camera usage description, Continuity Camera opt-in) and the bundle target properties. Since LNX-01, `micro_robot_configure_desktop_executable()` applies them on Apple platforms only. | Build/packaging (LNX-01) |
 | Windows-only | The GUI-subsystem executable property, applied only on Windows since LNX-01. | Build/packaging (LNX-01) |
@@ -68,7 +69,7 @@ upheld by convention only.
   simulation and replay, take time as a parameter instead of reading clocks or
   sleeping. Scheduling uses `QTimer` in the composition root or a Qt adapter.
 - **Threading:** the interfaces are thread-affine. Calls and events stay on the
-  owning thread. Future capture or radio workers live in their adapter (`QThread`
+  owning thread. Capture and future radio workers live in their adapter (`QThread`
   or standard threads) and marshal results to the owning thread. GUI updates use
   queued Qt connections.
 - **Logging:** the application `Logger` is Qt-free. Adapters may use Qt logging
@@ -90,16 +91,17 @@ project's discovery pattern. Any discovery boundary follows the same rules:
 
 Robot discovery is defined by LNX-05 (#129) and the BLE work (#65). It must
 follow this pattern behind the transport layer, mapping radio identities to
-`RobotId` privately. Reporting unavailable devices and permission errors during
-discovery belongs to LNX-04 (#128).
+`RobotId` privately. LNX-04 (#128) lists Linux camera nodes that cannot be
+opened for permission reasons, and reports the permission error when one is started
+([camera backends](camera-backends.md#linux-discovery)).
 
 ## Replacing a backend
 
 | Interface | Current implementations | Planned backends |
 | --- | --- | --- |
-| `ICameraDeviceDiscovery` | `QtCameraDeviceDiscovery`; manual test double | Linux enumeration validation (LNX-04) |
-| `ICameraSourceFactory` | `FakeCameraSourceFactory`; test doubles | Live-capture factory creating physical sources (#31, LNX-04) |
-| `ICameraSource` | `FakeCameraSource`, `RecordedVideoSource`; test doubles | Live capture (#31, LNX-04): OpenCV/V4L2 on Linux, a supported macOS backend |
+| `ICameraDeviceDiscovery` | `QtCameraDeviceDiscovery`, `V4l2CameraDeviceDiscovery` (Linux); manual test double | Windows validation |
+| `ICameraSourceFactory` | `QtCameraSourceFactory`, `V4l2CameraSourceFactory` (Linux), `FakeCameraSourceFactory`; test doubles | — |
+| `ICameraSource` | `QtCameraSource`, `V4l2CameraSource` (Linux), `FakeCameraSource`, `RecordedVideoSource`; test doubles | Windows validation |
 | `IRobotTransport` | `SimulationTransport`; test doubles | BLE (#65, #66, LNX-05), Zigbee gateway (#107) |
 
 To add or swap a backend:

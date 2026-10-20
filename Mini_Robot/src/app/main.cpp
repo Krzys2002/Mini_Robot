@@ -3,8 +3,13 @@
 #include "app/CalibrationController.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
 #include "app/CameraSelectionController.hpp"
+#if defined(MICRO_ROBOT_CAMERA_BACKEND_V4L2)
+#include "camera/V4l2CameraDeviceDiscovery.hpp"
+#include "camera/V4l2CameraSource.hpp"
+#else
 #include "camera/QtCameraDeviceDiscovery.hpp"
 #include "camera/QtCameraSource.hpp"
+#endif
 #include "infrastructure/configuration/ConfigLoader.hpp"
 #include "infrastructure/logging/LogSinks.hpp"
 #include "infrastructure/logging/Logger.hpp"
@@ -96,12 +101,25 @@ int main(int argc, char* argv[])
     }
 
     // Composition root selects the native adapter; controllers depend on interfaces.
-    QtCameraSourceFactory cameraFactory;
+    // The build chooses the live camera backend (MICRO_ROBOT_CAMERA_BACKEND).
+#if defined(MICRO_ROBOT_CAMERA_BACKEND_V4L2)
+    V4l2CameraSourceFactory cameraFactory{config.camera.capture};
+    using CameraDiscovery = V4l2CameraDeviceDiscovery;
+    appLog.info("Camera backend: OpenCV V4L2");
+#else
+    QtCameraSourceFactory cameraFactory{config.camera.capture};
+    using CameraDiscovery = QtCameraDeviceDiscovery;
+    appLog.info("Camera backend: Qt Multimedia");
+#endif
+    if (const auto& resolution = config.camera.capture.resolution) {
+        appLog.info("Camera resolution requested: " + std::to_string(resolution->width) + "x"
+                    + std::to_string(resolution->height));
+    }
     SimulationTransportConfig transportConfig;
     transportConfig.telemetryInterval = config.simulation.telemetryInterval;
     auto transport = std::make_unique<SimulationTransport>(transportConfig,
                                                            logger.channel("simulation"));
-    QtCameraDeviceDiscovery cameraDiscovery;
+    CameraDiscovery cameraDiscovery;
     WorldModel world;
     const RobotId robotId = config.robot.id;
     DesktopController controller{*transport, world, robotId, logger.channel("controller")};

@@ -86,6 +86,20 @@ std::string pathToUtf8(const std::filesystem::path& path)
     return {utf8.begin(), utf8.end()};
 }
 
+// Accepts "auto" (device default) or "<width>x<height>" in pixels.
+std::optional<std::optional<CameraResolution>> parseResolution(std::string_view text)
+{
+    if (toLower(text) == "auto") return std::optional<CameraResolution>{};
+    const auto separator = text.find_first_of("xX");
+    if (separator == std::string_view::npos) return std::nullopt;
+    const auto width = parseInteger<std::uint32_t>(trim(text.substr(0, separator)));
+    const auto height = parseInteger<std::uint32_t>(trim(text.substr(separator + 1)));
+    constexpr std::uint32_t maxDimension = 8192;
+    if (!width || !height || *width == 0 || *height == 0 || *width > maxDimension
+        || *height > maxDimension) return std::nullopt;
+    return CameraResolution{*width, *height};
+}
+
 // Bounds keep the demo timer responsive without allowing a busy loop.
 constexpr milliseconds minInterval{1};
 constexpr milliseconds maxInterval{10'000};
@@ -129,6 +143,17 @@ const std::array settings{
             return id.has_value();
         },
         [](const ApplicationConfig& config) { return std::to_string(config.robot.id.value()); }},
+    Setting{"camera.resolution", "auto or <width>x<height> with each from 1 to 8192, e.g. 1280x720",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto resolution = parseResolution(value);
+            if (resolution) config.camera.capture.resolution = *resolution;
+            return resolution.has_value();
+        },
+        [](const ApplicationConfig& config) {
+            const auto& resolution = config.camera.capture.resolution;
+            return resolution ? std::to_string(resolution->width) + "x" + std::to_string(resolution->height)
+                              : std::string{"auto"};
+        }},
     Setting{"simulation.update_interval_ms", "an integer from 1 to 10000",
         [](std::string_view value, ApplicationConfig& config) {
             const auto interval = parseMilliseconds(value, minInterval, maxInterval);

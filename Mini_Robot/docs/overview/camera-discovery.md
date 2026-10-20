@@ -39,6 +39,14 @@ discovery logic. Names are displayed as plain text with the ID as a tooltip.
 Empty lists show “No cameras available”; missing names/IDs have explicit
 presentation fallbacks. Physical capture is provided by [Issue #31 streaming](camera-streaming.md).
 
+## Linux V4L2 adapter
+
+With the default Linux build, the desktop uses `V4l2CameraDeviceDiscovery` instead
+(Issue #128). It lists V4L2 capture nodes from sysfs, hides metadata nodes, uses the
+node path (`/dev/video0`) as the ID, and refreshes when `/dev` changes. See
+[cross-platform camera backends](camera-backends.md#linux-discovery). The Qt adapter
+described above remains the macOS backend and can be selected on Linux.
+
 ## Build and logging
 
 Desktop builds now require Qt6 Widgets and Multimedia. The concrete adapter is
@@ -76,7 +84,8 @@ updates, missing metadata, plain-text display, and subscription teardown. They d
 The production adapter probe detected the FaceTime HD and an exposed iPhone
 camera on macOS, with distinct IDs and discovery logs. USB visibility/hotplug
 remains unchecked; the app launched, but native visual inspection was unavailable.
-Linux and Windows hardware/runtime behavior has not been executed. These limits
+Windows hardware/runtime behavior has not been executed; Linux results for the V4L2
+adapter are in [camera backends](camera-backends.md#verification). These limits
 do not change the following outstanding manual acceptance procedure.
 
 Manual acceptance checks:

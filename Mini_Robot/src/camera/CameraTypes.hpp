@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,20 @@ struct CameraInfo {
     // not a frame or native handle. Consumers obtain it from ICameraSource::info().
     std::string sourceId;
     std::string displayName;
+};
+
+// Capture size in pixels requested from a live device.
+struct CameraResolution {
+    std::uint32_t width{};
+    std::uint32_t height{};
+    friend bool operator==(const CameraResolution&, const CameraResolution&) = default;
+};
+
+// Capture parameters a factory applies to every live source it creates. Backends
+// negotiate with the device: an unsupported request falls back to a mode the
+// device offers, so Frame width/height always report the delivered size.
+struct CameraCaptureSettings {
+    std::optional<CameraResolution> resolution; // Empty: the device's default mode.
 };
 
 enum class CameraState { Stopped, Starting, Streaming, Stopping, Disconnected, Fault };

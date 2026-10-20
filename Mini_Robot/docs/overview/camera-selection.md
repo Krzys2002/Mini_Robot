@@ -75,7 +75,8 @@ one clock with `advanceTo(now)`; each source unregisters when destroyed and must
 not outlive the factory. Frames are the deterministic 8 by 6 pattern described in
 [simulation](simulation.md); no camera is opened and no permission is requested.
 This remains a test/alternate-composition backend. The desktop uses
-`QtCameraSourceFactory` for physical capture.
+`V4l2CameraSourceFactory` on Linux and `QtCameraSourceFactory` elsewhere for physical
+capture; see [camera backends](camera-backends.md).
 
 ## Logging
 

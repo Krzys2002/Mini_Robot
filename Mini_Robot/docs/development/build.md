@@ -14,8 +14,9 @@ one level above it in the repository's `.github` directory.
 - Ninja for the examples below; other CMake generators may also be used.
 - Qt 6 Widgets and Multimedia for the desktop build. Qt Core is used by the
   application controllers; Multimedia is isolated in the device-discovery adapter.
-- OpenCV core, imgproc, and videoio for recorded-video replay (default ON).
-  Set `-DMICRO_ROBOT_BUILD_REPLAY=OFF` to omit that adapter and its tests.
+- OpenCV core, imgproc, and videoio for recorded-video replay (default ON) and,
+  on Linux, for the default V4L2 [camera backend](../overview/camera-backends.md).
+  Set `-DMICRO_ROBOT_BUILD_REPLAY=OFF` to omit the replay adapter and its tests.
 - Chessboard capture requires OpenCV core/imgproc and calib3d on OpenCV 4, or
   objdetect on OpenCV 5. Desktop builds include it automatically. For headless
   detector tests enable `-DMICRO_ROBOT_BUILD_CALIBRATION=ON`.
@@ -51,6 +52,11 @@ compiler needs a fresh build directory but no edits to CMake files.
   are supplied at configure time through `CMAKE_PREFIX_PATH` or `<Package>_DIR`.
 - Configure prints the detected platform and compiler, for example
   `Micro Robot: Linux with GNU 15.2.0, C++20`.
+- `MICRO_ROBOT_CAMERA_BACKEND` selects the desktop's live
+  [camera backend](../overview/camera-backends.md): `V4L2` (default on Linux; OpenCV
+  `videoio` on `/dev/video*`) or `Qt` (Qt Multimedia; the default and only choice on
+  macOS and Windows). Configure prints the choice, for example
+  `Micro Robot: live camera backend V4L2`, and rejects `V4L2` on other platforms.
 
 | Platform | Supported compilers | Minimum | Validation |
 | --- | --- | --- | --- |
