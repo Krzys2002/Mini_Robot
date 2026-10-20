@@ -4,9 +4,9 @@ Ubuntu 24.04 LTS is the documented reference environment for these recipes.
 The GCC and Clang builds below, including the OpenCV replay adapter, were
 executed for #125 on Ubuntu 26.04 LTS (see [verification status](#verification-status));
 [Linux CI](testing.md#linux-continuous-integration) (#126) runs the apt installation
-and GCC/Clang builds on a clean 24.04 runner; X11/Wayland GUI checks have not been
-executed. The other Linux acceptance criteria (#127–#132) are tracked by their own
-issues.
+and GCC/Clang builds on a clean 24.04 runner. Automated Wayland and X11 (Xwayland)
+GUI checks were executed for #130; see [GUI compatibility](gui-compatibility.md).
+The other Linux acceptance criteria (#127–#132) are tracked by their own issues.
 
 ## Build requirements
 
@@ -70,10 +70,26 @@ ctest --test-dir build/linux-clang --output-on-failure --no-tests=error
 Append `-DMICRO_ROBOT_BUILD_REPLAY=OFF -DMICRO_ROBOT_CAMERA_BACKEND=Qt` to a configure
 command when OpenCV is not installed; the second option replaces the default
 [V4L2 camera backend](../overview/camera-backends.md) with Qt Multimedia. CTest's Qt test entry point selects offscreen mode. Launch the demo in
-a real GUI session with `./build/linux-gcc/src/micro_robot_desktop`. Startup,
-resizing, input, display scaling, and X11/Wayland behavior require separate manual
-checks. For Wayland plugin issues, inspect the Qt platform plugins installed on the
-host; a successful offscreen test does not establish Wayland support.
+a real GUI session with `./build/linux-gcc/src/micro_robot_desktop`. A successful
+offscreen test does not establish Wayland or X11 support; the
+[GUI compatibility guide](gui-compatibility.md) runs the same widget tests on a real
+platform plugin and lists the remaining manual checks.
+
+### GUI session packages
+
+`qt6-base-dev` provides the `xcb` (X11) platform plugin. In a Wayland session, also
+install the Qt Wayland plugin so that Qt uses Wayland natively instead of falling
+back to X11 through Xwayland:
+
+```sh
+sudo apt install qt6-wayland
+```
+
+Choose a plugin explicitly with `QT_QPA_PLATFORM=wayland` or `QT_QPA_PLATFORM=xcb`.
+If startup reports that no platform plugin could be loaded, list the installed
+plugins with `ls /usr/lib/x86_64-linux-gnu/qt6/plugins/platforms` (the directory
+differs on other architectures). CI does not need a GUI package: its tests use the
+offscreen plugin.
 
 For Qt-free verification:
 
@@ -111,6 +127,12 @@ For #128, on the same host (kernel 7.0.0) with the source tree at that change:
 | GCC, `-DMICRO_ROBOT_CAMERA_BACKEND=Qt` | Built without warnings; 167/167 CTest cases passed |
 | GCC, desktop and replay OFF (no Qt, no OpenCV) | Built; 117/117 CTest cases passed |
 | `V4l2CameraHardwareTest` with `/dev/video0` (integrated USB UVC camera) | Passed at the default size, `1280x720`, and `640x480`; see [camera backends](../overview/camera-backends.md#verification) |
+
+For #130, on the same host in a GNOME 50 Wayland session (GCC preset), the GUI
+compatibility suite passed on the native `wayland` plugin and on `xcb` through
+Xwayland, and all 64 UI cases passed on both; the
+[GUI compatibility results](gui-compatibility.md#linux-results) list scale factors,
+skips, and limitations.
 
 ## Replay, camera, and BLE dependencies
 

@@ -84,5 +84,8 @@ verify startup, buttons, pending transitions, terminal camera recovery, telemetr
 pose presentation, shutdown, and subscription teardown with an offscreen
 QApplication, plus active-source replacement. [Selection tests](../../tests/ui/CameraSelectionControllerTest.cpp)
 also verify device listing, selection, removal, and subscription lifetime with
-injected manual discovery and factory backends. Physical preview, USB visibility/hotplug, native visual inspection, Linux X11/Wayland
-interaction, control safety, and standalone packaging remain unverified features.
+injected manual discovery and factory backends. [GUI compatibility tests](../development/gui-compatibility.md)
+cover resizing, mouse and keyboard input, Tab order, and display scaling, also on the
+Linux Wayland and X11 platform plugins. Physical preview, USB visibility/hotplug,
+physical input through the compositor, small screens, control safety, and
+standalone packaging remain unverified features.
