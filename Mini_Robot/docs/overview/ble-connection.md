@@ -159,8 +159,9 @@ Physical acceptance remains required; it was **not run**:
 The ESP32-C6 repeated discovery/connect acceptance criterion and unexecuted
 hardware checks are tracked in [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
 Record actual physical results and logs there; #65's deterministic acceptance
-does not claim physical success. Physical command delivery/telemetry validation remains part of
-[#66](ble-messages.md#verification-and-remaining-hardware-acceptance).
+does not claim physical success. Physical command delivery/telemetry validation is tracked separately in
+[#189](https://github.com/Krzys2002/Mini_Robot/issues/189), with the
+[message procedure](ble-messages.md#verification-and-remaining-hardware-acceptance).
 
 Qt references: [device discovery](https://doc.qt.io/qt-6/qbluetoothdevicediscoveryagent.html),
 [Central controller](https://doc.qt.io/qt-6/qlowenergycontroller.html),

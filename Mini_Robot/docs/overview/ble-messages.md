@@ -6,6 +6,10 @@ Qt-free codec; `BleTransport` owns per-session policy; `QtBleBackend` owns nativ
 GATT writes and notification receipt. Domain consumers still use
 `IRobotTransport`, SI units and steady-clock timestamps. No firmware is added.
 
+At the maintainer's request, #66 tracks software implementation and deterministic
+acceptance. Physical command delivery, telemetry and adapter E-stop acceptance
+are tracked separately in [#189](https://github.com/Krzys2002/Mini_Robot/issues/189).
+
 ## Commands and bounded dispatch
 
 `sendCommand()` accepts existing `StopCommand` and `VelocityCommand` values.
@@ -103,9 +107,12 @@ On macOS (2026-10-20), AppleClang 21, Qt 6 and OpenCV 5.0.0:
   wrap/gaps, coalescing, freshness at dispatch, write failures/timeouts, bounded
   result history, E-stop retries/reassertion and connection teardown.
 
-No physical command/telemetry test was run. Issue #66's **Commands reach the
-ESP32-C6** criterion remains open. Using a provisioned peripheral and a suitable
-test harness, record firmware/OS/Qt versions, Robot Info limits and debug logs:
+No physical command/telemetry test was run. The original **Commands reach the
+ESP32-C6** criterion and the checks below remain open in
+[#189](https://github.com/Krzys2002/Mini_Robot/issues/189). Record actual physical
+results there; #66's automated acceptance does not claim physical success.
+Using a provisioned peripheral and a suitable test harness, record firmware/OS/Qt
+versions, Robot Info limits and debug logs:
 
 1. Send fresh velocity and Stop; capture the exact characteristic bytes, write
    modes, correlated results, measured velocities and actual motor response.
