@@ -15,6 +15,7 @@
 - [AprilTag selection](../vision/apriltag-selection.md): marker size, identity mapping, camera constraints, and printable sheets.
 - [Transport contract](transport.md): commands, telemetry, and async ownership.
 - [BLE connection lifecycle](ble-connection.md): opt-in Qt Central, discovery, GATT readiness, cancellation and hardware acceptance.
+- [BLE messages](ble-messages.md): bounded command writes, telemetry validation, sequences, diagnostics and adapter E-stop.
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
 - [WorldModel](world-model.md): registration, timestamp ordering, and snapshots.
 - [Simulation](simulation.md): virtual time and deterministic fake behavior.

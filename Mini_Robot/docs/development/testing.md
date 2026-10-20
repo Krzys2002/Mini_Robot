@@ -30,8 +30,8 @@ selection rather than reporting successful verification with no tests run.
 
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
-| `micro_robot_ble_contract_tests` | `core`, `ble` | Qt-free Robot Info, identity hints and required GATT properties/CCCDs |
-| `micro_robot_ble_tests` (opt-in) | `ble` | Qt Core fake-radio lifecycle, cancellation, timeouts, recovery, weak sinks and destruction; no physical radio |
+| `micro_robot_ble_contract_tests` | `core`, `ble` | Qt-free Robot Info, identity/GATT validation, command codec, malformed notifications and sequence wrap |
+| `micro_robot_ble_tests` (opt-in) | `ble` | Qt Core fake-radio lifecycle, bounded dispatch/freshness, telemetry/results, E-stop retries, controller delivery, timeouts and recovery; no physical radio |
 | `micro_robot_calibration_tests` | `core`, `calibration` | Capture state, target geometry, quality gates, diversity, duplicate detection and memory limits |
 | `micro_robot_calibration_detector_tests` | `calibration` | Generated chessboards, color/stride formats, rotation/perspective, blur/partial/blank inputs; built with desktop or standalone calibration enabled |
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
@@ -56,8 +56,9 @@ Enable `-DMICRO_ROBOT_BUILD_BLE=ON` for BLE adapter/lifecycle tests, then run
 `ctest --test-dir build -L ble --output-on-failure --no-tests=error`. On macOS
 with Qt 6.5+, this label also checks the production app's Bluetooth usage
 description and statically imported permission plugin without requesting access.
-Core-only builds keep the five Robot Info/GATT contract tests without Qt.
-Physical checks are listed in the [BLE operator guide](../overview/ble-connection.md).
+Core-only builds keep thirteen Robot Info/GATT and message-codec tests without Qt.
+Physical checks are listed in the [connection guide](../overview/ble-connection.md)
+and [message guide](../overview/ble-messages.md).
 
 Enable offline marker generation and its tests with
 `-DMICRO_ROBOT_BUILD_MARKER_TOOLS=ON` (default OFF). This adds OpenCV aruco/objdetect

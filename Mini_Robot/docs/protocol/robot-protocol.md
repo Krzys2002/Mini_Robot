@@ -2,8 +2,9 @@
 
 Status: specification for [issue #64](https://github.com/Krzys2002/Mini_Robot/issues/64).
 The desktop [BLE lifecycle](../overview/ble-connection.md) validates Robot Info
-and establishes GATT readiness. Frame encoding/decoding and ESP32-C6 firmware
-remain unimplemented. The BLE carriage of
+and establishes GATT readiness. Desktop [message handling](../overview/ble-messages.md)
+implements frame encoding/decoding and writes. ESP32-C6 firmware and physical
+command-delivery acceptance remain outstanding. The BLE carriage of
 these frames is defined in [BLE GATT contract](ble-gatt.md).
 
 This document defines the bytes exchanged between the desktop and one robot. It
@@ -354,7 +355,7 @@ The adapter owns this mapping. No domain type contains a wire field.
 | `linearMetersPerSecond`, `angularRadiansPerSecond` | `measured* / 1000`, empty for `0x8000` |
 | `RobotTelemetry::metadata.sequence` | Robot sequence unwrapped to 64 bits within the session; restarts per session and is not an acknowledgement |
 | Robot `state`, `flags`, `uptimeMs`, `lastAcceptedSequence` | No domain field yet. Adapter logs them; later issues may add domain safety state. |
-| EmergencyStop, ClearEmergencyStop | No domain command yet. [#70](https://github.com/Krzys2002/Mini_Robot/issues/70) defines the domain request. |
+| EmergencyStop, ClearEmergencyStop | No domain command yet. The BLE adapter has an E-stop primitive; [#70](https://github.com/Krzys2002/Mini_Robot/issues/70) defines the domain request and explicit clear. |
 
 | CommandResult `result` | Domain `TransportErrorCode` for `SendCommand` |
 | --- | --- |

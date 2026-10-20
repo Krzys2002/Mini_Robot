@@ -9,14 +9,11 @@ At the maintainer's request, #65 tracks software implementation and automated
 acceptance. Physical ESP32-C6 acceptance is tracked separately in
 [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
 
-This is a connection-only implementation. `sendCommand()` asynchronously reports
-`Unavailable` on a connected link, `NotConnected` otherwise, or
-`UnsupportedVersion` for unsupported domain versions. No motor command is sent.
-Command serialization/writes and incoming telemetry/result parsing remain #66;
-RobotManager, reconnect policy and E-stop requests remain their assigned issues.
-Subscribing to notifications here is required by the
-[GATT readiness contract](../protocol/ble-gatt.md#session-establishment), rather
-than evidence that telemetry parsing is implemented. No firmware is added.
+Issue #66 adds [command writes and telemetry/result parsing](ble-messages.md),
+including an adapter E-stop primitive. RobotManager, reconnect policy and
+high-level safety/operator controls remain their assigned issues. No firmware
+is added. This guide describes the connection layer; the message guide records
+its additional behavior and outstanding physical command-delivery acceptance.
 
 ## Build and use
 
@@ -97,7 +94,8 @@ requires all five characteristics, their documented properties, and CCCDs on
 Command Result and Telemetry. It reads the exact 18-byte Robot Info record,
 validates format/version range, unsigned robot ID and nonzero bounded limits,
 then awaits CCCD write confirmations: **Command Result first, Telemetry second**.
-This issue has no desktop E-stop state to reassert at session establishment.
+With #66, latched adapter E-stop intent is reasserted and confirmed before
+publishing Connected; see [message handling](ble-messages.md).
 
 `BleTransportConfig` centralizes limits:
 
@@ -138,7 +136,8 @@ Robot Info example, every truncated record, versions, limits, characteristic
 properties and notification descriptors. Injected-radio tests exercise deferred
 events, duplicate/missing IDs, bounded inventory, cancellation, late callbacks,
 every setup timeout, disconnect timeout, independent robots, recovery, sink
-replacement/expiry, destruction and explicit command unavailability. They do not
+replacement/expiry and destruction. The [message tests](ble-messages.md) cover
+command dispatch, notification parsing and E-stop behavior. They do not
 open Bluetooth hardware or request permission.
 
 Physical acceptance remains required; it was **not run**:
@@ -160,8 +159,8 @@ Physical acceptance remains required; it was **not run**:
 The ESP32-C6 repeated discovery/connect acceptance criterion and unexecuted
 hardware checks are tracked in [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
 Record actual physical results and logs there; #65's deterministic acceptance
-does not claim physical success. Command delivery/telemetry validation
-belongs to #66 after this lifecycle work is available.
+does not claim physical success. Physical command delivery/telemetry validation remains part of
+[#66](ble-messages.md#verification-and-remaining-hardware-acceptance).
 
 Qt references: [device discovery](https://doc.qt.io/qt-6/qbluetoothdevicediscoveryagent.html),
 [Central controller](https://doc.qt.io/qt-6/qlowenergycontroller.html),
