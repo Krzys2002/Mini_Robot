@@ -9,13 +9,15 @@ if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
     gtest_discover_tests(micro_robot_marker_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "markers")
 endif()
 
-add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp)
+add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp
+    calibration/IntrinsicCalibrationTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
 gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;calibration")
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
-    add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp)
+    add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp
+        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp)
     target_link_libraries(micro_robot_calibration_detector_tests PRIVATE
         micro_robot_calibration_opencv GTest::gtest_main ${OpenCV_LIBS})
     target_include_directories(micro_robot_calibration_detector_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})

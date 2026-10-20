@@ -63,7 +63,7 @@ struct CaptureDecision {
 };
 
 // Single-thread-affine pure capture state machine. Restart/cancel clear all
-// observations; completed observations remain available for the future solver.
+// observations; completed observations remain available for the intrinsic solver.
 // A session belongs to exactly one camera identity and resolution. Source loss
 // is handled by the application adapter; mixed resolutions are rejected here.
 class CalibrationCapture final {
