@@ -10,6 +10,9 @@
 
 namespace micro_robot {
 
+// Shared live-stream liveness/presentation bound. Qt adapters use precise timers.
+inline constexpr auto CameraFrameTimeout = std::chrono::seconds{3};
+
 struct CameraInfo {
     // Stable for the source object's lifetime; identifies the device/replay source,
     // not a frame or native handle. Consumers obtain it from ICameraSource::info().

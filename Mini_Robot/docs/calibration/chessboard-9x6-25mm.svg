@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="280mm" height="205mm" viewBox="0 0 280 205">
+<title>9 by 6 inner-corner chessboard, 25 mm squares</title>
+<rect width="280" height="205" fill="white"/>
+<rect x="15" y="15" width="25" height="25" fill="black"/>
+<rect x="65" y="15" width="25" height="25" fill="black"/>
+<rect x="115" y="15" width="25" height="25" fill="black"/>
+<rect x="165" y="15" width="25" height="25" fill="black"/>
+<rect x="215" y="15" width="25" height="25" fill="black"/>
+<rect x="40" y="40" width="25" height="25" fill="black"/>
+<rect x="90" y="40" width="25" height="25" fill="black"/>
+<rect x="140" y="40" width="25" height="25" fill="black"/>
+<rect x="190" y="40" width="25" height="25" fill="black"/>
+<rect x="240" y="40" width="25" height="25" fill="black"/>
+<rect x="15" y="65" width="25" height="25" fill="black"/>
+<rect x="65" y="65" width="25" height="25" fill="black"/>
+<rect x="115" y="65" width="25" height="25" fill="black"/>
+<rect x="165" y="65" width="25" height="25" fill="black"/>
+<rect x="215" y="65" width="25" height="25" fill="black"/>
+<rect x="40" y="90" width="25" height="25" fill="black"/>
+<rect x="90" y="90" width="25" height="25" fill="black"/>
+<rect x="140" y="90" width="25" height="25" fill="black"/>
+<rect x="190" y="90" width="25" height="25" fill="black"/>
+<rect x="240" y="90" width="25" height="25" fill="black"/>
+<rect x="15" y="115" width="25" height="25" fill="black"/>
+<rect x="65" y="115" width="25" height="25" fill="black"/>
+<rect x="115" y="115" width="25" height="25" fill="black"/>
+<rect x="165" y="115" width="25" height="25" fill="black"/>
+<rect x="215" y="115" width="25" height="25" fill="black"/>
+<rect x="40" y="140" width="25" height="25" fill="black"/>
+<rect x="90" y="140" width="25" height="25" fill="black"/>
+<rect x="140" y="140" width="25" height="25" fill="black"/>
+<rect x="190" y="140" width="25" height="25" fill="black"/>
+<rect x="240" y="140" width="25" height="25" fill="black"/>
+<rect x="15" y="165" width="25" height="25" fill="black"/>
+<rect x="65" y="165" width="25" height="25" fill="black"/>
+<rect x="115" y="165" width="25" height="25" fill="black"/>
+<rect x="165" y="165" width="25" height="25" fill="black"/>
+<rect x="215" y="165" width="25" height="25" fill="black"/>
+<text x="15" y="201" font-family="sans-serif" font-size="3">9 x 6 INNER corners / 10 x 7 squares / 25 mm squares. Print at 100%, no fit-to-page. Verify square size.</text>
+</svg>

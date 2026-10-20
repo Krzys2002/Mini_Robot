@@ -9,6 +9,20 @@ if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
     gtest_discover_tests(micro_robot_marker_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "markers")
 endif()
 
+add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp)
+target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_calibration_tests)
+gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;calibration")
+
+if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
+    add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp)
+    target_link_libraries(micro_robot_calibration_detector_tests PRIVATE
+        micro_robot_calibration_opencv GTest::gtest_main ${OpenCV_LIBS})
+    target_include_directories(micro_robot_calibration_detector_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    micro_robot_target_defaults(micro_robot_calibration_detector_tests)
+    gtest_discover_tests(micro_robot_calibration_detector_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "calibration")
+endif()
+
 if(MICRO_ROBOT_BUILD_REPLAY)
     add_executable(micro_robot_replay_tests camera/RecordedVideoSourceTest.cpp)
     target_link_libraries(micro_robot_replay_tests PRIVATE
@@ -24,6 +38,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_add_desktop_packaging_tests(micro_robot_desktop)
     add_executable(micro_robot_tests
         main.cpp
+        ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
         ui/MainWindowTest.cpp
         ui/CameraSelectionControllerTest.cpp

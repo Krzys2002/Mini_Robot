@@ -12,7 +12,10 @@ namespace micro_robot {
 
 // Qt Multimedia adapter. Create and use on the Qt application thread (camera
 // permission requests require it); public calls and callbacks stay on that thread.
-// Native capture and pixel conversion run on a dedicated worker; frame delivery has a single latest-frame slot. Creation does not open the device.
+// Device loss, invalid frames, or a three-second capture stall are recoverable
+// terminal states; Start recreates capture. Native capture and pixel conversion
+// run on a dedicated worker; frame delivery has a single latest-frame slot.
+// Creation does not open the device.
 class QtCameraSource final : public QObject, public ICameraSource {
 public:
     explicit QtCameraSource(CameraDevice device);

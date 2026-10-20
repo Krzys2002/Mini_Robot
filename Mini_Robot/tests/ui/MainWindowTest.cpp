@@ -6,9 +6,11 @@
 #include "ManualBackends.hpp"
 
 #include <QApplication>
+#include <QEventLoop>
 #include <QLabel>
 #include <QPushButton>
 #include <QStatusBar>
+#include <QTimer>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -126,11 +128,10 @@ TEST(DesktopIntegrationTest, ButtonsRequestCameraChangesAndFrameEventsUpdateTheV
     EXPECT_TRUE(fixture.label("frameDescription")->text().contains(QStringLiteral("Frame #0")));
     // Camera frames do not infer poses or mutate world state.
     EXPECT_FALSE(fixture.world.robot(RobotId{1})->pose);
-    const auto lastFrame = fixture.label("frameDescription")->text();
     fixture.button("stopCamera")->click();
     fixture.advanceTo(Timestamp{1s + 200ms});
     EXPECT_EQ(fixture.label("cameraStatus")->text(), QStringLiteral("Stopped"));
-    EXPECT_EQ(fixture.label("frameDescription")->text(), lastFrame);
+    EXPECT_EQ(fixture.label("frameDescription")->text(), QStringLiteral("No frames received"));
     EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
     EXPECT_FALSE(fixture.button("stopCamera")->isEnabled());
 }
@@ -206,6 +207,53 @@ TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptionsAndReleases
     EXPECT_EQ(cameras.liveSourceCount(), 0U);
     transport.connect(RobotId{1});
     EXPECT_NO_THROW(transport.advanceTo(Timestamp{4s}));
+}
+
+FramePtr recoveryFrame(std::uint64_t sequence = 1)
+{
+    return std::make_shared<const Frame>(Frame{sequence, Timestamp{2s}, 1, 1, 1,
+        PixelFormat::Gray8, std::make_shared<const std::vector<std::byte>>(1, std::byte{0})});
+}
+
+TEST(DesktopIntegrationTest, RepeatedSourceLossClearsFramesAndRejectsLateOrInvalidDelivery)
+{
+    DesktopFixture fixture;
+    auto& camera = installManualCamera(fixture.controller);
+    for (int cycle = 0; cycle < 5; ++cycle) {
+        fixture.controller.startCamera();
+        camera.publishState(CameraState::Streaming, Timestamp{2s});
+        camera.publishFrame(recoveryFrame());
+        const auto current = fixture.label("frameDescription")->text();
+        EXPECT_TRUE(current.contains(QStringLiteral("Frame #1")));
+        camera.publishFrame(nullptr);
+        camera.publishFrame(std::make_shared<const Frame>());
+        EXPECT_EQ(fixture.label("frameDescription")->text(), current);
+        camera.publishError({CameraErrorCode::Unavailable, "Camera disconnected", Timestamp{3s}});
+        camera.publishState(cycle % 2 ? CameraState::Fault : CameraState::Disconnected, Timestamp{3s});
+        const auto lost = fixture.label("frameDescription")->text();
+        EXPECT_TRUE(lost.contains(QStringLiteral("No current frame")));
+        camera.publishFrame(recoveryFrame(99)); // Already queued when loss was reported.
+        EXPECT_EQ(fixture.label("frameDescription")->text(), lost);
+        EXPECT_EQ(fixture.window.statusBar()->currentMessage(), QStringLiteral("Camera disconnected"));
+        EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
+        EXPECT_FALSE(fixture.button("stopCamera")->isEnabled());
+    }
+    EXPECT_EQ(camera.startRequests, 5);
+}
+
+TEST(DesktopIntegrationTest, SilentSourceCannotLeaveAnOldFramePresentedAsCurrent)
+{
+    DesktopFixture fixture;
+    auto& camera = installManualCamera(fixture.controller);
+    camera.publishState(CameraState::Streaming, Timestamp{2s});
+    camera.publishFrame(recoveryFrame());
+    ASSERT_TRUE(fixture.label("frameDescription")->text().contains(QStringLiteral("Frame #1")));
+    QEventLoop loop;
+    QTimer::singleShot(CameraFrameTimeout + 100ms, &loop, &QEventLoop::quit);
+    loop.exec();
+    EXPECT_TRUE(fixture.label("frameDescription")->text().contains(QStringLiteral("No current frame")));
+    camera.publishFrame(recoveryFrame(2));
+    EXPECT_TRUE(fixture.label("frameDescription")->text().contains(QStringLiteral("Frame #2")));
 }
 
 TEST(DesktopIntegrationTest, CameraTerminalStatesPermitRecoveryThroughTheInterface)
@@ -507,7 +555,7 @@ TEST(CameraStreamControlTest, RepeatedCyclesStopFramesAndResumeWithoutRestarting
         fixture.advanceTo(fixture.now + 100ms);
         EXPECT_EQ(fixture.camera->state(), CameraState::Stopped);
         fixture.advanceTo(fixture.now + 100ms);
-        EXPECT_EQ(fixture.label("frameDescription")->text(), frame);
+        EXPECT_EQ(fixture.label("frameDescription")->text(), QStringLiteral("No frames received"));
         EXPECT_TRUE(fixture.button("startCamera")->isEnabled());
     }
 }

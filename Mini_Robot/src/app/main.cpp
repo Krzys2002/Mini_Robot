@@ -1,5 +1,7 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
+#include "app/CalibrationController.hpp"
+#include "calibration/OpenCvCalibrationDetector.hpp"
 #include "app/CameraSelectionController.hpp"
 #include "camera/QtCameraDeviceDiscovery.hpp"
 #include "camera/QtCameraSource.hpp"
@@ -105,7 +107,14 @@ int main(int argc, char* argv[])
     DesktopController controller{*transport, world, robotId, logger.channel("controller")};
     CameraSelectionController cameraSelection{cameraDiscovery, cameraFactory, controller,
                                               logger.channel("camera")};
+    CalibrationController calibration{std::make_unique<OpenCvCalibrationDetector>(),
+                                      logger.channel("calibration")};
+    QObject::connect(&controller, &DesktopController::cameraInputChanged,
+                     &calibration, &CalibrationController::setInput);
+    QObject::connect(&controller, &DesktopController::frameAvailable,
+                     &calibration, &CalibrationController::receiveFrame);
     MainWindow window{controller};
+    window.bindCalibration(calibration);
     window.bindCameraSelection(cameraSelection);
     QTimer simulationTimer;
     simulationTimer.setInterval(config.simulation.updateInterval);
@@ -115,7 +124,7 @@ int main(int argc, char* argv[])
     bool cameraActive = false;
     bool transportActive = false;
     const auto finishShutdown = [&] {
-        if (closing && !cameraActive && !transportActive) application.quit();
+        if (closing && !cameraActive && !transportActive && calibration.isStopped()) application.quit();
     };
     QObject::connect(&controller, &DesktopController::cameraStatusChanged, &window,
                      [&](const QString&, bool active) {
@@ -129,9 +138,11 @@ int main(int argc, char* argv[])
     });
     QObject::connect(&application, &QGuiApplication::lastWindowClosed, &window, [&] {
         closing = true;
+        calibration.shutdown();
         controller.shutdown();
         finishShutdown();
     });
+    QObject::connect(&calibration, &CalibrationController::stopped, &window, finishShutdown);
     bool robotConnected = false;
     QObject::connect(&controller, &DesktopController::connectionStatusChanged, &window,
                      [&robotConnected](const QString&, bool connected) { robotConnected = connected; });
@@ -148,6 +159,7 @@ int main(int argc, char* argv[])
     QObject::connect(&application, &QCoreApplication::aboutToQuit, &window, [&] {
         appLog.info("Application shutting down");
         simulationTimer.stop();
+        calibration.shutdown();
         controller.shutdown();
         const auto now = MonotonicClock::now();
         transport->advanceTo(now);
