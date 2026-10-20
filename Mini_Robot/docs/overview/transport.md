@@ -7,6 +7,9 @@ Source: [IRobotTransport.hpp](../../src/transport/IRobotTransport.hpp) and
 values are independent of BLE addresses, UUIDs, or Zigbee handles. Only the
 [simulation backend](simulation.md) currently implements it in production source.
 This interface is not a serialized wire protocol or a BLE implementation.
+Radio backends locate robots through the separate
+[robot discovery](robot-communication.md#robot-discovery) boundary and fail
+`connect` with `Unavailable` for an ID that was not discovered or is ambiguous.
 
 ## Lifecycle and ownership
 
@@ -106,6 +109,9 @@ transport.sendCommand(RobotId{7}, command); // IRobotTransport&, no radio detail
 substitution, copied event values, weak subscriptions, and virtual destruction.
 [Simulation tests](../../tests/simulation/SimulationTest.cpp) verify the concrete
 fake's cancellation and dispatch-time freshness rules.
+[Transport contract tests](../../tests/transport/TransportContractTest.cpp) run
+the same lifecycle and rejection checks against simulation and a test-only radio
+backend ([mock transport tests](robot-communication.md#mock-transport-tests)).
 [Domain tests](../../tests/transport/TransportTypesTest.cpp) verify metadata
 defaults/copying, valid sequence extremes, and explicit version support without
 Qt or a backend. Simulation tests also cover unsupported-version diagnostics,
@@ -122,5 +128,5 @@ on the macOS development host.
 Build normally using the [test guide](../development/testing.md), then select:
 
 ```sh
-ctest --test-dir build/debug -R '^(TransportDomainTest|TransportInterfaceTest|SimulationTransportTest|BackendSubstitutionTest)\.' --output-on-failure --no-tests=error
+ctest --test-dir build/debug -R '^(TransportDomainTest|TransportInterfaceTest|SimulationTransportTest|BackendSubstitutionTest|TransportContractTest|RobotDiscoveryTest)' --output-on-failure --no-tests=error
 ```

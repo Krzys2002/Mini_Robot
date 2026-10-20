@@ -165,7 +165,7 @@ ESP32-C6 firmware:
 Desktop BLE adapter ([#65](https://github.com/Krzys2002/Mini_Robot/issues/65),
 [#66](https://github.com/Krzys2002/Mini_Robot/issues/66)):
 
-- [ ] Service UUID filtering and session establishment steps 1–5.
+- [ ] Service UUID filtering behind [IRobotDiscovery](../overview/robot-communication.md#robot-discovery), and session establishment steps 1–5.
 - [ ] Encoding with remaining-validity computation, range checks, and wire sequence allocation.
 - [ ] Decoding with exact lengths, version and type rejection, and newer-than filtering.
 - [ ] Domain mapping and `TransportError` codes as in the [protocol](robot-protocol.md#domain-mapping).
