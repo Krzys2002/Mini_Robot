@@ -14,6 +14,10 @@ reports are scope/history, not evidence that future modules are present.
 | [src/app/CalibrationController.cpp](../../src/app/CalibrationController.cpp) | [Calibration capture](calibration-capture.md) |
 | [src/calibration/CalibrationCapture.hpp](../../src/calibration/CalibrationCapture.hpp) | [Calibration capture](calibration-capture.md) |
 | [src/calibration/CalibrationCapture.cpp](../../src/calibration/CalibrationCapture.cpp) | [Calibration capture](calibration-capture.md) |
+| [src/calibration/IntrinsicCalibration.hpp](../../src/calibration/IntrinsicCalibration.hpp) | [Intrinsic result and validation](intrinsic-calibration.md) |
+| [src/calibration/IntrinsicCalibration.cpp](../../src/calibration/IntrinsicCalibration.cpp) | [Intrinsic result and validation](intrinsic-calibration.md) |
+| [src/calibration/OpenCvIntrinsicCalibrationSolver.hpp](../../src/calibration/OpenCvIntrinsicCalibrationSolver.hpp) | [Intrinsic solver](intrinsic-calibration.md) |
+| [src/calibration/OpenCvIntrinsicCalibrationSolver.cpp](../../src/calibration/OpenCvIntrinsicCalibrationSolver.cpp) | [Intrinsic solver](intrinsic-calibration.md) |
 | [src/calibration/OpenCvCalibrationDetector.hpp](../../src/calibration/OpenCvCalibrationDetector.hpp) | [Calibration capture](calibration-capture.md) |
 | [src/calibration/OpenCvCalibrationDetector.cpp](../../src/calibration/OpenCvCalibrationDetector.cpp) | [Calibration capture](calibration-capture.md) |
 | [src/ui/CalibrationWizard.hpp](../../src/ui/CalibrationWizard.hpp) | [Calibration capture](calibration-capture.md) |
@@ -79,7 +83,7 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_selection | camera API |
 | micro_robot_transport_api | micro_robot_common |
 | micro_robot_calibration | camera API, C++20 only |
-| micro_robot_calibration_opencv | calibration, private OpenCV core/imgproc and calib3d (4.x) or objdetect (5.x) |
+| micro_robot_calibration_opencv | calibration, private OpenCV core/imgproc and calib3d (4.x) or objdetect/calib/geometry (5.x) |
 | micro_robot_control | micro_robot_common, micro_robot_transport_api (domain values only) |
 | micro_robot_camera_discovery | camera API, Qt6::Multimedia |
 | micro_robot_camera_v4l2 | camera API, Qt6::Core, private OpenCV core/imgproc/videoio; Linux only, when `MICRO_ROBOT_CAMERA_BACKEND=V4L2` |
@@ -104,11 +108,12 @@ robot pose storage, system device discovery and selection, human-readable applic
 logging, INI configuration loading, recorded-video replay, pure differential-drive
 kinematics, and a Qt simulation
 window are implemented. Discovery diagnostics use a separate Qt logging category.
-[Calibration capture](calibration-capture.md) supplies a chessboard detector and capture wizard.
-There are no intrinsic solver/profile persistence, robot tracking, planning, supervisory controller,
+[Calibration capture](calibration-capture.md) supplies a chessboard detector and capture wizard;
+[intrinsic calibration](intrinsic-calibration.md) adds solving, result validation and reprojection quality.
+There are no profile persistence, robot tracking, planning, supervisory controller,
 physical BLE, Zigbee, or structured measurement-recording modules. Qt Multimedia
 is isolated in the concrete discovery and [streaming](camera-streaming.md) adapters. OpenCV is isolated in the optional
-replay adapter, calibration detector and the Linux [V4L2 camera adapter](camera-backends.md); other proposed dependencies are absent from current CMake targets.
+replay adapter, calibration detector/solver and the Linux [V4L2 camera adapter](camera-backends.md); other proposed dependencies are absent from current CMake targets.
 The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.
 

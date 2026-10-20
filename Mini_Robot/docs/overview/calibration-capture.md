@@ -1,7 +1,8 @@
 # Intrinsic calibration target capture
 
-Issue #53 implements observation capture, not the intrinsics solver (#54),
-calibration-profile persistence (#55), or tabletop homography (#57).
+Issue #53 implements observation capture. Issue #54 adds the
+[intrinsics solver and quality reporting](intrinsic-calibration.md).
+Calibration-profile persistence (#55) and tabletop homography (#57) remain separate.
 No AprilTag identity or WorldModel updates occur during this workflow.
 
 ## Target and operator workflow
@@ -31,14 +32,14 @@ and tilt it out of plane. Keep its full outer border visible. The progress text
 shows view count, occupied image regions, scale spread and rotation spread.
 The capture policy is a heuristic for useful diversity, not proof of a
 well-conditioned calibration. Tilt and reprojection quality must also be
-assessed visually and by the future solver.
+assessed visually and through solver reprojection errors.
 
 **Remove / recapture selected** deletes that view and returns to live preview;
 then capture its replacement. **Start / restart capture** clears all observations.
-**Cancel / close** or Escape discards an unfinished session. **Finish capture**
-retains a completed in-memory dataset in the controller. Closing a completed
+**Cancel / close** or Escape discards an unfinished session. **Calculate intrinsics**
+completes capture and solves the in-memory dataset on a worker. Closing a completed
 dialog preserves it until restart, camera loss/change or application exit.
-There is no disk export or intrinsic calculation in this issue.
+There is no disk export; see the intrinsic-calibration guide for result handling.
 
 ## Quality gates and diversity
 
