@@ -105,7 +105,7 @@ void DesktopController::initialize(Timestamp now)
     startedAt_ = now;
     (void)world_.registerRobot(robotId_, now);
     log_.info("Controller initialized; robot registered", robotId_);
-    emit applicationStatusChanged(QStringLiteral("Ready — Phase 0 simulation"));
+    emit applicationStatusChanged(QStringLiteral("Ready"));
     publishActiveCamera();
     receiveConnectionState(robotId_, transport_.connectionState(robotId_));
     publishWorld();

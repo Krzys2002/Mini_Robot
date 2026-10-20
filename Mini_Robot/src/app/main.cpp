@@ -154,6 +154,7 @@ int main(int argc, char* argv[])
     QObject::connect(&controller, &DesktopController::frameAvailable,
                      &calibration, &CalibrationController::receiveFrame);
     MainWindow window{controller};
+    if (arguments.isSet(bleOption)) window.setWindowTitle(QStringLiteral("Micro Robot — BLE connections"));
     window.bindCalibration(calibration);
     window.bindCameraSelection(cameraSelection);
     QTimer simulationTimer;
@@ -208,7 +209,7 @@ int main(int argc, char* argv[])
     controller.initialize(MonotonicClock::now());
     cameraSelection.initialize();
     window.show();
-    simulationTimer.start();
+    if (simulation) simulationTimer.start();
     appLog.info("Application started");
 
     const int exitCode = application.exec();
