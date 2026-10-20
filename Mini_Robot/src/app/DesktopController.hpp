@@ -53,6 +53,9 @@ signals:
     // Availability includes pending requests, source replacement, and shutdown.
     void cameraActionsChanged(bool canStart, bool canStop);
     void cameraStatusChanged(const QString& status, bool active);
+    // Same-owner-thread consumers may retain immutable frames. No work queues here.
+    void frameAvailable(FramePtr frame);
+    void cameraInputChanged(const QString& sourceId, bool streaming);
     void frameDescriptionChanged(const QString& description);
     // Active includes connecting/disconnecting, so the UI can cancel a connection
     // attempt without treating a pending connection as connected.

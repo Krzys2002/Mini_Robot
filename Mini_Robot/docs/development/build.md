@@ -16,8 +16,10 @@ one level above it in the repository's `.github` directory.
   application controllers; Multimedia is isolated in the device-discovery adapter.
 - OpenCV core, imgproc, and videoio for recorded-video replay (default ON) and,
   on Linux, for the default V4L2 [camera backend](../overview/camera-backends.md).
-  Set `-DMICRO_ROBOT_BUILD_REPLAY=OFF` to omit the replay adapter and its tests;
-  on Linux also set `-DMICRO_ROBOT_CAMERA_BACKEND=Qt` to build without OpenCV.
+  Set `-DMICRO_ROBOT_BUILD_REPLAY=OFF` to omit the replay adapter and its tests.
+- Chessboard capture requires OpenCV core/imgproc and calib3d on OpenCV 4, or
+  objdetect on OpenCV 5. Desktop builds include it automatically. For headless
+  detector tests enable `-DMICRO_ROBOT_BUILD_CALIBRATION=ON`.
 - GoogleTest when BUILD_TESTING is ON (the default). CMake first uses an installed
   GTest CONFIG package, then downloads pinned GoogleTest 1.17.0 if unavailable.
 
@@ -115,7 +117,7 @@ The [Ubuntu setup guide](linux-setup.md) provides GCC/Clang and headless recipes
 for the current source, with explicit verification limits.
 
 For Windows, install a C++20 toolchain, CMake, and Qt 6 Widgets/Multimedia
-built for that toolchain, plus compatible OpenCV core/imgproc/videoio packages.
+built for that toolchain, plus compatible OpenCV packages including the chessboard component listed above.
 Run from its developer terminal and pass the matching Qt prefix:
 
 ```sh
@@ -137,7 +139,7 @@ ctest --test-dir build/core --output-on-failure --no-tests=error
 ```
 
 This omits Qt discovery and all GUI targets, but includes the OpenCV replay adapter.
-Disable `MICRO_ROBOT_BUILD_REPLAY` as well for a build with neither Qt nor OpenCV. All domain tests, including the
+Disable `MICRO_ROBOT_BUILD_REPLAY` and `MICRO_ROBOT_BUILD_CALIBRATION` as well for a build with neither Qt nor OpenCV. All domain tests, including the
 unlabelled camera tests, run when no label filter is given. For offline builds,
 install GTest or add `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`.
 Use `-DBUILD_TESTING=OFF` to omit tests and the GTest dependency entirely.
@@ -147,7 +149,7 @@ Use `-DBUILD_TESTING=OFF` to omit tests and the GTest dependency entirely.
 | Symptom | Check |
 | --- | --- |
 | Qt6 package not found | Pass the matching installation prefix via CMAKE_PREFIX_PATH, or disable desktop for a domain-only build. |
-| OpenCV package not found | Install OpenCV or set OpenCV_DIR to its CMake package directory; disable replay to omit it. |
+| OpenCV package not found | Install OpenCV or set OpenCV_DIR to its CMake package directory; disable desktop, replay and standalone calibration to omit it. |
 | GoogleTest download fails | Network access or installed GTest; alternatively provide an existing source checkout. |
 | No tests found | Configure BUILD_TESTING=ON, build test targets, then run CTest from that build directory. |
 | Old compiler/Qt or generator persists | Use a fresh build directory when switching toolchains/platforms. |

@@ -33,8 +33,8 @@ so the discovery adapter and the factory must come from the same backend. The
 choice is made when CMake configures the build (see [build options](../development/build.md#platform-and-compiler-configuration));
 [main.cpp](../../src/app/main.cpp) is the only source with the conditional and logs
 the active backend at startup (`Camera backend: OpenCV V4L2`). On Linux,
-`-DMICRO_ROBOT_CAMERA_BACKEND=Qt` restores the Qt Multimedia backend, for example
-when OpenCV is not installed.
+`-DMICRO_ROBOT_CAMERA_BACKEND=Qt` restores the Qt Multimedia backend. Desktop
+builds still require OpenCV for [chessboard calibration capture](calibration-capture.md).
 
 ## OpenCV backend review
 

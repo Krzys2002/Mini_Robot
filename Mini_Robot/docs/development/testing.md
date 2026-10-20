@@ -30,6 +30,8 @@ selection rather than reporting successful verification with no tests run.
 
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
+| `micro_robot_calibration_tests` | `core`, `calibration` | Capture state, target geometry, quality gates, diversity, duplicate detection and memory limits |
+| `micro_robot_calibration_detector_tests` | `calibration` | Generated chessboards, color/stride formats, rotation/perspective, blur/partial/blank inputs; built with desktop or standalone calibration enabled |
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
 | `micro_robot_control_tests` | `core` | [Differential-drive kinematics](../overview/differential-drive.md): analytical wheel targets, inverse conversion, world derivatives, signs, bounds, invalid inputs and overflow |
 | `micro_robot_camera_tests` | none | Packed frame validation, malformed metadata, storage and overflow checks; camera selection rules |
@@ -40,7 +42,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink |
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, example file |
-| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, and camera selection; with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
+| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection and calibration wizard lifecycle; with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
 | `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs, Qt platform macros, or concrete-backend includes in platform-independent targets; scanner and link-check self-tests |
 
 The camera suite currently has no CTest label; `-L core` does not include it.

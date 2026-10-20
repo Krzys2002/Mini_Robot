@@ -10,6 +10,14 @@ reports are scope/history, not evidence that future modules are present.
 | [src/app/Info.plist.in](../../src/app/Info.plist.in) | [macOS discovery metadata](camera-discovery.md#macos-and-verification) |
 | [src/app/DesktopController.cpp](../../src/app/DesktopController.cpp) | [app](desktop-demo.md) |
 | [src/app/DesktopController.hpp](../../src/app/DesktopController.hpp) | [app](desktop-demo.md) |
+| [src/app/CalibrationController.hpp](../../src/app/CalibrationController.hpp) | [Calibration capture](calibration-capture.md) |
+| [src/app/CalibrationController.cpp](../../src/app/CalibrationController.cpp) | [Calibration capture](calibration-capture.md) |
+| [src/calibration/CalibrationCapture.hpp](../../src/calibration/CalibrationCapture.hpp) | [Calibration capture](calibration-capture.md) |
+| [src/calibration/CalibrationCapture.cpp](../../src/calibration/CalibrationCapture.cpp) | [Calibration capture](calibration-capture.md) |
+| [src/calibration/OpenCvCalibrationDetector.hpp](../../src/calibration/OpenCvCalibrationDetector.hpp) | [Calibration capture](calibration-capture.md) |
+| [src/calibration/OpenCvCalibrationDetector.cpp](../../src/calibration/OpenCvCalibrationDetector.cpp) | [Calibration capture](calibration-capture.md) |
+| [src/ui/CalibrationWizard.hpp](../../src/ui/CalibrationWizard.hpp) | [Calibration capture](calibration-capture.md) |
+| [src/ui/CalibrationWizard.cpp](../../src/ui/CalibrationWizard.cpp) | [Calibration capture](calibration-capture.md) |
 | [src/app/main.cpp](../../src/app/main.cpp) | [app](desktop-demo.md) |
 | [src/camera/CameraSelection.cpp](../../src/camera/CameraSelection.cpp) | [Selection rules](camera-selection.md#architecture-and-api) |
 | [src/camera/CameraSelection.hpp](../../src/camera/CameraSelection.hpp) | [Selection rules](camera-selection.md#architecture-and-api) |
@@ -70,6 +78,8 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_api | micro_robot_common |
 | micro_robot_camera_selection | camera API |
 | micro_robot_transport_api | micro_robot_common |
+| micro_robot_calibration | camera API, C++20 only |
+| micro_robot_calibration_opencv | calibration, private OpenCV core/imgproc and calib3d (4.x) or objdetect (5.x) |
 | micro_robot_control | micro_robot_common, micro_robot_transport_api (domain values only) |
 | micro_robot_camera_discovery | camera API, Qt6::Multimedia |
 | micro_robot_camera_v4l2 | camera API, Qt6::Core, private OpenCV core/imgproc/videoio; Linux only, when `MICRO_ROBOT_CAMERA_BACKEND=V4L2` |
@@ -78,9 +88,9 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_logging | micro_robot_common |
 | micro_robot_configuration | micro_robot_common, camera API (value types), micro_robot_logging |
 | micro_robot_simulation | camera and transport API targets, logging |
-| micro_robot_desktop_controller | camera API, camera selection, transport API, world, logging, Qt6::Core |
+| micro_robot_desktop_controller | camera API, camera selection, transport API, world, logging, calibration, Qt6::Core |
 | micro_robot_ui | controller, Qt6::Widgets |
-| micro_robot_desktop | UI, simulation, live camera adapter (camera V4L2 or camera discovery), logging, configuration |
+| micro_robot_desktop | UI, simulation, live camera adapter (camera V4L2 or camera discovery), calibration detector, logging, configuration |
 
 See [root configuration](../../CMakeLists.txt), [platform/toolchain module](../../cmake/MicroRobotPlatform.cmake), and [test targets](../../tests/CMakeLists.txt).
 Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
@@ -94,10 +104,11 @@ robot pose storage, system device discovery and selection, human-readable applic
 logging, INI configuration loading, recorded-video replay, pure differential-drive
 kinematics, and a Qt simulation
 window are implemented. Discovery diagnostics use a separate Qt logging category.
-There are no vision, calibration, tracking, planning, supervisory controller,
+[Calibration capture](calibration-capture.md) supplies a chessboard detector and capture wizard.
+There are no intrinsic solver/profile persistence, robot tracking, planning, supervisory controller,
 physical BLE, Zigbee, or structured measurement-recording modules. Qt Multimedia
 is isolated in the concrete discovery and [streaming](camera-streaming.md) adapters. OpenCV is isolated in the optional
-replay adapter and the Linux [V4L2 camera adapter](camera-backends.md); other proposed dependencies are absent from current CMake targets.
+replay adapter, calibration detector and the Linux [V4L2 camera adapter](camera-backends.md); other proposed dependencies are absent from current CMake targets.
 The desktop
 does not perform autonomous motion or implement real safety/watchdog behavior.
 
