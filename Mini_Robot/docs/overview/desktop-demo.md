@@ -13,6 +13,11 @@ Bluetooth adapter, calibration, ESP32, or configuration file. An optional
 [configuration file](configuration.md) selects the robot ID, simulation timing,
 and logging options.
 
+The optional [BLE connection mode](ble-connection.md) uses `--ble` in a build
+configured with `MICRO_ROBOT_BUILD_BLE=ON`. Connect/disconnect use the same
+controller and buttons; setup phases are logged. This mode does not supply
+simulated telemetry or demo poses. The behavior below describes default simulation.
+
 ## Camera selection
 
 The Camera selection panel lists every discovered device in a drop-down. Its

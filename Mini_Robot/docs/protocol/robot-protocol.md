@@ -1,7 +1,9 @@
 # Robot message protocol, version 1
 
 Status: specification for [issue #64](https://github.com/Krzys2002/Mini_Robot/issues/64).
-No desktop adapter or ESP32-C6 firmware implements it yet. The BLE carriage of
+The desktop [BLE lifecycle](../overview/ble-connection.md) validates Robot Info
+and establishes GATT readiness. Frame encoding/decoding and ESP32-C6 firmware
+remain unimplemented. The BLE carriage of
 these frames is defined in [BLE GATT contract](ble-gatt.md).
 
 This document defines the bytes exchanged between the desktop and one robot. It

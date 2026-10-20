@@ -1,7 +1,9 @@
 # BLE GATT contract, protocol version 1
 
 Status: specification for [issue #64](https://github.com/Krzys2002/Mini_Robot/issues/64).
-No BLE adapter or firmware implements it yet.
+The desktop [BLE lifecycle](../overview/ble-connection.md) implements discovery,
+identity/service validation and notification setup. Payload handling remains #66;
+no firmware implementation is provided here.
 
 This contract defines how [robot message protocol](robot-protocol.md) frames are
 carried over Bluetooth Low Energy. The ESP32-C6 is the GATT server (peripheral),

@@ -1,7 +1,9 @@
 # Robot protocol
 
 Wire-level contract between the desktop and ESP32-C6 robots. Protocol version 1
-is specified here but not yet implemented on either side.
+is specified here. The desktop [BLE lifecycle](../overview/ble-connection.md)
+implements service/identity/CCCD readiness; command/telemetry codecs and firmware
+remain unimplemented.
 
 - [Robot message protocol](robot-protocol.md): identity, frame header, message
   types, units and scaling, byte order, sequence numbers, acknowledgements, result

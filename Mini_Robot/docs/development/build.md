@@ -26,8 +26,13 @@ one level above it in the repository's `.github` directory.
 Configuration fails if a platform-independent target links a platform library
 or a concrete backend; see [platform boundaries](../overview/platform-boundaries.md).
 
+The opt-in [BLE lifecycle](../overview/ble-connection.md) requires Qt 6.2+ Bluetooth
+when `-DMICRO_ROBOT_BUILD_BLE=ON`; the default is OFF. This can be built/tested
+without the desktop or OpenCV. Ubuntu users additionally install
+`qt6-connectivity-dev` to enable it; standard builds retain their current dependencies.
+
 The current source does not discover or link Eigen, spdlog, JSON,
-Qt Bluetooth, or network libraries. They are planned dependencies,
+or network libraries. They are planned dependencies,
 not prerequisites for today's simulation demo. The optional runtime settings file is
 described in [Application configuration](../overview/configuration.md).
 

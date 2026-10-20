@@ -5,7 +5,9 @@ Source: [IRobotTransport.hpp](../../src/transport/IRobotTransport.hpp) and
 
 `IRobotTransport` is a Qt-free asynchronous boundary. Application `RobotId`
 values are independent of BLE addresses, UUIDs, or Zigbee handles. Only the
-[simulation backend](simulation.md) currently implements it in production source.
+[simulation backend](simulation.md) implements command/telemetry behavior; the
+opt-in [BLE adapter](ble-connection.md) implements connection lifecycle, with
+command delivery and telemetry parsing reserved for #66.
 This interface is not a serialized wire protocol or a BLE implementation.
 
 ## Lifecycle and ownership
