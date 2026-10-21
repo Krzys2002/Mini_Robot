@@ -2,8 +2,10 @@
 
 Status: specification for [issue #64](https://github.com/Krzys2002/Mini_Robot/issues/64).
 The desktop [BLE lifecycle](../overview/ble-connection.md) implements discovery,
-identity/service validation and notification setup. Payload handling remains #66;
-no firmware implementation is provided here.
+identity/service validation and notification setup. Desktop
+[message handling](../overview/ble-messages.md) implements command writes and
+validated notifications; physical command delivery remains unverified. No firmware
+implementation is provided here.
 
 This contract defines how [robot message protocol](robot-protocol.md) frames are
 carried over Bluetooth Low Energy. The ESP32-C6 is the GATT server (peripheral),
@@ -167,10 +169,10 @@ ESP32-C6 firmware:
 Desktop BLE adapter ([#65](https://github.com/Krzys2002/Mini_Robot/issues/65),
 [#66](https://github.com/Krzys2002/Mini_Robot/issues/66)):
 
-- [ ] Service UUID filtering and session establishment steps 1–5.
-- [ ] Encoding with remaining-validity computation, range checks, and wire sequence allocation.
-- [ ] Decoding with exact lengths, version and type rejection, and newer-than filtering.
-- [ ] Domain mapping and `TransportError` codes as in the [protocol](robot-protocol.md#domain-mapping).
-- [ ] Encoder and decoder tests using the [example frames](robot-protocol.md#example-frames).
-- [ ] Logging of wire sequences and desktop timestamps for latency measurement
+- [x] Service UUID filtering and session establishment steps 1–5.
+- [x] Encoding with remaining-validity computation, range checks, and wire sequence allocation.
+- [x] Decoding with exact lengths, version and type rejection, and newer-than filtering.
+- [x] Domain mapping and `TransportError` codes as in the [protocol](robot-protocol.md#domain-mapping).
+- [x] Encoder and decoder tests using the [example frames](robot-protocol.md#example-frames).
+- [x] Logging of wire sequences and desktop timestamps for latency measurement
   ([#72](https://github.com/Krzys2002/Mini_Robot/issues/72)).

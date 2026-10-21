@@ -61,7 +61,8 @@ target_sources(micro_robot_transport_api INTERFACE
 )
 micro_robot_platform_boundary(micro_robot_transport_api)
 
-add_library(micro_robot_ble_contract STATIC transport/ble/BleTypes.hpp transport/ble/BleTypes.cpp)
+add_library(micro_robot_ble_contract STATIC transport/ble/BleTypes.hpp transport/ble/BleTypes.cpp
+    transport/ble/BleProtocol.hpp transport/ble/BleProtocol.cpp)
 target_link_libraries(micro_robot_ble_contract PUBLIC micro_robot_transport_api)
 micro_robot_target_defaults(micro_robot_ble_contract)
 micro_robot_platform_boundary(micro_robot_ble_contract)
@@ -71,6 +72,7 @@ if(MICRO_ROBOT_BUILD_BLE)
         transport/ble/IBleBackend.hpp
         transport/ble/BleTransport.hpp
         transport/ble/BleTransport.cpp)
+    target_sources(micro_robot_ble_lifecycle PRIVATE transport/ble/BleTransportProtocol.cpp)
     set_target_properties(micro_robot_ble_lifecycle PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_ble_lifecycle PUBLIC micro_robot_ble_contract micro_robot_logging Qt6::Core)
     micro_robot_target_defaults(micro_robot_ble_lifecycle)

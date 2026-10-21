@@ -17,13 +17,19 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, BleTransportCon
     };
     if (!backend_ || backend_->parent() || backend_->thread() != thread()
         || !validTimeout(config.scanTimeout) || !validTimeout(config.phaseTimeout)
-        || !validTimeout(config.disconnectTimeout) || config.maximumDevices == 0)
+        || !validTimeout(config.disconnectTimeout) || !validTimeout(config.emergencyStopRetry)
+        || !validTimeout(config.minimumVelocityInterval) || config.maximumDevices == 0
+        || !config.maximumTrackedCommands || config.maximumTrackedCommands >= 32768
+        || !config.maximumInvalidNotifications)
         throw std::invalid_argument("BLE requires an unparented same-thread backend and positive bounded timeouts/device limit");
     qRegisterMetaType<std::uint64_t>();
     qRegisterMetaType<BleDevice>();
     qRegisterMetaType<BlePhase>();
     qRegisterMetaType<RobotId>();
     qRegisterMetaType<TransportErrorCode>();
+    qRegisterMetaType<BleRobotInfo>();
+    qRegisterMetaType<BleEndpoint>();
+    qRegisterMetaType<Timestamp>();
     scanTimer_.setSingleShot(true);
     QObject::connect(&scanTimer_, &QTimer::timeout, this, [this] { finishScan(false); });
     QObject::connect(backend_.get(), &IBleBackend::deviceFound, this,
@@ -51,12 +57,48 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, BleTransportCon
                 }
             }
         }, Qt::QueuedConnection);
-    QObject::connect(backend_.get(), &IBleBackend::ready, this, [this](std::uint64_t token) {
+    QObject::connect(backend_.get(), &IBleBackend::ready, this, [this](std::uint64_t token, BleRobotInfo info) {
         const auto id = findToken(token);
-        if (!id || connectionState(*id) != ConnectionState::Connecting) return;
-        sessions_.at(*id).timer->stop();
-        changePhase(*id, BlePhase::Ready);
-        changeState(*id, ConnectionState::Connected);
+        if (!id || connectionState(*id) != ConnectionState::Connecting || phase(*id) == BlePhase::Scanning) return;
+        auto& session = sessions_.at(*id);
+        if (info.robotId != *id || !info.maximumLinearMillimetersPerSecond || info.maximumLinearMillimetersPerSecond > 32767
+            || !info.maximumAngularMilliradiansPerSecond || info.maximumAngularMilliradiansPerSecond > 32767
+            || !info.maximumValidityMilliseconds || !info.telemetryPeriodMilliseconds) {
+            fault(*id, TransportErrorCode::BackendFailure, "Invalid validated Robot Info from BLE backend");
+            return;
+        }
+        session.info = info;
+        session.nativeReady = true;
+        if (session.emergencyRequested) {
+            armTimeout(*id, config_.phaseTimeout);
+            sendEmergencyStop(*id);
+        } else {
+            session.timer->stop();
+            changePhase(*id, BlePhase::Ready);
+            changeState(*id, ConnectionState::Connected);
+        }
+    }, Qt::QueuedConnection);
+    QObject::connect(backend_.get(), &IBleBackend::notification, this, &BleTransport::receive, Qt::QueuedConnection);
+    QObject::connect(backend_.get(), &IBleBackend::written, this, [this](std::uint64_t token, std::uint16_t sequence) {
+        const auto id = findToken(token);
+        if (!id) return;
+        auto& session = sessions_.at(*id);
+        if (log_) log_->debug("BLE write handoff/ATT confirmation token=" + std::to_string(token)
+            + " wire_sequence=" + std::to_string(sequence) + " steady_us="
+            + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(MonotonicClock::now().time_since_epoch()).count()), *id);
+        if (session.emergencyWriting == sequence) {
+            session.emergencyWriting.reset();
+            if (session.emergencyWriteTimer) session.emergencyWriteTimer->stop();
+        }
+        if (session.writing == sequence) {
+            session.writing.reset();
+            if (session.timer) session.timer->stop();
+            schedulePump(*id);
+        }
+    }, Qt::QueuedConnection);
+    QObject::connect(backend_.get(), &IBleBackend::writeFailed, this, [this](std::uint64_t token, const QString& message) {
+        if (const auto id = findToken(token)) fault(*id, TransportErrorCode::BackendFailure,
+            message.toStdString(), TransportOperation::SendCommand);
     }, Qt::QueuedConnection);
     QObject::connect(backend_.get(), &IBleBackend::closed, this, [this](std::uint64_t token) {
         const auto id = findToken(token);
@@ -66,6 +108,7 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, BleTransportCon
             return;
         }
         auto& session = sessions_.at(*id);
+        clearIo(session);
         session.timer->stop();
         backend_->release(token);
         session.token = 0;
@@ -121,11 +164,13 @@ void BleTransport::error(RobotId id, TransportOperation op, TransportErrorCode c
     if (log_) log_->warning(message, id);
     if (auto sink = sink_.lock()) sink->onTransportError({id, op, code, message, MonotonicClock::now()});
 }
-void BleTransport::fault(RobotId id, TransportErrorCode code, const std::string& message)
+void BleTransport::fault(RobotId id, TransportErrorCode code, const std::string& message,
+                         std::optional<TransportOperation> operationOverride)
 {
     auto& session = sessions_.at(id);
-    const auto operation = session.state == ConnectionState::Disconnecting
+    const auto operation = operationOverride ? *operationOverride : session.state == ConnectionState::Disconnecting
         ? TransportOperation::Disconnect : TransportOperation::Connect;
+    clearIo(session);
     if (session.timer) session.timer->stop();
     const auto token = std::exchange(session.token, 0);
     backend_->release(token);
@@ -141,7 +186,10 @@ void BleTransport::armTimeout(RobotId id, std::chrono::milliseconds duration)
         session.timer->setSingleShot(true);
         session.timer->setTimerType(Qt::PreciseTimer);
         QObject::connect(session.timer.get(), &QTimer::timeout, this, [this, id] {
-            fault(id, TransportErrorCode::BackendFailure, std::string{"BLE timeout during "} + blePhaseName(phase(id)));
+            const auto writing = sessions_.at(id).writing.has_value();
+            fault(id, TransportErrorCode::BackendFailure, writing ? "BLE command write confirmation timed out"
+                : std::string{"BLE timeout during "} + blePhaseName(phase(id)), writing
+                    ? std::optional{TransportOperation::SendCommand} : std::nullopt);
         });
     }
     session.timer->start(static_cast<int>(duration.count()));
@@ -156,6 +204,7 @@ void BleTransport::beginConnect(RobotId id)
     if (session.state == ConnectionState::Connected || session.state == ConnectionState::Connecting
         || session.state == ConnectionState::Disconnecting) return;
     session.token = ++nextToken_;
+    clearIo(session);
     changePhase(id, BlePhase::Scanning);
     changeState(id, ConnectionState::Connecting);
     beginScan();
@@ -214,6 +263,7 @@ void BleTransport::beginDisconnect(RobotId id)
         || connectionState(id) == ConnectionState::Disconnecting) return;
     auto& session = sessions_.at(id);
     const bool scanning = session.phase == BlePhase::Scanning;
+    clearIo(session);
     changePhase(id, BlePhase::Disconnecting);
     changeState(id, ConnectionState::Disconnecting);
     if (scanning) {
@@ -227,12 +277,27 @@ void BleTransport::beginDisconnect(RobotId id)
 }
 void BleTransport::sendCommand(RobotId id, const RobotCommand& command)
 {
-    const auto version = command.metadata.modelVersion;
-    QMetaObject::invokeMethod(this, [this, id, version] {
-        const auto code = !isSupportedTransportModelVersion(version) ? TransportErrorCode::UnsupportedVersion
-            : connectionState(id) != ConnectionState::Connected ? TransportErrorCode::NotConnected
-            : TransportErrorCode::Unavailable;
-        error(id, TransportOperation::SendCommand, code, "BLE command delivery is unavailable until Issue #66");
-    }, Qt::QueuedConnection);
+    const auto reject = [this, id](TransportErrorCode code, const std::string& message) {
+        QMetaObject::invokeMethod(this, [this, id, code, message] {
+            error(id, TransportOperation::SendCommand, code, message);
+        }, Qt::QueuedConnection);
+    };
+    if (!isSupportedTransportModelVersion(command.metadata.modelVersion)) {
+        reject(TransportErrorCode::UnsupportedVersion, "Unsupported transport domain model version"); return;
+    }
+    if (connectionState(id) != ConnectionState::Connected || !sessions_.at(id).nativeReady || !sessions_.at(id).info) {
+        reject(TransportErrorCode::NotConnected, "BLE robot is not connected"); return;
+    }
+    auto& session = sessions_.at(id);
+    const auto encoded = encodeBleCommand(command, *session.info, session.transmitSequence, MonotonicClock::now());
+    if (!encoded.frame) { reject(encoded.code, encoded.error); return; }
+    if (std::holds_alternative<VelocityCommand>(command.payload)
+        && (session.emergencyRequested || session.robotState == BleRobotState::EmergencyStop || session.robotState == BleRobotState::Fault)) {
+        reject(TransportErrorCode::InvalidCommand, "Velocity blocked by emergency-stop or robot fault state"); return;
+    }
+    // Keep one newest intent. A pending Stop cannot be overwritten by Velocity.
+    if (!session.pending || std::holds_alternative<StopCommand>(command.payload)
+        || !std::holds_alternative<StopCommand>(session.pending->payload)) session.pending = command;
+    schedulePump(id);
 }
 } // namespace micro_robot

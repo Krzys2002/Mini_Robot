@@ -61,6 +61,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/transport/IRobotTransport.hpp](../../src/transport/IRobotTransport.hpp) | [transport](transport.md) |
 | [src/transport/TransportTypes.hpp](../../src/transport/TransportTypes.hpp) | [transport](transport.md) |
 | [src/transport/ble/BleTypes.hpp](../../src/transport/ble/BleTypes.hpp), [BleTypes.cpp](../../src/transport/ble/BleTypes.cpp) | [BLE identity/GATT validation](ble-connection.md) |
+| [src/transport/ble/BleProtocol.hpp](../../src/transport/ble/BleProtocol.hpp), [BleProtocol.cpp](../../src/transport/ble/BleProtocol.cpp) | [Qt-free BLE wire codec and receive sequences](ble-messages.md) |
+| [src/transport/ble/BleTransportProtocol.cpp](../../src/transport/ble/BleTransportProtocol.cpp) | [Bounded dispatch, telemetry, result correlation and adapter E-stop](ble-messages.md) |
 | [src/transport/ble/IBleBackend.hpp](../../src/transport/ble/IBleBackend.hpp) | [Internal asynchronous BLE boundary](ble-connection.md) |
 | [src/transport/ble/BleTransport.hpp](../../src/transport/ble/BleTransport.hpp), [BleTransport.cpp](../../src/transport/ble/BleTransport.cpp) | [BLE connection state, discovery and timeout policy](ble-connection.md) |
 | [src/transport/ble/QtBleBackend.hpp](../../src/transport/ble/QtBleBackend.hpp), [QtBleBackend.cpp](../../src/transport/ble/QtBleBackend.cpp) | [Native Qt BLE Central adapter](ble-connection.md) |
