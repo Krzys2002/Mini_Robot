@@ -6,7 +6,8 @@ executed for #125 on Ubuntu 26.04 LTS (see [verification status](#verification-s
 [Linux CI](testing.md#linux-continuous-integration) (#126) runs the apt installation
 and GCC/Clang builds on a clean 24.04 runner. Automated Wayland and X11 (Xwayland)
 GUI checks were executed for #130; see [GUI compatibility](gui-compatibility.md).
-The other Linux acceptance criteria (#127–#132) are tracked by their own issues.
+The other Linux acceptance criteria (#127–#132) are tracked by their own issues;
+Bluetooth preparation (#129) is described under [Bluetooth and BLE](#bluetooth-and-ble).
 
 ## Build requirements
 
@@ -128,23 +129,29 @@ For #128, on the same host (kernel 7.0.0) with the source tree at that change:
 | GCC, desktop and replay OFF (no Qt, no OpenCV) | Built; 117/117 CTest cases passed |
 | `V4l2CameraHardwareTest` with `/dev/video0` (integrated USB UVC camera) | Passed at the default size, `1280x720`, and `640x480`; see [camera backends](../overview/camera-backends.md#verification) |
 
+For #129, on the same host with the source tree at that change:
+
+| Configuration | Result |
+| --- | --- |
+| `linux-gcc` preset (V4L2 camera backend) | Built; the only warnings are existing `-Wdangling-else` warnings in two calibration test files; 223/223 CTest cases passed, 2 hardware cases skipped as above |
+| `linux-clang` preset (V4L2 camera backend) | Incremental build without warnings; 223/223 CTest cases passed, 2 skipped as above |
+| GCC, desktop and replay OFF (no Qt, no OpenCV) | Incremental build without warnings; 148/148 CTest cases passed |
+| BlueZ readiness | BlueZ 5.85 `bluetoothd` active; `hci0` powered, unblocked, central role available; default D-Bus policy allows `org.bluez`. No scan or connection was run, and Qt Bluetooth was not installed. |
+
 For #130, on the same host in a GNOME 50 Wayland session (GCC preset), the GUI
 compatibility suite passed on the native `wayland` plugin and on `xcb` through
 Xwayland, and all 64 UI cases passed on both; the
 [GUI compatibility results](gui-compatibility.md#linux-results) list scale factors,
 skips, and limitations.
 
-## Replay, camera, and BLE dependencies
+## Replay and camera dependencies
 
 OpenCV core/imgproc/videoio decode [recorded local video](../overview/recorded-video.md)
 and, through OpenCV's V4L2 backend, capture from cameras (#128). `libopencv-dev`
 covers both. No other camera package is needed: the V4L2 kernel headers come with
 the C library development files that `build-essential` installs. `v4l-utils`
 (`v4l2-ctl`) is optional for diagnosis. Replay tests require an MJPEG
-writer/decoder. BlueZ is not used by
-current [source targets](../../src/CMakeLists.txt); installing it does not enable BLE.
-Qt Bluetooth/BlueZ integration belongs to #129, which must select and document its
-exact packages.
+writer/decoder. Bluetooth packages are described in [Bluetooth and BLE](#bluetooth-and-ble).
 
 ## Camera device access (`/dev/video*`)
 
@@ -183,8 +190,56 @@ Inventory and capture logs use the Qt categories `micro_robot.camera.discovery` 
 ```sh
 QT_LOGGING_RULES='micro_robot.camera.*=true' ./build/linux-gcc/src/micro_robot_desktop
 ```
-BLE validation requires a compatible adapter, BlueZ service, and robot hardware;
-none are required for the current fake transport or automated domain tests.
+## Bluetooth and BLE
+
+The current [source targets](../../src/CMakeLists.txt) do not link Qt Bluetooth or
+BlueZ. Building and testing need no Bluetooth package, adapter, or robot. The
+[discovery and transport tests](../overview/robot-communication.md#mock-transport-tests)
+use simulation and a test-only radio backend. The packages below are for the
+planned Qt Bluetooth adapter (#65, #66) and for checking a host's BLE readiness.
+The [Qt Bluetooth review](../overview/robot-communication.md#qt-6-bluetooth-platform-review)
+explains the choice.
+
+| Purpose | Ubuntu package | Notes |
+| --- | --- | --- |
+| Qt Bluetooth headers and CMake package (`Qt6::Bluetooth`) for the future BLE adapter | `qt6-connectivity-dev` (pulls in `libqt6bluetooth6`) | Universe component. Use the same Qt version as `qt6-base-dev`. |
+| BlueZ daemon (`bluetoothd`), which Qt Bluetooth uses through D-Bus | `bluez` | Installed by default on Ubuntu Desktop. Includes `bluetoothctl` and `btmon`. |
+| Radio kill-switch control | `rfkill` (util-linux) | Usually preinstalled. |
+
+```sh
+sudo apt install bluez qt6-connectivity-dev
+sudo systemctl enable --now bluetooth
+```
+
+Runtime requirements for the desktop as a BLE central:
+
+- An adapter with Bluetooth LE support that is present, powered, and not
+  rfkill-blocked. `bluetoothctl show` must report `Powered: yes` and
+  `Roles: central`.
+- `bluetoothd` running (`systemctl is-active bluetooth`).
+- Access to BlueZ on the system D-Bus. Ubuntu's policy
+  (`/usr/share/dbus-1/system.d/bluetooth.conf`) lets any local user call
+  `org.bluez`, so neither root, `CAP_NET_ADMIN`, nor group membership is needed to
+  scan or connect. Do not run the GUI as root to work around a Bluetooth error.
+- Containers need the host's system D-Bus socket and a running host `bluetoothd`.
+  Passing `/dev` nodes is not enough.
+
+The robot protocol uses no pairing or bonding
+([link parameters](../protocol/ble-gatt.md#link-parameters)), so no BlueZ agent
+setup is needed.
+
+Diagnosis:
+
+| Symptom | Check |
+| --- | --- |
+| No adapter | `bluetoothctl list`, `ls /sys/class/bluetooth`, `sudo dmesg \| grep -i bluetooth` (firmware or driver) |
+| Adapter present but unusable | `rfkill list bluetooth`, then `rfkill unblock bluetooth`. `bluetoothctl power on`. |
+| D-Bus errors such as `org.freedesktop.DBus.Error.ServiceUnknown` | `systemctl status bluetooth`, `journalctl -u bluetooth` |
+| Robot not seen | `bluetoothctl`, then `scan le`. Look for the `MR-<robotId>` name ([advertising](../protocol/ble-gatt.md#advertising-and-discovery)). Check that no other central is connected, because the robot stops advertising while it is connected. |
+| Link drops or GATT errors | `sudo btmon` records the HCI traffic |
+
+Physical BLE validation requires a compatible adapter, BlueZ, and robot hardware.
+CI runners have none of these.
 
 [Linux CI](testing.md#linux-continuous-integration) installs the packages above on an
 `ubuntu-24.04` GitHub runner and builds and tests the `linux-gcc` and `linux-clang`

@@ -6,6 +6,7 @@
 #include "simulation/SimulationTransport.hpp"
 #include "ManualBackends.hpp"
 #include "../calibration/CaptureFixtures.hpp"
+#include "../calibration/IntrinsicFixtures.hpp"
 
 #include <QApplication>
 #include <QComboBox>
@@ -50,6 +51,34 @@ public:
     std::atomic<int> calls{};
     std::atomic<bool> onWorker{};
 };
+class DeterministicSolver final : public IIntrinsicCalibrationSolver {
+public:
+    IntrinsicCalibrationOutcome solve(const IntrinsicCalibrationInput& input,
+                                      const IntrinsicCalibrationConfig&) override
+    {
+        onWorker = QThread::currentThread() != QApplication::instance()->thread();
+        ++calls;
+        if (gate.valid()) gate.wait();
+        if (throws) throw std::runtime_error("Synthetic solver failure");
+        if (fails) return {{}, "Synthetic invalid observations"};
+        auto result = validIntrinsicCalibration();
+        result.sourceId = input.sourceId;
+        result.width = input.width;
+        result.height = input.height;
+        result.perViewErrors.clear();
+        for (const auto& view : input.observations)
+            result.perViewErrors.push_back({view.frameSequence, view.corners.size(), rms});
+        result.rmsPixels = rms;
+        if (invalid) result.cameraMatrix[0] = -1;
+        if (wrongCamera) result.sourceId = "wrong-camera";
+        return {std::move(result), {}};
+    }
+    std::shared_future<void> gate;
+    std::atomic<int> calls{};
+    std::atomic<bool> onWorker{};
+    double rms{0.5};
+    bool fails{}, throws{}, invalid{}, wrongCamera{};
+};
 CalibrationCaptureConfig uiConfig()
 {
     CalibrationCaptureConfig config;
@@ -61,14 +90,18 @@ CalibrationCaptureConfig uiConfig()
 struct CaptureFixture {
     Logger logger;
     DeterministicDetector* detector{};
+    DeterministicSolver* solver{};
     std::unique_ptr<CalibrationController> controller;
     std::unique_ptr<CalibrationWizard> wizard;
-    CaptureFixture()
+    explicit CaptureFixture(IntrinsicCalibrationConfig intrinsicConfig = {})
     {
         auto implementation = std::make_unique<DeterministicDetector>();
         detector = implementation.get();
+        auto solverImplementation = std::make_unique<DeterministicSolver>();
+        solver = solverImplementation.get();
         controller = std::make_unique<CalibrationController>(std::move(implementation),
-            logger.channel("calibration"), uiConfig());
+            std::move(solverImplementation),
+            logger.channel("calibration"), uiConfig(), intrinsicConfig);
         wizard = std::make_unique<CalibrationWizard>(*controller);
         controller->setInput(QStringLiteral("camera-a"), true);
     }
@@ -124,12 +157,88 @@ TEST(CalibrationWizardTest, CompletesCaptureAndReviewsAcceptedDetectionsWithoutS
         }
     }
     EXPECT_GT(greenPixels, 50); // Accepted corners reach the actual rendered preview.
+    fixture.button("calibrationFinish")->click();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+    ASSERT_TRUE(fixture.controller->result());
+    EXPECT_TRUE(fixture.solver->onWorker);
+    EXPECT_TRUE(fixture.wizard->findChild<QLabel*>(QStringLiteral("calibrationQuality"))->text()
+        .contains(QStringLiteral("Aggregate RMS: 0.5000 px")));
+    EXPECT_TRUE(views->itemText(0).contains(QStringLiteral("RMS 0.5000 px")));
+    QApplication::processEvents(); // Apply the changed multi-line quality label's layout.
+    const auto* quality = fixture.wizard->findChild<QLabel*>(QStringLiteral("calibrationQuality"));
+    EXPECT_GE(quality->height(), quality->heightForWidth(quality->width()));
     const auto screenshot = qEnvironmentVariable("MICRO_ROBOT_CALIBRATION_SCREENSHOT");
     if (!screenshot.isEmpty()) EXPECT_TRUE(fixture.wizard->grab().save(screenshot));
-    fixture.button("calibrationFinish")->click();
     EXPECT_EQ(fixture.controller->session().state(), CalibrationCaptureState::Complete);
     fixture.wizard->close();
     EXPECT_EQ(fixture.controller->session().views().size(), 3U);
+}
+TEST(CalibrationWizardTest, ShowsWarningAndClearsComputedModelOnInputChanges)
+{
+    IntrinsicCalibrationConfig config;
+    config.warningRmsPixels = 1.25;
+    CaptureFixture fixture{config};
+    fixture.solver->rms = 1.5;
+    fixture.controller->restart();
+    fixture.capture(1); fixture.capture(2); fixture.capture(3);
+    fixture.controller->finish();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+    ASSERT_TRUE(fixture.controller->result());
+    const auto text = fixture.wizard->findChild<QLabel*>(QStringLiteral("calibrationQuality"))->text();
+    EXPECT_TRUE(text.contains(QStringLiteral("threshold: 1.25 px")));
+    EXPECT_TRUE(text.contains(QStringLiteral("WARNING")));
+    EXPECT_TRUE(fixture.wizard->findChild<QComboBox*>(QStringLiteral("calibrationViews"))->itemText(0)
+        .contains(QStringLiteral("WARNING")));
+    fixture.controller->restart();
+    EXPECT_FALSE(fixture.controller->result());
+    fixture.capture(4); fixture.capture(5); fixture.capture(6);
+    fixture.controller->finish();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+    ASSERT_TRUE(fixture.controller->result());
+    fixture.frame(7, 5000); // Unsupported new resolution must also invalidate the model.
+    EXPECT_FALSE(fixture.controller->result());
+    EXPECT_FALSE(fixture.wizard->findChild<QLabel*>(QStringLiteral("calibrationQuality"))->text()
+        .contains(QStringLiteral("Aggregate RMS")));
+}
+TEST(CalibrationWizardTest, RejectsSolverFailuresInvalidModelsAndMismatchedMetadata)
+{
+    for (int mode = 0; mode < 4; ++mode) {
+        CaptureFixture fixture;
+        fixture.solver->fails = mode == 0;
+        fixture.solver->throws = mode == 1;
+        fixture.solver->invalid = mode == 2;
+        fixture.solver->wrongCamera = mode == 3;
+        fixture.controller->restart();
+        fixture.capture(1); fixture.capture(2); fixture.capture(3);
+        fixture.controller->finish();
+        ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+        EXPECT_FALSE(fixture.controller->result());
+        EXPECT_TRUE(fixture.controller->message().contains(QStringLiteral("rejected")));
+        EXPECT_TRUE(fixture.button("calibrationFinish")->isEnabled()); // Retry or restart.
+    }
+}
+TEST(CalibrationWizardTest, SolvingIsBoundedAndInvalidatedWithoutBlockingTheGui)
+{
+    for (int mode = 0; mode < 5; ++mode) {
+        CaptureFixture fixture;
+        fixture.controller->restart();
+        fixture.capture(1); fixture.capture(2); fixture.capture(3);
+        std::promise<void> release;
+        fixture.solver->gate = release.get_future().share();
+        fixture.controller->finish();
+        fixture.controller->finish(); // No second job.
+        if (mode == 0) fixture.controller->cancel();
+        if (mode == 1) fixture.controller->restart();
+        if (mode == 2) fixture.controller->setInput(QStringLiteral("camera-b"), true);
+        if (mode == 3) fixture.controller->setInput(QStringLiteral("camera-a"), false);
+        if (mode == 4) fixture.controller->shutdown();
+        EXPECT_TRUE(fixture.controller->busy());
+        EXPECT_FALSE(fixture.controller->result());
+        release.set_value();
+        ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+        EXPECT_EQ(fixture.solver->calls, 1);
+        EXPECT_FALSE(fixture.controller->result());
+    }
 }
 TEST(CalibrationWizardTest, RemovalRecaptureRestartAndCancelUpdateProgress)
 {

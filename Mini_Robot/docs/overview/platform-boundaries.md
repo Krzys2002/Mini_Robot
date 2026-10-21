@@ -12,7 +12,8 @@ which layer may use which facilities, and describes the checks that keep those
 rules true. Build-level platform and compiler configuration (application bundle,
 Windows subsystem, compiler support) is LNX-01 (#125), implemented in the
 [platform/toolchain module](../../cmake/MicroRobotPlatform.cmake). Linux camera capture is
-LNX-04 (#128, [camera backends](camera-backends.md)); robot communication is LNX-05 (#129).
+LNX-04 (#128, [camera backends](camera-backends.md)); robot communication is LNX-05
+(#129, [robot communication](robot-communication.md)).
 
 ## Layers
 
@@ -51,7 +52,7 @@ APIs, and backend libraries, and every target's link dependencies.
 | Environment | The UI test entry point sets `QT_QPA_PLATFORM` through `qputenv`. | Qt, test-only |
 | macOS-only | [Info.plist.in](../../src/app/Info.plist.in) (camera usage description, Continuity Camera opt-in) and the bundle target properties. Since LNX-01, `micro_robot_configure_desktop_executable()` applies them on Apple platforms only. | Build/packaging (LNX-01) |
 | Windows-only | The GUI-subsystem executable property, applied only on Windows since LNX-01. | Build/packaging (LNX-01) |
-| Radio stacks | None present. `IRobotTransport` exposes no radio addressing or handles. | Compliant |
+| Radio stacks | None present. `IRobotTransport` and `IRobotDiscovery` expose no radio addressing or handles. Since #129 the source scan also rejects IOBluetooth and D-Bus headers ([control isolation](robot-communication.md#isolation-from-robot-control)). | Compliant |
 
 No core code depends directly on a macOS-only API, so no source move was
 required. The issue's change is enforcement: the boundaries were previously
@@ -89,9 +90,10 @@ project's discovery pattern. Any discovery boundary follows the same rules:
 - Refresh requests return promptly; snapshots arrive asynchronously, never inline.
 - Event sinks are weak subscriptions, dispatched on the backend's owning thread.
 
-Robot discovery is defined by LNX-05 (#129) and the BLE work (#65). It must
-follow this pattern behind the transport layer, mapping radio identities to
-`RobotId` privately. LNX-04 (#128) lists Linux camera nodes that cannot be
+[IRobotDiscovery](../../src/transport/IRobotDiscovery.hpp) (LNX-05, #129) applies
+this pattern to robots. Its snapshots carry `RobotId` and display hints only, and
+radio backends map radio identities to `RobotId` privately
+([robot discovery](robot-communication.md#robot-discovery)). LNX-04 (#128) lists Linux camera nodes that cannot be
 opened for permission reasons, and reports the permission error when one is started
 ([camera backends](camera-backends.md#linux-discovery)).
 
@@ -102,7 +104,8 @@ opened for permission reasons, and reports the permission error when one is star
 | `ICameraDeviceDiscovery` | `QtCameraDeviceDiscovery`, `V4l2CameraDeviceDiscovery` (Linux); manual test double | Windows validation |
 | `ICameraSourceFactory` | `QtCameraSourceFactory`, `V4l2CameraSourceFactory` (Linux), `FakeCameraSourceFactory`; test doubles | — |
 | `ICameraSource` | `QtCameraSource`, `V4l2CameraSource` (Linux), `FakeCameraSource`, `RecordedVideoSource`; test doubles | Windows validation |
-| `IRobotTransport` | `SimulationTransport`; test doubles | BLE (#65, #66, LNX-05), Zigbee gateway (#107) |
+| `IRobotTransport` | `SimulationTransport`; `MockRadioLink` and other test doubles | BLE (#65, #66), Zigbee gateway (#107) |
+| `IRobotDiscovery` | `MockRadioLink` (test double) | BLE (#65), Zigbee gateway (#107) |
 
 To add or swap a backend:
 
@@ -151,7 +154,9 @@ sources. It reports:
 
 - OS and platform conditionals, such as `__APPLE__`, `TARGET_OS_*`, `_WIN32`,
   `__linux__`, or Qt's `Q_OS_*` macros (also in targets that may use Qt);
-- POSIX, Linux, Windows, and Apple framework headers;
+- POSIX, Linux, Windows, and Apple framework headers, including CoreBluetooth,
+  IOBluetooth, and BlueZ (`bluetooth/`);
+- D-Bus client headers (`dbus/`, `gio/`, `systemd/`, Qt D-Bus);
 - OpenCV, GStreamer, FFmpeg, and Qt Multimedia/Bluetooth/SerialPort headers;
 - any Qt header in a target that does not allow a Qt module;
 - quoted includes of concrete backend headers;
