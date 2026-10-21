@@ -53,6 +53,10 @@ TEST(CalibrationProfileTest, RejectsMalformedNumericsAndInconsistentErrors)
         changed.replace(start, changed.find(' ', start) - start, bad);
         EXPECT_FALSE(parseCalibrationProfile(changed).result) << bad;
     }
+    auto negativeSequence = good;
+    const auto viewStart = negativeSequence.find("views 3\n") + 8;
+    negativeSequence.replace(viewStart, 1, "-1");
+    EXPECT_FALSE(parseCalibrationProfile(negativeSequence).result);
     auto c = validIntrinsicCalibration();
     c.rmsPixels = 100;
     EXPECT_THROW((void)serializeCalibrationProfile(c), std::invalid_argument);

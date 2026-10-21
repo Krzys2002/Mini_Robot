@@ -18,10 +18,14 @@ TEST(QtCalibrationProfileStoreTest, SurvivesStoreRecreationWithUnicodePathsAndSe
     auto b = a;
     b.sourceId = "camera-b";
     b.cameraMatrix[0] = 850;
+    auto secondResolution = a;
+    secondResolution.width = 1200;
+    secondResolution.cameraMatrix[0] = 900;
     {
         QtCalibrationProfileStore writer{root};
         EXPECT_TRUE(writer.save(a).empty());
         EXPECT_TRUE(writer.save(b).empty());
+        EXPECT_TRUE(writer.save(secondResolution).empty());
     }
     QtCalibrationProfileStore reader{root};
     auto loaded = reader.load(a.sourceId, a.width, a.height);
@@ -31,9 +35,13 @@ TEST(QtCalibrationProfileStoreTest, SurvivesStoreRecreationWithUnicodePathsAndSe
     loaded = reader.load(b.sourceId, b.width, b.height);
     ASSERT_EQ(loaded.state, ProfileLoadState::Loaded);
     EXPECT_EQ(loaded.calibration->cameraMatrix, b.cameraMatrix);
+    loaded = reader.load(a.sourceId, 1200, 800);
+    ASSERT_EQ(loaded.state, ProfileLoadState::Loaded);
+    ASSERT_TRUE(loaded.calibration);
+    EXPECT_EQ(loaded.calibration->cameraMatrix, secondResolution.cameraMatrix);
     EXPECT_EQ(reader.load(a.sourceId, 500, 400).state, ProfileLoadState::Missing);
     EXPECT_EQ(reader.load("camera-c", a.width, a.height).state, ProfileLoadState::Missing);
-    EXPECT_EQ(QDir(root).entryList({QStringLiteral("*.intrinsics")}, QDir::Files).size(), 2);
+    EXPECT_EQ(QDir(root).entryList({QStringLiteral("*.intrinsics")}, QDir::Files).size(), 3);
 }
 TEST(QtCalibrationProfileStoreTest, AtomicallyReplacesSameKeyAndPreservesPreviousOnValidationFailure)
 {

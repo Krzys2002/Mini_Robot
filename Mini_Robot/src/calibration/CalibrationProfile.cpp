@@ -49,7 +49,7 @@ IntrinsicCalibrationOutcome parseCalibrationProfile(std::string_view text)
     std::istringstream in{std::string{text}};
     in.imbue(std::locale::classic());
     auto token = [&](std::string_view expected) { std::string word; return (in >> word) && word == expected; };
-    const auto real = [&](double& value) {
+    const auto number = [&](auto& value) {
         std::string word;
         if (!(in >> word)) return false;
         const auto parsed = std::from_chars(word.data(), word.data() + word.size(), value);
@@ -62,18 +62,19 @@ IntrinsicCalibrationOutcome parseCalibrationProfile(std::string_view text)
     IntrinsicCalibration c;
     // Require quotes; std::quoted by itself also accepts unquoted input.
     if (!token("camera") || !(in >> std::ws) || in.peek() != '"' || !(in >> std::quoted(c.sourceId))
-        || !token("resolution") || !(in >> c.width >> c.height) || !token("matrix"))
+        || !token("resolution") || !number(c.width) || !number(c.height) || !token("matrix"))
         return reject("invalid camera metadata.");
-    for (double& v : c.cameraMatrix) if (!real(v)) return reject("invalid matrix.");
+    for (double& v : c.cameraMatrix) if (!number(v)) return reject("invalid matrix.");
     if (!token("distortion")) return reject("missing distortion.");
     c.distortion.resize(5);
-    for (double& v : c.distortion) if (!real(v)) return reject("invalid distortion.");
+    for (double& v : c.distortion) if (!number(v)) return reject("invalid distortion.");
     std::size_t count{};
-    if (!token("rms") || !real(c.rmsPixels) || !token("views") || !(in >> count) || count > 24)
+    if (!token("rms") || !number(c.rmsPixels) || !token("views") || !number(count) || count > 24)
         return reject("invalid reprojection metadata.");
     for (std::size_t i = 0; i < count; ++i) {
         ReprojectionError view;
-        if (!(in >> view.frameSequence >> view.pointCount) || !real(view.rmsPixels)) return reject("truncated view.");
+        if (!number(view.frameSequence) || !number(view.pointCount) || !number(view.rmsPixels))
+            return reject("truncated view.");
         c.perViewErrors.push_back(view);
     }
     if (!token("end") || !(in >> std::ws).eof()) return reject("unexpected trailing data.");
