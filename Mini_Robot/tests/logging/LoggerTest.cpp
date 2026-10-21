@@ -231,6 +231,23 @@ TEST_F(FileLogSinkTest, CreatesDirectoriesAndAppendsAcrossSessions)
               "2026-10-12T09:41:07.250Z [INFO] [app] second session\n");
 }
 
+TEST_F(FileLogSinkTest, CreatesNonAsciiDirectoriesWithSpaces)
+{
+    // char8_t text keeps the path independent of the host's narrow encoding.
+    const auto path = directory_ / std::filesystem::path{u8"robot logs ü/Ω run"} / "micro_robot.log";
+    {
+        Logger logger{LogLevel::Info, fixedClock()};
+        auto sink = std::make_shared<FileLogSink>(path);
+        ASSERT_TRUE(sink->isOpen());
+        EXPECT_EQ(sink->path(), path);
+        logger.addSink(sink);
+        logger.channel("app").info("written");
+    }
+
+    EXPECT_TRUE(std::filesystem::is_regular_file(path));
+    EXPECT_EQ(readFile(path), "2026-10-12T09:41:07.250Z [INFO] [app] written\n");
+}
+
 TEST_F(FileLogSinkTest, UnopenableFileReportsClosedAndIgnoresWrites)
 {
     // A regular file cannot be used as the parent directory of the log file.

@@ -9,10 +9,14 @@
 
 namespace micro_robot {
 CalibrationController::CalibrationController(std::unique_ptr<ICalibrationDetector> detector,
-    LogChannel log, CalibrationCaptureConfig config, QObject* parent)
-    : QObject(parent), session_(config), log_(std::move(log)), detector_(std::move(detector))
+    std::unique_ptr<IIntrinsicCalibrationSolver> solver, LogChannel log,
+    CalibrationCaptureConfig config, IntrinsicCalibrationConfig intrinsicConfig, QObject* parent)
+    : QObject(parent), session_(config), log_(std::move(log)), detector_(std::move(detector)),
+      solver_(std::move(solver)), intrinsicConfig_(intrinsicConfig)
 {
-    if (!detector_) throw std::invalid_argument("Calibration detector is required");
+    if (!detector_ || !solver_) throw std::invalid_argument("Calibration detector and solver are required");
+    if (const auto error = validateIntrinsicConfig(intrinsicConfig_); !error.empty())
+        throw std::invalid_argument(error);
     workerContext_ = new QObject;
     workerContext_->moveToThread(&worker_);
     connect(&worker_, &QThread::finished, workerContext_, &QObject::deleteLater);
@@ -36,6 +40,7 @@ void CalibrationController::invalidate()
     ++generation_;
     latest_.reset();
     session_.cancel();
+    result_.reset();
     live_ = true;
     emit previewChanged({}, {}, false);
 }
@@ -55,8 +60,8 @@ void CalibrationController::receiveFrame(FramePtr frame)
     if (!streaming_ || shuttingDown_ || !frame || !isValidFrame(*frame)) return;
     if (frame->width > 4096 || frame->height > 4096
         || static_cast<std::uint64_t>(frame->width) * frame->height > 4'000'000) {
+        invalidate();
         publish(QStringLiteral("Camera resolution exceeds 4 megapixels. Lower it before capture."));
-        latest_.reset();
         return;
     }
     if (latest_ && (latest_->width != frame->width || latest_->height != frame->height)) {
@@ -78,6 +83,7 @@ void CalibrationController::restart()
     if (shuttingDown_ || !streaming_ || sourceId_.isEmpty()) return;
     ++generation_;
     session_.restart(sourceId_.toStdString());
+    result_.reset();
     live_ = true;
     if (latest_) emit previewChanged(latest_, {}, false);
     publish(QStringLiteral("Capture the full board in different image regions, distances and rotations."));
@@ -139,8 +145,58 @@ void CalibrationController::showLive()
 void CalibrationController::finish()
 {
     if (shuttingDown_ || busy_) return;
-    if (session_.finish()) publish(QStringLiteral("Capture complete. Observations remain in this session. Calculating and saving calibration are not available yet."));
-    else publish(QStringLiteral("More diverse views are required: vary location, distance and in-plane rotation."));
+    if (session_.state() != CalibrationCaptureState::Complete && !session_.finish()) {
+        publish(QStringLiteral("More diverse views are required: vary location, distance and in-plane rotation."));
+        return;
+    }
+    if (result_) return;
+    auto input = intrinsicCalibrationInput(session_);
+    const auto config = intrinsicConfig_;
+    const auto solver = solver_;
+    const auto generation = generation_;
+    busy_ = true;
+    publish(QStringLiteral("Calculating camera intrinsics and reprojection errors…"));
+    QMetaObject::invokeMethod(workerContext_, [this, solver, input = std::move(input), config, generation] {
+        IntrinsicCalibrationOutcome outcome;
+        try {
+            outcome = solver->solve(input, config);
+            if (outcome.result && outcome.error.empty()) {
+                outcome.error = validateIntrinsicCalibration(*outcome.result, config);
+                if (outcome.result->sourceId != input.sourceId || outcome.result->width != input.width
+                    || outcome.result->height != input.height
+                    || outcome.result->perViewErrors.size() != input.observations.size())
+                    outcome.error = "Solver result does not match the captured camera/views.";
+                if (outcome.error.empty()) {
+                    for (std::size_t i = 0; i < input.observations.size(); ++i) {
+                        const auto& view = outcome.result->perViewErrors[i];
+                        if (view.frameSequence != input.observations[i].frameSequence
+                            || view.pointCount != input.observations[i].corners.size()) {
+                            outcome.error = "Solver error metadata does not match the captured views.";
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (const std::exception& error) {
+            outcome.error = std::string{"Intrinsic calculation failed: "} + error.what();
+        } catch (...) {
+            outcome.error = "Intrinsic calculation failed with an unknown error.";
+        }
+        QMetaObject::invokeMethod(this, [this, generation, outcome = std::move(outcome)]() mutable {
+            busy_ = false;
+            if (generation != generation_ || shuttingDown_) { emit changed(); return; }
+            if (!outcome.result || !outcome.error.empty()) {
+                result_.reset();
+                publish(QStringLiteral("Calibration rejected: %1 Restart capture with more tilted, diverse views.")
+                    .arg(QString::fromStdString(outcome.error.empty() ? "No model returned." : outcome.error)));
+                return;
+            }
+            result_ = std::move(outcome.result);
+            publish(hasReprojectionWarning(*result_, intrinsicConfig_)
+                ? QStringLiteral("Calibration calculated. Warning: reprojection error exceeds threshold; inspect views and recapture.")
+                : QStringLiteral("Calibration calculated. Reprojection error is within the warning threshold."));
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
 }
 void CalibrationController::cancel()
 {

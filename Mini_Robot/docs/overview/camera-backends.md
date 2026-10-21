@@ -163,11 +163,13 @@ need unreadable files skip when run as root. Configuration tests cover parsing a
 rejecting `camera.resolution`.
 
 Two hardware tests run only when `MICRO_ROBOT_TEST_V4L2_DEVICE` names a node. The
-optional `MICRO_ROBOT_TEST_V4L2_RESOLUTION` adds a size check:
+optional `MICRO_ROBOT_TEST_V4L2_RESOLUTION` adds a size check. They carry the
+`hardware` label, which the test presets exclude, so select it in the build
+directory (see [hardware tests](../development/hardware-tests.md)):
 
 ```sh
 MICRO_ROBOT_TEST_V4L2_DEVICE=/dev/video0 MICRO_ROBOT_TEST_V4L2_RESOLUTION=1280x720 \
-  ctest --preset linux-gcc -R '^V4l2CameraHardwareTest\.' --output-on-failure
+  ctest --test-dir build/linux-gcc -L hardware --output-on-failure --no-tests=error
 ```
 
 Executed on 2026-10-19 on Ubuntu 26.04.1 LTS (kernel 7.0.0, Qt 6.10.2, OpenCV 4.10.0)

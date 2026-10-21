@@ -54,6 +54,17 @@
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
       }
+    },
+    {
+      "name": "core",
+      "displayName": "Core only, no Qt or OpenCV (default compiler, Debug)",
+      "inherits": "base",
+      "cacheVariables": {
+        "MICRO_ROBOT_BUILD_DESKTOP": "OFF",
+        "MICRO_ROBOT_BUILD_REPLAY": "OFF",
+        "MICRO_ROBOT_BUILD_CALIBRATION": "OFF",
+        "MICRO_ROBOT_BUILD_MARKER_TOOLS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -68,6 +79,10 @@
     {
       "name": "linux-clang",
       "configurePreset": "linux-clang"
+    },
+    {
+      "name": "core",
+      "configurePreset": "core"
     }
   ],
   "testPresets": [
@@ -79,6 +94,11 @@
       },
       "execution": {
         "noTestsAction": "error"
+      },
+      "filter": {
+        "exclude": {
+          "label": "hardware"
+        }
       }
     },
     {
@@ -95,6 +115,11 @@
       "name": "linux-clang",
       "inherits": "test-defaults",
       "configurePreset": "linux-clang"
+    },
+    {
+      "name": "core",
+      "inherits": "test-defaults",
+      "configurePreset": "core"
     }
   ]
 }

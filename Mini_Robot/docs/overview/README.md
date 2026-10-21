@@ -7,6 +7,7 @@
   device-discovery pattern, backend replacement, and enforcement checks.
 - [Camera discovery](camera-discovery.md): system inventory, opaque IDs, refresh, and verification limits.
 - [Calibration capture](calibration-capture.md): chessboard target, quality gates, worker wizard and observation review.
+- [Intrinsic calibration](intrinsic-calibration.md): camera model, solver, validation and reprojection quality.
 - [Camera streaming](camera-streaming.md): native start/stop, failure reporting, and worker lifecycle.
 - [Camera backends](camera-backends.md): Linux V4L2/OpenCV and macOS Qt backends, capture resolution, and failure handling.
 - [Camera selection](camera-selection.md): selectable devices, source factory, and active-source replacement.
@@ -14,6 +15,8 @@
 - [Recorded-video replay](recorded-video.md): local files, virtual timing, EOF, and fixtures.
 - [AprilTag selection](../vision/apriltag-selection.md): marker size, identity mapping, camera constraints, and printable sheets.
 - [Transport contract](transport.md): commands, telemetry, and async ownership.
+- [Robot communication](robot-communication.md): platform-neutral robot discovery,
+  Qt Bluetooth review for Linux/macOS, control isolation, and mock transport tests.
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
 - [WorldModel](world-model.md): registration, timestamp ordering, and snapshots.
 - [Simulation](simulation.md): virtual time and deterministic fake behavior.

@@ -276,15 +276,19 @@ QT_LOGGING_RULES='micro_robot.camera.*=true' ./build/linux-gcc/src/micro_robot_d
 
 The current [source targets](../../src/CMakeLists.txt) do not link Qt Bluetooth or
 BlueZ. Building and running the tests need no Bluetooth package, adapter, or robot;
-the robot connection in the desktop demo is simulated. The packages below are for
-the planned Qt Bluetooth transport (#129, #65, #66) and for checking a host's BLE
-readiness. Installing them does not enable BLE in the current application.
+the robot connection in the desktop demo is simulated, and the
+[discovery and transport tests](../overview/robot-communication.md#mock-transport-tests)
+use a test-only radio backend. The packages below are for the planned Qt Bluetooth
+adapter (#65, #66) and for checking a host's BLE readiness. Installing them does not
+enable BLE in the current application. The
+[Qt Bluetooth review](../overview/robot-communication.md#qt-6-bluetooth-platform-review)
+explains the choice.
 
 | Purpose | Ubuntu package | Notes |
 | --- | --- | --- |
-| Qt Bluetooth headers and CMake package (`Qt6::Bluetooth`) for the BLE transport | `qt6-connectivity-dev` | Universe component. Use the same Qt version as `qt6-base-dev`. |
+| Qt Bluetooth headers and CMake package (`Qt6::Bluetooth`) for the future BLE adapter | `qt6-connectivity-dev` (pulls in `libqt6bluetooth6`) | Universe component. Use the same Qt version as `qt6-base-dev`. |
 | BlueZ daemon (`bluetoothd`), which Qt Bluetooth uses through D-Bus | `bluez` | Installed by default on Ubuntu Desktop. Includes `bluetoothctl` and `btmon`. |
-| Radio kill-switch control | `rfkill` | Usually preinstalled. |
+| Radio kill-switch control | `rfkill` (util-linux) | Usually preinstalled. |
 
 ```sh
 sudo apt install bluez rfkill qt6-connectivity-dev
@@ -398,6 +402,15 @@ For #128, on the same host (kernel 7.0.0) with the source tree at that change:
 | GCC, `-DMICRO_ROBOT_CAMERA_BACKEND=Qt` | Built without warnings; 167/167 CTest cases passed |
 | GCC, desktop and replay OFF (no Qt, no OpenCV) | Built; 117/117 CTest cases passed |
 | `V4l2CameraHardwareTest` with `/dev/video0` (integrated USB UVC camera) | Passed at the default size, `1280x720`, and `640x480`; see [camera backends](../overview/camera-backends.md#verification) |
+
+For #129, on the same host with the source tree at that change:
+
+| Configuration | Result |
+| --- | --- |
+| `linux-gcc` preset (V4L2 camera backend) | Built; the only warnings are existing `-Wdangling-else` warnings in two calibration test files; 223/223 CTest cases passed, 2 hardware cases skipped as above |
+| `linux-clang` preset (V4L2 camera backend) | Incremental build without warnings; 223/223 CTest cases passed, 2 skipped as above |
+| GCC, desktop and replay OFF (no Qt, no OpenCV) | Incremental build without warnings; 148/148 CTest cases passed |
+| BlueZ readiness | BlueZ 5.85 `bluetoothd` active; `hci0` powered, unblocked, central role available; default D-Bus policy allows `org.bluez`. No scan or connection was run, and Qt Bluetooth was not installed. |
 
 [Linux CI](testing.md#linux-continuous-integration) installs the build packages on
 an `ubuntu-24.04` GitHub runner and builds and tests the `linux-gcc` and

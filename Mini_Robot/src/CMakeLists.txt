@@ -37,6 +37,8 @@ micro_robot_platform_boundary(micro_robot_camera_selection)
 add_library(micro_robot_calibration STATIC
     calibration/CalibrationCapture.hpp
     calibration/CalibrationCapture.cpp
+    calibration/IntrinsicCalibration.hpp
+    calibration/IntrinsicCalibration.cpp
 )
 target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api)
 micro_robot_target_defaults(micro_robot_calibration)
@@ -46,6 +48,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_library(micro_robot_calibration_opencv STATIC
         calibration/OpenCvCalibrationDetector.hpp
         calibration/OpenCvCalibrationDetector.cpp
+        calibration/OpenCvIntrinsicCalibrationSolver.hpp
+        calibration/OpenCvIntrinsicCalibrationSolver.cpp
     )
     target_link_libraries(micro_robot_calibration_opencv PUBLIC micro_robot_calibration
         PRIVATE ${OpenCV_LIBS})
@@ -58,6 +62,7 @@ target_link_libraries(micro_robot_transport_api INTERFACE micro_robot_common)
 target_sources(micro_robot_transport_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/transport/TransportTypes.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/transport/IRobotTransport.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/transport/IRobotDiscovery.hpp"
 )
 micro_robot_platform_boundary(micro_robot_transport_api)
 
