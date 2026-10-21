@@ -45,7 +45,8 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, non-ASCII/spaced/relative/symlinked paths, verbatim log paths, example file |
 | `micro_robot_marker_tests` (opt-in) | `markers` | [AprilTag print tooling](../vision/apriltag-selection.md): all 16 IDs and rotations, quiet margins, invalid inputs, and reproducibility of committed SVG sheets |
-| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection, calibration wizard and bounded vision-worker lifecycle; with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
+| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection, calibration wizard and bounded vision-worker lifecycle, [GUI compatibility](gui-compatibility.md) (resize, mouse/keyboard input, scaling); with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
+| `GuiCompatibility.ScaleFactor*` | `ui`, `gui` | The GUI compatibility cases repeated with `QT_SCALE_FACTOR` 1.5 and 2 |
 | `micro_robot_tests`: `V4l2CameraHardwareTest.*` | `hardware` | Physical V4L2 capture; skipped without `MICRO_ROBOT_TEST_V4L2_DEVICE` and excluded from the regression suite (see [hardware tests](hardware-tests.md)) |
 | `DesktopStartup.StartsAndShutsDownCleanly` (CMake script) | `ui` | Production desktop started offscreen with `--exit-after-startup` and a private configuration in a non-ASCII working directory; exit code, startup/shutdown log order, resolved configuration path, no warnings or errors |
 | `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs, Qt platform macros, or concrete-backend includes in platform-independent targets; scanner and link-check self-tests |
@@ -60,7 +61,9 @@ also describes independent SVG rasterization and full-sheet decoding checks.
 Core executables link domain libraries and `GTest::gtest_main`, without Qt or a
 `QApplication`. The UI executable has its own test entry point using GoogleTest
 and an offscreen `QApplication`; it is built only when
-`MICRO_ROBOT_BUILD_DESKTOP=ON`.
+`MICRO_ROBOT_BUILD_DESKTOP=ON`. Set `MICRO_ROBOT_TEST_QPA_PLATFORM` (for example
+`wayland`, `xcb`, or `cocoa`) to run it on that platform plugin inside a desktop
+session; see [GUI compatibility](gui-compatibility.md#automated-checks).
 
 [CameraSelectionControllerTest](../../tests/ui/CameraSelectionControllerTest.cpp) uses
 injected manual inventory, factory, and camera backends without Qt Multimedia or

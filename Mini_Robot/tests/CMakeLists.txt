@@ -64,10 +64,12 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/QtCameraSourceTest.cpp
         ui/MainWindowTest.cpp
         ui/CameraSelectionControllerTest.cpp
+        ui/GuiCompatibilityTest.cpp
         ui/ManualBackends.hpp
     )
+    find_package(Qt6 REQUIRED COMPONENTS Test)
     target_link_libraries(micro_robot_tests PRIVATE
-        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery GTest::gtest
+        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery GTest::gtest Qt6::Test
     )
     if(TARGET micro_robot_camera_v4l2)
         target_sources(micro_robot_tests PRIVATE camera/V4l2CameraTest.cpp)
@@ -83,6 +85,14 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         gtest_discover_tests(micro_robot_tests DISCOVERY_MODE PRE_TEST
             TEST_FILTER "${_micro_robot_hardware_cases}" PROPERTIES LABELS "hardware")
     endif()
+    # Repeats the GUI compatibility checks at fractional and integer high-DPI scale factors.
+    foreach(factor IN ITEMS 1.5 2)
+        string(REPLACE "." "_" suffix "${factor}")
+        add_test(NAME GuiCompatibility.ScaleFactor${suffix}
+            COMMAND micro_robot_tests --gtest_filter=GuiCompatibilityTest.*)
+        set_tests_properties(GuiCompatibility.ScaleFactor${suffix} PROPERTIES
+            ENVIRONMENT "QT_SCALE_FACTOR=${factor}" LABELS "ui;gui")
+    endforeach()
 endif()
 
 # Domain tests do not link Qt or construct a QApplication.

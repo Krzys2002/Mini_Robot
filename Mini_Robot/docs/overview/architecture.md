@@ -14,7 +14,7 @@ Windows remains a project target with deployment work assigned to M8.
 
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
-| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery, selection, and native stream control, application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug and physical capture acceptance, pixel preview, source recovery implementation, and Ubuntu GUI validation. |
+| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery, selection, and native stream control, application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug and physical capture acceptance, pixel preview, source recovery implementation, and manual GUI checks with physical input on Ubuntu and macOS. |
 | M2 — Vision, Calibration & Robot Localization | Partial: [chessboard capture](calibration-capture.md), worker detector, quality/diversity gates, review wizard and [intrinsic calculation/quality reporting](intrinsic-calibration.md); [AprilTag family/print profiles and identity mapping](../vision/apriltag-selection.md) specified, with printable sheets and opt-in offline verification tools; [AprilTag frame detection](../vision/apriltag-detection.md) with timestamped multi-tag observations and a bounded worker. | Printed-tag live/recorded acceptance, profile persistence, workspace calibration, image-to-world conversion, tracking, freshness/quality estimates and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Planned; IRobotTransport and semantic commands/telemetry are M1 prerequisites; the [version 1 wire protocol and BLE GATT contract](../protocol/README.md) is specified. | Protocol adapter and firmware implementation, physical BLE, RobotManager, manual motion controls, E-stop, reconnect, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Pure [differential-drive kinematics](differential-drive.md), inverse conversion and bounded wheel targets implemented; a stored demo pose is not closed-loop feedback. | Supervisory scheduler/controller, target selection, body-command limits, tracking/connection safety transitions, and control experiments. |
@@ -223,7 +223,9 @@ support for those events is not physical backend verification.
 [Ubuntu setup](../development/linux-setup.md) document current recipes. The
 committed build/test workflows run on macOS and on Ubuntu 24.04 with GCC and Clang
 (see [continuous integration](../development/testing.md#linux-continuous-integration)).
-Linux X11/Wayland, Windows builds, packaging, and device behavior require their own
+Automated Wayland and X11 (Xwayland) GUI checks were executed on Ubuntu for #130
+([GUI compatibility](../development/gui-compatibility.md)); physical input through the
+compositor, Windows builds, packaging, and device behavior require their own
 executed checks.
 
 ## Domain conventions
