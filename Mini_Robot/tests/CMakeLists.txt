@@ -38,6 +38,13 @@ endif()
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_add_desktop_packaging_tests(micro_robot_desktop)
+    # Runs the production composition offscreen and exits through the normal shutdown.
+    add_test(NAME DesktopStartup.StartsAndShutsDownCleanly
+        COMMAND "${CMAKE_COMMAND}"
+            "-DAPP_BINARY=$<TARGET_FILE:micro_robot_desktop>"
+            "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/startup"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/app/VerifyDesktopStartup.cmake")
+    set_tests_properties(DesktopStartup.StartsAndShutsDownCleanly PROPERTIES LABELS "ui")
     add_executable(micro_robot_tests
         main.cpp
         ui/CalibrationWizardTest.cpp
@@ -54,7 +61,15 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         target_link_libraries(micro_robot_tests PRIVATE micro_robot_camera_v4l2)
     endif()
     micro_robot_target_defaults(micro_robot_tests)
-    gtest_discover_tests(micro_robot_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "ui")
+    # Physical-device cases are labelled "hardware" so that selecting the hardware-free
+    # regression suite (-LE hardware) never depends on a connected camera.
+    set(_micro_robot_hardware_cases "V4l2CameraHardwareTest.*")
+    gtest_discover_tests(micro_robot_tests DISCOVERY_MODE PRE_TEST
+        TEST_FILTER "-${_micro_robot_hardware_cases}" PROPERTIES LABELS "ui")
+    if(TARGET micro_robot_camera_v4l2)
+        gtest_discover_tests(micro_robot_tests DISCOVERY_MODE PRE_TEST
+            TEST_FILTER "${_micro_robot_hardware_cases}" PROPERTIES LABELS "hardware")
+    endif()
 endif()
 
 # Domain tests do not link Qt or construct a QApplication.
@@ -74,7 +89,7 @@ target_link_libraries(micro_robot_camera_tests PRIVATE
     micro_robot_camera_selection GTest::gtest_main
 )
 micro_robot_target_defaults(micro_robot_camera_tests)
-gtest_discover_tests(micro_robot_camera_tests DISCOVERY_MODE PRE_TEST)
+gtest_discover_tests(micro_robot_camera_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
 add_executable(micro_robot_interface_tests interfaces/InterfacesTest.cpp)
 target_link_libraries(micro_robot_interface_tests PRIVATE
