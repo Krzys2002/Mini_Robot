@@ -118,8 +118,9 @@ The current [macOS CI](testing.md#macos-continuous-integration) uses Debug only.
 
 ## Ubuntu and Windows
 
-The [Ubuntu setup guide](linux-setup.md) provides GCC/Clang and headless recipes
-for the current source, with explicit verification limits.
+The [Ubuntu setup guide](linux-setup.md) takes a clean Ubuntu 24.04 LTS installation
+to a tested build: apt packages, GCC/Clang and headless recipes, camera and BlueZ
+requirements, and Linux-specific troubleshooting, with explicit verification limits.
 
 For Windows, install a C++20 toolchain, CMake, and Qt 6 Widgets/Multimedia
 built for that toolchain, plus compatible OpenCV packages including the chessboard component listed above.
