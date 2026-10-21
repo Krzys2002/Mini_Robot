@@ -39,6 +39,8 @@ add_library(micro_robot_calibration STATIC
     calibration/CalibrationCapture.cpp
     calibration/IntrinsicCalibration.hpp
     calibration/IntrinsicCalibration.cpp
+    calibration/CalibrationProfile.hpp
+    calibration/CalibrationProfile.cpp
 )
 target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api)
 micro_robot_target_defaults(micro_robot_calibration)
@@ -134,6 +136,12 @@ if(MICRO_ROBOT_BUILD_REPLAY)
 endif()
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
+    add_library(micro_robot_calibration_profiles STATIC
+        calibration/QtCalibrationProfileStore.hpp
+        calibration/QtCalibrationProfileStore.cpp)
+    target_link_libraries(micro_robot_calibration_profiles PUBLIC micro_robot_calibration Qt6::Core)
+    micro_robot_target_defaults(micro_robot_calibration_profiles)
+
     add_library(micro_robot_camera_discovery STATIC
         camera/QtCameraDeviceDiscovery.hpp
         camera/QtCameraDeviceDiscovery.cpp
