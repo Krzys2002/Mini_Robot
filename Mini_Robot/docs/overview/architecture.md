@@ -15,7 +15,7 @@ Windows remains a project target with deployment work assigned to M8.
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
 | M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery, selection, and native stream control, application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug and physical capture acceptance, pixel preview, source recovery implementation, and Ubuntu GUI validation. |
-| M2 — Vision, Calibration & Robot Localization | Partial: [chessboard capture](calibration-capture.md), worker detector, quality/diversity gates and review wizard; [AprilTag family/print profiles and identity mapping](../vision/apriltag-selection.md) specified, with printable sheets and opt-in offline verification tools. | Intrinsic calculation/profile persistence, live AprilTag detection, workspace calibration, image-to-world conversion, tracking, freshness/quality estimates and localization measurements. |
+| M2 — Vision, Calibration & Robot Localization | Partial: [chessboard capture](calibration-capture.md), worker detector, quality/diversity gates, review wizard and [intrinsic calculation/quality reporting](intrinsic-calibration.md); [AprilTag family/print profiles and identity mapping](../vision/apriltag-selection.md) specified, with printable sheets and opt-in offline verification tools. | Profile persistence, live AprilTag detection, workspace calibration, image-to-world conversion, tracking, freshness/quality estimates and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Partial: [version 1 protocol/GATT contract](../protocol/README.md) and opt-in [Qt BLE discovery/connection lifecycle](ble-connection.md), with Robot Info/GATT readiness validation, [command/telemetry codec](ble-messages.md), bounded dispatch, adapter E-stop primitive and fake-radio tests. | Firmware, physical BLE acceptance, RobotManager, manual motion controls, domain E-stop/clear, reconnect policy, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Pure [differential-drive kinematics](differential-drive.md), inverse conversion and bounded wheel targets implemented; a stored demo pose is not closed-loop feedback. | Supervisory scheduler/controller, target selection, body-command limits, tracking/connection safety transitions, and control experiments. |
 | M5 — Operator Path Drawing, Trajectory Generation & Tracking | Planned; no path or trajectory domain types exist. | World-space editor, simplification/smoothing, timing, Pure Pursuit, execution controls, and tracking metrics. |
@@ -43,10 +43,12 @@ The current layers are:
   (Qt Core for event delivery), built when `MICRO_ROBOT_CAMERA_BACKEND=V4L2`.
 - `micro_robot_camera_replay`: OpenCV local-file decoding behind the camera API,
   driven on an acquisition worker/test thread by supplied virtual time.
-- `micro_robot_calibration`: Qt/OpenCV-free capture state, target and observation quality/diversity policy.
-- `micro_robot_calibration_opencv`: replaceable chessboard detector selected by composition;
-  no camera ownership or solver. `CalibrationController` schedules one detection job
-  on a worker, while `CalibrationWizard` renders frames/corners and forwards requests.
+- `micro_robot_calibration`: Qt/OpenCV-free capture state, target, observation
+  quality/diversity policy, intrinsic result values, solver contract and validation.
+- `micro_robot_calibration_opencv`: replaceable chessboard detector and intrinsic solver
+  selected by composition, without camera ownership. `CalibrationController` schedules
+  one detection or solving job on its worker; `CalibrationWizard` renders frames,
+  corners and reprojection quality and forwards requests.
 - `micro_robot_world`: private robot registry and timestamp-aware pose storage,
   depending only on common types.
 - `micro_robot_logging`: Qt-free, thread-safe application logger with per-module
@@ -126,7 +128,7 @@ battery telemetry, and stored pose. Inventory updates never select a camera on
 their own; losing the selected device clears the selection. No velocity
 command, goal target, path or E-stop UI is present. The calibration button opens
 the [target-capture wizard](calibration-capture.md), with live preview, observation
-review and quality/diversity progress. Intrinsic solving remains future work. See the
+review, quality/diversity progress and [intrinsic solving/RMS reporting](intrinsic-calibration.md). See the
 [desktop demo guide](desktop-demo.md) for controls and lifecycle details.
 
 ### Camera and transport boundaries
@@ -267,7 +269,7 @@ M1 currently supplies the source/transport interfaces, robot registry, and
 simulation/UI shell. Calibration target capture is available. Issue #49 specifies
 the M2 marker selection and supplies offline print tooling under `tools/markers`;
 it does not connect a robot detector to camera frames or update WorldModel.
-The intrinsic solver, robot perception/control algorithms and physical robot
+Robot perception/control algorithms and physical robot
 endpoints are not present. Later work must follow the assigned issue and preserve
 these boundaries:
 

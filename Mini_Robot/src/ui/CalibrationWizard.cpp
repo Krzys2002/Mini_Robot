@@ -65,7 +65,7 @@ private:
 CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget* parent)
     : QDialog(parent), controller_(controller)
 {
-    setWindowTitle(QStringLiteral("Intrinsic calibration — capture chessboard"));
+    setWindowTitle(QStringLiteral("Intrinsic camera calibration"));
     resize(900, 740);
     auto* layout = new QVBoxLayout(this);
     const auto& target = controller.session().config().target;
@@ -90,6 +90,11 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     progress_->setObjectName(QStringLiteral("calibrationProgress"));
     progress_->setWordWrap(true);
     layout->addWidget(progress_);
+    quality_ = new QLabel(this);
+    quality_->setObjectName(QStringLiteral("calibrationQuality"));
+    quality_->setWordWrap(true);
+    quality_->setTextFormat(Qt::PlainText);
+    layout->addWidget(quality_);
     auto* review = new QHBoxLayout;
     views_ = new QComboBox(this);
     views_->setObjectName(QStringLiteral("calibrationViews"));
@@ -108,7 +113,7 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     capture_ = new QPushButton(QStringLiteral("Capture view"), this);
     capture_->setObjectName(QStringLiteral("calibrationCapture"));
     actions->addWidget(capture_);
-    finish_ = new QPushButton(QStringLiteral("Finish capture"), this);
+    finish_ = new QPushButton(QStringLiteral("Calculate intrinsics"), this);
     finish_->setObjectName(QStringLiteral("calibrationFinish"));
     actions->addWidget(finish_);
     auto* close = new QPushButton(QStringLiteral("Cancel / close"), this);
@@ -144,8 +149,22 @@ void CalibrationWizard::refresh()
         .arg(config.minimumAngleSpreadRadians * 180 / std::numbers::pi, 0, 'f', 0)
         .arg(session.state() == CalibrationCaptureState::Complete ? QStringLiteral(" · Complete") : QString{}));
     capture_->setEnabled(controller_.canCapture());
-    finish_->setEnabled(!controller_.busy() && progress.ready
-        && session.state() == CalibrationCaptureState::Collecting);
+    finish_->setEnabled(!controller_.busy() && !controller_.result()
+        && ((progress.ready && session.state() == CalibrationCaptureState::Collecting)
+            || session.state() == CalibrationCaptureState::Complete));
+    const auto& intrinsic = controller_.result();
+    const auto threshold = controller_.intrinsicConfig().warningRmsPixels;
+    QString quality = QStringLiteral("Reprojection RMS warning threshold: %1 px (aggregate or any view).")
+        .arg(threshold, 0, 'f', 2);
+    if (intrinsic) {
+        const auto& k = intrinsic->cameraMatrix;
+        quality += QStringLiteral("\nAggregate RMS: %1 px · %2\nfx %3 · fy %4 · cx %5 · cy %6 px")
+            .arg(intrinsic->rmsPixels, 0, 'f', 4)
+            .arg(hasReprojectionWarning(*intrinsic, controller_.intrinsicConfig())
+                ? QStringLiteral("WARNING — inspect / recapture") : QStringLiteral("Within threshold"))
+            .arg(k[0], 0, 'f', 2).arg(k[4], 0, 'f', 2).arg(k[2], 0, 'f', 2).arg(k[5], 0, 'f', 2);
+    }
+    quality_->setText(quality);
     remove_->setEnabled(!controller_.busy() && progress.count > 0
         && session.state() == CalibrationCaptureState::Collecting);
     // Rebuild only when count changes, avoiding selector churn on live frames.
@@ -158,6 +177,14 @@ void CalibrationWizard::refresh()
                 .arg(i + 1).arg(view.frame->sequence).arg(view.detection.sharpness, 0, 'f', 0));
         }
         views_->setCurrentIndex(views_->count() - 1);
+    }
+    if (intrinsic) {
+        for (std::size_t i = 0; i < intrinsic->perViewErrors.size(); ++i) {
+            const auto& error = intrinsic->perViewErrors[i];
+            views_->setItemText(static_cast<int>(i), QStringLiteral("View %1 — frame #%2 · RMS %3 px%4")
+                .arg(i + 1).arg(error.frameSequence).arg(error.rmsPixels, 0, 'f', 4)
+                .arg(error.rmsPixels > threshold ? QStringLiteral(" · WARNING") : QString{}));
+        }
     }
 }
 void CalibrationWizard::reject()

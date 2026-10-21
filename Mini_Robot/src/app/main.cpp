@@ -2,6 +2,7 @@
 #include "app/DesktopController.hpp"
 #include "app/CalibrationController.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
+#include "calibration/OpenCvIntrinsicCalibrationSolver.hpp"
 #include "app/CameraSelectionController.hpp"
 #if defined(MICRO_ROBOT_CAMERA_BACKEND_V4L2)
 #include "camera/V4l2CameraDeviceDiscovery.hpp"
@@ -148,6 +149,7 @@ int main(int argc, char* argv[])
     CameraSelectionController cameraSelection{cameraDiscovery, cameraFactory, controller,
                                               logger.channel("camera")};
     CalibrationController calibration{std::make_unique<OpenCvCalibrationDetector>(),
+                                      std::make_unique<OpenCvIntrinsicCalibrationSolver>(),
                                       logger.channel("calibration")};
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &calibration, &CalibrationController::setInput);
