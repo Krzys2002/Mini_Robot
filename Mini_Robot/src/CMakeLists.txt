@@ -52,6 +52,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
         calibration/OpenCvCalibrationDetector.cpp
         calibration/OpenCvIntrinsicCalibrationSolver.hpp
         calibration/OpenCvIntrinsicCalibrationSolver.cpp
+        calibration/OpenCvCalibrationUndistorter.hpp
+        calibration/OpenCvCalibrationUndistorter.cpp
     )
     target_link_libraries(micro_robot_calibration_opencv PUBLIC micro_robot_calibration
         PRIVATE ${OpenCV_LIBS})
@@ -178,6 +180,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_desktop_controller STATIC
         app/CalibrationController.hpp
         app/CalibrationController.cpp
+        app/CalibrationControllerProfiles.cpp
         app/DesktopController.hpp
         app/DesktopController.cpp
         app/CameraSelectionController.hpp
@@ -208,7 +211,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     qt_add_executable(micro_robot_desktop app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
         micro_robot_ui micro_robot_simulation ${MICRO_ROBOT_LIVE_CAMERA_TARGET} micro_robot_calibration_opencv
-        micro_robot_logging micro_robot_configuration
+        micro_robot_logging micro_robot_configuration micro_robot_calibration_profiles
     )
     target_compile_definitions(micro_robot_desktop PRIVATE
         MICRO_ROBOT_VERSION="${PROJECT_VERSION}"

@@ -2,6 +2,7 @@
 #include "app/CalibrationController.hpp"
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLabel>
@@ -95,6 +96,26 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     quality_->setWordWrap(true);
     quality_->setTextFormat(Qt::PlainText);
     layout->addWidget(quality_);
+    profileStatus_ = new QLabel(this);
+    profileStatus_->setObjectName(QStringLiteral("calibrationProfileStatus"));
+    profileStatus_->setWordWrap(true);
+    profileStatus_->setTextFormat(Qt::PlainText);
+    layout->addWidget(profileStatus_);
+    auto* profiles = new QHBoxLayout;
+    saveProfile_ = new QPushButton(QStringLiteral("Save profile"), this);
+    saveProfile_->setObjectName(QStringLiteral("calibrationSaveProfile"));
+    profiles->addWidget(saveProfile_);
+    reloadProfile_ = new QPushButton(QStringLiteral("Reload saved profile"), this);
+    reloadProfile_->setObjectName(QStringLiteral("calibrationReloadProfile"));
+    profiles->addWidget(reloadProfile_);
+    undistorted_ = new QCheckBox(QStringLiteral("Undistorted preview"), this);
+    undistorted_->setObjectName(QStringLiteral("calibrationUndistorted"));
+    undistorted_->setToolTip(QStringLiteral("Verification only; captures use original pixels. Black borders are expected. Corner overlays appear in raw view."));
+    profiles->addWidget(undistorted_);
+    layout->addLayout(profiles);
+    connect(saveProfile_, &QPushButton::clicked, &controller_, &CalibrationController::saveProfile);
+    connect(reloadProfile_, &QPushButton::clicked, &controller_, &CalibrationController::reloadProfile);
+    connect(undistorted_, &QCheckBox::toggled, &controller_, &CalibrationController::setUndistortedPreview);
     auto* review = new QHBoxLayout;
     views_ = new QComboBox(this);
     views_->setObjectName(QStringLiteral("calibrationViews"));
@@ -139,6 +160,18 @@ void CalibrationWizard::refresh()
     const auto progress = session.progress();
     const auto& config = session.config();
     message_->setText(controller_.message());
+    QString profileText = controller_.profileMessage();
+    if (const auto& profile = controller_.profile()) {
+        profileText += QStringLiteral("\nCamera %1 · %2 × %3 px · RMS %4 px")
+            .arg(QString::fromStdString(profile->sourceId)).arg(profile->width).arg(profile->height)
+            .arg(profile->rmsPixels, 0, 'f', 4);
+    }
+    profileStatus_->setText(profileText);
+    saveProfile_->setEnabled(controller_.canSaveProfile() && !controller_.busy());
+    reloadProfile_->setEnabled(controller_.canReloadProfile() && !controller_.busy());
+    undistorted_->setEnabled(controller_.canUndistort());
+    const QSignalBlocker previewBlocker(undistorted_);
+    undistorted_->setChecked(controller_.undistortedPreview());
     progress_->setText(QStringLiteral(
         "Views %1 / %2 minimum (%3 maximum) · Image regions %4 / %5\n"
         "Scale spread %6 / %7 · Rotation spread %8° / %9°%10")
@@ -149,7 +182,7 @@ void CalibrationWizard::refresh()
         .arg(config.minimumAngleSpreadRadians * 180 / std::numbers::pi, 0, 'f', 0)
         .arg(session.state() == CalibrationCaptureState::Complete ? QStringLiteral(" · Complete") : QString{}));
     capture_->setEnabled(controller_.canCapture());
-    finish_->setEnabled(!controller_.busy() && !controller_.result()
+    finish_->setEnabled(!controller_.busy() && !controller_.profileBusy() && !controller_.result()
         && ((progress.ready && session.state() == CalibrationCaptureState::Collecting)
             || session.state() == CalibrationCaptureState::Complete));
     const auto& intrinsic = controller_.result();
@@ -189,6 +222,7 @@ void CalibrationWizard::refresh()
 }
 void CalibrationWizard::reject()
 {
+    controller_.setUndistortedPreview(false);
     if (controller_.session().state() != CalibrationCaptureState::Complete) controller_.cancel();
     QDialog::reject();
 }

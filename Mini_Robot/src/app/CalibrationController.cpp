@@ -38,11 +38,20 @@ void CalibrationController::publish(const QString& message)
 void CalibrationController::invalidate()
 {
     ++generation_;
+    ++profileGeneration_;
+    ++previewEpoch_;
+    undistortedPreview_ = false;
+    profile_.reset();
+    profileLookupRequested_ = false;
+    reloadPending_ = false;
+    profileMessage_ = QStringLiteral("No compatible profile selected; waiting for a camera frame.");
+    previewFrame_.reset();
+    previewCorners_.clear();
     latest_.reset();
     session_.cancel();
     result_.reset();
     live_ = true;
-    emit previewChanged({}, {}, false);
+    presentPreview({}, {}, false);
 }
 void CalibrationController::setInput(const QString& sourceId, bool streaming)
 {
@@ -70,22 +79,24 @@ void CalibrationController::receiveFrame(FramePtr frame)
     }
     if (latest_ && (frame->sequence <= latest_->sequence || frame->capturedAt <= latest_->capturedAt)) return;
     latest_ = std::move(frame);
-    if (live_) emit previewChanged(latest_, {}, false);
+    if (profileStore_ && !profileLookupRequested_) reloadProfile();
+    if (live_) presentPreview(latest_, {}, false);
     emit changed();
 }
 bool CalibrationController::canCapture() const
 {
-    return !shuttingDown_ && !busy_ && streaming_ && latest_
+    return !shuttingDown_ && !busy_ && !profileIoBusy_ && streaming_ && latest_
         && session_.state() == CalibrationCaptureState::Collecting;
 }
 void CalibrationController::restart()
 {
     if (shuttingDown_ || !streaming_ || sourceId_.isEmpty()) return;
     ++generation_;
+    ++previewEpoch_;
     session_.restart(sourceId_.toStdString());
     result_.reset();
     live_ = true;
-    if (latest_) emit previewChanged(latest_, {}, false);
+    if (latest_) presentPreview(latest_, {}, false);
     publish(QStringLiteral("Capture the full board in different image regions, distances and rotations."));
 }
 void CalibrationController::capture()
@@ -117,7 +128,8 @@ void CalibrationController::capture()
             const auto corners = result.corners;
             const auto decision = session_.add(frame, std::move(result));
             live_ = false;
-            emit previewChanged(frame, corners, decision.accepted);
+            ++previewEpoch_;
+            presentPreview(frame, corners, decision.accepted);
             publish(QString::fromStdString(decision.message));
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);
@@ -135,12 +147,14 @@ void CalibrationController::reviewView(int index)
     if (index < 0 || static_cast<std::size_t>(index) >= session_.views().size()) return;
     live_ = false;
     const auto& view = session_.views()[static_cast<std::size_t>(index)];
-    emit previewChanged(view.frame, view.detection.corners, true);
+    ++previewEpoch_;
+    presentPreview(view.frame, view.detection.corners, true);
 }
 void CalibrationController::showLive()
 {
     live_ = true;
-    emit previewChanged(latest_, {}, false);
+    ++previewEpoch_;
+    presentPreview(latest_, {}, false);
 }
 void CalibrationController::finish()
 {
@@ -150,6 +164,7 @@ void CalibrationController::finish()
         return;
     }
     if (result_) return;
+    if (profileIoBusy_) return;
     auto input = intrinsicCalibrationInput(session_);
     const auto config = intrinsicConfig_;
     const auto solver = solver_;
@@ -192,6 +207,10 @@ void CalibrationController::finish()
                 return;
             }
             result_ = std::move(outcome.result);
+            profile_ = result_;
+            profileMessage_ = QStringLiteral("Calculated profile — not saved. Save to keep it after restart.");
+            ++previewEpoch_;
+            if (undistortedPreview_) processPreview();
             publish(hasReprojectionWarning(*result_, intrinsicConfig_)
                 ? QStringLiteral("Calibration calculated. Warning: reprojection error exceeds threshold; inspect views and recapture.")
                 : QStringLiteral("Calibration calculated. Reprojection error is within the warning threshold."));

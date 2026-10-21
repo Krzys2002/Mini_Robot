@@ -5,6 +5,7 @@
 #include <QDialog>
 
 class QComboBox;
+class QCheckBox;
 class QLabel;
 class QPushButton;
 
@@ -26,6 +27,10 @@ private:
     QLabel* message_{};
     QLabel* progress_{};
     QLabel* quality_{};
+    QLabel* profileStatus_{};
+    QPushButton* saveProfile_{};
+    QPushButton* reloadProfile_{};
+    QCheckBox* undistorted_{};
     QPushButton* capture_{};
     QPushButton* remove_{};
     QPushButton* finish_{};

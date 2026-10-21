@@ -3,6 +3,8 @@
 #include "app/CalibrationController.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
 #include "calibration/OpenCvIntrinsicCalibrationSolver.hpp"
+#include "calibration/OpenCvCalibrationUndistorter.hpp"
+#include "calibration/QtCalibrationProfileStore.hpp"
 #include "app/CameraSelectionController.hpp"
 #if defined(MICRO_ROBOT_CAMERA_BACKEND_V4L2)
 #include "camera/V4l2CameraDeviceDiscovery.hpp"
@@ -133,6 +135,9 @@ int main(int argc, char* argv[])
     CalibrationController calibration{std::make_unique<OpenCvCalibrationDetector>(),
                                       std::make_unique<OpenCvIntrinsicCalibrationSolver>(),
                                       logger.channel("calibration")};
+    calibration.setProfileServices(std::make_unique<QtCalibrationProfileStore>(
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
+            .filePath(QStringLiteral("calibration"))), std::make_unique<OpenCvCalibrationUndistorter>());
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &calibration, &CalibrationController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
