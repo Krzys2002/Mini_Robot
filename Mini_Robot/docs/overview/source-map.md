@@ -62,6 +62,7 @@ reports are scope/history, not evidence that future modules are present.
 | [src/simulation/FakeCameraSourceFactory.hpp](../../src/simulation/FakeCameraSourceFactory.hpp) | [Stand-in capture backend](camera-selection.md#stand-in-capture-backend) |
 | [src/simulation/SimulationTransport.cpp](../../src/simulation/SimulationTransport.cpp) | [simulation](simulation.md) |
 | [src/simulation/SimulationTransport.hpp](../../src/simulation/SimulationTransport.hpp) | [simulation](simulation.md) |
+| [src/transport/IRobotDiscovery.hpp](../../src/transport/IRobotDiscovery.hpp) | [robot discovery](robot-communication.md#robot-discovery) |
 | [src/transport/IRobotTransport.hpp](../../src/transport/IRobotTransport.hpp) | [transport](transport.md) |
 | [src/transport/TransportTypes.hpp](../../src/transport/TransportTypes.hpp) | [transport](transport.md) |
 | [src/transport/ble/BleTypes.hpp](../../src/transport/ble/BleTypes.hpp), [BleTypes.cpp](../../src/transport/ble/BleTypes.cpp) | [BLE identity/GATT validation](ble-connection.md) |

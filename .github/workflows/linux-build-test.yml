@@ -16,17 +16,33 @@ concurrency:
 
 jobs:
   build-test:
-    name: Ubuntu 24.04 / ${{ matrix.compiler }} / Debug
+    # Job names are the required status check names; keep them stable.
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - compiler: GCC
+          # Same package list as docs/development/linux-setup.md.
+          - name: Ubuntu 24.04 / GCC / Debug
             preset: linux-gcc
-          - compiler: Clang
+            packages: >-
+              build-essential clang cmake ninja-build
+              qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
+            configure-options: -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON
+          - name: Ubuntu 24.04 / Clang / Debug
             preset: linux-clang
+            packages: >-
+              build-essential clang cmake ninja-build
+              qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
+            configure-options: -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON
+          # Qt and OpenCV are deliberately not installed: the core library and its
+          # tests must build and pass without them.
+          - name: Ubuntu 24.04 / GCC / Core without Qt and OpenCV
+            preset: core
+            packages: build-essential cmake ninja-build libgtest-dev
+            configure-options: ""
     defaults:
       run:
         shell: bash
@@ -37,28 +53,25 @@ jobs:
         with:
           persist-credentials: false
 
-      # Same package list as docs/development/linux-setup.md.
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential clang cmake ninja-build \
-            qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
+          sudo apt-get install --yes ${{ matrix.packages }}
 
       - name: Report tool versions
         run: |
           cmake --version
           ninja --version
           g++ --version
-          clang++ --version
+          if command -v clang++ > /dev/null; then clang++ --version; fi
 
-      - name: Configure desktop and tests
-        run: >-
-          cmake --preset ${{ matrix.preset }}
-          -DMICRO_ROBOT_BUILD_DESKTOP=ON
-          -DMICRO_ROBOT_BUILD_REPLAY=ON
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} ${{ matrix.configure-options }}
 
-      - name: Build application and tests
+      - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --parallel 4
 
-      - name: Run all tests
+      # The test preset runs every hardware-free regression test and excludes the
+      # "hardware" label; it fails when no tests are found.
+      - name: Run regression tests
         run: ctest --preset ${{ matrix.preset }}

@@ -7,6 +7,8 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -332,6 +334,123 @@ TEST_F(ConfigFileTest, NonRegularFileIsUnreadable)
     EXPECT_EQ(result.diagnostics[0].level, LogLevel::Error);
     EXPECT_NE(result.diagnostics[0].message.find("not a regular file"), std::string::npos);
     expectDefaults(result.config);
+}
+
+// Paths are built from char8_t text so that the tests do not depend on the narrow
+// execution or locale encoding of the host.
+std::string utf8(std::u8string_view text) { return {text.begin(), text.end()}; }
+
+// Restores the process working directory when a test changes it.
+class WorkingDirectoryGuard {
+public:
+    explicit WorkingDirectoryGuard(const std::filesystem::path& directory)
+        : previous_(std::filesystem::current_path())
+    {
+        std::filesystem::current_path(directory);
+    }
+    ~WorkingDirectoryGuard()
+    {
+        std::error_code ignored;
+        std::filesystem::current_path(previous_, ignored);
+    }
+    WorkingDirectoryGuard(const WorkingDirectoryGuard&) = delete;
+    WorkingDirectoryGuard& operator=(const WorkingDirectoryGuard&) = delete;
+
+private:
+    std::filesystem::path previous_;
+};
+
+TEST_F(ConfigFileTest, LoadsFileFromNonAsciiDirectoryWithSpaces)
+{
+    const auto directory = directory_ / std::filesystem::path{u8"robot config ü/Ω settings"};
+    std::filesystem::create_directories(directory);
+    const auto path = directory / std::filesystem::path{u8"micro robot é.ini"};
+    std::ofstream{path, std::ios::binary} << "[robot]\nid = 5\nid = x\n";
+
+    const auto result = loadConfigFile(path, ConfigFilePolicy::Required);
+    EXPECT_EQ(result.status, ConfigFileStatus::Loaded);
+    EXPECT_EQ(result.path, path);
+    EXPECT_EQ(result.config.robot.id, RobotId{5});
+    ASSERT_EQ(result.diagnostics.size(), 2U);
+    // Diagnostics name the file in UTF-8 regardless of the native path encoding.
+    EXPECT_NE(result.diagnostics[0].message.find(utf8(u8"Ω settings")), std::string::npos)
+        << result.diagnostics[0].message;
+    EXPECT_NE(result.diagnostics[0].message.find(utf8(u8"micro robot é.ini:3:")), std::string::npos)
+        << result.diagnostics[0].message;
+}
+
+TEST_F(ConfigFileTest, MissingRequiredNonAsciiFileIsNamedInUtf8)
+{
+    const auto path = directory_ / std::filesystem::path{u8"absent ü.ini"};
+    const auto result = loadConfigFile(path, ConfigFilePolicy::Required);
+    EXPECT_EQ(result.status, ConfigFileStatus::NotFound);
+    ASSERT_EQ(result.diagnostics.size(), 1U);
+    EXPECT_NE(result.diagnostics[0].message.find(utf8(u8"absent ü.ini does not exist")),
+              std::string::npos) << result.diagnostics[0].message;
+}
+
+TEST_F(ConfigFileTest, RelativePathIsResolvedAgainstTheWorkingDirectory)
+{
+    std::filesystem::create_directories(directory_ / "conf");
+    writeFile("conf/micro_robot.ini", "[robot]\nid = 11\n");
+    const WorkingDirectoryGuard workingDirectory{directory_};
+
+    const std::filesystem::path relative = std::filesystem::path{"conf"} / "micro_robot.ini";
+    const auto result = loadConfigFile(relative, ConfigFilePolicy::Required);
+    EXPECT_EQ(result.status, ConfigFileStatus::Loaded);
+    EXPECT_EQ(result.path, relative); // Reported as given, not rewritten.
+    EXPECT_EQ(result.config.robot.id, RobotId{11});
+    EXPECT_EQ(loadConfigFile("absent.ini").status, ConfigFileStatus::NotFound);
+}
+
+TEST_F(ConfigFileTest, FollowsSymbolicLinks)
+{
+    const auto target = writeFile("target.ini", "[robot]\nid = 12\n");
+    const auto link = directory_ / "link.ini";
+    const auto dangling = directory_ / "dangling.ini";
+    try {
+        std::filesystem::create_symlink(target, link);
+        std::filesystem::create_symlink(directory_ / "absent.ini", dangling);
+    } catch (const std::filesystem::filesystem_error& error) {
+        GTEST_SKIP() << "Symbolic links are unavailable: " << error.what();
+    }
+
+    const auto linked = loadConfigFile(link, ConfigFilePolicy::Required);
+    EXPECT_EQ(linked.status, ConfigFileStatus::Loaded);
+    EXPECT_EQ(linked.config.robot.id, RobotId{12});
+
+    const auto broken = loadConfigFile(dangling, ConfigFilePolicy::Required);
+    EXPECT_EQ(broken.status, ConfigFileStatus::NotFound);
+    ASSERT_EQ(broken.diagnostics.size(), 1U);
+    EXPECT_EQ(broken.diagnostics[0].level, LogLevel::Error);
+}
+
+TEST_F(ConfigFileTest, UnreadableFileUsesDefaultsAndIsAnError)
+{
+    const auto path = writeFile("locked.ini", "[robot]\nid = 13\n");
+    std::filesystem::permissions(path, std::filesystem::perms::none);
+    if (std::ifstream{path}) {
+        std::filesystem::permissions(path, std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "Permission bits do not prevent reading here (root or Windows)";
+    }
+
+    const auto result = loadConfigFile(path);
+    std::filesystem::permissions(path, std::filesystem::perms::owner_all); // Allow cleanup.
+    EXPECT_EQ(result.status, ConfigFileStatus::Unreadable);
+    ASSERT_EQ(result.diagnostics.size(), 1U);
+    EXPECT_EQ(result.diagnostics[0].level, LogLevel::Error);
+    EXPECT_NE(result.diagnostics[0].message.find("Cannot open configuration file"), std::string::npos);
+    expectDefaults(result.config);
+}
+
+TEST(ConfigParseTest, LogFilePathIsKeptVerbatimForEveryPlatformStyle)
+{
+    for (const auto& path : {utf8(u8"/var/log/robot ü/run.log"), std::string{R"(C:\Robot Logs\run.log)"},
+                             std::string{"logs/../run.log"}, std::string{"~/run.log"}}) {
+        const auto result = parseConfig("[logging]\nfile_path = " + path + "\n", "test.ini");
+        EXPECT_TRUE(result.diagnostics.empty()) << path;
+        EXPECT_EQ(result.config.logging.filePath, path);
+    }
 }
 
 TEST(ConfigExampleTest, ShippedExampleIsValidAndDocumentsDefaults)

@@ -53,6 +53,12 @@ Startup, shutdown, controller state changes, and errors are written to stderr
 and to a per-user log file whose path is printed at startup; see
 [Application logging](logging.md).
 
+`--exit-after-startup` closes the window as soon as the event loop runs, so the
+application takes the same shutdown path as step 7 and then exits. It is meant
+for automated startup checks; the `DesktopStartup.StartsAndShutsDownCleanly`
+[regression test](../development/testing.md#regression-suite) runs it offscreen
+with a private `--config` file.
+
 The 100 ms timer advances the simulated transport independently of camera start/stop. Pose
 updates occur while connected, including when the camera is stopped. They are
 explicit demo observations, not measurements derived from the image or telemetry.

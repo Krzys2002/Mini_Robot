@@ -33,8 +33,9 @@ The current layers are:
 
 - `micro_robot_common`: header-only identity, units, pose, and steady-clock types.
 - `micro_robot_camera_api` / `micro_robot_transport_api`: Qt-free asynchronous
-  interfaces and event values, including the separate device-discovery and
-  source-factory boundaries, depending only on common types.
+  interfaces and event values, including the separate camera and
+  [robot](robot-communication.md#robot-discovery) discovery boundaries and the
+  source factory, depending only on common types.
 - `micro_robot_camera_selection`: Qt-free rules deciding which discovered devices
   are selectable, depending on the camera API.
 - `micro_robot_camera_discovery`: concrete Qt Multimedia system-inventory and capture adapters,

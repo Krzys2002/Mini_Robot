@@ -75,14 +75,15 @@ but are not blocked.
 ### CMake presets
 
 [CMakePresets.json](../../CMakePresets.json) provides Debug presets with tests
-enabled, each building into `build/<preset>`. Presets are filtered by host, so
-`cmake --list-presets` shows only those for the current OS.
+enabled, each building into `build/<preset>`. Platform presets are filtered by
+host, so `cmake --list-presets` shows only those for the current OS and `core`.
 
-| Preset | Host | Compiler |
-| --- | --- | --- |
-| `macos` | macOS | `clang++` (Apple Clang) |
-| `linux-gcc` | Linux | `g++` |
-| `linux-clang` | Linux | `clang++` |
+| Preset | Host | Compiler | Targets |
+| --- | --- | --- | --- |
+| `macos` | macOS | `clang++` (Apple Clang) | Default options (desktop and replay ON) |
+| `linux-gcc` | Linux | `g++` | Default options |
+| `linux-clang` | Linux | `clang++` | Default options |
+| `core` | any | Default `c++` | Core libraries and tests only; Qt and OpenCV are not searched |
 
 Each name works for configure, build, and test:
 
@@ -92,7 +93,9 @@ cmake --build --preset linux-gcc
 ctest --preset linux-gcc
 ```
 
-Extra cache variables can be appended to the configure command, for example
+Test presets run the hardware-free [regression suite](testing.md#regression-suite):
+they exclude the `hardware` label. Extra cache variables can be appended to the
+configure command, for example
 `cmake --preset macos -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"`. Machine-specific
 presets belong in an untracked `CMakeUserPresets.json`. CLion and other
 preset-aware IDEs list the presets as build profiles. Build directories
@@ -138,14 +141,15 @@ commands have not been executed in this audit; Windows CI/deployment remain #106
 ## Domain-only and offline builds
 
 ```sh
-cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug   -DMICRO_ROBOT_BUILD_DESKTOP=OFF -DBUILD_TESTING=ON
-cmake --build build/core --parallel
-ctest --test-dir build/core --output-on-failure --no-tests=error
+cmake -S . -B build/qt-free -G Ninja -DCMAKE_BUILD_TYPE=Debug   -DMICRO_ROBOT_BUILD_DESKTOP=OFF -DBUILD_TESTING=ON
+cmake --build build/qt-free --parallel
+ctest --test-dir build/qt-free --output-on-failure --no-tests=error
 ```
 
 This omits Qt discovery and all GUI targets, but includes the OpenCV replay adapter.
-Disable `MICRO_ROBOT_BUILD_REPLAY` and `MICRO_ROBOT_BUILD_CALIBRATION` as well for a build with neither Qt nor OpenCV. All domain tests, including the
-unlabelled camera tests, run when no label filter is given. For offline builds,
+For a build with neither Qt nor OpenCV, use the `core` preset, which also disables
+`MICRO_ROBOT_BUILD_REPLAY` and `MICRO_ROBOT_BUILD_CALIBRATION`. The camera contract
+tests carry the `core` label like the other domain tests. For offline builds,
 install GTest or add `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`.
 Use `-DBUILD_TESTING=OFF` to omit tests and the GTest dependency entirely.
 
