@@ -66,5 +66,5 @@ and the results executed so far:
 | Camera streaming and permissions | A camera; OS permission prompts | [Camera streaming](../overview/camera-streaming.md#verification) |
 | Linux V4L2 capture and modes | A V4L2 camera | [Camera backends](../overview/camera-backends.md#verification) |
 | Calibration capture | A camera and a printed chessboard | [Calibration capture](../overview/calibration-capture.md#manual-acceptance-procedure) |
-| GUI on a real display (X11, Wayland, macOS) | A desktop session; mouse, keyboard, scaled screens | Tracked by [LNX-06 / #130](https://github.com/Krzys2002/Mini_Robot/issues/130); the offscreen UI tests in CI do not prove it |
+| GUI on a real display (X11, Wayland, macOS) | A desktop session; mouse, keyboard, scaled screens | [GUI compatibility](gui-compatibility.md#manual-checklist); the offscreen UI tests in CI do not prove it |
 | Robot communication over BLE | A Bluetooth adapter, BlueZ on Linux, and an ESP32-C6 robot | No physical transport exists yet; automated tests use the [simulation transport](../overview/simulation.md) |
