@@ -507,6 +507,21 @@ It is acceptable to add a small prerequisite refactor when it is necessary to im
 
 If an issue requires an architectural change that contradicts these instructions, surface the decision rather than silently rewriting project architecture.
 
+### Documentation changes
+
+- Update the owning feature guide and `docs/overview/modules/<module>.md` for
+  behavior/capability changes; shared indexes are navigation, not status reports.
+- Edit `docs/overview/architecture.md` when shared boundaries/conventions change,
+  rather than rewriting a shared milestone row for every feature.
+- CMake owns source/target/dependency declarations. Generate inventories under the
+  build directory; do not commit generated snapshots or duplicate manual tables.
+- Keep feature test coverage in module/behavior guides and run-specific results
+  in PR validation or dated module records. Development guides own reusable recipes.
+- Run documentation checks described in `docs/development/documentation.md`.
+- After each human merge, refresh dependent/overlapping branches and recheck.
+  Consolidate broad setup-documentation changes after their functional inputs.
+  Preserve normal review, no-force-push and no-automatic-merge rules.
+
 ## 21. Definition of done for an issue
 
 An issue is implementation-complete only when:

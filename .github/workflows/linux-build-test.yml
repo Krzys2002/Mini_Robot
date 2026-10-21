@@ -28,20 +28,20 @@ jobs:
           - name: Ubuntu 24.04 / GCC / Debug
             preset: linux-gcc
             packages: >-
-              build-essential clang cmake ninja-build
+              build-essential clang cmake ninja-build python3
               qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
             configure-options: -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON
           - name: Ubuntu 24.04 / Clang / Debug
             preset: linux-clang
             packages: >-
-              build-essential clang cmake ninja-build
+              build-essential clang cmake ninja-build python3
               qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
             configure-options: -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON
           # Qt and OpenCV are deliberately not installed: the core library and its
           # tests must build and pass without them.
           - name: Ubuntu 24.04 / GCC / Core without Qt and OpenCV
             preset: core
-            packages: build-essential cmake ninja-build libgtest-dev
+            packages: build-essential cmake ninja-build libgtest-dev python3
             configure-options: ""
     defaults:
       run:
@@ -66,7 +66,7 @@ jobs:
           if command -v clang++ > /dev/null; then clang++ --version; fi
 
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }} ${{ matrix.configure-options }}
+        run: cmake --preset ${{ matrix.preset }} ${{ matrix.configure-options }} -DMICRO_ROBOT_BUILD_DOCUMENTATION=ON
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --parallel 4

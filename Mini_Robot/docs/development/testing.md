@@ -28,67 +28,23 @@ individual GoogleTest cases at test time (`DISCOVERY_MODE PRE_TEST`), so build t
 test executables before running CTest. `--no-tests=error` catches an empty test
 selection rather than reporting successful verification with no tests run.
 
-| Executable | CTest label | Coverage |
-| --- | --- | --- |
-| `micro_robot_calibration_tests` | `core`, `calibration` | Capture policy plus intrinsic result validation, weighted RMS, warning thresholds and owned snapshots |
-| `micro_robot_calibration_detector_tests` | `calibration` | Generated chessboards and analytic intrinsic/distortion recovery, per-frame error and invalid input tests; built with desktop or standalone calibration enabled |
-| `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
-| `micro_robot_control_tests` | `core` | [Differential-drive kinematics](../overview/differential-drive.md): analytical wheel targets, inverse conversion, world derivatives, signs, bounds, invalid inputs and overflow |
-| `micro_robot_camera_tests` | `core` | Packed frame validation, malformed metadata, storage and overflow checks; camera selection rules |
-| `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
-| `micro_robot_transport_tests` | `core` | Transport domain versions, sequence reservation, metadata defaults and copying |
-| `micro_robot_transport_mock_tests` | `core` | [Robot discovery and the shared transport contract](../overview/robot-communication.md#mock-transport-tests): scans, snapshots, ambiguity, private peer mapping, link loss, and the same `IRobotTransport` checks against simulation and a test-only radio backend |
-| `micro_robot_simulation_tests` | `core` | Deterministic backends, fake camera factory, and substitution |
-| `micro_robot_world_tests` | `core` | World registry and pose update rules |
-| `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink including non-ASCII directories |
-| `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
-| `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, non-ASCII/spaced/relative/symlinked paths, verbatim log paths, example file |
-| `micro_robot_marker_tests` (opt-in) | `markers` | [AprilTag print tooling](../vision/apriltag-selection.md): all 16 IDs and rotations, quiet margins, invalid inputs, and reproducibility of committed SVG sheets |
-| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection and calibration wizard lifecycle; with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
-| `micro_robot_tests`: `V4l2CameraHardwareTest.*` | `hardware` | Physical V4L2 capture; skipped without `MICRO_ROBOT_TEST_V4L2_DEVICE` and excluded from the regression suite (see [hardware tests](hardware-tests.md)) |
-| `DesktopStartup.StartsAndShutsDownCleanly` (CMake script) | `ui` | Production desktop started offscreen with `--exit-after-startup` and a private configuration in a non-ASCII working directory; exit code, startup/shutdown log order, resolved configuration path, no warnings or errors |
-| `PlatformBoundary.*` (CMake scripts) | `core`, `boundary` | [Platform boundaries](../overview/platform-boundaries.md#enforcement): no OS/backend APIs, Qt platform macros, or concrete-backend includes in platform-independent targets; scanner and link-check self-tests |
+## Finding suites and coverage
 
-Enable offline marker generation and its tests with
-`-DMICRO_ROBOT_BUILD_MARKER_TOOLS=ON` (default OFF). This adds OpenCV aruco/objdetect
-and imgcodecs dependencies only to the offline tool/test targets. Run just those
-tests with `ctest --test-dir build -L markers --output-on-failure --no-tests=error`.
-The [print guide](../vision/apriltag-selection.md#printing-and-reproducibility)
-also describes independent SVG rasterization and full-sheet decoding checks.
-
-Core executables link domain libraries and `GTest::gtest_main`, without Qt or a
-`QApplication`. The UI executable has its own test entry point using GoogleTest
-and an offscreen `QApplication`; it is built only when
-`MICRO_ROBOT_BUILD_DESKTOP=ON`.
-
-[CameraSelectionControllerTest](../../tests/ui/CameraSelectionControllerTest.cpp) uses
-injected manual inventory, factory, and camera backends without Qt Multimedia or
-hardware. It checks empty inventories, disabled rows, duplicate names/distinct
-IDs, selection and source replacement, rejected choices, removal/reconnection,
-renames, plain-text presentation, and subscription teardown. Camera contract
-tests also compile the discovery and factory interfaces and the selection rules
-without Qt. Physical visibility/hotplug checks are listed
-in [camera discovery](../overview/camera-discovery.md).
-
-With the Linux V4L2 backend, `micro_robot_tests` also contains `V4l2DiscoveryScanTest`,
-`V4l2CameraDeviceDiscoveryTest`, and `V4l2CameraSourceTest`. They use temporary
-sysfs/dev trees and need no camera. `V4l2CameraHardwareTest` cases carry the
-`hardware` label instead of `ui` and are reported as skipped unless
-`MICRO_ROBOT_TEST_V4L2_DEVICE` names a camera node; see
-[hardware tests](hardware-tests.md) for the command and the optional resolution check.
-
-World tests cover insert/query/update/removal, unknown poses, duplicate IDs,
-finite-pose validation, per-robot timestamp ordering (including rejected updates),
-detached query/snapshot values, and the non-copyable authoritative model contract.
-Run only this suite with:
+Feature coverage, adapter checks and remaining acceptance belong to the owning
+[module page](../overview/modules/README.md) and its behavior guide. Enabled test
+targets and their sources appear in the [generated inventory](../overview/source-map.md).
+List the actual CTest selection after building rather than updating a shared
+per-feature table:
 
 ```sh
-ctest --test-dir build -R '^WorldModelTest\.' --output-on-failure --no-tests=error
+ctest --test-dir build -N
+ctest --test-dir build --show-only=json-v1
 ```
 
-Issue #45 requires no manual camera/BLE checks: its domain model has no hardware
-dependencies. Desktop integration tests verify its existing controller consumers;
-a Qt-free build verifies that the world target remains independent of Qt.
+Core tests use GoogleTest without a QApplication; UI tests use an offscreen Qt
+application. The `core` preset requires neither Qt nor OpenCV. Tests needing real
+devices use the `hardware` label and are excluded from the regression presets;
+see [hardware tests](hardware-tests.md).
 
 Select suites or individual cases:
 
@@ -130,13 +86,10 @@ Equivalent selection for a build directory without presets:
 ctest --test-dir build -LE hardware --output-on-failure --no-tests=error
 ```
 
-| Area | Hardware-free tests |
-| --- | --- |
-| Core library | `core` label: common types, control, camera contracts and selection, interfaces, transport types, world model, logging, configuration, calibration capture, platform boundaries. The `core` preset builds and runs them without Qt or OpenCV. |
-| Configuration and filesystem paths | `ConfigFileTest`, `ConfigParseTest`, `FileLogSinkTest`: non-ASCII names, spaces, relative paths, symbolic links, unreadable and non-regular files, platform-style log paths kept verbatim |
-| Mock camera and robot transport | `FakeCameraTest`, `FakeCameraSourceFactoryTest`, `SimulationTransportTest`, `BackendSubstitutionTest`, interface probes; replay (`replay` label) with generated video |
-| Initialization | `DesktopIntegrationTest` (controller startup and shutdown with fake backends) and `DesktopStartup.StartsAndShutsDownCleanly` (the production executable) |
-| Platform adapters without devices | Offscreen UI tests; V4L2 tests on temporary device trees; macOS bundle permission check |
+The suite includes pure domain contracts, deterministic simulation/replay,
+configuration/filesystem behavior, offscreen application integration and
+platform-boundary checks. Concrete coverage belongs to module guides; the
+configured CTest inventory is authoritative for names and labels.
 
 The `core` configure preset turns off the desktop, replay, calibration, and marker
 targets, so CMake never looks for Qt or OpenCV:
@@ -185,6 +138,7 @@ Xcode Command Line Tools; remove `build/macos` first for a fresh build:
 ```sh
 brew install cmake ninja qt opencv
 cmake --preset macos -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON \
+  -DMICRO_ROBOT_BUILD_DOCUMENTATION=ON \
   -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
 cmake --build --preset macos --parallel 3
 ctest --preset macos
@@ -208,8 +162,9 @@ runs three jobs on the `ubuntu-24.04` runner:
 The GCC and Clang jobs install the apt packages listed in the
 [Ubuntu setup guide](linux-setup.md#build-requirements) and configure with the
 desktop and replay adapters explicitly ON. The core job installs only
-`build-essential cmake ninja-build libgtest-dev`, so it fails if a core target or
-test starts to need Qt or OpenCV. Each job prints the CMake, Ninja, and compiler
+`build-essential cmake ninja-build libgtest-dev python3`, so it fails if a core
+target or test starts to need Qt or OpenCV. Python runs documentation tooling
+only; ordinary core builds do not require it. Each job prints the CMake, Ninja, and compiler
 versions, builds all of its targets, and runs the [regression suite](#regression-suite)
 through its test preset. Qt UI tests use the offscreen platform,
 so no display, camera, Bluetooth adapter, or robot is needed. GoogleTest comes from
@@ -222,8 +177,9 @@ To run a job's commands locally on Ubuntu 24.04, start in `Mini_Robot`:
 ```sh
 sudo apt-get update
 sudo apt-get install --yes build-essential clang cmake ninja-build \
-  qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
-cmake --preset linux-gcc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON
+  qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev python3
+cmake --preset linux-gcc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON \
+  -DMICRO_ROBOT_BUILD_DOCUMENTATION=ON
 cmake --build --preset linux-gcc --parallel 4
 ctest --preset linux-gcc
 ```
@@ -279,3 +235,12 @@ stay unregistered. Keep pure logic tests independent of widgets and physical bac
 A test that needs a physical device gets the `hardware` label and skips without its
 device variable; follow the [hardware test rules](hardware-tests.md#rules). Future path
 or calibration tests should use deterministic inputs through their module APIs.
+
+## Documentation checks
+
+Enable `MICRO_ROBOT_BUILD_DOCUMENTATION=ON` to include the offline link/anchor
+checker and tooling tests in CTest (label `documentation`). The option also
+provides a `documentation` build target and build-local CMake source/target map.
+CI enables it for every platform configuration, including the core job. Python
+3.9+ is required only when this option is enabled. See
+[documentation maintenance](documentation.md) for commands and ownership rules.
