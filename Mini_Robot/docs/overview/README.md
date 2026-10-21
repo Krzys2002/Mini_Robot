@@ -7,6 +7,7 @@
   device-discovery pattern, backend replacement, and enforcement checks.
 - [Camera discovery](camera-discovery.md): system inventory, opaque IDs, refresh, and verification limits.
 - [Calibration capture](calibration-capture.md): chessboard target, quality gates, worker wizard and observation review.
+- [Intrinsic calibration](intrinsic-calibration.md): camera model, solver, validation and reprojection quality.
 - [Camera streaming](camera-streaming.md): native start/stop, failure reporting, and worker lifecycle.
 - [Camera backends](camera-backends.md): Linux V4L2/OpenCV and macOS Qt backends, capture resolution, and failure handling.
 - [Camera selection](camera-selection.md): selectable devices, source factory, and active-source replacement.
