@@ -42,6 +42,16 @@ public:
     CalibrationDetection detect(const Frame&, const CalibrationTarget&) override { return {}; }
 };
 
+// Unreachable without detected targets; present only to complete the composition.
+class NoSolutionSolver final : public IIntrinsicCalibrationSolver {
+public:
+    IntrinsicCalibrationOutcome solve(const IntrinsicCalibrationInput&,
+                                      const IntrinsicCalibrationConfig&) override
+    {
+        return {{}, "Not used by the GUI compatibility checks"};
+    }
+};
+
 QString expectedPlatform()
 {
     const auto requested = qEnvironmentVariable("MICRO_ROBOT_TEST_QPA_PLATFORM");
@@ -58,6 +68,7 @@ struct GuiFixture {
     DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
     CameraSelectionController selection{discovery, cameras, controller, logger.channel("camera")};
     CalibrationController calibration{std::make_unique<NoTargetDetector>(),
+                                      std::make_unique<NoSolutionSolver>(),
                                       logger.channel("calibration")};
     MainWindow window{controller};
     Timestamp now{1s};
