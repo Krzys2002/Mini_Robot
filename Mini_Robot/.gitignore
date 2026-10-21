@@ -6,3 +6,7 @@
 
 # Machine-local CMake presets layered over CMakePresets.json.
 /CMakeUserPresets.json
+
+# Python documentation-tool caches.
+__pycache__/
+*.pyc

@@ -31,6 +31,7 @@ if(MICRO_ROBOT_BUILD_REPLAY OR MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CA
     endif()
     find_package(OpenCV REQUIRED COMPONENTS ${_opencv_components})
 endif()
+
 if(MICRO_ROBOT_BUILD_DESKTOP)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
     message(STATUS "Micro Robot: live camera backend ${MICRO_ROBOT_CAMERA_BACKEND}")
@@ -63,4 +64,12 @@ if(BUILD_TESTING)
         FetchContent_MakeAvailable(googletest)
     endif()
     add_subdirectory(tests)
+endif()
+
+# Documentation inventories stay in the build tree, reflecting this configuration.
+# Keep Python optional for ordinary application/core builds.
+option(MICRO_ROBOT_BUILD_DOCUMENTATION "Generate the configured inventory and enable documentation checks" OFF)
+if(MICRO_ROBOT_BUILD_DOCUMENTATION)
+    include(MicroRobotDocumentation)
+    micro_robot_add_documentation()
 endif()
