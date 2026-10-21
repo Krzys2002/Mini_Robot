@@ -25,6 +25,7 @@ private:
     QComboBox* views_{};
     QLabel* message_{};
     QLabel* progress_{};
+    QLabel* quality_{};
     QPushButton* capture_{};
     QPushButton* remove_{};
     QPushButton* finish_{};
