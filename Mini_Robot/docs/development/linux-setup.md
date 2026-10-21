@@ -5,8 +5,8 @@ the desktop application. It covers the toolchain, libraries, camera access, Blue
 and troubleshooting. General CMake options shared with macOS and Windows are in
 [build setup](build.md); suite selection and test additions are in
 [testing](testing.md). The [verification status](#verification-status) lists the
-Linux builds executed so far; X11/Wayland GUI checks belong to #130 and have not
-been executed.
+Linux builds executed so far; the automated Wayland and X11 (Xwayland) GUI checks
+for #130 are in [GUI compatibility](gui-compatibility.md).
 
 ## Supported Ubuntu versions
 
@@ -230,9 +230,27 @@ The [desktop demo guide](../overview/desktop-demo.md) describes the controls. Th
 optional settings file is `~/.config/Micro Robot/micro_robot.ini`
 ([configuration](../overview/configuration.md)), and the log file is
 `~/.local/share/Micro Robot/logs/micro_robot.log` ([logging](../overview/logging.md)).
-Qt chooses the X11 or Wayland platform plugin from the session. Startup, resizing,
-input, display scaling, and X11/Wayland behavior need manual checks (#130); a
-passing offscreen test does not establish them.
+Qt chooses the X11 or Wayland platform plugin from the session; see
+[GUI session packages](#gui-session-packages). A passing offscreen test does not
+establish Wayland or X11 support; the [GUI compatibility guide](gui-compatibility.md)
+runs the same widget tests on a real platform plugin and lists the remaining manual
+checks.
+
+### GUI session packages
+
+`qt6-base-dev` provides the `xcb` (X11) platform plugin. In a Wayland session, also
+install the Qt Wayland plugin so that Qt uses Wayland natively instead of falling
+back to X11 through Xwayland:
+
+```sh
+sudo apt install qt6-wayland
+```
+
+Choose a plugin explicitly with `QT_QPA_PLATFORM=wayland` or `QT_QPA_PLATFORM=xcb`.
+If startup reports that no platform plugin could be loaded, list the installed
+plugins with `ls /usr/lib/x86_64-linux-gnu/qt6/plugins/platforms` (the directory
+differs on other architectures). CI does not need a GUI package: its tests use the
+offscreen plugin.
 
 ## Camera device access (`/dev/video*`)
 
@@ -342,7 +360,7 @@ CI runners have none of these.
 | `c++: fatal error: Killed signal terminated program cc1plus` | The parallel build ran out of memory. Limit jobs, for example `cmake --build --preset linux-gcc --parallel 2`. |
 | `No tests were found!!!` | Build the test executables before running CTest, and keep `BUILD_TESTING` ON. |
 | A preset is missing from `cmake --list-presets` | Presets are filtered by host; on Linux only `linux-gcc` and `linux-clang` are listed. |
-| `qt.qpa.xcb: could not connect to display` or `Could not load the Qt platform plugin` when launching the desktop | No graphical session (for example over SSH). Run the desktop in a desktop session; the tests need no display. For a non-apt Qt 6.5+, install `libxcb-cursor0`. `QT_DEBUG_PLUGINS=1` shows why a plugin fails to load. |
+| `qt.qpa.xcb: could not connect to display` or `Could not load the Qt platform plugin` when launching the desktop | No graphical session (for example over SSH). Run the desktop in a desktop session; the tests need no display. For a non-apt Qt 6.5+, install `libxcb-cursor0`. `QT_DEBUG_PLUGINS=1` shows why a plugin fails to load; see also [GUI session packages](#gui-session-packages). |
 | Camera or Bluetooth problems | See [camera device access](#camera-device-access-devvideo) and [Bluetooth and BLE](#bluetooth-and-ble). |
 
 The [build setup troubleshooting](build.md#troubleshooting) covers the same CMake
@@ -373,6 +391,14 @@ revision, the documented commands were run from fresh build directories: the `li
 each passed 200/200 CTest cases (2 hardware cases skipped), and the Qt-free build
 passed 136/136. The [selecting tests](#selecting-tests) commands and the Release
 configure command were also run.
+
+### #130: Wayland and X11 GUI
+
+On the Ubuntu 26.04.1 developer host in a GNOME 50 Wayland session (GCC preset), the
+GUI compatibility suite passed on the native `wayland` plugin and on `xcb` through
+Xwayland, and all 64 UI cases passed on both; the
+[GUI compatibility results](gui-compatibility.md#linux-results) list scale factors,
+skips, and limitations.
 
 ### Earlier issues
 
@@ -416,6 +442,6 @@ For #129, on the same host with the source tree at that change:
 an `ubuntu-24.04` GitHub runner and builds and tests the `linux-gcc` and
 `linux-clang` presets on every pull request and push to `master`; see that
 workflow's runs for current results. Not yet verified: Ubuntu 22.04 with a newer
-CMake, arm64, the minimum compiler versions, X11/Wayland GUI behavior (#130), and
+CMake, arm64, the minimum compiler versions, manual GUI checks with physical input (#130), and
 physical BLE (#129, #65, #66). Configuration/filesystem regression expansion is
 #132. Update this guide with actual results when those checks are performed.
