@@ -60,6 +60,10 @@ int main(int argc, char* argv[])
         QStringLiteral("Load settings from <file> instead of the per-user configuration file."),
         QStringLiteral("file")};
     arguments.addOption(configOption);
+    const QCommandLineOption exitAfterStartupOption{QStringLiteral("exit-after-startup"),
+        QStringLiteral("Close the window once startup completes and exit through the normal "
+                       "shutdown path (automated startup checks).")};
+    arguments.addOption(exitAfterStartupOption);
     arguments.process(application);
 
     using namespace micro_robot;
@@ -188,6 +192,10 @@ int main(int argc, char* argv[])
     window.show();
     simulationTimer.start();
     appLog.info("Application started");
+    if (arguments.isSet(exitAfterStartupOption)) {
+        // Queued so that shutdown begins from the running event loop, as for a user close.
+        QTimer::singleShot(0, &window, [&window] { window.close(); });
+    }
 
     const int exitCode = application.exec();
     appLog.info("Application shutdown complete (exit code " + std::to_string(exitCode) + ")");
