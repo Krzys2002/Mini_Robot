@@ -20,4 +20,6 @@ workspace profile persistence remain separate.
 
 Configuration/filesystem tests cover invalid input, paths, ownership and failures.
 Boundary tests reject forbidden dependencies. CI owns build evidence; setup guides
-own recipes. Windows, real devices and X11/Wayland need executed checks.
+own recipes. Windows, real devices and physical compositor input still need acceptance. The
+[GUI guide](../../development/gui-compatibility.md) owns recorded automated Linux
+results and their limits.
