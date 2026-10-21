@@ -36,6 +36,13 @@ endif()
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_add_desktop_packaging_tests(micro_robot_desktop)
+    # Runs the production composition offscreen and exits through the normal shutdown.
+    add_test(NAME DesktopStartup.StartsAndShutsDownCleanly
+        COMMAND "${CMAKE_COMMAND}"
+            "-DAPP_BINARY=$<TARGET_FILE:micro_robot_desktop>"
+            "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/startup"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/app/VerifyDesktopStartup.cmake")
+    set_tests_properties(DesktopStartup.StartsAndShutsDownCleanly PROPERTIES LABELS "ui")
     add_executable(micro_robot_tests
         main.cpp
         ui/CalibrationWizardTest.cpp
