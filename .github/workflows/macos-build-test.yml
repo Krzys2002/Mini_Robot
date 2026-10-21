@@ -32,16 +32,16 @@ jobs:
       - name: Install build dependencies
         run: brew install cmake ninja qt opencv
 
+      # The macos presets match the Linux jobs: Debug, tests on, hardware tests excluded.
       - name: Configure desktop and tests
         run: >-
-          cmake -S . -B build/ci -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
+          cmake --preset macos
           -DMICRO_ROBOT_BUILD_DESKTOP=ON
-          -DBUILD_TESTING=ON
+          -DMICRO_ROBOT_BUILD_REPLAY=ON
           -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
 
       - name: Build application and tests
-        run: cmake --build build/ci --parallel 3
+        run: cmake --build --preset macos --parallel 3
 
-      - name: Run all tests
-        run: ctest --test-dir build/ci --output-on-failure --no-tests=error
+      - name: Run regression tests
+        run: ctest --preset macos
