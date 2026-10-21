@@ -42,6 +42,8 @@ public:
     // Fault as well as an error; no pending work remains for that robot. Disconnect
     // on a quiescent Fault may preserve Fault. Callback requests/sink replacement
     // take effect on subsequent dispatches without nested callbacks.
+    // Backends that locate robots through IRobotDiscovery fail connect with
+    // Unavailable (and Fault) when the ID was not discovered or is ambiguous.
     virtual void connect(RobotId id) = 0;
     virtual void disconnect(RobotId id) = 0;
 

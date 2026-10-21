@@ -37,6 +37,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_camera_tests` | none | Packed frame validation, malformed metadata, storage and overflow checks; camera selection rules |
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
 | `micro_robot_transport_tests` | `core` | Transport domain versions, sequence reservation, metadata defaults and copying |
+| `micro_robot_transport_mock_tests` | `core` | [Robot discovery and the shared transport contract](../overview/robot-communication.md#mock-transport-tests): scans, snapshots, ambiguity, private peer mapping, link loss, and the same `IRobotTransport` checks against simulation and a test-only radio backend |
 | `micro_robot_simulation_tests` | `core` | Deterministic backends, fake camera factory, and substitution |
 | `micro_robot_world_tests` | `core` | World registry and pose update rules |
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink |

@@ -28,7 +28,9 @@ or a concrete backend; see [platform boundaries](../overview/platform-boundaries
 
 The current source does not discover or link Eigen, spdlog, JSON,
 Qt Bluetooth, or network libraries. They are planned dependencies,
-not prerequisites for today's simulation demo. The optional runtime settings file is
+not prerequisites for today's simulation demo. The planned Qt Bluetooth adapter
+and its per-platform requirements are described in
+[robot communication](../overview/robot-communication.md). The optional runtime settings file is
 described in [Application configuration](../overview/configuration.md).
 
 Qt Multimedia supplies read-only [system camera discovery](../overview/camera-discovery.md).

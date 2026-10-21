@@ -6,6 +6,11 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <CoreBluetooth/CoreBluetooth.h>
+#include <IOBluetooth/IOBluetooth.h>
+#include <dbus/dbus.h>
+#include <systemd/sd-bus.h>
+#include <QtBluetooth/QLowEnergyController>
+#include <QDBusConnection>
 #include <opencv2/videoio.hpp>
 #include "camera/QtCameraDeviceDiscovery.hpp"
 

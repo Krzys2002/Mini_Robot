@@ -88,6 +88,19 @@ target_link_libraries(micro_robot_transport_tests PRIVATE micro_robot_transport_
 micro_robot_target_defaults(micro_robot_transport_tests)
 gtest_discover_tests(micro_robot_transport_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
+# Robot discovery and the shared transport contract, exercised through simulation
+# and a test-only radio backend; no Bluetooth adapter, Qt, or robot is needed.
+add_executable(micro_robot_transport_mock_tests
+    transport/MockRadioLink.hpp
+    transport/RobotDiscoveryTest.cpp
+    transport/TransportContractTest.cpp
+)
+target_link_libraries(micro_robot_transport_mock_tests PRIVATE
+    micro_robot_transport_api micro_robot_simulation GTest::gtest_main
+)
+micro_robot_target_defaults(micro_robot_transport_mock_tests)
+gtest_discover_tests(micro_robot_transport_mock_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
 add_executable(micro_robot_simulation_tests simulation/SimulationTest.cpp)
 target_link_libraries(micro_robot_simulation_tests PRIVATE
     micro_robot_simulation GTest::gtest_main
