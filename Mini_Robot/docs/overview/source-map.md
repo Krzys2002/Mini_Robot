@@ -65,6 +65,12 @@ reports are scope/history, not evidence that future modules are present.
 | [src/transport/IRobotDiscovery.hpp](../../src/transport/IRobotDiscovery.hpp) | [robot discovery](robot-communication.md#robot-discovery) |
 | [src/transport/IRobotTransport.hpp](../../src/transport/IRobotTransport.hpp) | [transport](transport.md) |
 | [src/transport/TransportTypes.hpp](../../src/transport/TransportTypes.hpp) | [transport](transport.md) |
+| [src/transport/ble/BleTypes.hpp](../../src/transport/ble/BleTypes.hpp), [BleTypes.cpp](../../src/transport/ble/BleTypes.cpp) | [BLE identity/GATT validation](ble-connection.md) |
+| [src/transport/ble/BleProtocol.hpp](../../src/transport/ble/BleProtocol.hpp), [BleProtocol.cpp](../../src/transport/ble/BleProtocol.cpp) | [Qt-free BLE wire codec and receive sequences](ble-messages.md) |
+| [src/transport/ble/BleTransportProtocol.cpp](../../src/transport/ble/BleTransportProtocol.cpp) | [Bounded dispatch, telemetry, result correlation and adapter E-stop](ble-messages.md) |
+| [src/transport/ble/IBleBackend.hpp](../../src/transport/ble/IBleBackend.hpp) | [Internal asynchronous BLE boundary](ble-connection.md) |
+| [src/transport/ble/BleTransport.hpp](../../src/transport/ble/BleTransport.hpp), [BleTransport.cpp](../../src/transport/ble/BleTransport.cpp) | [BLE connection state, discovery and timeout policy](ble-connection.md) |
+| [src/transport/ble/QtBleBackend.hpp](../../src/transport/ble/QtBleBackend.hpp), [QtBleBackend.cpp](../../src/transport/ble/QtBleBackend.cpp) | [Native Qt BLE Central adapter](ble-connection.md) |
 | [src/ui/MainWindow.cpp](../../src/ui/MainWindow.cpp) | [ui](desktop-demo.md) |
 | [src/ui/MainWindow.hpp](../../src/ui/MainWindow.hpp) | [ui](desktop-demo.md) |
 | [src/world/RobotState.hpp](../../src/world/RobotState.hpp) | [world](world-model.md) |
@@ -83,6 +89,9 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_api | micro_robot_common |
 | micro_robot_camera_selection | camera API |
 | micro_robot_transport_api | micro_robot_common |
+| micro_robot_ble_contract | transport API, C++20 only |
+| micro_robot_ble_lifecycle (opt-in) | BLE contract, logging, Qt6::Core |
+| micro_robot_ble_qt (opt-in) | BLE lifecycle, private Qt6::Bluetooth |
 | micro_robot_calibration | camera API, C++20 only |
 | micro_robot_calibration_opencv | calibration, private OpenCV core/imgproc and calib3d (4.x) or objdetect/calib/geometry (5.x) |
 | micro_robot_control | micro_robot_common, micro_robot_transport_api (domain values only) |
@@ -112,7 +121,10 @@ window are implemented. Discovery diagnostics use a separate Qt logging category
 [Calibration capture](calibration-capture.md) supplies a chessboard detector and capture wizard;
 [intrinsic calibration](intrinsic-calibration.md) adds solving, result validation and reprojection quality.
 There are no profile persistence, robot tracking, planning, supervisory controller,
-physical BLE, Zigbee, or structured measurement-recording modules. Qt Multimedia
+Zigbee, or structured measurement-recording modules. The optional
+[BLE adapter](ble-connection.md) provides discovery/connection setup and
+[command/telemetry handling](ble-messages.md); physical BLE validation remains
+tracked separately in #187 and #189. Qt Multimedia
 is isolated in the concrete discovery and [streaming](camera-streaming.md) adapters. OpenCV is isolated in the optional
 replay adapter, calibration detector/solver and the Linux [V4L2 camera adapter](camera-backends.md); other proposed dependencies are absent from current CMake targets.
 The desktop

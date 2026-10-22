@@ -9,8 +9,9 @@ Source: [discovery interface](../../src/transport/IRobotDiscovery.hpp),
 Issue #129 (LNX-05) prepares the desktop-to-ESP32-C6 communication architecture
 for Linux and macOS without a hardware BLE implementation. It defines a
 platform-neutral robot discovery boundary, keeps
-[IRobotTransport](transport.md) unchanged for its callers, and records how a Qt
-Bluetooth adapter will fit on each operating system. The BLE adapter itself is
+[IRobotTransport](transport.md) unchanged for its callers, and records the Qt Bluetooth platform review below. The opt-in BLE adapter is
+documented in the [connection guide](ble-connection.md) and
+[message guide](ble-messages.md), implemented by
 [#65](https://github.com/Krzys2002/Mini_Robot/issues/65) and
 [#66](https://github.com/Krzys2002/Mini_Robot/issues/66). Zigbee
 ([#107](https://github.com/Krzys2002/Mini_Robot/issues/107)) is a separate
@@ -47,12 +48,14 @@ fields from its own device table.
 
 Threading follows the transport rules. Calls and callbacks run on the backend's
 owning thread, event sinks are weak subscriptions, and requests never dispatch
-events inline. A backend that implements both interfaces, such as the future BLE
-adapter, keeps two independent event sinks.
+events inline. A backend that implements both interfaces, keeps two independent event sinks. The current `BleTransport` implements
+`IRobotTransport` and exposes its scan inventory through adapter-local Qt signals;
+it does not yet implement `IRobotDiscovery`. The shared discovery contract and
+its test backend remain available independently.
 
 ## Qt 6 Bluetooth platform review
 
-Qt Bluetooth is the planned implementation for #65/#66, because one Qt source
+Qt Bluetooth is the implementation for #65/#66, because one Qt source
 tree covers the BLE central role on macOS, Linux, and Windows. The review was
 based on the Qt 6 documentation, the [platform support table](https://doc.qt.io/qt-6/qtbluetooth-index.html),
 [QBluetoothDeviceInfo](https://doc.qt.io/qt-6/qbluetoothdeviceinfo.html), and
@@ -78,7 +81,7 @@ Consequences for the architecture:
   and session, and is never persisted as robot identity.
 - **Platform differences stay inside the adapter target and the build.** The
   macOS usage description belongs in [Info.plist.in](../../src/app/Info.plist.in)
-  when the BLE adapter is added, next to the existing camera key. Permission
+  for BLE builds, next to the existing camera key. Permission
   requests are issued by the composition root or the adapter. A denial maps to
   `PermissionDenied` (discovery) or `Unavailable` (connect). No `Q_OS_*` branch
   is needed in domain or application code.
@@ -89,18 +92,16 @@ Consequences for the architecture:
   the test radio backend. A BLE adapter test must be opt-in, like the
   [V4L2 hardware tests](camera-backends.md#verification).
 
-### Planned adapter placement
+### Adapter placement
 
-The BLE work adds one platform-adapter target, for example
-`micro_robot_transport_ble`. It implements `IRobotDiscovery` and `IRobotTransport`,
-links `Qt6::Bluetooth` privately, and is not registered with
-`micro_robot_platform_boundary()`. CMake locates it with
-`find_package(Qt6 COMPONENTS Bluetooth)`. Only the composition root
+The opt-in `micro_robot_ble_qt` platform adapter implements
+`IRobotTransport`, links `Qt6::Bluetooth` privately, and is not registered with
+`micro_robot_platform_boundary()`. Only the composition root
 ([main.cpp](../../src/app/main.cpp)) selects it instead of `SimulationTransport`.
-Protocol encoding/decoding should stay in a separate Qt-free target, so that the
-[example frames](../protocol/robot-protocol.md#example-frames) can be tested
-without Bluetooth. This issue adds no Qt Bluetooth dependency, so no build
-requires the Connectivity module yet.
+The Qt-free `micro_robot_ble_contract` target owns protocol encoding/decoding.
+The Connectivity module is required only with `MICRO_ROBOT_BUILD_BLE=ON`;
+see the [build guide](../development/build.md). Integration of the adapter's
+scan inventory with `IRobotDiscovery` remains separate work.
 
 ## Isolation from robot control
 

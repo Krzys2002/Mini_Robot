@@ -66,6 +66,28 @@ target_sources(micro_robot_transport_api INTERFACE
 )
 micro_robot_platform_boundary(micro_robot_transport_api)
 
+add_library(micro_robot_ble_contract STATIC transport/ble/BleTypes.hpp transport/ble/BleTypes.cpp
+    transport/ble/BleProtocol.hpp transport/ble/BleProtocol.cpp)
+target_link_libraries(micro_robot_ble_contract PUBLIC micro_robot_transport_api)
+micro_robot_target_defaults(micro_robot_ble_contract)
+micro_robot_platform_boundary(micro_robot_ble_contract)
+
+if(MICRO_ROBOT_BUILD_BLE)
+    add_library(micro_robot_ble_lifecycle STATIC
+        transport/ble/IBleBackend.hpp
+        transport/ble/BleTransport.hpp
+        transport/ble/BleTransport.cpp)
+    target_sources(micro_robot_ble_lifecycle PRIVATE transport/ble/BleTransportProtocol.cpp)
+    set_target_properties(micro_robot_ble_lifecycle PROPERTIES AUTOMOC ON)
+    target_link_libraries(micro_robot_ble_lifecycle PUBLIC micro_robot_ble_contract micro_robot_logging Qt6::Core)
+    micro_robot_target_defaults(micro_robot_ble_lifecycle)
+    micro_robot_platform_boundary(micro_robot_ble_lifecycle BACKEND ALLOW Qt6::Core)
+
+    add_library(micro_robot_ble_qt STATIC transport/ble/QtBleBackend.hpp transport/ble/QtBleBackend.cpp)
+    target_link_libraries(micro_robot_ble_qt PUBLIC micro_robot_ble_lifecycle PRIVATE Qt6::Bluetooth)
+    micro_robot_target_defaults(micro_robot_ble_qt)
+endif()
+
 add_library(micro_robot_control STATIC
     control/DifferentialDrive.hpp
     control/DifferentialDrive.cpp
@@ -206,6 +228,10 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         MICRO_ROBOT_VERSION="${PROJECT_VERSION}"
         $<$<STREQUAL:${MICRO_ROBOT_CAMERA_BACKEND},V4L2>:MICRO_ROBOT_CAMERA_BACKEND_V4L2>
     )
+    if(MICRO_ROBOT_BUILD_BLE)
+        target_link_libraries(micro_robot_desktop PRIVATE micro_robot_ble_qt)
+        target_compile_definitions(micro_robot_desktop PRIVATE MICRO_ROBOT_HAS_BLE)
+    endif()
     micro_robot_configure_desktop_executable(micro_robot_desktop
         "${CMAKE_CURRENT_SOURCE_DIR}/app/Info.plist.in"
     )
