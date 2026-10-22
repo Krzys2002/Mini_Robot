@@ -144,3 +144,19 @@ Windows runtime and OpenCV 4 execution were **NOT RUN**. Follow the physical
 procedure above; automated geometry/persistence results do not establish optical
 accuracy or native platform interaction. The issue branch remains local until
 maintainer push approval.
+
+### CI compiler compatibility follow-up (2026-10-22)
+
+The initial macOS CI build used Apple Clang 17 / Xcode 16.4, whose libc++ lacks
+floating-point `std::from_chars`. Local Apple Clang 21 supported the overload,
+so the earlier local builds did not reveal the compilation failure. The parser
+now uses classic-locale stream conversion for floating-point fields, with strict
+decimal syntax and explicit handling of finite subnormals. Unsigned integer
+fields retain `from_chars`. No compiler/OS branches or dependencies were added.
+
+Added regression tests preserve signed zero, normal/subnormal values under a
+comma-decimal global locale, and rejection of partial, locale-specific, hex,
+non-finite, overflowing and underflow-to-zero inputs. Local desktop build and
+full CTest passed **261/261**; Qt/OpenCV-free build and full CTest passed
+**166/166**. `git diff --check` passed. Updated remote CI is required to verify
+the older runner toolchain; these local results do not claim that verification.

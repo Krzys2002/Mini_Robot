@@ -2,6 +2,8 @@
 #include "IntrinsicFixtures.hpp"
 #include <gtest/gtest.h>
 #include <limits>
+#include <cmath>
+#include <locale>
 
 namespace {
 using namespace micro_robot;
@@ -66,6 +68,38 @@ TEST(CalibrationProfileTest, RejectsMalformedNumericsAndInconsistentErrors)
     c = validIntrinsicCalibration();
     c.sourceId = "camera\nwrong";
     EXPECT_THROW((void)serializeCalibrationProfile(c), std::invalid_argument);
+}
+TEST(CalibrationProfileTest, RoundTripsNormalSubnormalAndSignedZeroWithNonClassicGlobalLocale)
+{
+    struct CommaDecimal final : std::numpunct<char> {
+        char do_decimal_point() const override { return ','; }
+    };
+    struct RestoreLocale {
+        std::locale previous{std::locale()};
+        ~RestoreLocale() { std::locale::global(previous); }
+    } restore;
+    std::locale::global(std::locale(restore.previous, new CommaDecimal));
+    for (const double coefficient : {0.0, -0.0, 0.125, -0.125, 1e-200,
+        std::numeric_limits<double>::min(), std::numeric_limits<double>::denorm_min(),
+        -std::numeric_limits<double>::denorm_min(), 1e-310}) {
+        auto c = validIntrinsicCalibration();
+        c.distortion[0] = coefficient;
+        const auto loaded = parseCalibrationProfile(serializeCalibrationProfile(c));
+        ASSERT_TRUE(loaded.result) << loaded.error;
+        EXPECT_EQ(loaded.result->distortion[0], coefficient);
+        EXPECT_EQ(std::signbit(loaded.result->distortion[0]), std::signbit(coefficient));
+    }
+}
+TEST(CalibrationProfileTest, RejectsPartialLocaleHexOverflowAndUnderflowingFloatingTokens)
+{
+    const auto good = serializeCalibrationProfile(validIntrinsicCalibration());
+    const auto start = good.find("distortion ") + 11;
+    for (const std::string bad : {"1e-323garbage", "1e-323.4", "1e-", ".", "-",
+        "1,25", "0x1p0", "1e9999", "-1e9999", "1e-9999", "nan", "inf"}) {
+        auto changed = good;
+        changed.replace(start, changed.find(' ', start) - start, bad);
+        EXPECT_FALSE(parseCalibrationProfile(changed).result) << bad;
+    }
 }
 TEST(CalibrationProfileTest, RequiresExactIdentityAndDeliveredResolution)
 {

@@ -2,14 +2,49 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <iomanip>
 #include <limits>
 #include <locale>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 
 namespace micro_robot {
 namespace {
+// Decimal syntax only, independently of locale and stream-library extensions.
+// Some libc++ versions have no floating-point from_chars. Classic-locale streams
+// still give correctly rounded subnormals but may set failbit for ERANGE.
+bool parseProfileDouble(std::string_view word, double& value)
+{
+    std::size_t pos = !word.empty() && word.front() == '-' ? 1 : 0;
+    bool nonzero = false;
+    const auto digits = [&] {
+        const auto begin = pos;
+        while (pos < word.size() && word[pos] >= '0' && word[pos] <= '9') {
+            nonzero = nonzero || word[pos] != '0';
+            ++pos;
+        }
+        return pos - begin;
+    };
+    auto significandDigits = digits();
+    if (pos < word.size() && word[pos] == '.') { ++pos; significandDigits += digits(); }
+    if (significandDigits == 0) return false;
+    if (pos < word.size() && (word[pos] == 'e' || word[pos] == 'E')) {
+        ++pos;
+        if (pos < word.size() && (word[pos] == '+' || word[pos] == '-')) ++pos;
+        const auto exponentBegin = pos;
+        while (pos < word.size() && word[pos] >= '0' && word[pos] <= '9') ++pos;
+        if (pos == exponentBegin) return false;
+    }
+    if (pos != word.size()) return false;
+    std::istringstream number{std::string{word}};
+    number.imbue(std::locale::classic());
+    number >> value;
+    if (number.bad() || number.rdbuf()->sgetc() != std::char_traits<char>::eof()
+        || !std::isfinite(value) || (value == 0 && nonzero)) return false;
+    return !number.fail() || std::fpclassify(value) == FP_SUBNORMAL;
+}
 std::string profileError(const IntrinsicCalibration& c)
 {
     if (c.sourceId.size() > 4096 || std::any_of(c.sourceId.begin(), c.sourceId.end(),
@@ -52,8 +87,12 @@ IntrinsicCalibrationOutcome parseCalibrationProfile(std::string_view text)
     const auto number = [&](auto& value) {
         std::string word;
         if (!(in >> word)) return false;
-        const auto parsed = std::from_chars(word.data(), word.data() + word.size(), value);
-        return parsed.ec == std::errc{} && parsed.ptr == word.data() + word.size();
+        if constexpr (std::is_integral_v<std::remove_reference_t<decltype(value)>>) {
+            const auto parsed = std::from_chars(word.data(), word.data() + word.size(), value);
+            return parsed.ec == std::errc{} && parsed.ptr == word.data() + word.size();
+        } else {
+            return parseProfileDouble(word, value);
+        }
     };
     int version{};
     if (!token("MICRO_ROBOT_INTRINSICS") || !(in >> version) || version != 1)
