@@ -7,8 +7,8 @@ The maintainer confirmed #31 physical stream lifecycle acceptance on 2026-10-19.
 ## Decision and operating envelope
 
 Use **AprilTag `tag36h11`**, OpenCV dictionary `DICT_APRILTAG_36h11`, with one
-black border cell. Use the OpenCV ArUco detector as the baseline for the future
-frame adapter (#50); no separate AprilTag library is needed for this selection.
+black border cell. The [frame adapter (#50)](apriltag-detection.md) uses the OpenCV
+ArUco detector; no separate AprilTag library is needed for this selection.
 Offline tooling supports OpenCV 4.2+ (the legacy ArUco API through 4.6 and the
 objdetect API from 4.7), including Ubuntu 24.04's OpenCV 4.6. Actual validation
 versions are recorded below; source compatibility is not a Linux execution claim.

@@ -15,7 +15,7 @@ Windows remains a project target with deployment work assigned to M8.
 | Milestone | Current source state | Remaining capability |
 | --- | --- | --- |
 | M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery, selection, and native stream control, application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug and physical capture acceptance, pixel preview, source recovery implementation, and manual GUI checks with physical input on Ubuntu and macOS. |
-| M2 — Vision, Calibration & Robot Localization | Partial: [chessboard capture](calibration-capture.md), worker detector, quality/diversity gates, review wizard and [intrinsic calculation/quality reporting](intrinsic-calibration.md); [AprilTag family/print profiles and identity mapping](../vision/apriltag-selection.md) specified, with printable sheets and opt-in offline verification tools. | Profile persistence, live AprilTag detection, workspace calibration, image-to-world conversion, tracking, freshness/quality estimates and localization measurements. |
+| M2 — Vision, Calibration & Robot Localization | Partial: [chessboard capture](calibration-capture.md), worker detector, quality/diversity gates, review wizard and [intrinsic calculation/quality reporting](intrinsic-calibration.md); [AprilTag family/print profiles and identity mapping](../vision/apriltag-selection.md) specified, with printable sheets and opt-in offline verification tools; [AprilTag frame detection](../vision/apriltag-detection.md) with timestamped multi-tag observations and a bounded worker. | Printed-tag live/recorded acceptance, profile persistence, workspace calibration, image-to-world conversion, tracking, freshness/quality estimates and localization measurements. |
 | M3 — Robot Communication & Manual Safety Control | Partial: [version 1 protocol/GATT contract](../protocol/README.md) and opt-in [Qt BLE discovery/connection lifecycle](ble-connection.md), with Robot Info/GATT readiness validation, [command/telemetry codec](ble-messages.md), bounded dispatch, adapter E-stop primitive and fake-radio tests. | Firmware, physical BLE acceptance, RobotManager, manual motion controls, domain E-stop/clear, reconnect policy, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Pure [differential-drive kinematics](differential-drive.md), inverse conversion and bounded wheel targets implemented; a stored demo pose is not closed-loop feedback. | Supervisory scheduler/controller, target selection, body-command limits, tracking/connection safety transitions, and control experiments. |
 | M5 — Operator Path Drawing, Trajectory Generation & Tracking | Planned; no path or trajectory domain types exist. | World-space editor, simplification/smoothing, timing, Pure Pursuit, execution controls, and tracking metrics. |
@@ -50,6 +50,9 @@ The current layers are:
   selected by composition, without camera ownership. `CalibrationController` schedules
   one detection or solving job on its worker; `CalibrationWizard` renders frames,
   corners and reprojection quality and forwards requests.
+- `micro_robot_vision_api`: Qt/OpenCV-free timestamped marker observations and detector interface.
+- `micro_robot_vision_opencv`: AprilTag 36h11 detection, isolated OpenCV conversion and failure handling.
+  `VisionController` runs it on one worker with one newest pending frame; widgets show status only.
 - `micro_robot_world`: private robot registry and timestamp-aware pose storage,
   depending only on common types.
 - `micro_robot_logging`: Qt-free, thread-safe application logger with per-module
@@ -204,7 +207,7 @@ prefer the newest useful frame.
 Qt owns widgets through parent relationships. Injected backend/model references,
 including the camera factory, outlive the controllers; DesktopController owns the
 active camera source. Closing the last window requests stop/disconnect and keeps
-the event loop/timer running until both backends and the calibration worker are quiescent, then destroys
+the event loop/timer running until both backends and the calibration/vision workers are quiescent, then destroys
 objects in dependency order. Native capture and pixel conversion run on a dedicated
 worker with bounded latest-frame handoffs. The controller detaches subscriptions
 on destruction; capture objects are released on the worker before stop acknowledgement.

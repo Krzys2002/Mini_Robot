@@ -30,6 +30,7 @@ selection rather than reporting successful verification with no tests run.
 
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
+| `micro_robot_vision_tests` | `vision` | AprilTag formats/stride, canonical rotations, multiple IDs, invalid inputs, negative scenes and generated-video replay; desktop or standalone vision ON |
 | `micro_robot_ble_contract_tests` | `core`, `ble` | Qt-free Robot Info, identity/GATT validation, command codec, malformed notifications and sequence wrap |
 | `micro_robot_ble_tests` (opt-in) | `ble` | Qt Core fake-radio lifecycle, bounded dispatch/freshness, telemetry/results, E-stop retries, controller delivery, timeouts and recovery; no physical radio |
 | `micro_robot_calibration_tests` | `core`, `calibration` | Capture policy plus intrinsic result validation, weighted RMS, warning thresholds and owned snapshots |
@@ -46,7 +47,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, non-ASCII/spaced/relative/symlinked paths, verbatim log paths, example file |
 | `micro_robot_marker_tests` (opt-in) | `markers` | [AprilTag print tooling](../vision/apriltag-selection.md): all 16 IDs and rotations, quiet margins, invalid inputs, and reproducibility of committed SVG sheets |
-| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection and calibration wizard lifecycle, [GUI compatibility](gui-compatibility.md) (resize, mouse/keyboard input, scaling); with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
+| `micro_robot_tests` | `ui` | Offscreen Qt window, controller integration, camera selection, calibration wizard and bounded vision-worker lifecycle, [GUI compatibility](gui-compatibility.md) (resize, mouse/keyboard input, scaling); with the V4L2 backend also [Linux V4L2 discovery and capture](../overview/camera-backends.md#verification) |
 | `GuiCompatibility.ScaleFactor*` | `ui`, `gui` | The GUI compatibility cases repeated with `QT_SCALE_FACTOR` 1.5 and 2 |
 | `micro_robot_tests`: `V4l2CameraHardwareTest.*` | `hardware` | Physical V4L2 capture; skipped without `MICRO_ROBOT_TEST_V4L2_DEVICE` and excluded from the regression suite (see [hardware tests](hardware-tests.md)) |
 | `DesktopStartup.StartsAndShutsDownCleanly` (CMake script) | `ui` | Production desktop started offscreen with `--exit-after-startup` and a private configuration in a non-ASCII working directory; exit code, startup/shutdown log order, resolved configuration path, no warnings or errors |
@@ -292,3 +293,18 @@ stay unregistered. Keep pure logic tests independent of widgets and physical bac
 A test that needs a physical device gets the `hardware` label and skips without its
 device variable; follow the [hardware test rules](hardware-tests.md#rules). Future path
 or calibration tests should use deterministic inputs through their module APIs.
+
+## AprilTag pipeline verification
+
+The desktop enables the detector and adds the required OpenCV ArUco/objdetect
+component. For a Qt-free detector/replay build use desktop OFF and
+`MICRO_ROBOT_BUILD_VISION=ON`; see the [vision build guide](../vision/apriltag-detection.md#build-and-verification).
+Run detector, replay and GUI-worker tests together with:
+
+```sh
+ctest --test-dir build -R '^(AprilTag|VisionControllerTest)' --output-on-failure --no-tests=error
+```
+
+Physical printed-tag detection is not established by generated images or videos;
+record the [commissioning checks](../vision/apriltag-detection.md#physical-acceptance-not-run)
+separately. Linux/Windows runtime and legacy OpenCV execution were not run locally.

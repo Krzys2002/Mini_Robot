@@ -57,6 +57,19 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     micro_robot_target_defaults(micro_robot_calibration_opencv)
 endif()
 
+# Observation values and detector interface expose neither OpenCV nor Qt types.
+add_library(micro_robot_vision_api INTERFACE)
+target_link_libraries(micro_robot_vision_api INTERFACE micro_robot_camera_api)
+target_sources(micro_robot_vision_api INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vision/MarkerDetection.hpp")
+micro_robot_platform_boundary(micro_robot_vision_api)
+if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)
+    add_library(micro_robot_vision_opencv STATIC
+        vision/OpenCvAprilTagDetector.hpp vision/OpenCvAprilTagDetector.cpp)
+    target_link_libraries(micro_robot_vision_opencv PUBLIC micro_robot_vision_api PRIVATE ${OpenCV_LIBS})
+    target_include_directories(micro_robot_vision_opencv SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    micro_robot_target_defaults(micro_robot_vision_opencv)
+endif()
+
 add_library(micro_robot_transport_api INTERFACE)
 target_link_libraries(micro_robot_transport_api INTERFACE micro_robot_common)
 target_sources(micro_robot_transport_api INTERFACE
@@ -190,6 +203,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     endif()
 
     add_library(micro_robot_desktop_controller STATIC
+        app/VisionController.hpp
+        app/VisionController.cpp
         app/CalibrationController.hpp
         app/CalibrationController.cpp
         app/DesktopController.hpp
@@ -200,7 +215,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
         micro_robot_camera_api micro_robot_camera_selection micro_robot_transport_api
-        micro_robot_world micro_robot_logging micro_robot_calibration Qt6::Core
+        micro_robot_world micro_robot_logging micro_robot_calibration micro_robot_vision_api Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
     # Application adapters use Qt Core only; device backends stay in adapter targets.
@@ -222,7 +237,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     qt_add_executable(micro_robot_desktop app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
         micro_robot_ui micro_robot_simulation ${MICRO_ROBOT_LIVE_CAMERA_TARGET} micro_robot_calibration_opencv
-        micro_robot_logging micro_robot_configuration
+        micro_robot_logging micro_robot_configuration micro_robot_vision_opencv
     )
     target_compile_definitions(micro_robot_desktop PRIVATE
         MICRO_ROBOT_VERSION="${PROJECT_VERSION}"

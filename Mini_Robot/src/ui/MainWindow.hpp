@@ -10,6 +10,7 @@ class QPushButton;
 
 namespace micro_robot {
 
+class VisionController;
 class CalibrationWizard;
 class CalibrationController;
 class CameraSelectionController;
@@ -21,6 +22,8 @@ class MainWindow final : public QMainWindow {
 
 public:
     explicit MainWindow(DesktopController& controller, QWidget* parent = nullptr);
+
+    void bindVision(VisionController& vision);
 
     // Opens the capture/review dialog for the injected calibration service.
     void bindCalibration(CalibrationController& calibration);

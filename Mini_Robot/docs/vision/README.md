@@ -6,5 +6,11 @@
 - Printable A4 sheets: [40 mm footprint](markers/tag36h11-40mm-a4.svg) and
   [20 mm footprint](markers/tag36h11-20mm-a4.svg), each containing IDs 0–15.
 
-Detector integration into timestamped frames belongs to Issue #50; this selection
-and its offline tools do not add a live perception pipeline.
+- [AprilTag frame detection](apriltag-detection.md): timestamped multi-tag observations,
+  OpenCV adapter, bounded worker, replay tests and remaining physical acceptance.
+
+- [Physical printed-tag validation #191](https://github.com/Krzys2002/Mini_Robot/issues/191):
+  outstanding live-camera and real-recording acceptance for #50.
+
+Selection/print tooling is separate from runtime detection. Image-to-world pose
+conversion, robot association and tracking remain future work.

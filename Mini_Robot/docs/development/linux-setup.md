@@ -71,7 +71,7 @@ for #130 are in [GUI compatibility](gui-compatibility.md).
 | GCC with C++20 | GCC 11 | `build-essential` (`g++`) | 13.3.0 |
 | Clang with C++20 (optional second compiler) | Clang 14 | `clang` | 18.1.3 |
 | Qt 6 Widgets and Multimedia (desktop build, default ON) | Qt 6 | `qt6-base-dev`, `qt6-multimedia-dev` | 6.4.2 |
-| OpenCV core/imgproc/videoio and calib3d (replay, calibration, and the V4L2 camera backend, default ON) | OpenCV 4 | `libopencv-dev` | 4.6.0 |
+| OpenCV core/imgproc/videoio, calib3d and aruco (replay, calibration, V4L2 and AprilTag detection, default ON); objdetect replaces aruco on 4.7+ | OpenCV 4.2 for vision | `libopencv-dev` | 4.6.0 |
 | GoogleTest (tests, default ON) | — | `libgtest-dev` | 1.14.0 |
 | Git and HTTPS certificates (to clone) | — | `git`, `ca-certificates` | — |
 
@@ -120,7 +120,10 @@ platform plugin also needs the system package `libxcb-cursor0`.
 `libopencv-dev` covers all OpenCV components the default build uses: core and
 imgproc, videoio for [recorded-video replay](../overview/recorded-video.md) and
 V4L2 capture, and calib3d for chessboard calibration capture (objdetect on
-OpenCV 5). Its codec dependencies supply the MJPEG writer/decoder needed by the
+OpenCV 5). The desktop AprilTag detector additionally needs aruco on
+OpenCV 4.2–4.6 or objdetect on 4.7+; see the
+[vision build guide](../vision/apriltag-detection.md#build-and-verification).
+Its codec dependencies supply the MJPEG writer/decoder needed by the
 replay tests. The V4L2 kernel headers come with the C library development files
 that `build-essential` installs, so no other camera package is needed.
 

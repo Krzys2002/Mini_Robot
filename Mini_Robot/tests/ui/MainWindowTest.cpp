@@ -249,8 +249,17 @@ TEST(DesktopIntegrationTest, SilentSourceCannotLeaveAnOldFramePresentedAsCurrent
     camera.publishFrame(recoveryFrame());
     ASSERT_TRUE(fixture.label("frameDescription")->text().contains(QStringLiteral("Frame #1")));
     QEventLoop loop;
-    // Intervals of 2 s or more default to a coarse timer, which may fire 5% early.
-    QTimer::singleShot(CameraFrameTimeout + 100ms, Qt::PreciseTimer, &loop, &QEventLoop::quit);
+    // Observe actual expiry. A coarse singleShot at timeout + 100ms can fire
+    // up to 5% early, ahead of the controller's precise frame-expiry timer.
+    QObject::connect(&fixture.controller, &DesktopController::frameDescriptionChanged, &loop,
+        [&loop](const QString& description) {
+            if (description.contains(QStringLiteral("No current frame"))) loop.quit();
+        });
+    QTimer deadline;
+    deadline.setSingleShot(true);
+    deadline.setTimerType(Qt::PreciseTimer);
+    QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
+    deadline.start(CameraFrameTimeout + 2s);
     loop.exec();
     EXPECT_TRUE(fixture.label("frameDescription")->text().contains(QStringLiteral("No current frame")));
     camera.publishFrame(recoveryFrame(2));
