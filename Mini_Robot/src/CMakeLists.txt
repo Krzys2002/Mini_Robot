@@ -66,6 +66,12 @@ add_library(micro_robot_vision_api INTERFACE)
 target_link_libraries(micro_robot_vision_api INTERFACE micro_robot_camera_api)
 target_sources(micro_robot_vision_api INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vision/MarkerDetection.hpp")
 micro_robot_platform_boundary(micro_robot_vision_api)
+# Robot identity and pixel measurements from raw markers; no detector backend.
+add_library(micro_robot_vision_observation STATIC
+    vision/RobotObservation.hpp vision/RobotObservation.cpp)
+target_link_libraries(micro_robot_vision_observation PUBLIC micro_robot_vision_api)
+micro_robot_target_defaults(micro_robot_vision_observation)
+micro_robot_platform_boundary(micro_robot_vision_observation)
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)
     add_library(micro_robot_vision_opencv STATIC
         vision/OpenCvAprilTagDetector.hpp vision/OpenCvAprilTagDetector.cpp)
