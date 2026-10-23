@@ -2,7 +2,8 @@ include(GoogleTest)
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)
     add_executable(micro_robot_vision_tests vision/AprilTagDetectorTest.cpp)
-    target_link_libraries(micro_robot_vision_tests PRIVATE micro_robot_vision_opencv GTest::gtest_main ${OpenCV_LIBS})
+    target_link_libraries(micro_robot_vision_tests PRIVATE micro_robot_vision_opencv
+        micro_robot_vision_observation GTest::gtest_main ${OpenCV_LIBS})
     target_include_directories(micro_robot_vision_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
     micro_robot_target_defaults(micro_robot_vision_tests)
     if(MICRO_ROBOT_BUILD_REPLAY)
@@ -118,7 +119,7 @@ target_link_libraries(micro_robot_control_tests PRIVATE micro_robot_control GTes
 micro_robot_target_defaults(micro_robot_control_tests)
 gtest_discover_tests(micro_robot_control_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
-add_executable(micro_robot_common_tests common/TypesTest.cpp)
+add_executable(micro_robot_common_tests common/TypesTest.cpp common/AngleTest.cpp)
 target_link_libraries(micro_robot_common_tests PRIVATE micro_robot_common GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_common_tests)
 gtest_discover_tests(micro_robot_common_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
@@ -162,6 +163,15 @@ target_link_libraries(micro_robot_simulation_tests PRIVATE
 )
 micro_robot_target_defaults(micro_robot_simulation_tests)
 gtest_discover_tests(micro_robot_simulation_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
+# Robot identity, center and heading from raw markers; no detector backend.
+add_executable(micro_robot_vision_observation_tests vision/RobotObservationTest.cpp)
+target_link_libraries(micro_robot_vision_observation_tests PRIVATE
+    micro_robot_vision_observation GTest::gtest_main
+)
+micro_robot_target_defaults(micro_robot_vision_observation_tests)
+# The escaped separator keeps two labels through test discovery, not one "core;vision".
+gtest_discover_tests(micro_robot_vision_observation_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core\\;vision")
 
 add_executable(micro_robot_world_tests world/WorldModelTest.cpp)
 target_link_libraries(micro_robot_world_tests PRIVATE micro_robot_world GTest::gtest_main)
