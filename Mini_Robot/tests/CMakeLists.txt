@@ -15,7 +15,8 @@ endif()
 add_executable(micro_robot_ble_contract_tests transport/BleTypesTest.cpp transport/BleProtocolTest.cpp)
 target_link_libraries(micro_robot_ble_contract_tests PRIVATE micro_robot_ble_contract GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_ble_contract_tests)
-gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;ble")
+# gtest_discover_tests splits an unescaped ";" so only the first label would apply.
+gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core\\;ble")
 
 if(MICRO_ROBOT_BUILD_BLE)
     add_executable(micro_robot_ble_tests transport/ble-main.cpp transport/BleTransportTest.cpp)
@@ -41,7 +42,7 @@ add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.
     calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
-gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;calibration")
+gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core\\;calibration")
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp
