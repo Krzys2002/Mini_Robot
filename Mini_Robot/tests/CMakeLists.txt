@@ -1,5 +1,33 @@
 include(GoogleTest)
 
+if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)
+    add_executable(micro_robot_vision_tests vision/AprilTagDetectorTest.cpp)
+    target_link_libraries(micro_robot_vision_tests PRIVATE micro_robot_vision_opencv GTest::gtest_main ${OpenCV_LIBS})
+    target_include_directories(micro_robot_vision_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    micro_robot_target_defaults(micro_robot_vision_tests)
+    if(MICRO_ROBOT_BUILD_REPLAY)
+        target_sources(micro_robot_vision_tests PRIVATE vision/AprilTagReplayTest.cpp)
+        target_link_libraries(micro_robot_vision_tests PRIVATE micro_robot_camera_replay)
+    endif()
+    gtest_discover_tests(micro_robot_vision_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "vision")
+endif()
+
+add_executable(micro_robot_ble_contract_tests transport/BleTypesTest.cpp transport/BleProtocolTest.cpp)
+target_link_libraries(micro_robot_ble_contract_tests PRIVATE micro_robot_ble_contract GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_ble_contract_tests)
+gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;ble")
+
+if(MICRO_ROBOT_BUILD_BLE)
+    add_executable(micro_robot_ble_tests transport/ble-main.cpp transport/BleTransportTest.cpp)
+    target_link_libraries(micro_robot_ble_tests PRIVATE micro_robot_ble_qt GTest::gtest)
+    if(MICRO_ROBOT_BUILD_DESKTOP)
+        target_link_libraries(micro_robot_ble_tests PRIVATE micro_robot_desktop_controller)
+        target_compile_definitions(micro_robot_ble_tests PRIVATE MICRO_ROBOT_BLE_WITH_DESKTOP)
+    endif()
+    micro_robot_target_defaults(micro_robot_ble_tests)
+    gtest_discover_tests(micro_robot_ble_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "ble")
+endif()
+
 if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
     add_executable(micro_robot_marker_tests vision/MarkerPrintTest.cpp)
     target_link_libraries(micro_robot_marker_tests PRIVATE micro_robot_marker_print GTest::gtest_main)
@@ -48,6 +76,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_executable(micro_robot_tests
         main.cpp
         calibration/QtCalibrationProfileStoreTest.cpp
+        ui/VisionControllerTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
         ui/MainWindowTest.cpp

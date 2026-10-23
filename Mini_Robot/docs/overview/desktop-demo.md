@@ -13,6 +13,13 @@ Bluetooth adapter, calibration, ESP32, or configuration file. An optional
 [configuration file](configuration.md) selects the robot ID, simulation timing,
 and logging options.
 
+The optional [BLE connection mode](ble-connection.md) uses `--ble` in a build
+configured with `MICRO_ROBOT_BUILD_BLE=ON`. Connect/disconnect use the same
+controller and buttons; setup phases are logged. This mode does not supply
+simulated telemetry or demo poses; validated real battery/velocity telemetry
+reaches the controller through the [BLE message adapter](ble-messages.md). No
+manual motion controls are added. The behavior below describes default simulation.
+
 ## Camera selection
 
 The Camera selection panel lists every discovered device in a drop-down. Its
@@ -95,3 +102,13 @@ cover resizing, mouse and keyboard input, Tab order, and display scaling, also o
 Linux Wayland and X11 platform plugins. Physical preview, USB visibility/hotplug,
 physical input through the compositor, small screens, control safety, and
 standalone packaging remain unverified features.
+
+## AprilTag observations
+
+The composition also connects camera input/frame events to the independent
+[vision worker](../vision/apriltag-detection.md). The main window displays the
+last processed frame's tag count and detector milliseconds. Structured marker
+observations are available from `VisionController`; they do not alter the static
+demo WorldModel pose or issue robot commands. Shutdown drains this worker along
+with the calibration worker before application exit. Printed-tag live/recorded
+acceptance remains unverified.

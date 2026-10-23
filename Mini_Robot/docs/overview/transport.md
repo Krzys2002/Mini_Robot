@@ -4,8 +4,10 @@ Source: [IRobotTransport.hpp](../../src/transport/IRobotTransport.hpp) and
 [TransportTypes.hpp](../../src/transport/TransportTypes.hpp).
 
 `IRobotTransport` is a Qt-free asynchronous boundary. Application `RobotId`
-values are independent of BLE addresses, UUIDs, or Zigbee handles. Only the
-[simulation backend](simulation.md) currently implements it in production source.
+values are independent of BLE addresses, UUIDs, or Zigbee handles. The
+[simulation backend](simulation.md) and opt-in [BLE adapter](ble-connection.md)
+implement command/telemetry behavior. BLE [message handling](ble-messages.md)
+validates wire data and maps it to domain values; physical delivery remains unverified.
 This interface is not a serialized wire protocol or a BLE implementation.
 Radio backends locate robots through the separate
 [robot discovery](robot-communication.md#robot-discovery) boundary and fail
