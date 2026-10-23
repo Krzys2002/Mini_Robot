@@ -112,5 +112,14 @@ function(micro_robot_add_desktop_packaging_tests target)
                 -P "${PROJECT_SOURCE_DIR}/tests/platform/VerifyMacCameraPermission.cmake"
         )
         set_tests_properties(DesktopPackaging.CameraPermission PROPERTIES LABELS "packaging")
+        if(MICRO_ROBOT_BUILD_BLE)
+            add_test(NAME DesktopPackaging.BluetoothPermission
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DAPP_BINARY=$<TARGET_FILE:${target}>"
+                    "-DAPP_PLIST=$<TARGET_BUNDLE_DIR:${target}>/Contents/Info.plist"
+                    "-DNM=${CMAKE_NM}"
+                    -P "${PROJECT_SOURCE_DIR}/tests/platform/VerifyMacBluetoothPermission.cmake")
+            set_tests_properties(DesktopPackaging.BluetoothPermission PROPERTIES LABELS "packaging;ble")
+        endif()
     endif()
 endfunction()

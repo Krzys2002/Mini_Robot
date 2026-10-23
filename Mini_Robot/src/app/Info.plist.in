@@ -20,5 +20,7 @@
     <string>Micro Robot captures camera frames to supervise the tabletop robot workspace.</string>
     <key>NSCameraUseContinuityCameraDeviceType</key>
     <true/>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Micro Robot discovers and connects to ESP32-C6 robots over Bluetooth Low Energy.</string>
 </dict>
 </plist>

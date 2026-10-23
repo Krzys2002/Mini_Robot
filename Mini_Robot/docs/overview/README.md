@@ -16,6 +16,8 @@
 - [AprilTag selection](../vision/apriltag-selection.md): marker size, identity mapping, camera constraints, and printable sheets.
 - [Transport contract](transport.md): commands, telemetry, and async ownership.
 - [AprilTag frame detection](../vision/apriltag-detection.md): pixel observations, bounded worker, processing time and replay.
+- [BLE connection lifecycle](ble-connection.md): opt-in Qt Central, discovery, GATT readiness, cancellation and hardware acceptance.
+- [BLE messages](ble-messages.md): bounded command writes, telemetry validation, sequences, diagnostics and adapter E-stop.
 - [Robot communication](robot-communication.md): platform-neutral robot discovery,
   Qt Bluetooth review for Linux/macOS, control isolation, and mock transport tests.
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.

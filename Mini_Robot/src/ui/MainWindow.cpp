@@ -73,7 +73,7 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     cameraLayout->addLayout(cameraButtons);
     layout->addWidget(cameraGroup);
 
-    auto* transportGroup = new QGroupBox(QStringLiteral("Simulated robot transport"), central);
+    auto* transportGroup = new QGroupBox(QStringLiteral("Robot transport"), central);
     auto* transportLayout = new QVBoxLayout(transportGroup);
     auto* connectionStatus = new QLabel(QStringLiteral("Disconnected"), transportGroup);
     connectionStatus->setObjectName(QStringLiteral("connectionStatus"));
