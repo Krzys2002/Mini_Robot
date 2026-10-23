@@ -10,6 +10,7 @@ target_sources(micro_robot_common INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/common/RobotId.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Pose2D.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Units.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/common/Angle.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Time.hpp"
 )
 micro_robot_platform_boundary(micro_robot_common)
