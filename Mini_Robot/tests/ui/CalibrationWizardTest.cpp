@@ -1,4 +1,5 @@
 #include "app/CalibrationController.hpp"
+#include "calibration/QtCalibrationProfileStore.hpp"
 #include "app/DesktopController.hpp"
 #include "ui/CalibrationWizard.hpp"
 #include "ui/MainWindow.hpp"
@@ -10,6 +11,8 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QLabel>
 #include <QImage>
@@ -87,13 +90,53 @@ CalibrationCaptureConfig uiConfig()
     config.minimumScaleSpread = config.minimumAngleSpreadRadians = 0;
     return config;
 }
+class DeterministicUndistorter final : public ICalibrationUndistorter {
+public:
+    UndistortedPreviewOutcome undistort(const Frame& input, const IntrinsicCalibration&) override
+    {
+        onWorker = QThread::currentThread() != QApplication::instance()->thread();
+        ++calls;
+        if (gate.valid()) gate.wait();
+        if (fails) throw std::runtime_error("Synthetic remap failure");
+        auto result = std::make_shared<Frame>(input);
+        auto pixels = std::make_shared<std::vector<std::byte>>(*input.pixels);
+        (*pixels)[0] = std::byte{127};
+        result->pixels = pixels;
+        return {result, {}};
+    }
+    std::shared_future<void> gate;
+    std::atomic<int> calls{};
+    std::atomic<bool> onWorker{};
+    bool fails{};
+};
+class ControlledProfileStore final : public ICalibrationProfileStore {
+public:
+    ProfileLoadOutcome load(std::string_view id, std::uint32_t width, std::uint32_t height) override
+    {
+        ++calls;
+        onWorker = QThread::currentThread() != QApplication::instance()->thread();
+        if (gate.valid()) gate.wait();
+        if (throws) throw std::runtime_error("Synthetic read error");
+        auto c = validIntrinsicCalibration();
+        c.sourceId = wrongCamera ? "wrong-camera" : std::string{id};
+        c.width = width; c.height = height;
+        return {ProfileLoadState::Loaded, c, {}};
+    }
+    std::string save(const IntrinsicCalibration&) override { return "Synthetic write error"; }
+    std::shared_future<void> gate;
+    std::atomic<int> calls{};
+    std::atomic<bool> onWorker{};
+    bool wrongCamera{}, throws{};
+};
 struct CaptureFixture {
     Logger logger;
     DeterministicDetector* detector{};
     DeterministicSolver* solver{};
+    DeterministicUndistorter* undistorter{};
     std::unique_ptr<CalibrationController> controller;
     std::unique_ptr<CalibrationWizard> wizard;
-    explicit CaptureFixture(IntrinsicCalibrationConfig intrinsicConfig = {})
+    explicit CaptureFixture(IntrinsicCalibrationConfig intrinsicConfig = {}, QString profileDirectory = {},
+                            std::unique_ptr<ICalibrationProfileStore> storeOverride = {})
     {
         auto implementation = std::make_unique<DeterministicDetector>();
         detector = implementation.get();
@@ -102,6 +145,12 @@ struct CaptureFixture {
         controller = std::make_unique<CalibrationController>(std::move(implementation),
             std::move(solverImplementation),
             logger.channel("calibration"), uiConfig(), intrinsicConfig);
+        if (!profileDirectory.isEmpty() || storeOverride) {
+            auto remapper = std::make_unique<DeterministicUndistorter>();
+            undistorter = remapper.get();
+            if (!storeOverride) storeOverride = std::make_unique<QtCalibrationProfileStore>(profileDirectory);
+            controller->setProfileServices(std::move(storeOverride), std::move(remapper));
+        }
         wizard = std::make_unique<CalibrationWizard>(*controller);
         controller->setInput(QStringLiteral("camera-a"), true);
     }
@@ -120,6 +169,7 @@ struct CaptureFixture {
     void capture(std::uint64_t sequence)
     {
         frame(sequence);
+        ASSERT_TRUE(processUntil([&] { return !controller->profileBusy(); }));
         button("calibrationCapture")->click();
         ASSERT_TRUE(processUntil([&] { return !controller->busy(); }));
     }
@@ -372,5 +422,204 @@ TEST(CalibrationWizardTest, DesktopRoutesActualFramesAndStopInvalidatesCalibrati
     EXPECT_TRUE(fixture.controller->session().views().empty());
     camera->publishState(CameraState::Stopped, MonotonicClock::now());
     desktop.shutdown();
+}
+
+TEST(CalibrationProfileUiTest, SavesCalculatedProfileAndReloadsAfterControllerRestart)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    {
+        CaptureFixture fixture{{}, directory.path()};
+        fixture.controller->restart();
+        fixture.capture(1); fixture.capture(2); fixture.capture(3);
+        fixture.controller->finish();
+        ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+        ASSERT_TRUE(fixture.controller->result());
+        ASSERT_TRUE(fixture.button("calibrationSaveProfile")->isEnabled());
+        fixture.button("calibrationSaveProfile")->click();
+        ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+        EXPECT_TRUE(fixture.controller->profileMessage().contains(QStringLiteral("saved")));
+    }
+    CaptureFixture restarted{{}, directory.path()};
+    auto* toggle = restarted.wizard->findChild<QCheckBox*>(QStringLiteral("calibrationUndistorted"));
+    EXPECT_FALSE(toggle->isEnabled()); // Delivered size is not known until first frame.
+    restarted.frame(1);
+    ASSERT_TRUE(processUntil([&] { return !restarted.controller->profileBusy(); }));
+    ASSERT_TRUE(restarted.controller->profile());
+    EXPECT_FALSE(restarted.controller->result()); // Loading does not fabricate a capture session.
+    EXPECT_EQ(restarted.controller->profile()->cameraMatrix, validIntrinsicCalibration().cameraMatrix);
+    EXPECT_TRUE(toggle->isEnabled());
+    EXPECT_FALSE(toggle->isChecked());
+    EXPECT_TRUE(restarted.controller->profileMessage().contains(QStringLiteral("loaded")));
+    restarted.controller->setInput(QStringLiteral("camera-b"), true);
+    EXPECT_FALSE(restarted.controller->profile());
+    restarted.frame(1);
+    ASSERT_TRUE(processUntil([&] { return !restarted.controller->profileBusy(); }));
+    EXPECT_FALSE(restarted.controller->profile());
+    EXPECT_FALSE(toggle->isEnabled());
+    restarted.controller->setInput(QStringLiteral("camera-a"), true);
+    restarted.frame(1, 1200);
+    ASSERT_TRUE(processUntil([&] { return !restarted.controller->profileBusy(); }));
+    EXPECT_FALSE(restarted.controller->profile()); // No automatic scaling/reuse.
+}
+TEST(CalibrationProfileUiTest, ToggleRemapsOnlyPreviewAndPreservesRawCapturePixels)
+{
+    QTemporaryDir directory;
+    QtCalibrationProfileStore store{directory.path()};
+    ASSERT_TRUE(store.save(validIntrinsicCalibration()).empty());
+    CaptureFixture fixture{{}, directory.path()};
+    fixture.controller->restart();
+    fixture.frame(1);
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    FramePtr presented;
+    std::size_t corners = 99;
+    QObject observer; // Disconnect before captured locals and fixture shutdown.
+    QObject::connect(fixture.controller.get(), &CalibrationController::previewChanged,
+        &observer, [&](FramePtr frame, const auto& overlay, bool) { presented = std::move(frame); corners = overlay.size(); });
+    auto* toggle = fixture.wizard->findChild<QCheckBox*>(QStringLiteral("calibrationUndistorted"));
+    toggle->click();
+    ASSERT_TRUE(processUntil([&] { return presented && (*presented->pixels)[0] == std::byte{127}; }));
+    EXPECT_TRUE(fixture.undistorter->onWorker);
+    EXPECT_EQ(corners, 0U); // Raw corners cannot be overlaid in corrected coordinates.
+    fixture.controller->capture();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+    ASSERT_EQ(fixture.controller->session().views().size(), 1U);
+    EXPECT_EQ((*fixture.controller->session().views().front().frame->pixels)[0], std::byte{0});
+    toggle->click();
+    ASSERT_TRUE(presented);
+    EXPECT_EQ((*presented->pixels)[0], std::byte{0});
+    EXPECT_EQ(corners, 54U);
+}
+TEST(CalibrationProfileUiTest, RemapUsesOneActiveAndNewestPendingFrameWithoutBlockingGui)
+{
+    QTemporaryDir directory;
+    QtCalibrationProfileStore store{directory.path()};
+    ASSERT_TRUE(store.save(validIntrinsicCalibration()).empty());
+    CaptureFixture fixture{{}, directory.path()};
+    fixture.frame(1);
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    std::promise<void> release;
+    fixture.undistorter->gate = release.get_future().share();
+    fixture.controller->setUndistortedPreview(true);
+    const bool began = processUntil([&] { return fixture.undistorter->calls.load() == 1; });
+    if (!began) { release.set_value(); FAIL() << "Remap did not start"; }
+    for (std::uint64_t seq = 2; seq <= 20; ++seq) fixture.frame(seq);
+    QApplication::processEvents();
+    EXPECT_EQ(fixture.undistorter->calls, 1); // GUI events continue with worker blocked.
+    std::uint64_t presentedSequence = 0;
+    QObject observer;
+    QObject::connect(fixture.controller.get(), &CalibrationController::previewChanged, &observer,
+        [&](FramePtr frame, const auto&, bool) { if (frame) presentedSequence = frame->sequence; });
+    release.set_value();
+    ASSERT_TRUE(processUntil([&] { return presentedSequence == 20; }));
+    EXPECT_EQ(fixture.undistorter->calls, 2);
+}
+TEST(CalibrationProfileUiTest, LateRemapsAreDiscardedAfterModeSourceResolutionStopOrShutdown)
+{
+    for (int mode = 0; mode < 5; ++mode) {
+        QTemporaryDir directory;
+        QtCalibrationProfileStore store{directory.path()};
+        ASSERT_TRUE(store.save(validIntrinsicCalibration()).empty());
+        CaptureFixture fixture{{}, directory.path()};
+        fixture.frame(1);
+        ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+        std::promise<void> release;
+        fixture.undistorter->gate = release.get_future().share();
+        fixture.controller->setUndistortedPreview(true);
+        const bool began = processUntil([&] { return fixture.undistorter->calls.load() == 1; });
+        if (!began) { release.set_value(); FAIL() << "Remap did not start"; }
+        int corrected = 0;
+        QObject observer;
+        QObject::connect(fixture.controller.get(), &CalibrationController::previewChanged, &observer,
+            [&](FramePtr frame, const auto&, bool) { if (frame && (*frame->pixels)[0] == std::byte{127}) ++corrected; });
+        if (mode == 0) fixture.controller->setUndistortedPreview(false);
+        if (mode == 1) fixture.controller->setInput(QStringLiteral("camera-b"), true);
+        if (mode == 2) fixture.frame(2, 1200);
+        if (mode == 3) fixture.controller->setInput(QStringLiteral("camera-a"), false);
+        if (mode == 4) fixture.controller->shutdown();
+        EXPECT_FALSE(fixture.controller->undistortedPreview());
+        release.set_value();
+        // A queued observer runs after the worker remap and its GUI completion.
+        fixture.controller->shutdown();
+        ASSERT_TRUE(processUntil([&] { return fixture.controller->isStopped(); }));
+        QApplication::processEvents();
+        EXPECT_EQ(corrected, 0);
+    }
+}
+TEST(CalibrationProfileUiTest, RemapFailureReturnsToRawPreviewAndShowsError)
+{
+    QTemporaryDir directory;
+    QtCalibrationProfileStore store{directory.path()};
+    ASSERT_TRUE(store.save(validIntrinsicCalibration()).empty());
+    CaptureFixture fixture{{}, directory.path()};
+    fixture.frame(1);
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    fixture.undistorter->fails = true;
+    fixture.controller->setUndistortedPreview(true);
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->undistortedPreview(); }));
+    EXPECT_TRUE(fixture.controller->profileMessage().contains(QStringLiteral("failed")));
+    EXPECT_FALSE(fixture.wizard->findChild<QCheckBox*>(QStringLiteral("calibrationUndistorted"))->isChecked());
+    EXPECT_TRUE(fixture.controller->profile()); // A preview failure does not damage the saved model.
+}
+
+TEST(CalibrationProfileUiTest, SlowProfileLookupFollowsNewestCameraAndResolution)
+{
+    auto store = std::make_unique<ControlledProfileStore>();
+    auto* backend = store.get();
+    std::promise<void> release;
+    backend->gate = release.get_future().share();
+    CaptureFixture fixture{{}, {}, std::move(store)};
+    fixture.frame(1);
+    const bool began = processUntil([&] { return backend->calls.load() == 1; });
+    if (!began) { release.set_value(); FAIL() << "Profile lookup did not start"; }
+    fixture.controller->setInput(QStringLiteral("camera-b"), true);
+    fixture.frame(1, 1200);
+    EXPECT_FALSE(fixture.controller->profile());
+    EXPECT_EQ(backend->calls, 1); // At most one lookup plus a coalesced pending request.
+    release.set_value();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    ASSERT_TRUE(fixture.controller->profile());
+    EXPECT_EQ(fixture.controller->profile()->sourceId, "camera-b");
+    EXPECT_EQ(fixture.controller->profile()->width, 1200U);
+    EXPECT_EQ(backend->calls, 2);
+    EXPECT_TRUE(backend->onWorker);
+}
+TEST(CalibrationProfileUiTest, CaptureRestartDoesNotInvalidateSameCameraProfileLookup)
+{
+    auto store = std::make_unique<ControlledProfileStore>();
+    auto* backend = store.get();
+    std::promise<void> release;
+    backend->gate = release.get_future().share();
+    CaptureFixture fixture{{}, {}, std::move(store)};
+    fixture.frame(1);
+    const bool began = processUntil([&] { return backend->calls.load() == 1; });
+    if (!began) { release.set_value(); FAIL() << "Profile lookup did not start"; }
+    fixture.controller->restart();
+    release.set_value();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    ASSERT_TRUE(fixture.controller->profile());
+    EXPECT_EQ(fixture.controller->profile()->sourceId, "camera-a");
+}
+TEST(CalibrationProfileUiTest, RejectsIncompatibleOrThrowingStoresAndReportsSaveFailure)
+{
+    for (bool throws : {false, true}) {
+        auto store = std::make_unique<ControlledProfileStore>();
+        store->throws = throws;
+        store->wrongCamera = !throws;
+        CaptureFixture fixture{{}, {}, std::move(store)};
+        fixture.frame(1);
+        ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+        EXPECT_FALSE(fixture.controller->profile());
+        EXPECT_FALSE(fixture.controller->canUndistort());
+        EXPECT_TRUE(fixture.controller->profileMessage().contains(QStringLiteral("rejected")));
+    }
+    CaptureFixture fixture{{}, {}, std::make_unique<ControlledProfileStore>()};
+    fixture.frame(1);
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    ASSERT_TRUE(fixture.controller->profile());
+    fixture.controller->saveProfile();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    EXPECT_TRUE(fixture.controller->profileMessage().contains(QStringLiteral("save failed")));
+    EXPECT_TRUE(fixture.controller->profile());
 }
 } // namespace

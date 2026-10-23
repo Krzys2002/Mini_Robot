@@ -38,14 +38,14 @@ if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
 endif()
 
 add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp
-    calibration/IntrinsicCalibrationTest.cpp)
+    calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
 gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;calibration")
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp
-        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp)
+        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp calibration/OpenCvCalibrationUndistorterTest.cpp)
     target_link_libraries(micro_robot_calibration_detector_tests PRIVATE
         micro_robot_calibration_opencv GTest::gtest_main ${OpenCV_LIBS})
     target_include_directories(micro_robot_calibration_detector_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
@@ -75,6 +75,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     set_tests_properties(DesktopStartup.StartsAndShutsDownCleanly PROPERTIES LABELS "ui")
     add_executable(micro_robot_tests
         main.cpp
+        calibration/QtCalibrationProfileStoreTest.cpp
         ui/VisionControllerTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
@@ -85,7 +86,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     )
     find_package(Qt6 REQUIRED COMPONENTS Test)
     target_link_libraries(micro_robot_tests PRIVATE
-        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery GTest::gtest Qt6::Test
+        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery micro_robot_calibration_profiles GTest::gtest Qt6::Test
     )
     if(TARGET micro_robot_camera_v4l2)
         target_sources(micro_robot_tests PRIVATE camera/V4l2CameraTest.cpp)

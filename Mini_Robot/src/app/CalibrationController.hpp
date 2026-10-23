@@ -1,6 +1,6 @@
 #pragma once
 
-#include "calibration/IntrinsicCalibration.hpp"
+#include "calibration/CalibrationProfile.hpp"
 #include "infrastructure/logging/Logger.hpp"
 
 #include <QObject>
@@ -23,6 +23,16 @@ public:
                           CalibrationCaptureConfig config = {},
                           IntrinsicCalibrationConfig intrinsicConfig = {}, QObject* parent = nullptr);
     ~CalibrationController() override;
+    // Inject once at composition before camera input. Services run on the existing worker.
+    void setProfileServices(std::unique_ptr<ICalibrationProfileStore> store,
+                            std::unique_ptr<ICalibrationUndistorter> undistorter);
+    [[nodiscard]] const std::optional<IntrinsicCalibration>& profile() const noexcept { return profile_; }
+    [[nodiscard]] const QString& profileMessage() const noexcept { return profileMessage_; }
+    [[nodiscard]] bool profileBusy() const noexcept { return profileIoBusy_; }
+    [[nodiscard]] bool canSaveProfile() const { return profileStore_ && profile_ && !profileIoBusy_ && !shuttingDown_; }
+    [[nodiscard]] bool canReloadProfile() const { return profileStore_ && latest_ && !profileIoBusy_ && !shuttingDown_; }
+    [[nodiscard]] bool canUndistort() const { return undistorter_ && profile_ && latest_ && !shuttingDown_; }
+    [[nodiscard]] bool undistortedPreview() const noexcept { return undistortedPreview_; }
     void setInput(const QString& sourceId, bool streaming);
     void receiveFrame(FramePtr frame);
     [[nodiscard]] const CalibrationCapture& session() const noexcept { return session_; }
@@ -36,6 +46,9 @@ public:
     [[nodiscard]] bool isStopped() const { return worker_.isFinished(); }
 
 public slots:
+    void saveProfile();
+    void reloadProfile();
+    void setUndistortedPreview(bool enabled);
     void restart();
     void capture();
     void removeView(int index);
@@ -54,6 +67,8 @@ signals:
 private:
     void publish(const QString& message);
     void invalidate();
+    void presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted);
+    void processPreview();
     CalibrationCapture session_;
     LogChannel log_;
     QString sourceId_;
@@ -70,5 +85,19 @@ private:
     bool busy_{};
     bool live_{true};
     bool shuttingDown_{};
+    std::shared_ptr<ICalibrationProfileStore> profileStore_;
+    std::shared_ptr<ICalibrationUndistorter> undistorter_;
+    std::optional<IntrinsicCalibration> profile_;
+    QString profileMessage_{QStringLiteral("No saved profile selected.")};
+    std::uint64_t profileGeneration_{}; // Camera/resolution validity, independent of capture restarts.
+    bool profileIoBusy_{};
+    bool reloadPending_{};
+    bool profileLookupRequested_{};
+    bool undistortedPreview_{};
+    bool previewBusy_{};
+    std::uint64_t previewEpoch_{};
+    FramePtr previewFrame_;
+    std::vector<ImageCorner> previewCorners_;
+    bool previewAccepted_{};
 };
 } // namespace micro_robot

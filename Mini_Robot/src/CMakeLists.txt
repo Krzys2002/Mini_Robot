@@ -39,6 +39,8 @@ add_library(micro_robot_calibration STATIC
     calibration/CalibrationCapture.cpp
     calibration/IntrinsicCalibration.hpp
     calibration/IntrinsicCalibration.cpp
+    calibration/CalibrationProfile.hpp
+    calibration/CalibrationProfile.cpp
 )
 target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api)
 micro_robot_target_defaults(micro_robot_calibration)
@@ -50,6 +52,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
         calibration/OpenCvCalibrationDetector.cpp
         calibration/OpenCvIntrinsicCalibrationSolver.hpp
         calibration/OpenCvIntrinsicCalibrationSolver.cpp
+        calibration/OpenCvCalibrationUndistorter.hpp
+        calibration/OpenCvCalibrationUndistorter.cpp
     )
     target_link_libraries(micro_robot_calibration_opencv PUBLIC micro_robot_calibration
         PRIVATE ${OpenCV_LIBS})
@@ -169,6 +173,12 @@ if(MICRO_ROBOT_BUILD_REPLAY)
 endif()
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
+    add_library(micro_robot_calibration_profiles STATIC
+        calibration/QtCalibrationProfileStore.hpp
+        calibration/QtCalibrationProfileStore.cpp)
+    target_link_libraries(micro_robot_calibration_profiles PUBLIC micro_robot_calibration Qt6::Core)
+    micro_robot_target_defaults(micro_robot_calibration_profiles)
+
     add_library(micro_robot_camera_discovery STATIC
         camera/QtCameraDeviceDiscovery.hpp
         camera/QtCameraDeviceDiscovery.cpp
@@ -207,6 +217,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         app/VisionController.cpp
         app/CalibrationController.hpp
         app/CalibrationController.cpp
+        app/CalibrationControllerProfiles.cpp
         app/DesktopController.hpp
         app/DesktopController.cpp
         app/CameraSelectionController.hpp
@@ -237,7 +248,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     qt_add_executable(micro_robot_desktop app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
         micro_robot_ui micro_robot_simulation ${MICRO_ROBOT_LIVE_CAMERA_TARGET} micro_robot_calibration_opencv
-        micro_robot_logging micro_robot_configuration micro_robot_vision_opencv
+        micro_robot_logging micro_robot_configuration micro_robot_calibration_profiles micro_robot_vision_opencv
     )
     target_compile_definitions(micro_robot_desktop PRIVATE
         MICRO_ROBOT_VERSION="${PROJECT_VERSION}"

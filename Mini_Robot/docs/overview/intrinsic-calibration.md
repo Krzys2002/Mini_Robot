@@ -18,8 +18,10 @@ Calculation failure or invalid output produces a rejection message and exposes
 no model. Retry calculation or restart capture. Closing a completed dialog keeps
 its observations/result in memory. Restart, cancellation, camera stop/loss,
 camera identity change or resolution change clears the result. Application exit
-also discards it. Saving/loading profiles is reserved for #55; workspace mapping
-and undistortion integration are separate issues.
+also discards the capture result, but explicitly saved
+[calibration profiles](calibration-profiles.md) survive restart. The profile guide
+covers exact camera/resolution selection and the optional undistorted verification
+preview. Workspace mapping remains separate.
 
 ## Model and API
 
