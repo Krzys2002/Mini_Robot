@@ -30,12 +30,13 @@ selection rather than reporting successful verification with no tests run.
 
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
-| `micro_robot_vision_tests` | `vision` | AprilTag formats/stride, canonical rotations, multiple IDs, invalid inputs, negative scenes and generated-video replay; desktop or standalone vision ON |
+| `micro_robot_vision_tests` | `vision` | AprilTag formats/stride, canonical rotations and resulting robot headings, multiple IDs, invalid inputs, negative scenes and generated-video replay; desktop or standalone vision ON |
 | `micro_robot_ble_contract_tests` | `core`, `ble` | Qt-free Robot Info, identity/GATT validation, command codec, malformed notifications and sequence wrap |
 | `micro_robot_ble_tests` (opt-in) | `ble` | Qt Core fake-radio lifecycle, bounded dispatch/freshness, telemetry/results, E-stop retries, controller delivery, timeouts and recovery; no physical radio |
 | `micro_robot_calibration_tests` | `core`, `calibration` | Capture policy plus intrinsic result validation, weighted RMS, warning thresholds and owned snapshots |
 | `micro_robot_calibration_detector_tests` | `calibration` | Generated chessboards and analytic intrinsic/distortion recovery, per-frame error and invalid input tests; built with desktop or standalone calibration enabled |
-| `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time |
+| `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time, angle normalization |
+| `micro_robot_vision_observation_tests` | `core`, `vision` | [Robot marker observations](../vision/robot-observation.md): tag-to-RobotId mapping, unknown/duplicate/invalid rejection, projective center, heading over the full rotation range |
 | `micro_robot_control_tests` | `core` | [Differential-drive kinematics](../overview/differential-drive.md): analytical wheel targets, inverse conversion, world derivatives, signs, bounds, invalid inputs and overflow |
 | `micro_robot_camera_tests` | `core` | Packed frame validation, malformed metadata, storage and overflow checks; camera selection rules |
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
