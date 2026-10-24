@@ -1,0 +1,47 @@
+name: Daily master build and test
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # Once daily at 02:00 UTC.
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: daily-master-build-test
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    name: Check for merged pull requests
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.merges.outputs.build }}
+    steps:
+      - name: Check out master snapshot
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test daily build gate
+        run: python3 -m unittest discover -s .github/scripts/tests -p test_daily_build_gate.py -v
+      - name: Check for merges since the last successful daily run
+        id: merges
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 .github/scripts/daily_build_gate.py
+
+  linux:
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    uses: ./.github/workflows/linux-build-test.yml
+
+  macos:
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    uses: ./.github/workflows/macos-build-test.yml
