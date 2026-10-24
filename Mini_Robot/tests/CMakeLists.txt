@@ -25,6 +25,7 @@ if(MICRO_ROBOT_BUILD_BLE)
         target_link_libraries(micro_robot_ble_tests PRIVATE micro_robot_desktop_controller)
         target_compile_definitions(micro_robot_ble_tests PRIVATE MICRO_ROBOT_BLE_WITH_DESKTOP)
     endif()
+    target_link_libraries(micro_robot_ble_tests PRIVATE micro_robot_robot_manager)
     micro_robot_target_defaults(micro_robot_ble_tests)
     gtest_discover_tests(micro_robot_ble_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "ble")
 endif()
@@ -119,6 +120,12 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
 endif()
 
 # Domain tests do not link Qt or construct a QApplication.
+add_executable(micro_robot_robot_manager_tests app/RobotManagerTest.cpp)
+target_link_libraries(micro_robot_robot_manager_tests PRIVATE
+    micro_robot_robot_manager micro_robot_simulation GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_robot_manager_tests)
+gtest_discover_tests(micro_robot_robot_manager_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
 add_executable(micro_robot_control_tests control/DifferentialDriveTest.cpp)
 target_link_libraries(micro_robot_control_tests PRIVATE micro_robot_control GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_control_tests)
