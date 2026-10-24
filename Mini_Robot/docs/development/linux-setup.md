@@ -443,8 +443,8 @@ For #129, on the same host with the source tree at that change:
 
 [Linux CI](testing.md#linux-continuous-integration) installs the build packages on
 an `ubuntu-24.04` GitHub runner and builds and tests the `linux-gcc` and
-`linux-clang` presets on every pull request and push to `master`; see that
-workflow's runs for current results. Not yet verified: Ubuntu 22.04 with a newer
+`linux-clang` presets in the daily `master` batch when new PRs have merged; see
+the daily workflow's runs for current results. Not yet verified: Ubuntu 22.04 with a newer
 CMake, arm64, the minimum compiler versions, manual GUI checks with physical input (#130), and
 physical BLE (#129, #65, #66). Configuration/filesystem regression expansion is
 #132. Update this guide with actual results when those checks are performed.
