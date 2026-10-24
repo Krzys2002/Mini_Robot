@@ -114,6 +114,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
             COMMAND micro_robot_tests --gtest_filter=GuiCompatibilityTest.*)
         set_tests_properties(GuiCompatibility.ScaleFactor${suffix} PROPERTIES
             ENVIRONMENT "QT_SCALE_FACTOR=${factor}" LABELS "ui;gui")
+
     endforeach()
 endif()
 
@@ -169,7 +170,7 @@ micro_robot_target_defaults(micro_robot_simulation_tests)
 gtest_discover_tests(micro_robot_simulation_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
 # Robot identity, center and heading from raw markers; no detector backend.
-add_executable(micro_robot_vision_observation_tests vision/RobotObservationTest.cpp)
+add_executable(micro_robot_vision_observation_tests vision/RobotObservationTest.cpp vision/VisionDebugFrameTest.cpp)
 target_link_libraries(micro_robot_vision_observation_tests PRIVATE
     micro_robot_vision_observation GTest::gtest_main
 )

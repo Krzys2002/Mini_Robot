@@ -11,6 +11,7 @@ VisionController::VisionController(std::unique_ptr<IMarkerDetector> detector, Lo
 {
     if (!detector_) throw std::invalid_argument("Marker detector is required");
     qRegisterMetaType<MarkerDetectionsPtr>();
+    qRegisterMetaType<VisionDebugFramePtr>();
     workerContext_ = new QObject;
     workerContext_->moveToThread(&worker_);
     connect(&worker_, &QThread::finished, workerContext_, &QObject::deleteLater);
@@ -31,9 +32,11 @@ void VisionController::invalidate()
 {
     ++generation_;
     pending_.reset();
+    outputRate_.reset();
     lastSequence_.reset();
     width_ = height_ = 0;
     emit observationsAvailable(sourceId_, {});
+    emit previewAvailable(sourceId_, {});
 }
 void VisionController::setInput(const QString& sourceId, bool streaming)
 {
@@ -69,7 +72,8 @@ void VisionController::dispatch()
     const auto frame = std::exchange(pending_, {});
     const auto generation = generation_;
     const auto detector = detector_;
-    QMetaObject::invokeMethod(workerContext_, [this, detector, frame, generation] {
+    const auto markerMap = markerMap_;
+    QMetaObject::invokeMethod(workerContext_, [this, detector, markerMap, frame, generation] {
         const auto start = MonotonicClock::now();
         auto result = std::make_shared<MarkerDetections>();
         try {
@@ -85,7 +89,8 @@ void VisionController::dispatch()
         result->width = frame->width;
         result->height = frame->height;
         result->processingTime = MonotonicClock::now() - start;
-        QMetaObject::invokeMethod(this, [this, generation, result = std::move(result)] {
+        auto preview = makeVisionDebugFrame(frame, result, markerMap);
+        QMetaObject::invokeMethod(this, [this, generation, result = std::move(result), preview = std::move(preview)] {
             busy_ = false;
             if (generation == generation_ && !shuttingDown_ && streaming_) {
                 if (!result->error.empty()) log_.warning(result->error);
@@ -96,9 +101,17 @@ void VisionController::dispatch()
                     ? QStringLiteral("AprilTag frame %1: %2 tags, %3 ms").arg(result->frameSequence).arg(result->markers.size())
                         .arg(std::chrono::duration<double, std::milli>(result->processingTime).count(), 0, 'f', 2)
                     : QString::fromStdString(result->error));
+                if (preview && generation == generation_ && !shuttingDown_) {
+                    preview->inputGeneration = generation;
+                    preview->outputFramesPerSecond = outputRate_.record(MonotonicClock::now());
+                }
+                const auto source = sourceId_; // Stable even if a direct observer changes input.
                 // A synchronous description observer can invalidate the input.
                 if (generation == generation_ && !shuttingDown_)
-                    emit observationsAvailable(sourceId_, result);
+                    emit observationsAvailable(source, result);
+                // Observation consumers can also invalidate synchronously.
+                if (generation == generation_ && !shuttingDown_)
+                    emit previewAvailable(source, preview);
             }
             dispatch();
         }, Qt::QueuedConnection);
