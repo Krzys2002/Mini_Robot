@@ -245,6 +245,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/CalibrationWizard.cpp
         ui/MainWindow.cpp
         ui/MainWindow.hpp
+        ui/VisionDebugView.hpp
+        ui/VisionDebugView.cpp
     )
     set_target_properties(micro_robot_ui PROPERTIES AUTOMOC ON)
     target_include_directories(micro_robot_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

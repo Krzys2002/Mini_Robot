@@ -52,9 +52,12 @@ The current layers are:
   corners and reprojection quality and forwards requests.
 - `micro_robot_vision_api`: Qt/OpenCV-free timestamped marker observations and detector interface.
 - `micro_robot_vision_observation`: Qt/OpenCV-free tag-to-RobotId mapping, rejection of
-  unknown/duplicate markers, pixel center and provisional image-space heading.
+  unknown/duplicate markers, pixel center and provisional image-space heading,
+  plus Qt-free matched debug snapshots and bounded output-cadence measurement.
 - `micro_robot_vision_opencv`: AprilTag 36h11 detection, isolated OpenCV conversion and failure handling.
-  `VisionController` runs it on one worker with one newest pending frame; widgets show status only.
+  `VisionController` runs it on one worker with one newest pending frame and
+  prepares debug geometry there. Widgets paint matched raw-frame snapshots and
+  present diagnostics; they do not perform perception.
 - `micro_robot_world`: private robot registry and timestamp-aware pose storage,
   depending only on common types.
 - `micro_robot_logging`: Qt-free, thread-safe application logger with per-module

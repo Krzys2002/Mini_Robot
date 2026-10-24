@@ -82,6 +82,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         main.cpp
         calibration/QtCalibrationProfileStoreTest.cpp
         ui/VisionControllerTest.cpp
+        ui/VisionDebugViewTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
         ui/MainWindowTest.cpp
@@ -114,7 +115,10 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
             COMMAND micro_robot_tests --gtest_filter=GuiCompatibilityTest.*)
         set_tests_properties(GuiCompatibility.ScaleFactor${suffix} PROPERTIES
             ENVIRONMENT "QT_SCALE_FACTOR=${factor}" LABELS "ui;gui")
-
+        add_test(NAME VisionDebug.ScaleFactor${suffix}
+            COMMAND micro_robot_tests --gtest_filter=VisionDebugViewTest.*)
+        set_tests_properties(VisionDebug.ScaleFactor${suffix} PROPERTIES
+            ENVIRONMENT "QT_SCALE_FACTOR=${factor}" LABELS "ui;gui")
     endforeach()
 endif()
 

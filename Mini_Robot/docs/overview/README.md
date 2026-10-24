@@ -15,6 +15,7 @@
 - [Recorded-video replay](recorded-video.md): local files, virtual timing, EOF, and fixtures.
 - [AprilTag selection](../vision/apriltag-selection.md): marker size, identity mapping, camera constraints, and printable sheets.
 - [Transport contract](transport.md): commands, telemetry, and async ownership.
+- [Vision module](modules/vision.md): observation pipeline and matched-frame debug presentation.
 - [AprilTag frame detection](../vision/apriltag-detection.md): pixel observations, bounded worker, processing time and replay.
 - [BLE connection lifecycle](ble-connection.md): opt-in Qt Central, discovery, GATT readiness, cancellation and hardware acceptance.
 - [BLE messages](ble-messages.md): bounded command writes, telemetry validation, sequences, diagnostics and adapter E-stop.

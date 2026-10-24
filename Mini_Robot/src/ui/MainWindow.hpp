@@ -11,6 +11,7 @@ class QPushButton;
 namespace micro_robot {
 
 class VisionController;
+class VisionDebugDialog;
 class CalibrationWizard;
 class CalibrationController;
 class CameraSelectionController;
@@ -47,6 +48,8 @@ private:
 
     // Non-owning; the Qt parent owns the widgets.
     CalibrationWizard* calibrationWizard_{};
+    VisionDebugDialog* visionDebug_{};
+    QPushButton* visionAction_{};
     QComboBox* cameraSelector_{};
     QLabel* selectedCamera_{};
     QPushButton* startCamera_{};

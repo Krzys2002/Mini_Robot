@@ -1,5 +1,6 @@
 #include "ui/MainWindow.hpp"
 #include "ui/CalibrationWizard.hpp"
+#include "ui/VisionDebugView.hpp"
 #include "app/CalibrationController.hpp"
 #include "app/VisionController.hpp"
 #include "app/CameraSelectionController.hpp"
@@ -144,6 +145,7 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     if (calibrationWizard_) calibrationWizard_->close();
+    if (visionDebug_) visionDebug_->close();
     QMainWindow::closeEvent(event);
 }
 
@@ -156,6 +158,16 @@ void MainWindow::bindVision(VisionController& vision)
     auto* layout = qobject_cast<QVBoxLayout*>(centralWidget()->layout());
     layout->insertWidget(3, status);
     connect(&vision, &VisionController::descriptionChanged, status, &QLabel::setText);
+    auto* action = new QPushButton(QStringLiteral("Vision debug…"), this);
+    action->setObjectName(QStringLiteral("openVisionDebug"));
+    visionAction_ = action;
+    setTabOrder(cameraSelector_, action);
+    layout->insertWidget(3, action);
+    visionDebug_ = new VisionDebugDialog(vision, this);
+    connect(action, &QPushButton::clicked, visionDebug_, [dialog = visionDebug_] {
+        dialog->show();
+        dialog->raise();
+    });
 }
 
 void MainWindow::bindCalibration(CalibrationController& calibration)
@@ -166,6 +178,7 @@ void MainWindow::bindCalibration(CalibrationController& calibration)
     layout->insertWidget(3, action);
     // Keyboard focus follows the visual order, after the camera selector.
     setTabOrder(cameraSelector_, action);
+    if (visionAction_) setTabOrder(action, visionAction_);
     auto* wizard = new CalibrationWizard(calibration, this);
     calibrationWizard_ = wizard;
     // A child dialog must not trigger application shutdown on its own.

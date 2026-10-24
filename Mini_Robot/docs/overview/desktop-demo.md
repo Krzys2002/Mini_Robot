@@ -37,7 +37,8 @@ for identifiers, replacement rules, logging, and manual checks.
    disconnected robot, and registered Robot 1 with an unknown pose.
 2. Select a camera. The Active camera source panel names it and shows Stopped.
 3. Start camera enables the source. The display shows frame sequence,
-   actual capture dimensions, and elapsed capture time. Pixels are not rendered as video.
+   actual capture dimensions, and elapsed capture time. **Vision debug…** opens
+   the separate [matched-frame detector preview](../vision/debug-overlay.md).
 4. Stop camera disables frame production. The last frame description remains.
    Selecting another camera stops a running source first; the new one starts
    stopped. Removing the selected device clears the selection.
@@ -107,7 +108,9 @@ standalone packaging remain unverified features.
 
 The composition also connects camera input/frame events to the independent
 [vision worker](../vision/apriltag-detection.md). The main window displays the
-last processed frame's tag count and detector milliseconds. Structured marker
+last processed frame's tag count and detector milliseconds. The debug dialog
+also shows boundaries, IDs, front arrows and diagnostic timing/quality on its
+matching raw image. Structured marker
 observations are available from `VisionController`; they do not alter the static
 demo WorldModel pose or issue robot commands. Shutdown drains this worker along
 with the calibration worker before application exit. Printed-tag live/recorded

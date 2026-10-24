@@ -13,6 +13,9 @@
   unknown/duplicate rejection, projective center, provisional image-space heading
   and angle normalization, with timestamp and quality metadata (#51).
 
+- [Debug overlay and performance diagnostics](debug-overlay.md): matched raw image,
+  boundaries/IDs/heading, age/quality and output cadence, resize and high-DPI behavior.
+
 - [Physical printed-tag validation #191](https://github.com/Krzys2002/Mini_Robot/issues/191):
   outstanding live-camera and real-recording acceptance for #50.
 
