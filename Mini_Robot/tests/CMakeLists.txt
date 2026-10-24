@@ -170,8 +170,11 @@ target_link_libraries(micro_robot_vision_observation_tests PRIVATE
     micro_robot_vision_observation GTest::gtest_main
 )
 micro_robot_target_defaults(micro_robot_vision_observation_tests)
-# The escaped separator keeps two labels through test discovery, not one "core;vision".
-gtest_discover_tests(micro_robot_vision_observation_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core\\;vision")
+gtest_discover_tests(micro_robot_vision_observation_tests DISCOVERY_MODE PRE_TEST)
+# Apply list-valued properties after discovery, without escape-dependent parsing
+# through GoogleTest.cmake (including the supported CMake 3.24 baseline).
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/vision/RobotObservationLabels.cmake")
 
 add_executable(micro_robot_world_tests world/WorldModelTest.cpp)
 target_link_libraries(micro_robot_world_tests PRIVATE micro_robot_world GTest::gtest_main)
