@@ -46,8 +46,8 @@ QString connectionStateText(ConnectionState state)
 
 } // namespace
 
-// Plain C++ sink owned by the controller. Weak backend subscriptions cannot retain
-// the controller. Detach before destroying the sink; callbacks are thread-affine.
+// Plain C++ camera/application sink owned by the controller. Weak camera and
+// manager subscriptions cannot retain it. Detach before destruction; owning thread only.
 class DesktopController::EventSink final : public ICameraEvents, public IRobotTransportEvents {
 public:
     explicit EventSink(DesktopController& owner) : owner_(owner) {}
@@ -76,12 +76,12 @@ private:
     DesktopController& owner_;
 };
 
-DesktopController::DesktopController(IRobotTransport& transport, WorldModel& world,
+DesktopController::DesktopController(RobotManager& robots, WorldModel& world,
                                      RobotId robotId, LogChannel log, QObject* parent)
-    : QObject(parent), transport_(transport), world_(world), robotId_(robotId),
+    : QObject(parent), robots_(robots), world_(world), robotId_(robotId),
       log_(std::move(log)), events_(std::make_shared<EventSink>(*this))
 {
-    transport_.setEventSink(events_);
+    robots_.setEventSink(events_);
     frameExpiry_.setSingleShot(true);
     frameExpiry_.setTimerType(Qt::PreciseTimer);
     connect(&frameExpiry_, &QTimer::timeout, this, [this] {
@@ -93,7 +93,7 @@ DesktopController::DesktopController(IRobotTransport& transport, WorldModel& wor
 DesktopController::~DesktopController()
 {
     if (camera_) camera_->setEventSink({});
-    transport_.setEventSink({});
+    robots_.setEventSink({});
 }
 
 void DesktopController::initialize(Timestamp now)
@@ -103,11 +103,11 @@ void DesktopController::initialize(Timestamp now)
     }
     initialized_ = true;
     startedAt_ = now;
-    (void)world_.registerRobot(robotId_, now);
+    (void)robots_.addRobot(robotId_, now);
     log_.info("Controller initialized; robot registered", robotId_);
     emit applicationStatusChanged(QStringLiteral("Ready"));
     publishActiveCamera();
-    receiveConnectionState(robotId_, transport_.connectionState(robotId_));
+    receiveConnectionState(robotId_, robots_.connectionState(robotId_));
     publishWorld();
 }
 
@@ -202,12 +202,12 @@ void DesktopController::stopCamera()
 
 void DesktopController::connectRobot()
 {
-    if (initialized_ && !shuttingDown_) transport_.connect(robotId_);
+    if (initialized_ && !shuttingDown_) (void)robots_.connect(robotId_);
 }
 
 void DesktopController::disconnectRobot()
 {
-    if (initialized_ && !shuttingDown_) transport_.disconnect(robotId_);
+    if (initialized_ && !shuttingDown_) (void)robots_.disconnect(robotId_);
 }
 
 void DesktopController::shutdown()
@@ -219,7 +219,7 @@ void DesktopController::shutdown()
     pendingCamera_.reset();
     if (camera_ && (cameraRequest_ || isCameraActive(camera_->state()))) requestCameraStop();
     publishCameraActions();
-    transport_.disconnect(robotId_);
+    robots_.shutdown();
     emit applicationStatusChanged(QStringLiteral("Shutting down"));
 }
 
@@ -281,6 +281,7 @@ void DesktopController::receiveCameraState(CameraState state)
 
 void DesktopController::receiveConnectionState(RobotId id, ConnectionState state)
 {
+    if (shuttingDown_ && robots_.isStopped()) emit robotSessionsStopped();
     if (id != robotId_) return;
     const bool active = state == ConnectionState::Connecting || state == ConnectionState::Connected
         || state == ConnectionState::Disconnecting;

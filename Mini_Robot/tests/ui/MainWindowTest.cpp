@@ -52,7 +52,8 @@ struct DesktopFixture {
     FakeCameraSourceFactory cameras; // Outlives the source owned by the controller.
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
     ICameraSource* camera{};
     Timestamp now{1s};
@@ -224,7 +225,8 @@ TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptionsAndReleases
     SimulationTransport transport;
     WorldModel world;
     {
-        auto controller = std::make_unique<DesktopController>(transport, world, RobotId{1},
+        RobotManager robots{transport, world};
+        auto controller = std::make_unique<DesktopController>(robots, world, RobotId{1},
                                                               logger.channel("controller"));
         controller->setCameraSource(cameras.create({"fake", "Fake camera"}));
         controller->initialize(Timestamp{1s});
@@ -303,7 +305,8 @@ TEST(DesktopIntegrationTest, CameraTerminalStatesPermitRecoveryThroughTheInterfa
     Logger logger;
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.initialize(Timestamp{1s});
@@ -345,7 +348,8 @@ TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellat
     Logger logger;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.initialize(Timestamp{1s});
@@ -386,6 +390,7 @@ TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellat
     transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{3s});
     EXPECT_TRUE(button("connectRobot")->isEnabled());
 
+    button("connectRobot")->click(); // Start the next session before completing it.
     transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{4s});
     transport.publishTelemetry({RobotId{1}, Timestamp{4s}, std::nullopt, std::nullopt, std::nullopt});
     EXPECT_TRUE(label("telemetryDescription")->text().contains(QStringLiteral("unknown battery")));
@@ -399,6 +404,35 @@ TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellat
     transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{5s});
 }
 
+TEST(DesktopIntegrationTest, ShutdownWaitsForEveryManagedRobotWithoutMixingSelectedTelemetry)
+{
+    Logger logger;
+    test::ManualTransport transport;
+    WorldModel world;
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
+    MainWindow window{controller};
+    controller.initialize(Timestamp{1s});
+    ASSERT_TRUE(robots.addRobot(RobotId{2}, Timestamp{1s}));
+    controller.connectRobot();
+    ASSERT_TRUE(robots.connect(RobotId{2}));
+    transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{2s});
+    transport.publishState(RobotId{2}, ConnectionState::Connected, Timestamp{2s});
+    transport.publishTelemetry({RobotId{1}, Timestamp{3s}, 3.7, 0.0, 0.0});
+    const auto selected = window.findChild<QLabel*>(QStringLiteral("telemetryDescription"))->text();
+    transport.publishTelemetry({RobotId{2}, Timestamp{3s}, 4.2, 0.1, 0.2});
+    EXPECT_EQ(window.findChild<QLabel*>(QStringLiteral("telemetryDescription"))->text(), selected);
+    int drained = 0;
+    QObject::connect(&controller, &DesktopController::robotSessionsStopped, &controller, [&] { ++drained; });
+    controller.shutdown();
+    EXPECT_EQ(transport.disconnectRequests.size(), 2U);
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{4s});
+    EXPECT_EQ(drained, 0);
+    transport.publishState(RobotId{2}, ConnectionState::Disconnected, Timestamp{4s});
+    EXPECT_EQ(drained, 1);
+    EXPECT_TRUE(robots.isStopped());
+}
+
 TEST(DesktopIntegrationTest, ControllerLogsLifecycleStateChangesAndErrors)
 {
     Logger logger{LogLevel::Debug};
@@ -406,7 +440,8 @@ TEST(DesktopIntegrationTest, ControllerLogsLifecycleStateChangesAndErrors)
     logger.addSink(sink);
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     auto& camera = installManualCamera(controller);
 
     controller.initialize(Timestamp{1s});
@@ -435,7 +470,8 @@ TEST(DesktopIntegrationTest, InitializationCannotRestartAShutdownController)
     Logger logger;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.shutdown();
@@ -453,7 +489,8 @@ struct ReplacementFixture {
     Logger logger;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
 
     ReplacementFixture() { controller.initialize(Timestamp{1s}); }
@@ -671,7 +708,8 @@ TEST(CameraStreamControlTest, FailedStartIsVisibleLoggedAndRetryable)
     logger.addSink(logs);
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
     auto& camera = installManualCamera(controller);
     controller.startCamera(); // No requests before initialization.

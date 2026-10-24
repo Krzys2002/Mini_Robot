@@ -2,7 +2,7 @@
 
 #include "camera/ICameraSource.hpp"
 #include "infrastructure/logging/Logger.hpp"
-#include "transport/IRobotTransport.hpp"
+#include "app/RobotManager.hpp"
 #include "world/WorldModel.hpp"
 
 #include <QObject>
@@ -23,7 +23,7 @@ class DesktopController final : public QObject {
     Q_OBJECT
 
 public:
-    DesktopController(IRobotTransport& transport, WorldModel& world, RobotId robotId,
+    DesktopController(RobotManager& robots, WorldModel& world, RobotId robotId,
                       LogChannel log, QObject* parent = nullptr);
     ~DesktopController() override;
 
@@ -65,6 +65,7 @@ signals:
     void telemetryDescriptionChanged(const QString& description);
     void worldDescriptionChanged(const QString& description);
     void workspaceDescriptionChanged(const QString& description);
+    void robotSessionsStopped(); // All managed sessions drained during shutdown.
     void errorOccurred(const QString& message);
 
 private:
@@ -80,7 +81,7 @@ private:
     void receiveTelemetry(const RobotTelemetry& telemetry);
     [[nodiscard]] double elapsedSeconds(Timestamp at) const;
 
-    IRobotTransport& transport_;
+    RobotManager& robots_;
     WorldModel& world_;
     RobotId robotId_;
     LogChannel log_;
