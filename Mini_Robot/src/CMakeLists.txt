@@ -42,8 +42,10 @@ add_library(micro_robot_calibration STATIC
     calibration/IntrinsicCalibration.cpp
     calibration/CalibrationProfile.hpp
     calibration/CalibrationProfile.cpp
+    calibration/WorkspaceCalibration.hpp
+    calibration/WorkspaceCalibration.cpp
 )
-target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api)
+target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api micro_robot_world)
 micro_robot_target_defaults(micro_robot_calibration)
 micro_robot_platform_boundary(micro_robot_calibration)
 
@@ -125,6 +127,8 @@ add_library(micro_robot_world STATIC
     world/WorldSnapshot.hpp
     world/WorldModel.hpp
     world/WorldModel.cpp
+    world/Workspace.hpp
+    world/Workspace.cpp
 )
 target_link_libraries(micro_robot_world PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_world)

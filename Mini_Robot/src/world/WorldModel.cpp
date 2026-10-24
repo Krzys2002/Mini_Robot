@@ -42,6 +42,8 @@ std::optional<RobotState> WorldModel::robot(RobotId id) const
 
 std::size_t WorldModel::robotCount() const noexcept { return robots_.size(); }
 
-WorldSnapshot WorldModel::snapshot() const { return {robots_}; }
+WorldSnapshot WorldModel::snapshot() const { return {robots_, workspace_}; }
+
+void WorldModel::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds) { workspace_ = bounds; }
 
 } // namespace micro_robot
