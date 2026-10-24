@@ -1,11 +1,14 @@
 #include "vision/OpenCvAprilTagDetector.hpp"
+#include "vision/RobotObservation.hpp"
 #include "MarkerFixtures.hpp"
 #if CV_VERSION_MAJOR >= 5
 #include <opencv2/geometry.hpp>
 #endif
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <cmath>
 #include <limits>
+#include <numbers>
 
 namespace {
 using namespace micro_robot;
@@ -53,6 +56,27 @@ TEST(AprilTagDetectorTest, CanonicalCornersRotateWithTheDecodedMarker)
         }
         cv::rotate(image, image, cv::ROTATE_90_CLOCKWISE);
         for (auto& p : expected) p = {399 - p.v, p.u};
+    }
+}
+TEST(AprilTagDetectorTest, DecodedCanonicalCornersGiveRobotHeadingInEveryQuarterTurn)
+{
+    OpenCvAprilTagDetector detector;
+    const RobotMarkerMap map;
+    auto image = tagScene(15);
+    MarkerCorner center{179.5, 179.5};
+    double heading = std::numbers::pi / 2; // Printed top edge toward image up.
+    for (int rotation = 0; rotation < 4; ++rotation) {
+        const auto result = observeRobots(detector.detect(*markerFrame(image)), map);
+        ASSERT_TRUE(result.error.empty());
+        ASSERT_EQ(result.robots.size(), 1U);
+        const auto& robot = result.robots.front();
+        EXPECT_EQ(robot.robotId, RobotId{16});
+        EXPECT_NEAR(robot.center.u, center.u, 1);
+        EXPECT_NEAR(robot.center.v, center.v, 1);
+        EXPECT_NEAR(std::remainder(robot.imageHeading.value - heading, 2 * std::numbers::pi), 0, .02);
+        cv::rotate(image, image, cv::ROTATE_90_CLOCKWISE);
+        center = {399 - center.v, center.u};
+        heading -= std::numbers::pi / 2;
     }
 }
 TEST(AprilTagDetectorTest, ReturnsMultipleDuplicateAndUnassignedDictionaryIdsWithoutAssociation)
