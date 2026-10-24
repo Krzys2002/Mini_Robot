@@ -41,6 +41,7 @@ reports are scope/history, not evidence that future modules are present.
 | [src/camera/V4l2CameraSource.cpp](../../src/camera/V4l2CameraSource.cpp) | [Linux capture](camera-backends.md#linux-capture-and-failures) |
 | [src/camera/RecordedVideoSource.cpp](../../src/camera/RecordedVideoSource.cpp) | [Replay adapter](recorded-video.md) |
 | [src/camera/RecordedVideoSource.hpp](../../src/camera/RecordedVideoSource.hpp) | [Replay configuration and driving](recorded-video.md) |
+| [src/common/Angle.hpp](../../src/common/Angle.hpp) | [Angle normalization](../vision/robot-observation.md#center-and-provisional-image-space-heading) |
 | [src/common/Pose2D.hpp](../../src/common/Pose2D.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/RobotId.hpp](../../src/common/RobotId.hpp) | [common](architecture.md#domain-conventions) |
 | [src/common/Time.hpp](../../src/common/Time.hpp) | [common](architecture.md#domain-conventions) |
@@ -87,6 +88,7 @@ reports are scope/history, not evidence that future modules are present.
 | --- | --- |
 | [src/vision/MarkerDetection.hpp](../../src/vision/MarkerDetection.hpp) | [Observation contract](../vision/apriltag-detection.md#api-and-coordinates) |
 | [src/vision/OpenCvAprilTagDetector.hpp](../../src/vision/OpenCvAprilTagDetector.hpp), [OpenCvAprilTagDetector.cpp](../../src/vision/OpenCvAprilTagDetector.cpp) | [OpenCV detector](../vision/apriltag-detection.md#backend-and-resource-limits) |
+| [src/vision/RobotObservation.hpp](../../src/vision/RobotObservation.hpp), [RobotObservation.cpp](../../src/vision/RobotObservation.cpp) | [Robot marker observations](../vision/robot-observation.md) |
 | [src/app/VisionController.hpp](../../src/app/VisionController.hpp), [VisionController.cpp](../../src/app/VisionController.cpp) | [Bounded worker and lifecycle](../vision/apriltag-detection.md#application-worker-and-use) |
 
 ## Target boundaries
@@ -98,6 +100,7 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_selection | camera API |
 | micro_robot_transport_api | micro_robot_common |
 | micro_robot_vision_api | camera API, C++20 only |
+| micro_robot_vision_observation | vision API, C++20 only |
 | micro_robot_vision_opencv | vision API, private OpenCV core/imgproc and aruco (4.2–4.6) or objdetect (4.7+) |
 | micro_robot_ble_contract | transport API, C++20 only |
 | micro_robot_ble_lifecycle (opt-in) | BLE contract, logging, Qt6::Core |
@@ -130,7 +133,8 @@ kinematics, and a Qt simulation
 window are implemented. Discovery diagnostics use a separate Qt logging category.
 [Calibration capture](calibration-capture.md) supplies a chessboard detector and capture wizard;
 [intrinsic calibration](intrinsic-calibration.md) adds solving, result validation and reprojection quality.
-[AprilTag detection](../vision/apriltag-detection.md) adds pixel observations and a bounded worker.
+[AprilTag detection](../vision/apriltag-detection.md) adds pixel observations and a bounded worker;
+[robot marker observations](../vision/robot-observation.md) add RobotId mapping, centers and provisional image headings.
 There are no profile persistence, robot tracking, planning, supervisory controller,
 Zigbee, or structured measurement-recording modules. The optional
 [BLE adapter](ble-connection.md) provides discovery/connection setup and
