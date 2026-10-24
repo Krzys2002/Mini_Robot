@@ -16,7 +16,7 @@ endif()
 add_executable(micro_robot_ble_contract_tests transport/BleTypesTest.cpp transport/BleProtocolTest.cpp)
 target_link_libraries(micro_robot_ble_contract_tests PRIVATE micro_robot_ble_contract GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_ble_contract_tests)
-gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;ble")
+gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST)
 
 if(MICRO_ROBOT_BUILD_BLE)
     add_executable(micro_robot_ble_tests transport/ble-main.cpp transport/BleTransportTest.cpp)
@@ -42,7 +42,11 @@ add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.
     calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
-gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;calibration")
+gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST)
+# Set list-valued labels after discovery; semicolon escaping through
+# GoogleTest.cmake differs between supported CMake versions.
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/DiscoveredCoreLabels.cmake")
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp
