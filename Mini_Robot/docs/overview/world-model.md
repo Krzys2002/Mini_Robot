@@ -20,7 +20,8 @@ not implicitly register a robot or update its pose.
 | `updatePose(id, pose, at)` | Explicit PoseUpdateResult; rejected updates leave state unchanged. |
 | `robot(id)` | Optional value copy; absent for unknown IDs. |
 | `robotCount()` | Number of registered records. |
-| `snapshot()` | Detached full registry copy, ordered by RobotId. |
+| `snapshot()` | Detached registry and optional workspace-bounds copy, ordered by RobotId. |
+| `setWorkspaceBounds(optionalBounds)` | Set measured metric bounds or clear them; does not change robot poses. |
 
 Registration records `registeredAt` with both pose fields absent. Epoch is a valid
 timestamp, not a missing-value sentinel. Pose and `poseUpdatedAt` become present
@@ -57,7 +58,8 @@ int main()
 ```
 
 A stored timestamp does not establish fresh tracking. Consumers must eventually
-apply explicit freshness/safety rules. Workspace, obstacle, task storage, velocity,
+apply explicit freshness/safety rules. [Workspace bounds](workspace.md) are optional
+authoritative state; they do not establish calibrated localization. Obstacle, task storage, velocity,
 quality, filtering, and connection state are not yet WorldModel features. Future
 issue-scoped domain storage can extend private state and the detached snapshot.
 

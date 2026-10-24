@@ -26,3 +26,9 @@ Brown–Conrady remap geometry. Offscreen dialog tests cover persistence across
 controller recreation, asynchronous file/remap work, raw capture preservation,
 bounded buffering, cancellation, invalidation and shutdown. Physical optical
 accuracy and native-platform interaction remain manual checks in the guides.
+
+## Workspace calibration model
+
+[Tabletop workspace profiles](../workspace.md) are versioned separately from lens
+intrinsics and bind an owned optical model to metric table bounds. This is a data
+contract; homography estimation/persistence remains issue #57.

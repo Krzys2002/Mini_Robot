@@ -251,7 +251,8 @@ These M1 contracts apply to all later milestones:
   uses an optional value.
 - `Pose2D` uses metres for x/y and radians for heading. In a top-down world view,
   +x is right and +y is up; heading is zero along +x and positive counterclockwise.
-  The physical origin will be established by M2 workspace calibration. Image
+  The [workspace origin](workspace.md) is the measured lower-left corner of the
+  intended world view; optional metric table bounds are part of WorldModel. Image
   coordinates have a separate top-left origin with +u right and +v down.
 - `Meters` and `Radians` are explicit value wrappers. They do not normalize
   angles, validate finite values, or provide dimensional arithmetic. Code that
@@ -289,7 +290,7 @@ these boundaries:
 - M4 uses fresh tracked state for outer-loop commands; ESP32-C6 retains low-level
   motor control, command watchdog, and safe stop responsibilities.
 - M5 separates path geometry, time-parameterized trajectories, and tracking.
-- M6 extends WorldModel/snapshots with issue-scoped workspace/obstacle data and
+- M6 extends WorldModel/snapshots with issue-scoped obstacle data and
   introduces replaceable planning; planners never operate on raw image pixels.
 - M7 extends independent identities into coordinated task/trajectory execution;
   multi-entry storage alone does not establish collision-safe swarm operation.
@@ -314,3 +315,7 @@ Update this overview when source capabilities change: map them to the relevant
 milestone, link their guide/source, and distinguish implemented behavior from
 remaining acceptance checks. GitHub issue closure and project status remain live
 planning data, separate from this source-based assessment.
+
+Workspace geometry and the separate versioned calibration model are described in
+the [world module](modules/world.md). Calibration depends on world value types;
+the world registry does not depend on camera models or Qt/OpenCV.

@@ -29,6 +29,8 @@ public:
 
     void initialize(Timestamp now);
     [[nodiscard]] PoseUpdateResult applyPose(RobotId id, const Pose2D& pose, Timestamp at);
+    // Measured table dimensions only; this never implies a calibrated camera.
+    void setWorkspaceBounds(std::optional<WorkspaceBounds> bounds);
 
     // Replaces the active camera; nullptr clears it. A running source is asked to
     // stop first and is replaced once it reports Stopped, Disconnected, or Fault,
@@ -62,6 +64,7 @@ signals:
     void connectionStatusChanged(const QString& status, bool connected, bool active);
     void telemetryDescriptionChanged(const QString& description);
     void worldDescriptionChanged(const QString& description);
+    void workspaceDescriptionChanged(const QString& description);
     void errorOccurred(const QString& message);
 
 private:
