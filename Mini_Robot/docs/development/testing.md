@@ -295,6 +295,15 @@ Add a test source to the corresponding executable in `tests/CMakeLists.txt` and
 link the domain target it exercises. For a new module, create a separate executable
 linked with `GTest::gtest_main`, apply `micro_robot_target_defaults()`, and register
 it with `gtest_discover_tests(... DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")`.
+For multiple labels, apply `set_tests_properties(... PROPERTIES LABELS "core;ble")`
+in a CTest script registered with the directory's `TEST_INCLUDE_FILES` after the
+corresponding discovery calls. Use the populated `<target>_TESTS` list and guard
+against an empty list when that executable has not been built. Do not pass escaped
+semicolon lists through `gtest_discover_tests`: parsing differs between CMake
+versions. See `tests/DiscoveredCoreLabels.cmake` for BLE/calibration and
+`tests/vision/RobotObservationLabels.cmake` for vision. Check the resulting LABELS
+arrays with `ctest --show-only=json-v1` and run exact-label filters such as
+`ctest --preset core -L '^ble$' --no-tests=error`.
 Register a new platform-independent source target with
 `micro_robot_platform_boundary()` so its boundary checks run; platform adapters
 stay unregistered. Keep pure logic tests independent of widgets and physical backends.
