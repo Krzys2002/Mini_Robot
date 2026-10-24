@@ -16,8 +16,10 @@ filters, tracks or commands robots.
 `RobotMarkerMap` applies the [selection profile](apriltag-selection.md#robot-identity-and-mounting-convention):
 by default `tag36h11` IDs **0–15 map to `RobotId` 1–16**. `RobotMarkerProfile`
 holds the family, first dictionary ID, count and first RobotId in one place; the
-constructor throws `std::invalid_argument` for an empty range, a range outside
-the 587-ID dictionary, or RobotIds that would overflow `uint32`.
+constructor throws `std::invalid_argument` for an unsupported family, an empty
+range, a range outside the 587-ID dictionary, or RobotIds that would overflow
+`uint32`. Only `MarkerFamily::AprilTag36h11` is supported; selecting an unknown
+family in a custom profile cannot enable observations from that family.
 
 `observeRobots(detections, map)` sorts every raw marker into exactly one of:
 

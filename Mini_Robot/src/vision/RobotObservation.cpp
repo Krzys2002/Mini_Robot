@@ -15,6 +15,9 @@ double cross(double au, double av, double bu, double bv) { return au * bv - av *
 
 RobotMarkerMap::RobotMarkerMap(RobotMarkerProfile profile) : profile_(profile)
 {
+    if (profile.family != MarkerFamily::AprilTag36h11) {
+        throw std::invalid_argument("Unsupported robot marker family");
+    }
     const auto maximumRobot = std::numeric_limits<std::uint32_t>::max();
     if (profile.markerCount == 0 || profile.firstMarkerId < 0
         || profile.firstMarkerId >= aprilTag36h11MarkerCount

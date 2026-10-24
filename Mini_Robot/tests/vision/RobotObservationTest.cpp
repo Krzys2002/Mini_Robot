@@ -74,6 +74,14 @@ TEST(RobotMarkerMapTest, MapsCustomRangesAndRejectsInvalidProfiles)
     EXPECT_THROW((RobotMarkerMap{{MarkerFamily::AprilTag36h11, 0, 2, maximum}}), std::invalid_argument);
 }
 
+TEST(RobotMarkerMapTest, RejectsUnsupportedProfileFamilies)
+{
+    for (const int family : {-1, 1, 99, std::numeric_limits<int>::max()}) {
+        EXPECT_THROW((RobotMarkerMap{{static_cast<MarkerFamily>(family), 0, 16, 1}}),
+                     std::invalid_argument) << family;
+    }
+}
+
 TEST(RobotObservationTest, KnownMarkersBecomeOrderedTimestampedObservations)
 {
     auto detections = frame({marker(3, square(300, 200, 0)), marker(0, square(50, 60, pi / 2))});

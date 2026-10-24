@@ -18,8 +18,8 @@ struct RobotMarkerProfile {
 };
 
 // Validated, immutable identity lookup. The constructor throws
-// std::invalid_argument for an empty range, a range outside the family's
-// dictionary, or RobotIds that would overflow uint32.
+// std::invalid_argument for an unsupported family, an empty range, a range
+// outside the family's dictionary, or RobotIds that would overflow uint32.
 class RobotMarkerMap final {
 public:
     explicit RobotMarkerMap(RobotMarkerProfile profile = {});
