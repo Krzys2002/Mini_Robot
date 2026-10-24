@@ -114,8 +114,11 @@ command routing, decoded telemetry, asynchronous removal and complete shutdown.
 Desktop tests exercise selected-robot isolation and all-session shutdown. Build
 with `MICRO_ROBOT_BUILD_BLE=ON` for fake BLE coverage; no radio hardware is used.
 
-Physical ESP32-C6/multi-link interoperability remains unverified and belongs to
-[#189](https://github.com/Krzys2002/Mini_Robot/issues/189). Native Linux BlueZ and
+At the maintainer's request, physical RobotManager/two-robot interoperability is
+tracked separately in [#209](https://github.com/Krzys2002/Mini_Robot/issues/209).
+**All physical checks are NOT RUN.** That procedure reuses the lower-level adapter/
+protocol acceptance in [#189](https://github.com/Krzys2002/Mini_Robot/issues/189).
+Native Linux BlueZ and
 Windows execution are not established by these deterministic tests. Manual-motion
 UI, high-level safety/E-stop, automatic reconnect and measurements remain separate
 issues #69–#72; no M7 coordination is implemented here.

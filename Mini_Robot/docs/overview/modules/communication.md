@@ -14,5 +14,7 @@ poses and workspace state.
   adapter, identity validation, protocol and fake-radio tests.
 - [Simulation](../simulation.md): deterministic alternative behind the same API.
 
-Physical multi-link interoperability remains a hardware check. Manual motion UI,
+Physical RobotManager/multi-link acceptance is tracked in
+[#209](https://github.com/Krzys2002/Mini_Robot/issues/209); all physical checks are
+NOT RUN. Adapter/protocol acceptance remains #189. Manual motion UI,
 domain E-stop, reconnection policy and multi-robot coordination remain separate.
