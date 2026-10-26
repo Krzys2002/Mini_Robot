@@ -158,7 +158,9 @@ public:
                     emit written(link->token, sequence);
                 });
             emit phaseChanged(link->token, BlePhase::DiscoveringCharacteristics);
-            link->service->discoverDetails(QLowEnergyService::SkipValueDiscovery);
+            // Full discovery is required for notification CCCDs on macOS/Qt 6.12.
+            // Keep descriptor/property validation before subscriptions (#213).
+            link->service->discoverDetails(QLowEnergyService::FullDiscovery);
         });
         link->controller->connectToDevice();
     }
