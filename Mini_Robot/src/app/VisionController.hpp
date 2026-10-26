@@ -1,5 +1,5 @@
 #pragma once
-#include "vision/MarkerDetection.hpp"
+#include "vision/VisionDebugFrame.hpp"
 #include "infrastructure/logging/Logger.hpp"
 
 #include <QObject>
@@ -16,9 +16,14 @@ class VisionController final : public QObject {
     Q_OBJECT
 public:
     VisionController(std::unique_ptr<IMarkerDetector> detector, LogChannel log, QObject* parent = nullptr);
+    // Use the same immutable identity map as observation consumers. Defaults
+    // preserve the standard tag 0–15 / robot 1–16 allocation.
+    VisionController(std::unique_ptr<IMarkerDetector> detector, LogChannel log,
+                     RobotMarkerMap markerMap, QObject* parent = nullptr);
     ~VisionController() override;
     void setInput(const QString& sourceId, bool streaming);
     void receiveFrame(FramePtr frame);
+    [[nodiscard]] std::uint64_t inputGeneration() const noexcept { return generation_; }
     [[nodiscard]] bool busy() const noexcept { return busy_; }
     [[nodiscard]] bool isStopped() const { return worker_.isFinished(); }
     [[nodiscard]] const QString& description() const noexcept { return description_; }
@@ -28,6 +33,7 @@ signals:
     // Owner-thread delivery. Immutable values may be retained. Null clears old
     // observations on input invalidation/shutdown; source ID scopes the sequence.
     void observationsAvailable(const QString& sourceId, MarkerDetectionsPtr detections);
+    void previewAvailable(const QString& sourceId, VisionDebugFramePtr preview);
     void descriptionChanged(const QString& description);
     void stopped();
 private:
@@ -35,6 +41,8 @@ private:
     void dispatch();
     void describe(const QString& text);
     LogChannel log_;
+    RobotMarkerMap markerMap_;
+    VisionOutputRate outputRate_;
     std::shared_ptr<IMarkerDetector> detector_;
     QThread worker_;
     QObject* workerContext_{}; // Deleted on worker completion.
@@ -49,3 +57,5 @@ private:
 };
 } // namespace micro_robot
 Q_DECLARE_METATYPE(micro_robot::MarkerDetectionsPtr)
+
+Q_DECLARE_METATYPE(micro_robot::VisionDebugFramePtr)

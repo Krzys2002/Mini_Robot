@@ -1,6 +1,7 @@
 #include "app/CalibrationController.hpp"
 #include "app/CameraSelectionController.hpp"
 #include "app/DesktopController.hpp"
+#include "app/VisionController.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include "simulation/FakeCameraSourceFactory.hpp"
 #include "simulation/SimulationTransport.hpp"
@@ -42,6 +43,11 @@ public:
     CalibrationDetection detect(const Frame&, const CalibrationTarget&) override { return {}; }
 };
 
+class NoMarkerDetector final : public IMarkerDetector {
+public:
+    MarkerDetections detect(const Frame&) override { return {}; }
+};
+
 // Unreachable without detected targets; present only to complete the composition.
 class NoSolutionSolver final : public IIntrinsicCalibrationSolver {
 public:
@@ -71,11 +77,13 @@ struct GuiFixture {
     CalibrationController calibration{std::make_unique<NoTargetDetector>(),
                                       std::make_unique<NoSolutionSolver>(),
                                       logger.channel("calibration")};
+    VisionController vision{std::make_unique<NoMarkerDetector>(), logger.channel("vision")};
     MainWindow window{controller};
     Timestamp now{1s};
 
     GuiFixture()
     {
+        window.bindVision(vision);
         window.bindCalibration(calibration);
         window.bindCameraSelection(selection);
         controller.initialize(now);
@@ -87,9 +95,10 @@ struct GuiFixture {
     {
         window.close();
         calibration.shutdown();
+        vision.shutdown();
         controller.shutdown();
         advanceTo(now + 1ms);
-        (void)QTest::qWaitFor([this] { return calibration.isStopped(); });
+        (void)QTest::qWaitFor([this] { return calibration.isStopped() && vision.isStopped(); });
     }
     void advanceTo(Timestamp at)
     {
@@ -133,11 +142,12 @@ struct GuiFixture {
         QList<QWidget*> widgets;
         for (const char* name : {"applicationStatus", "selectedCamera", "activeCamera",
                                  "cameraStatus", "frameDescription", "connectionStatus",
-                                 "telemetryDescription", "worldCoordinateConvention", "workspaceDescription", "worldDescription"}) {
+                                 "telemetryDescription", "worldCoordinateConvention", "workspaceDescription",
+                                 "worldDescription", "visionStatus"}) {
             widgets.push_back(label(name));
         }
         widgets.push_back(selector());
-        for (const char* name : {"openCalibration", "startCamera", "stopCamera", "connectRobot",
+        for (const char* name : {"openCalibration", "openVisionDebug", "startCamera", "stopCamera", "connectRobot",
                                  "disconnectRobot"}) {
             widgets.push_back(button(name));
         }
@@ -320,7 +330,7 @@ TEST(GuiCompatibilityTest, TabFollowsTheVisualOrderOfEnabledControls)
     fixture.key(Qt::Key_Down); // Select a camera so that Start camera is enabled.
 
     // Stop camera and Disconnect robot are disabled and skipped.
-    for (const char* name : {"openCalibration", "startCamera", "connectRobot"}) {
+    for (const char* name : {"openCalibration", "openVisionDebug", "startCamera", "connectRobot"}) {
         fixture.key(Qt::Key_Tab);
         ASSERT_NE(fixture.window.focusWidget(), nullptr);
         EXPECT_EQ(fixture.window.focusWidget()->objectName().toStdString(), name);

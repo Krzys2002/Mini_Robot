@@ -60,6 +60,7 @@ struct VisionFixture {
     GatedMarkerDetector* detector{};
     std::unique_ptr<VisionController> vision;
     std::vector<MarkerDetectionsPtr> results;
+    std::vector<VisionDebugFramePtr> previews;
     std::vector<QString> sources;
     int clears{};
     VisionFixture()
@@ -73,6 +74,8 @@ struct VisionFixture {
                 if (result) { results.push_back(result); sources.push_back(source); }
                 else ++clears;
             });
+        QObject::connect(vision.get(), &VisionController::previewAvailable, vision.get(),
+            [this](const QString&, VisionDebugFramePtr preview) { if (preview) previews.push_back(preview); });
         vision->setInput("camera-a", true);
     }
     void unblock() { if (!released) { released = true; release.set_value(); } }
@@ -111,6 +114,13 @@ TEST(VisionControllerTest, KeepsOnlyNewestPendingFrameAndGuiProcessesEventsDurin
     EXPECT_EQ(f.results[1]->capturedAt, visionFrame(100)->capturedAt);
     EXPECT_EQ(f.results[1]->width, 2U);
     EXPECT_GE(f.results[1]->processingTime, Duration::zero());
+    ASSERT_EQ(f.previews.size(), 2U);
+    EXPECT_EQ(f.previews[0]->frame->sequence, 1U);
+    EXPECT_EQ(f.previews[1]->frame->sequence, 100U);
+    EXPECT_EQ(f.previews[1]->frame->capturedAt, f.previews[1]->detections->capturedAt);
+    EXPECT_EQ(f.previews[1]->detections.get(), f.results[1].get());
+    EXPECT_FALSE(f.previews[0]->outputFramesPerSecond);
+    EXPECT_TRUE(f.previews[1]->outputFramesPerSecond);
 }
 TEST(VisionControllerTest, SourceChangeDiscardsInFlightAndPendingOldFrames)
 {
@@ -123,6 +133,9 @@ TEST(VisionControllerTest, SourceChangeDiscardsInFlightAndPendingOldFrames)
     f.unblock();
     ASSERT_TRUE(visionUntil([&] { return f.results.size() == 1; }));
     EXPECT_EQ(f.sources[0], "camera-b");
+    ASSERT_EQ(f.previews.size(), 1U);
+    EXPECT_EQ(f.previews[0]->frame->sequence, 1U);
+    EXPECT_FALSE(f.previews[0]->outputFramesPerSecond);
     EXPECT_EQ(f.results[0]->frameSequence, 1U);
     EXPECT_EQ(f.detector->calls, 2);
 }
@@ -199,6 +212,16 @@ TEST(VisionControllerTest, DescriptionObserverCanInvalidateResultsBeforePublicat
     ASSERT_TRUE(visionUntil([&] { return !f.vision->busy(); }));
     EXPECT_TRUE(f.results.empty());
     EXPECT_TRUE(f.vision->description().contains("inactive"));
+}
+TEST(VisionControllerTest, ObservationObserverCanInvalidateBeforePreviewPublication)
+{
+    VisionFixture f;
+    f.unblock();
+    QObject::connect(f.vision.get(), &VisionController::observationsAvailable, f.vision.get(),
+        [&](const QString&, MarkerDetectionsPtr detections) { if (detections) f.vision->setInput("camera-a", false); });
+    f.vision->receiveFrame(visionFrame(1));
+    ASSERT_TRUE(visionUntil([&] { return !f.vision->busy(); }));
+    EXPECT_TRUE(f.previews.empty());
 }
 TEST(VisionControllerTest, DesktopCameraEventsFeedServiceAndStatusWithoutWorldPoseChanges)
 {

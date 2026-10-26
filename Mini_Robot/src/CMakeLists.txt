@@ -71,7 +71,8 @@ target_sources(micro_robot_vision_api INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vis
 micro_robot_platform_boundary(micro_robot_vision_api)
 # Robot identity and pixel measurements from raw markers; no detector backend.
 add_library(micro_robot_vision_observation STATIC
-    vision/RobotObservation.hpp vision/RobotObservation.cpp)
+    vision/RobotObservation.hpp vision/RobotObservation.cpp
+    vision/VisionDebugFrame.hpp vision/VisionDebugFrame.cpp)
 target_link_libraries(micro_robot_vision_observation PUBLIC micro_robot_vision_api)
 micro_robot_target_defaults(micro_robot_vision_observation)
 micro_robot_platform_boundary(micro_robot_vision_observation)
@@ -244,7 +245,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
         micro_robot_camera_api micro_robot_camera_selection micro_robot_transport_api
-        micro_robot_world micro_robot_logging micro_robot_calibration micro_robot_vision_api micro_robot_robot_manager Qt6::Core
+        micro_robot_world micro_robot_logging micro_robot_calibration micro_robot_vision_api
+        micro_robot_vision_observation micro_robot_robot_manager Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
     # Application adapters use Qt Core only; device backends stay in adapter targets.
@@ -255,6 +257,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/CalibrationWizard.cpp
         ui/MainWindow.cpp
         ui/MainWindow.hpp
+        ui/VisionDebugView.hpp
+        ui/VisionDebugView.cpp
     )
     set_target_properties(micro_robot_ui PROPERTIES AUTOMOC ON)
     target_include_directories(micro_robot_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -153,3 +153,11 @@ its result must be checked on the eventual PR before claiming success.
 
 OpenCV references: [marker detection and corner order](https://docs.opencv.org/4.x/d5/dae/tutorial_aruco_detection.html),
 [detector parameters](https://docs.opencv.org/4.x/d1/dcd/structcv_1_1aruco_1_1DetectorParameters.html).
+
+## Matched debug preview
+
+The [vision debug dialog](debug-overlay.md) uses worker-prepared overlays on the
+exact raw frame for each accepted result, never an unrelated newer live frame.
+The worker also publishes an input-generation-scoped immutable preview snapshot;
+source/stop/resolution changes clear it and reset output cadence diagnostics.
+This adds no WorldModel updates or robot commands.
