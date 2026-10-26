@@ -142,6 +142,11 @@ open Bluetooth hardware or request permission.
 
 Physical acceptance remains required; it was **not run**:
 
+The [CodeCell test procedure for #187](../testing/ble-connection-187.md) provides
+build/flash commands, a connection-only [ESP32-C6 fixture](../../firmware/ble-lifecycle/README.md),
+fault profiles and a results template. Preparation does not complete physical
+acceptance; isolated missing-CCCD and two-board cases need the stated equipment.
+
 1. Provision an ESP32-C6 with the documented advertising, GATT, Robot Info and
    CCCDs. Confirm its `MR-<id>` name and configuration ID match.
 2. Launch the macOS app with `--ble`, grant Bluetooth access, click Connect and
