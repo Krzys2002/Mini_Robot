@@ -93,6 +93,7 @@ private:
     Timestamp startedAt_{};
     bool initialized_{};
     bool shuttingDown_{};
+    bool robotSessionsStoppedEmitted_{};
     bool replacementPending_{};
     bool replacementScheduled_{};
 };

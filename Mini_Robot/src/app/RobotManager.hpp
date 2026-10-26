@@ -52,6 +52,9 @@ public:
     // command validation, dispatch-time freshness, wire sequence and watchdogs.
     [[nodiscard]] CommandSubmission sendCommand(RobotId id, const RobotCommand& command);
     [[nodiscard]] CommandSubmission stop(RobotId id, Timestamp issuedAt, Duration validFor);
+    // Teardown only: does not submit Stop or await its physical execution. Robot
+    // stop-on-disconnect/watchdog remains required; callers needing an orderly
+    // motion stop must do so before shutdown using their command/ack policy.
     // Idempotent, nonblocking. Drain the backend/event loop until isStopped()
     // before destroying the transport, outside an event callback. Destruction
     // requests shutdown and safely detaches, but cannot await radio teardown.

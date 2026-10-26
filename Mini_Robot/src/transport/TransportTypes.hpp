@@ -54,7 +54,7 @@ struct RobotTelemetry {
 
 enum class TransportOperation { Connect, Disconnect, SendCommand, ReceiveTelemetry };
 enum class TransportErrorCode {
-    Unavailable, NotConnected, InvalidCommand, BackendFailure, UnsupportedVersion
+    Unavailable, NotConnected, InvalidCommand, BackendFailure, UnsupportedVersion, InvalidTelemetry
 };
 
 struct TransportError {

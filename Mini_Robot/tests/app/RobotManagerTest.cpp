@@ -118,6 +118,7 @@ TEST(RobotManagerTest, RejectsUnregisteredDisconnectedOldAndIncompatibleTelemetr
     EXPECT_EQ(f.observer->errors.back().code, TransportErrorCode::UnsupportedVersion);
     bad.metadata.modelVersion = 1; bad.linearMetersPerSecond = std::numeric_limits<double>::quiet_NaN();
     f.transport.telemetry(bad);
+    EXPECT_EQ(f.observer->errors.back().code, TransportErrorCode::InvalidTelemetry);
     EXPECT_EQ(f.observer->samples.size(), 1U);
     EXPECT_EQ(f.robots.session(one)->telemetry->receivedAt, Timestamp{2s});
     ASSERT_TRUE(f.robots.disconnect(one));
@@ -154,6 +155,20 @@ TEST(RobotManagerTest, RemovalRetainsActiveOwnershipUntilTerminalAndKeepsWorldRe
     EXPECT_TRUE(f.robots.addRobot(one, Timestamp{4s}));
     EXPECT_FALSE(f.robots.session(one)->telemetry);
 }
+TEST(RobotManagerTest, UnrequestedConnectionsAreCancelledWithoutRepeatingDisconnectOnProgress)
+{
+    Fixture f;
+    ASSERT_TRUE(f.robots.addRobot(one, Timestamp{}));
+    f.transport.state(one, ConnectionState::Connecting, Timestamp{1s});
+    EXPECT_EQ(f.transport.disconnects.size(), 1U);
+    EXPECT_EQ(f.robots.stop(one, Timestamp{1s}, 1s), CommandSubmission::NotConnected);
+    f.transport.state(one, ConnectionState::Connected, Timestamp{2s});
+    EXPECT_EQ(f.transport.disconnects.size(), 2U);
+    f.transport.state(one, ConnectionState::Disconnecting, Timestamp{3s});
+    EXPECT_EQ(f.transport.disconnects.size(), 2U);
+    f.transport.state(one, ConnectionState::Disconnected, Timestamp{4s});
+    EXPECT_TRUE(f.robots.isStopped());
+}
 TEST(RobotManagerTest, PendingConnectCanBeRemovedWithoutRequiringAnUnemittedTerminalEvent)
 {
     Fixture f;
@@ -168,6 +183,7 @@ TEST(RobotManagerTest, ShutdownDrainsAllSessionsAndRejectsNewWork)
     Fixture f; f.connected(one); f.connected(two);
     f.robots.shutdown(); f.robots.shutdown();
     EXPECT_EQ(f.transport.disconnects.size(), 2U);
+    EXPECT_TRUE(f.transport.commands.empty()); // Teardown never promises a delivered Stop.
     EXPECT_FALSE(f.robots.isStopped());
     EXPECT_EQ(f.robots.stop(one, Timestamp{2s}, 1s), CommandSubmission::ShuttingDown);
     EXPECT_FALSE(f.robots.addRobot(unknown, Timestamp{}));

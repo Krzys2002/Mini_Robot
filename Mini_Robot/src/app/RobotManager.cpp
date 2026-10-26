@@ -6,6 +6,17 @@
 
 namespace micro_robot {
 namespace {
+const char* connectionName(ConnectionState state)
+{
+    switch (state) {
+    case ConnectionState::Disconnected: return "Disconnected";
+    case ConnectionState::Connecting: return "Connecting";
+    case ConnectionState::Connected: return "Connected";
+    case ConnectionState::Disconnecting: return "Disconnecting";
+    case ConnectionState::Fault: return "Fault";
+    }
+    return "Unknown";
+}
 bool terminal(ConnectionState state)
 {
     return state == ConnectionState::Disconnected || state == ConnectionState::Fault;
@@ -138,11 +149,12 @@ void RobotManager::receiveState(RobotId id, ConnectionState next, Timestamp at)
     if (terminal(next)) {
         state.connectRequested = false;
         if (state.removing) sessions_.erase(found);
-    } else if (!state.connectRequested) {
+    } else if (!state.connectRequested
+               && (next == ConnectionState::Connecting || next == ConnectionState::Connected)) {
         // A late connect completion after cancellation must never enable commands.
         transport_.disconnect(id);
     }
-    if (log_) log_->info("Robot session connection state=" + std::to_string(static_cast<int>(next)), id);
+    if (log_) log_->info(std::string{"Robot session connection state="} + connectionName(next), id);
     // No references into the map survive notification: observers may remove IDs.
     if (auto sink = sink_.lock()) sink->onConnectionStateChanged(id, next, at);
 }
@@ -161,7 +173,7 @@ void RobotManager::receiveTelemetry(const RobotTelemetry& sample)
         return;
     }
     if (!finite(sample.batteryVoltageVolts) || !finite(sample.linearMetersPerSecond) || !finite(sample.angularRadiansPerSecond)) {
-        receiveError({sample.robotId, TransportOperation::ReceiveTelemetry, TransportErrorCode::BackendFailure,
+        receiveError({sample.robotId, TransportOperation::ReceiveTelemetry, TransportErrorCode::InvalidTelemetry,
                       "Invalid telemetry measurement", sample.receivedAt});
         return;
     }

@@ -43,6 +43,12 @@ introduced.
 | `shutdown()` | Idempotently cancels/disconnects every managed robot and refuses new connections/commands |
 | `isStopped()` | All remaining published sessions are terminal and have no connect intent |
 
+Unrequested Connecting/Connected events are intentionally cancelled, including
+late completion after cancellation; they never authorize commands. Disconnecting
+progress does not submit another disconnect request. A new connect during teardown
+returns false; the desktop reports the refusal to the operator. This intentionally
+requires test/manual backends to request a connection before publishing Connected.
+
 Cancellation before a backend starts can leave it already Disconnected, with no
 terminal event to emit (for example simulation connect+disconnect before
 `advanceTo`). Removal can finish immediately when both manager and adapter already
@@ -59,6 +65,17 @@ it does not bypass the link or replace the robot watchdog or future domain E-sto
 policy. The manager generates no autonomous motion and supplies no tracking-based
 permission policy; future supervisory control must use calibrated fresh poses.
 
+Shutdown is deliberately connection teardown, not a motion-stop protocol. It
+does not send Stop; after shutdown begins command submission is refused. Physical
+stopping relies on robot-side stop-on-disconnect/watchdog behavior. A Stop queued
+immediately before disconnect can be cancelled by an adapter, so an orderly stop
+requires a separate delivery/acknowledgement policy before teardown (#69–#72).
+No physical stop guarantee is made here.
+
+The service lives in `src/app` because it coordinates application ownership and
+WorldModel registration; the communication module describes its responsibility,
+not a requirement to depend on Qt or to live with radio adapters.
+
 ## Telemetry, errors and observers
 
 Callbacks update the matching session before notifying the weak observer through
@@ -66,7 +83,8 @@ Callbacks update the matching session before notifying the weak observer through
 non-removing sessions accept telemetry. Receipt timestamps before the current
 connection or at/before the last accepted sample are ignored; unsupported domain
 versions and non-finite optional measurements report an error without replacing a
-valid sample. Unknown measurement fields remain optional; zero measurements remain
+valid sample. Non-finite measurements use `InvalidTelemetry`, while
+`BackendFailure` remains a backend-operation failure. Unknown measurement fields remain optional; zero measurements remain
 zero. Sequence metadata is copied for diagnostics, not interpreted as an ordering
 or acknowledgement contract.
 

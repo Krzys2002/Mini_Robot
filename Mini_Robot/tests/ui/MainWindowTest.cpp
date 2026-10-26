@@ -431,6 +431,27 @@ TEST(DesktopIntegrationTest, ShutdownWaitsForEveryManagedRobotWithoutMixingSelec
     transport.publishState(RobotId{2}, ConnectionState::Disconnected, Timestamp{4s});
     EXPECT_EQ(drained, 1);
     EXPECT_TRUE(robots.isStopped());
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{5s});
+    EXPECT_EQ(drained, 1);
+}
+
+TEST(DesktopIntegrationTest, RejectedConnectDuringDisconnectReportsFeedback)
+{
+    Logger logger; test::ManualTransport transport; WorldModel world;
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
+    controller.initialize(Timestamp{1s});
+    controller.connectRobot();
+    transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{2s});
+    controller.disconnectRobot();
+    transport.publishState(RobotId{1}, ConnectionState::Disconnecting, Timestamp{3s});
+    QString error;
+    QObject::connect(&controller, &DesktopController::errorOccurred, &controller,
+        [&](const QString& message) { error = message; });
+    controller.connectRobot();
+    EXPECT_TRUE(error.contains("Disconnecting"));
+    EXPECT_EQ(transport.connectRequests.size(), 1U);
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{4s});
 }
 
 TEST(DesktopIntegrationTest, ControllerLogsLifecycleStateChangesAndErrors)

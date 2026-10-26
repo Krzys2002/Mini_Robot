@@ -202,7 +202,12 @@ void DesktopController::stopCamera()
 
 void DesktopController::connectRobot()
 {
-    if (initialized_ && !shuttingDown_) (void)robots_.connect(robotId_);
+    if (initialized_ && !shuttingDown_ && !robots_.connect(robotId_)) {
+        const auto message = QStringLiteral("Robot %1: connection request refused while session is %2")
+            .arg(robotId_.value()).arg(connectionStateText(robots_.connectionState(robotId_)));
+        log_.warning(message.toStdString(), robotId_);
+        emit errorOccurred(message);
+    }
 }
 
 void DesktopController::disconnectRobot()
@@ -281,7 +286,10 @@ void DesktopController::receiveCameraState(CameraState state)
 
 void DesktopController::receiveConnectionState(RobotId id, ConnectionState state)
 {
-    if (shuttingDown_ && robots_.isStopped()) emit robotSessionsStopped();
+    if (shuttingDown_ && !robotSessionsStoppedEmitted_ && robots_.isStopped()) {
+        robotSessionsStoppedEmitted_ = true;
+        emit robotSessionsStopped();
+    }
     if (id != robotId_) return;
     const bool active = state == ConnectionState::Connecting || state == ConnectionState::Connected
         || state == ConnectionState::Disconnecting;
