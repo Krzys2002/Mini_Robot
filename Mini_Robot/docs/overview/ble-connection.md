@@ -10,7 +10,8 @@ acceptance. Physical ESP32-C6 acceptance is tracked separately in
 [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
 
 Issue #66 adds [command writes and telemetry/result parsing](ble-messages.md),
-including an adapter E-stop primitive. RobotManager, reconnect policy and
+including an adapter E-stop primitive. [RobotManager](robot-manager.md) coordinates
+sessions above this adapter; reconnect policy and
 high-level safety/operator controls remain their assigned issues. No firmware
 is added. This guide describes the connection layer; the message guide records
 its additional behavior and outstanding physical command-delivery acceptance.

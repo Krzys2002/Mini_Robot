@@ -16,7 +16,7 @@ Windows remains a project target with deployment work assigned to M8.
 | --- | --- | --- |
 | M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery, selection, and native stream control, application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug and physical capture acceptance, pixel preview, source recovery implementation, and manual GUI checks with physical input on Ubuntu and macOS. |
 | M2 — Vision, Calibration & Robot Localization | Partial: [chessboard capture](calibration-capture.md), worker detector, quality/diversity gates, review wizard and [intrinsic calculation/quality reporting](intrinsic-calibration.md); [AprilTag family/print profiles and identity mapping](../vision/apriltag-selection.md) specified, with printable sheets and opt-in offline verification tools; [AprilTag frame detection](../vision/apriltag-detection.md) with timestamped multi-tag observations and a bounded worker; [robot marker observations](../vision/robot-observation.md) with RobotId mapping, projective centers and provisional image-space headings. | Printed-tag live/recorded acceptance, profile persistence, workspace calibration, image-to-world conversion, tracking, freshness/quality estimates and localization measurements. |
-| M3 — Robot Communication & Manual Safety Control | Partial: [version 1 protocol/GATT contract](../protocol/README.md) and opt-in [Qt BLE discovery/connection lifecycle](ble-connection.md), with Robot Info/GATT readiness validation, [command/telemetry codec](ble-messages.md), bounded dispatch, adapter E-stop primitive and fake-radio tests. | Firmware, physical BLE acceptance, RobotManager, manual motion controls, domain E-stop/clear, reconnect policy, and hardware communication measurements. |
+| M3 — Robot Communication & Manual Safety Control | Partial: [version 1 protocol/GATT contract](../protocol/README.md) and opt-in [Qt BLE discovery/connection lifecycle](ble-connection.md), with Robot Info/GATT readiness validation, [command/telemetry codec](ble-messages.md), bounded dispatch, adapter E-stop primitive and fake-radio tests. | Firmware, physical BLE acceptance, manual motion controls, domain E-stop/clear, reconnect policy, and hardware communication measurements. |
 | M4 — External-Vision Closed-Loop Robot Control | Pure [differential-drive kinematics](differential-drive.md), inverse conversion and bounded wheel targets implemented; a stored demo pose is not closed-loop feedback. | Supervisory scheduler/controller, target selection, body-command limits, tracking/connection safety transitions, and control experiments. |
 | M5 — Operator Path Drawing, Trajectory Generation & Tracking | Planned; no path or trajectory domain types exist. | World-space editor, simplification/smoothing, timing, Pure Pursuit, execution controls, and tracking metrics. |
 | M6 — Obstacles & Autonomous Single-Robot Path Planning | Planned; WorldModel currently stores robots only. | Obstacle/workspace storage, occupancy grid, footprint inflation, A*, route post-processing, obstacle observations, and planner evaluation. |
@@ -59,6 +59,8 @@ The current layers are:
   depending only on common types.
 - `micro_robot_logging`: Qt-free, thread-safe application logger with per-module
   channels and stream/file sinks, depending only on common types.
+- `micro_robot_robot_manager`: Qt-free [session service](robot-manager.md), injected
+  transport ownership/coordination and RobotId command/telemetry routing.
 - `micro_robot_configuration`: Qt-free INI loading and validation, depending on
   common types, camera API value types, and logging; the composition root injects typed settings.
 - `micro_robot_simulation`: deterministic implementations of the camera,
@@ -75,7 +77,7 @@ The current layers are:
   simulation by default. Native command writes recheck freshness at API handoff;
   incoming notifications receive a steady-clock timestamp.
 - `micro_robot_desktop_controller`: Qt Core adapters using interface references;
-  DesktopController coordinates the demo/model and owns the active camera source,
+  DesktopController coordinates the demo/model through RobotManager and owns the active camera source,
   while CameraSelectionController presents device inventories and creates the
   selected source through the factory, without a Qt Multimedia dependency.
 - `micro_robot_ui`: Qt Widgets presentation and operator request signals.
@@ -109,10 +111,13 @@ flowchart LR
     Main -->|explicit demo pose| Controller[DesktopController]
     Controller -->|owns| Camera
     Camera -->|frame metadata and state events| Controller
-    Transport -->|connection and telemetry events| Controller
+    Transport -->|connection and telemetry events| Manager[RobotManager]
+    Manager -->|selected robot events| Controller
     UI -->|operator requests| Controller
     Controller -->|start / stop| Camera
-    Controller -->|connect / disconnect| Transport
+    Controller -->|connect / disconnect / shutdown| Manager
+    Manager -->|per-RobotId requests| Transport
+    Manager -->|explicit registration only| World
     Controller -->|accepted pose updates and queries| World[WorldModel]
     Controller -->|presentation signals| UI
     Main -->|startup / shutdown records| Log[Logger]
@@ -169,8 +174,9 @@ domain command versions report an error; metadata handling stays outside widgets
 Radio identities, packet encoding, protocol sequence allocation, and device
 clock conversion belong to adapters that implement the
 [robot protocol](../protocol/README.md).
-The [BLE lifecycle](ble-connection.md) currently supplies service/identity/CCCD
-setup only; semantic command delivery and telemetry decoding are still pending.
+The [BLE lifecycle](ble-connection.md) and [messages](ble-messages.md) adapter
+implements native writes and notification decoding. [RobotManager](robot-manager.md)
+coordinates sessions above the transport contract; control code addresses RobotId.
 
 ### Simulation and authoritative state
 
@@ -195,8 +201,9 @@ explicit results and preserve state.
 The standalone replay adapter performs file I/O on its owning acquisition/test
 thread and is not wired into the GUI demo. All current application callbacks and
 model access are serialized on the GUI thread. Capture, transport, and discovery retain weak event subscriptions;
-DesktopController and CameraSelectionController own their respective plain C++
-event sinks. A camera source is never destroyed inside its own callback; source
+RobotManager owns the transport event sink and supplies weak application events;
+DesktopController and CameraSelectionController own their camera/application and
+discovery event sinks. A camera source is never destroyed inside its own callback; source
 replacement completes through a queued call. Discovery refreshes use a context-bound queued timer cancelled on
 adapter destruction. Borrowed event values must be copied when retained; immutable
 frames may be retained directly. Callbacks must be prompt and non-throwing.
@@ -207,9 +214,10 @@ is not supplied by the current interfaces. Frame handoffs must remain bounded an
 prefer the newest useful frame.
 
 Qt owns widgets through parent relationships. Injected backend/model references,
-including the camera factory, outlive the controllers; DesktopController owns the
+including the camera factory, outlive the controllers; RobotManager outlives
+DesktopController and is outlived by its transport/model/logger; DesktopController owns the
 active camera source. Closing the last window requests stop/disconnect and keeps
-the event loop/timer running until both backends and the calibration/vision workers are quiescent, then destroys
+the event loop/timer running until the camera, all managed robot sessions and the calibration/vision workers are quiescent, then destroys
 objects in dependency order. Native capture and pixel conversion run on a dedicated
 worker with bounded latest-frame handoffs. The controller detaches subscriptions
 on destruction; capture objects are released on the worker before stop acknowledgement.
@@ -285,8 +293,8 @@ these boundaries:
 
 - M2 transforms measurements into the common metric frame before tracking;
   detections are measurements, not permanent authoritative state.
-- M3 adds physical communication behind IRobotTransport, with RobotManager owning
-  sessions and protocol/safety behavior defined explicitly.
+- M3 communication uses IRobotTransport behind RobotManager; remaining domain
+  safety/manual-control behavior must preserve that service boundary.
 - M4 uses fresh tracked state for outer-loop commands; ESP32-C6 retains low-level
   motor control, command watchdog, and safe stop responsibilities.
 - M5 separates path geometry, time-parameterized trajectories, and tracking.

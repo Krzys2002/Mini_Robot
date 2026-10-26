@@ -70,7 +70,8 @@ struct SelectionFixture {
     ManualCameraFactory cameras;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     CameraSelectionController selection{discovery, cameras, controller, logger.channel("camera")};
     MainWindow window{controller};
 
@@ -330,7 +331,8 @@ TEST(CameraSelectionControllerTest, ControllerDetachesSubscriptionOnDestruction)
     ManualCameraFactory cameras;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     {
         CameraSelectionController selection{discovery, cameras, controller, logger.channel("camera")};
         EXPECT_TRUE(discovery.hasSink());
