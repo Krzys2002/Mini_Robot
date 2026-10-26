@@ -21,7 +21,8 @@
 - [Robot communication](robot-communication.md): platform-neutral robot discovery,
   Qt Bluetooth review for Linux/macOS, control isolation, and mock transport tests.
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
-- [WorldModel](world-model.md): registration, timestamp ordering, and snapshots.
+- [World module](modules/world.md): robot registry, tabletop frame, metric bounds and workspace-calibration model.
+- [WorldModel behavior](world-model.md): registration, poses and snapshots.
 - [Simulation](simulation.md): virtual time and deterministic fake behavior.
 - [Desktop demo](desktop-demo.md): controls, composition, and shutdown.
 - [Logging](logging.md): logger/channel API, record format, sinks, and log file location.

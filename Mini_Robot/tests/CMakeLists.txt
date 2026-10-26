@@ -39,7 +39,8 @@ if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
 endif()
 
 add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp
-    calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp)
+    calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp
+    calibration/WorkspaceCalibrationTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
 gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST)
@@ -180,7 +181,7 @@ gtest_discover_tests(micro_robot_vision_observation_tests DISCOVERY_MODE PRE_TES
 set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/vision/RobotObservationLabels.cmake")
 
-add_executable(micro_robot_world_tests world/WorldModelTest.cpp)
+add_executable(micro_robot_world_tests world/WorldModelTest.cpp world/WorkspaceTest.cpp)
 target_link_libraries(micro_robot_world_tests PRIVATE micro_robot_world GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_world_tests)
 gtest_discover_tests(micro_robot_world_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")

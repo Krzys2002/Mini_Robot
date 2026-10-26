@@ -132,7 +132,7 @@ struct GuiFixture {
         QList<QWidget*> widgets;
         for (const char* name : {"applicationStatus", "selectedCamera", "activeCamera",
                                  "cameraStatus", "frameDescription", "connectionStatus",
-                                 "telemetryDescription", "worldDescription"}) {
+                                 "telemetryDescription", "worldCoordinateConvention", "workspaceDescription", "worldDescription"}) {
             widgets.push_back(label(name));
         }
         widgets.push_back(selector());

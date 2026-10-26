@@ -97,6 +97,19 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     auto* worldDescription = new QLabel(QStringLiteral("No registered robots"), worldGroup);
     worldDescription->setObjectName(QStringLiteral("worldDescription"));
     worldDescription->setWordWrap(true);
+    auto* convention = new QLabel(QStringLiteral(
+        "Tabletop frame: origin at lower-left (0, 0) m; +X → right, +Y ↑ up.\n"
+        "Heading: 0 rad along +X; positive counterclockwise (CCW)."), worldGroup);
+    convention->setObjectName(QStringLiteral("worldCoordinateConvention"));
+    convention->setWordWrap(true);
+    auto* workspaceDescription = new QLabel(QStringLiteral("Workspace dimensions not configured"), worldGroup);
+    workspaceDescription->setObjectName(QStringLiteral("workspaceDescription"));
+    workspaceDescription->setWordWrap(true);
+    // Wrapped labels must retain their text height when the window is resized.
+    for (auto* label : {convention, workspaceDescription, worldDescription})
+        label->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    worldLayout->addWidget(convention);
+    worldLayout->addWidget(workspaceDescription);
     worldLayout->addWidget(worldDescription);
     layout->addWidget(worldGroup);
     layout->addStretch();
@@ -121,6 +134,7 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
             frameDescription, &QLabel::setText);
     connect(&controller, &DesktopController::telemetryDescriptionChanged, telemetry, &QLabel::setText);
     connect(&controller, &DesktopController::worldDescriptionChanged, worldDescription, &QLabel::setText);
+    connect(&controller, &DesktopController::workspaceDescriptionChanged, workspaceDescription, &QLabel::setText);
     connect(&controller, &DesktopController::activeCameraChanged, this,
             [activeCamera](const QString& description, bool) { activeCamera->setText(description); });
     connect(&controller, &DesktopController::cameraStatusChanged, this,

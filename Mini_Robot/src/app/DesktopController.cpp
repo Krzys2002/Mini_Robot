@@ -306,8 +306,20 @@ void DesktopController::receiveTelemetry(const RobotTelemetry& telemetry)
         .arg(robotId_.value()).arg(battery).arg(elapsedSeconds(telemetry.receivedAt), 0, 'f', 2));
 }
 
+void DesktopController::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds)
+{
+    if (shuttingDown_) return;
+    world_.setWorkspaceBounds(bounds);
+    if (initialized_) publishWorld();
+}
+
 void DesktopController::publishWorld()
 {
+    const auto workspace = world_.workspaceBounds();
+    emit workspaceDescriptionChanged(workspace
+        ? QStringLiteral("Workspace: %1 m × %2 m · camera-to-world calibration not established")
+            .arg(workspace->width().value, 0, 'g', 6).arg(workspace->height().value, 0, 'g', 6)
+        : QStringLiteral("Workspace dimensions not configured · camera-to-world calibration not established"));
     const auto state = world_.robot(robotId_);
     if (!state) {
         emit worldDescriptionChanged(QStringLiteral("Robot %1 is not registered").arg(robotId_.value()));

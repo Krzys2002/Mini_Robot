@@ -96,6 +96,38 @@ TEST(MainWindowSmokeTest, OpensAndCloses)
     EXPECT_FALSE(fixture.window.isVisible());
 }
 
+TEST(DesktopIntegrationTest, TabletopConventionAndUnconfiguredWorkspaceAreVisible)
+{
+    DesktopFixture fixture;
+    fixture.window.show();
+    QApplication::processEvents();
+    auto* convention = fixture.label("worldCoordinateConvention");
+    ASSERT_NE(convention, nullptr);
+    EXPECT_TRUE(convention->isVisible());
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("lower-left (0, 0) m")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("+X")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("+Y")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("0 rad")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("counterclockwise")));
+    EXPECT_TRUE(fixture.label("workspaceDescription")->text().contains(QStringLiteral("not configured")));
+    const auto screenshot = qEnvironmentVariable("MICRO_ROBOT_WORKSPACE_SCREENSHOT");
+    if (!screenshot.isEmpty()) EXPECT_TRUE(fixture.window.grab().save(screenshot));
+}
+
+TEST(DesktopIntegrationTest, MeasuredBoundsReachUiWithoutClaimingCameraCalibration)
+{
+    DesktopFixture fixture;
+    fixture.controller.setWorkspaceBounds(WorkspaceBounds{Meters{1.2}, Meters{0.8}});
+    const auto text = fixture.label("workspaceDescription")->text();
+    EXPECT_TRUE(text.contains(QStringLiteral("1.2 m × 0.8 m")));
+    EXPECT_TRUE(text.contains(QStringLiteral("calibration not established")));
+    ASSERT_TRUE(fixture.world.snapshot().workspace);
+    EXPECT_DOUBLE_EQ(fixture.world.snapshot().workspace->width().value, 1.2);
+    fixture.controller.setWorkspaceBounds(std::nullopt);
+    EXPECT_FALSE(fixture.world.snapshot().workspace);
+    EXPECT_TRUE(fixture.label("workspaceDescription")->text().contains(QStringLiteral("not configured")));
+}
+
 TEST(DesktopIntegrationTest, StartupRegistersRobotAndShowsIdleControls)
 {
     DesktopFixture fixture;
