@@ -19,6 +19,9 @@ struct CameraInfo {
     // not a frame or native handle. Consumers obtain it from ICameraSource::info().
     std::string sourceId;
     std::string displayName;
+    // Separate from the access/source ID. Missing means physical identity cannot
+    // be established: allow session calibration, disable persisted profile I/O.
+    std::optional<std::string> persistentCalibrationId{};
 };
 
 // Capture size in pixels requested from a live device.

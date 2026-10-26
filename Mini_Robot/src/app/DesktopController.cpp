@@ -155,9 +155,12 @@ void DesktopController::publishActiveCamera()
 
 void DesktopController::publishCameraActions()
 {
-    emit cameraInputChanged(camera_ ? QString::fromStdString(camera_->info().sourceId) : QString{},
-        camera_ && camera_->state() == CameraState::Streaming && !cameraRequest_
-            && !replacementPending_ && !shuttingDown_);
+    const auto info = camera_ ? camera_->info() : CameraInfo{};
+    const bool streaming = camera_ && camera_->state() == CameraState::Streaming && !cameraRequest_
+        && !replacementPending_ && !shuttingDown_;
+    emit cameraInputChanged(QString::fromStdString(info.sourceId), streaming);
+    emit calibrationInputChanged(QString::fromStdString(info.persistentCalibrationId.value_or(info.sourceId)),
+        streaming, info.persistentCalibrationId && !info.persistentCalibrationId->empty());
     const bool ready = initialized_ && !shuttingDown_ && camera_ && !replacementPending_;
     const auto state = camera_ ? camera_->state() : CameraState::Stopped;
     const bool active = isCameraActive(state);

@@ -53,15 +53,17 @@ void CalibrationController::invalidate()
     live_ = true;
     presentPreview({}, {}, false);
 }
-void CalibrationController::setInput(const QString& sourceId, bool streaming)
+void CalibrationController::setInput(const QString& sourceId, bool streaming, bool persistentIdentity)
 {
     if (shuttingDown_) return;
-    if (sourceId != sourceId_ || (streaming_ && !streaming)) {
+    if (sourceId != sourceId_ || persistentIdentity != persistentIdentity_ || (streaming_ && !streaming)) {
         invalidate();
         publish(QStringLiteral("Camera changed or stopped. Start a new capture session."));
     }
     sourceId_ = sourceId;
     streaming_ = streaming;
+    persistentIdentity_ = persistentIdentity && !sourceId.isEmpty();
+    if (!persistentIdentity_) profileMessage_ = QStringLiteral("Physical camera identity unavailable or ambiguous. Profile save/reload disabled; session calibration is available.");
     emit changed();
 }
 void CalibrationController::receiveFrame(FramePtr frame)
@@ -79,7 +81,7 @@ void CalibrationController::receiveFrame(FramePtr frame)
     }
     if (latest_ && (frame->sequence <= latest_->sequence || frame->capturedAt <= latest_->capturedAt)) return;
     latest_ = std::move(frame);
-    if (profileStore_ && !profileLookupRequested_) reloadProfile();
+    if (persistentIdentity_ && profileStore_ && !profileLookupRequested_) reloadProfile();
     if (live_) presentPreview(latest_, {}, false);
     emit changed();
 }
@@ -136,8 +138,14 @@ void CalibrationController::capture()
 }
 void CalibrationController::removeView(int index)
 {
-    if (shuttingDown_ || busy_ || index < 0) return;
+    if (shuttingDown_ || busy_ || profileIoBusy_ || index < 0) return;
     if (session_.remove(static_cast<std::size_t>(index))) {
+        ++generation_;
+        ++profileGeneration_;
+        result_.reset();
+        profile_.reset();
+        undistortedPreview_ = false;
+        profileMessage_ = QStringLiteral("Capture changed. Recalculate before saving or using this calibration.");
         showLive();
         publish(QStringLiteral("View removed. Reposition the board and capture a replacement."));
     }
@@ -208,7 +216,9 @@ void CalibrationController::finish()
             }
             result_ = std::move(outcome.result);
             profile_ = result_;
-            profileMessage_ = QStringLiteral("Calculated profile — not saved. Save to keep it after restart.");
+            profileMessage_ = persistentIdentity_
+                ? QStringLiteral("Calculated profile — not saved. Save to keep it after restart.")
+                : QStringLiteral("Session calibration only: physical identity unavailable or ambiguous; save/reload disabled.");
             ++previewEpoch_;
             if (undistortedPreview_) processPreview();
             publish(hasReprojectionWarning(*result_, intrinsicConfig_)

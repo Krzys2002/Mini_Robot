@@ -90,7 +90,12 @@ TEST(CalibrationCaptureTest, CompletionRequiresCountAndPositionScaleRotationDive
     EXPECT_TRUE(session.finish());
     EXPECT_EQ(session.state(), CalibrationCaptureState::Complete);
     EXPECT_FALSE(session.add(captureFrame(5), captureDetection()).accepted);
-    EXPECT_FALSE(session.remove(0));
+    EXPECT_FALSE(session.remove(99));
+    EXPECT_EQ(session.state(), CalibrationCaptureState::Complete);
+    EXPECT_TRUE(session.remove(0));
+    EXPECT_EQ(session.state(), CalibrationCaptureState::Collecting);
+    EXPECT_EQ(session.views().size(), 3U);
+    EXPECT_EQ(session.views().front().frame->sequence, 2U);
     EXPECT_EQ(session.sourceId(), "camera-a");
 }
 TEST(CalibrationCaptureTest, RemoveRecaptureRestartAndCancelAreExplicitTransitions)

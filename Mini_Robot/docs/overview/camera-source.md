@@ -106,3 +106,11 @@ implemented separately by #29. [Recorded-video replay](recorded-video.md) is
 implemented by #47 through this same interface. [Device selection](camera-selection.md)
 (#30) creates sources through a factory. [Physical capture](camera-streaming.md)
 (#31) uses a Qt worker adapter. Pixel preview remains separate work.
+
+## Profile identity
+
+`CameraInfo::sourceId` identifies this source and may be an access path.
+`persistentCalibrationId` is optional, adapter-resolved physical identity for
+saved calibration. Absence means session-only calibration; consumers must not
+fall back to a node path/display name for persistence. See the
+[profile identity rules](calibration-profiles.md#physical-camera-identity-and-review-corrections).
