@@ -29,6 +29,9 @@ class VisionDebugDialog final : public QDialog {
     Q_OBJECT
 public:
     explicit VisionDebugDialog(VisionController& vision, QWidget* parent = nullptr);
+protected:
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 private:
     void present(const QString& sourceId, VisionDebugFramePtr preview);
     void refreshDiagnostics();

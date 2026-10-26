@@ -1,4 +1,6 @@
 #include "ui/MainWindow.hpp"
+#include "ui/VisionDebugView.hpp"
+#include "app/VisionController.hpp"
 #include "app/DesktopController.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include "simulation/FakeCameraSourceFactory.hpp"
@@ -81,6 +83,27 @@ struct DesktopFixture {
         return window.findChild<QPushButton*>(QString::fromLatin1(name));
     }
 };
+
+class NoMarkers final : public IMarkerDetector {
+public:
+    MarkerDetections detect(const Frame&) override { return {}; }
+};
+TEST(VisionDebugViewTest, MainWindowOpensAndClosesDebugDialogWithoutExtraProcessing)
+{
+    DesktopFixture fixture;
+    auto& window = fixture.window;
+    VisionController vision{std::make_unique<NoMarkers>(), fixture.logger.channel("vision")};
+    window.bindVision(vision);
+    window.show();
+    auto* action = window.findChild<QPushButton*>("openVisionDebug");
+    ASSERT_NE(action, nullptr); action->click(); QApplication::processEvents();
+    auto* dialog = window.findChild<VisionDebugDialog*>("visionDebugDialog");
+    ASSERT_NE(dialog, nullptr); EXPECT_TRUE(dialog->isVisible());
+    window.close(); QApplication::processEvents();
+    EXPECT_FALSE(dialog->isVisible());
+    EXPECT_FALSE(vision.busy());
+    vision.shutdown();
+}
 
 TEST(MainWindowSmokeTest, OpensAndCloses)
 {

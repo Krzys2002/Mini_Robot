@@ -16,6 +16,10 @@ class VisionController final : public QObject {
     Q_OBJECT
 public:
     VisionController(std::unique_ptr<IMarkerDetector> detector, LogChannel log, QObject* parent = nullptr);
+    // Use the same immutable identity map as observation consumers. Defaults
+    // preserve the standard tag 0–15 / robot 1–16 allocation.
+    VisionController(std::unique_ptr<IMarkerDetector> detector, LogChannel log,
+                     RobotMarkerMap markerMap, QObject* parent = nullptr);
     ~VisionController() override;
     void setInput(const QString& sourceId, bool streaming);
     void receiveFrame(FramePtr frame);

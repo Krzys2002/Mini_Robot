@@ -7,7 +7,12 @@
 
 namespace micro_robot {
 VisionController::VisionController(std::unique_ptr<IMarkerDetector> detector, LogChannel log, QObject* parent)
-    : QObject(parent), log_(std::move(log)), detector_(std::move(detector))
+    : VisionController(std::move(detector), std::move(log), RobotMarkerMap{}, parent)
+{
+}
+VisionController::VisionController(std::unique_ptr<IMarkerDetector> detector, LogChannel log,
+                                   RobotMarkerMap markerMap, QObject* parent)
+    : QObject(parent), log_(std::move(log)), markerMap_(std::move(markerMap)), detector_(std::move(detector))
 {
     if (!detector_) throw std::invalid_argument("Marker detector is required");
     qRegisterMetaType<MarkerDetectionsPtr>();

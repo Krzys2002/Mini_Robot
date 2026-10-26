@@ -4,6 +4,8 @@
 #include <QDialogButtonBox>
 #include <QFontMetricsF>
 #include <QImage>
+#include <QHideEvent>
+#include <QShowEvent>
 #include <QLabel>
 #include <QPainter>
 #include <QPlainTextEdit>
@@ -81,8 +83,13 @@ void VisionOverlay::paintEvent(QPaintEvent*)
         return;
     }
     const auto& frame = *preview_->frame;
-    const auto format = frame.pixelFormat == PixelFormat::Gray8 ? QImage::Format_Grayscale8
-        : frame.pixelFormat == PixelFormat::Rgb8 ? QImage::Format_RGB888 : QImage::Format_RGBA8888;
+    QImage::Format format = QImage::Format_Invalid;
+    switch (frame.pixelFormat) {
+    case PixelFormat::Gray8: format = QImage::Format_Grayscale8; break;
+    case PixelFormat::Rgb8: format = QImage::Format_RGB888; break;
+    case PixelFormat::Rgba8: format = QImage::Format_RGBA8888; break;
+    }
+    if (format == QImage::Format_Invalid) return;
     const QImage image(reinterpret_cast<const uchar*>(frame.pixels->data()), static_cast<int>(frame.width),
         static_cast<int>(frame.height), static_cast<qsizetype>(frame.strideBytes), format);
     painter.drawImage(imageRect(), image);
@@ -136,7 +143,7 @@ void VisionOverlay::paintEvent(QPaintEvent*)
         // share a row. The full identity/quality list is separately scrollable.
         for (std::size_t attempt = 0; attempt < labels.size() + 1; ++attempt) {
             if (std::none_of(labels.begin(), labels.end(), [&](const auto& other) { return other.intersects(label); })) break;
-            label.moveTop(label.bottom() + h <= height() ? label.bottom() + 2 : 0);
+            label.moveTop(label.bottom() + 2 + h <= height() ? label.bottom() + 2 : 0);
         }
         labels.push_back(label);
         painter.fillRect(label, QColor{0, 0, 0, 220});
@@ -181,11 +188,23 @@ void VisionDebugDialog::present(const QString& sourceId, VisionDebugFramePtr pre
     sourceId_ = sourceId;
     preview_ = drawableFrame(preview) ? std::move(preview) : VisionDebugFramePtr{};
     overlay_->present(preview_);
-    if (preview_) ageTimer_.start(); else ageTimer_.stop();
+    if (preview_ && isVisible()) ageTimer_.start(); else ageTimer_.stop();
     refreshDiagnostics();
+}
+void VisionDebugDialog::showEvent(QShowEvent* event)
+{
+    QDialog::showEvent(event);
+    refreshDiagnostics(); // Recheck age before displaying a retained hidden preview.
+    if (preview_) ageTimer_.start();
+}
+void VisionDebugDialog::hideEvent(QHideEvent* event)
+{
+    ageTimer_.stop();
+    QDialog::hideEvent(event);
 }
 void VisionDebugDialog::refreshDiagnostics()
 {
+    if (!isVisible()) return;
     if (!preview_) { diagnostics_->setPlainText(QStringLiteral("No current processed frame")); return; }
     const auto now = MonotonicClock::now();
     const auto capturedAt = preview_->frame->capturedAt;

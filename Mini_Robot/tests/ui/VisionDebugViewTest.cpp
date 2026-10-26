@@ -115,6 +115,7 @@ TEST(VisionDebugViewTest, DialogShowsIndependentIdsQualityAgeTimingAndOutputFps)
     Logger logger;
     VisionController vision{std::make_unique<NoMarkers>(), logger.channel("vision")};
     VisionDebugDialog dialog{vision};
+    dialog.show(); QApplication::processEvents();
     auto preview = debugPreview(); preview->outputFramesPerSecond = 25.0;
     emit vision.previewAvailable("camera-a", preview);
     const auto text = dialog.findChild<QPlainTextEdit*>("visionDiagnostics")->toPlainText();
@@ -132,11 +133,62 @@ TEST(VisionDebugViewTest, DialogShowsIndependentIdsQualityAgeTimingAndOutputFps)
     EXPECT_FALSE(dialog.findChild<VisionOverlay*>("visionOverlay")->preview());
     vision.shutdown();
 }
+TEST(VisionDebugViewTest, HiddenDialogDefersDiagnosticsAndRefreshesOnShow)
+{
+    Logger logger;
+    VisionController vision{std::make_unique<NoMarkers>(), logger.channel("vision")};
+    VisionDebugDialog dialog{vision};
+    auto* diagnostics = dialog.findChild<QPlainTextEdit*>("visionDiagnostics");
+    emit vision.previewAvailable("camera-a", debugPreview());
+    EXPECT_TRUE(diagnostics->toPlainText().isEmpty());
+    dialog.show(); QApplication::processEvents();
+    EXPECT_TRUE(diagnostics->toPlainText().contains("Source camera-a"));
+    dialog.hide();
+    const auto previous = diagnostics->toPlainText();
+    auto stale = debugPreview();
+    auto frame = std::make_shared<Frame>(*stale->frame);
+    frame->capturedAt = MonotonicClock::now() - 4s;
+    auto detections = std::make_shared<MarkerDetections>(*stale->detections);
+    detections->capturedAt = frame->capturedAt;
+    stale->frame = frame; stale->detections = detections;
+    emit vision.previewAvailable("camera-b", stale);
+    EXPECT_EQ(diagnostics->toPlainText(), previous);
+    dialog.show(); QApplication::processEvents();
+    EXPECT_TRUE(diagnostics->toPlainText().contains("expired"));
+    EXPECT_FALSE(dialog.findChild<VisionOverlay*>("visionOverlay")->preview());
+    vision.shutdown();
+}
+TEST(VisionDebugViewTest, WorkerUsesInjectedRobotMarkerMap)
+{
+    class OneMarker final : public IMarkerDetector {
+    public:
+        MarkerDetections detect(const Frame&) override { return *debugPreview()->detections; }
+    };
+    Logger logger;
+    VisionController vision{std::make_unique<OneMarker>(), logger.channel("vision"),
+        RobotMarkerMap{RobotMarkerProfile{MarkerFamily::AprilTag36h11, 0, 16, 101}}};
+    VisionDebugFramePtr received;
+    QObject::connect(&vision, &VisionController::previewAvailable, &vision,
+        [&](const QString&, VisionDebugFramePtr preview) { received = std::move(preview); });
+    vision.setInput("camera-a", true);
+    vision.receiveFrame(debugPreview()->frame);
+    QElapsedTimer timeout; timeout.start();
+    while (vision.busy() && timeout.elapsed() < 5000) {
+        QApplication::processEvents(); QThread::yieldCurrentThread();
+    }
+    ASSERT_FALSE(vision.busy());
+    ASSERT_TRUE(received);
+    ASSERT_EQ(received->markers.size(), 2U);
+    EXPECT_EQ(received->markers[0].robotId, RobotId{101});
+    EXPECT_EQ(received->markers[1].robotId, RobotId{103});
+    vision.shutdown();
+}
 TEST(VisionDebugViewTest, OldCapturedFramesExpireImmediatelyInsteadOfShowingLiveOverlay)
 {
     Logger logger;
     VisionController vision{std::make_unique<NoMarkers>(), logger.channel("vision")};
     VisionDebugDialog dialog{vision};
+    dialog.show(); QApplication::processEvents();
     auto preview = debugPreview();
     auto frame = std::make_shared<Frame>(*preview->frame);
     frame->capturedAt = MonotonicClock::now() - 4s;
@@ -154,7 +206,8 @@ TEST(VisionDebugViewTest, ReentrantInputInvalidationCannotRestoreAnOlderPreview)
     VisionController vision{std::make_unique<NoMarkers>(), logger.channel("vision")};
     QObject::connect(&vision, &VisionController::previewAvailable, &vision,
         [&](const QString&, VisionDebugFramePtr preview) { if (preview) vision.setInput("camera-b", true); });
-    VisionDebugDialog dialog{vision}; // Receives the outer signal after invalidation.
+    VisionDebugDialog dialog{vision};
+    dialog.show(); QApplication::processEvents(); // Receives the outer signal after invalidation.
     vision.setInput("camera-a", true);
     vision.receiveFrame(debugPreview()->frame);
     QElapsedTimer timeout; timeout.start();
@@ -165,20 +218,5 @@ TEST(VisionDebugViewTest, ReentrantInputInvalidationCannotRestoreAnOlderPreview)
     EXPECT_FALSE(dialog.findChild<VisionOverlay*>("visionOverlay")->preview());
     vision.shutdown();
 }
-TEST(VisionDebugViewTest, MainWindowOpensAndClosesDebugDialogWithoutExtraProcessing)
-{
-    Logger logger; test::ManualTransport transport; WorldModel world;
-    DesktopController desktop{transport, world, RobotId{1}, logger.channel("controller")};
-    VisionController vision{std::make_unique<NoMarkers>(), logger.channel("vision")};
-    MainWindow window{desktop}; window.bindVision(vision);
-    window.show();
-    auto* action = window.findChild<QPushButton*>("openVisionDebug");
-    ASSERT_NE(action, nullptr); action->click(); QApplication::processEvents();
-    auto* dialog = window.findChild<VisionDebugDialog*>("visionDebugDialog");
-    ASSERT_NE(dialog, nullptr); EXPECT_TRUE(dialog->isVisible());
-    window.close(); QApplication::processEvents();
-    EXPECT_FALSE(dialog->isVisible());
-    EXPECT_FALSE(vision.busy());
-    vision.shutdown();
-}
+
 } // namespace

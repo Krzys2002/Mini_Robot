@@ -13,6 +13,12 @@ Start the selected camera and open **Vision debug…** in the main window. The
 independent, resizable dialog shows the newest completed detection image. Closing
 it does not stop the camera or detection worker; closing the main window also
 closes the debug dialog and uses the existing worker-draining shutdown path.
+The hidden dialog stops its age timer and defers diagnostic text formatting until
+it is shown, when it rechecks retained preview age before display. It retains at
+most one matched snapshot. Detection and worker-side overlay preparation continue
+for service subscribers regardless of dialog visibility. `VisionController` accepts
+an injected immutable `RobotMarkerMap`, so composition can share the same identity
+allocation with observation consumers.
 
 - Green solid boundary: assigned robot; label contains both dictionary Tag ID and
   RobotId (default tag36h11 IDs 0–15 map to robots 1–16).
