@@ -13,7 +13,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)
     gtest_discover_tests(micro_robot_vision_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "vision")
 endif()
 
-add_executable(micro_robot_ble_contract_tests transport/BleTypesTest.cpp transport/BleProtocolTest.cpp)
+add_executable(micro_robot_ble_contract_tests transport/BleTypesTest.cpp transport/BleProtocolTest.cpp
+    transport/BleLifecycleFixtureTest.cpp)
 target_link_libraries(micro_robot_ble_contract_tests PRIVATE micro_robot_ble_contract GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_ble_contract_tests)
 gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST)
