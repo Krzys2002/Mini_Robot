@@ -1,22 +1,19 @@
 name: Linux build and test
 
 on:
-  pull_request:
-  push:
-    branches: [master]
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
   group: linux-build-test-${{ github.workflow }}-${{ github.ref }}
-  # Superseded pull request runs are cancelled; a running default-branch run is allowed to finish.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   build-test:
-    # Job names are the required status check names; keep them stable.
+    if: github.ref == 'refs/heads/master'
+    # Keep platform/compiler labels stable for daily run comparisons.
     name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30

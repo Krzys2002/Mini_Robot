@@ -1,7 +1,6 @@
 # Micro-Robot Swarm Desktop
 
-[![macOS build and test](https://github.com/Krzys2002/Mini_Robot/actions/workflows/macos-build-test.yml/badge.svg?branch=master)](https://github.com/Krzys2002/Mini_Robot/actions/workflows/macos-build-test.yml?query=branch%3Amaster)
-[![Linux build and test](https://github.com/Krzys2002/Mini_Robot/actions/workflows/linux-build-test.yml/badge.svg?branch=master)](https://github.com/Krzys2002/Mini_Robot/actions/workflows/linux-build-test.yml?query=branch%3Amaster)
+[![Daily master build and test](https://github.com/Krzys2002/Mini_Robot/actions/workflows/daily-build-test.yml/badge.svg?branch=master)](https://github.com/Krzys2002/Mini_Robot/actions/workflows/daily-build-test.yml?query=branch%3Amaster)
 
 C++20 / Qt 6 desktop application for the micro-robot swarm project.
 The current M1 foundation supports physical camera streaming and simulated robot
@@ -68,8 +67,8 @@ ctest --test-dir build/core --output-on-failure --no-tests=error
 
 For selecting suites, running an individual test executable, and adding tests,
 see [the testing guide](docs/development/testing.md).
-The macOS and Linux build/test workflows run on pull requests, their new commits,
-and pushes to `master`; the badges above show the latest `master` result. Their local
+The macOS and Linux build/test workflows run once daily on `master` when new PRs
+have merged; the badge above shows the latest daily result. Their local
 equivalent commands are in [macOS continuous integration](docs/development/testing.md#macos-continuous-integration)
 and [Linux continuous integration](docs/development/testing.md#linux-continuous-integration).
 For architectural details, see [the architecture overview](docs/overview/architecture.md).

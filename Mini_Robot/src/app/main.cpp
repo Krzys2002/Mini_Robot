@@ -1,8 +1,12 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
 #include "app/CalibrationController.hpp"
+#include "app/VisionController.hpp"
+#include "vision/OpenCvAprilTagDetector.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
 #include "calibration/OpenCvIntrinsicCalibrationSolver.hpp"
+#include "calibration/OpenCvCalibrationUndistorter.hpp"
+#include "calibration/QtCalibrationProfileStore.hpp"
 #include "app/CameraSelectionController.hpp"
 #if defined(MICRO_ROBOT_CAMERA_BACKEND_V4L2)
 #include "camera/V4l2CameraDeviceDiscovery.hpp"
@@ -15,6 +19,10 @@
 #include "infrastructure/logging/LogSinks.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include "simulation/SimulationTransport.hpp"
+#if defined(MICRO_ROBOT_HAS_BLE)
+#include "transport/ble/BleTransport.hpp"
+#include "transport/ble/QtBleBackend.hpp"
+#endif
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -61,6 +69,9 @@ int main(int argc, char* argv[])
         QStringLiteral("Load settings from <file> instead of the per-user configuration file."),
         QStringLiteral("file")};
     arguments.addOption(configOption);
+    const QCommandLineOption bleOption{QStringLiteral("ble"),
+        QStringLiteral("Use the BLE transport instead of simulation (requires BLE build).")};
+    arguments.addOption(bleOption);
     const QCommandLineOption exitAfterStartupOption{QStringLiteral("exit-after-startup"),
         QStringLiteral("Close the window once startup completes and exit through the normal "
                        "shutdown path (automated startup checks).")};
@@ -122,8 +133,23 @@ int main(int argc, char* argv[])
     }
     SimulationTransportConfig transportConfig;
     transportConfig.telemetryInterval = config.simulation.telemetryInterval;
-    auto transport = std::make_unique<SimulationTransport>(transportConfig,
-                                                           logger.channel("simulation"));
+    std::unique_ptr<IRobotTransport> transport;
+    SimulationTransport* simulation = nullptr; // Non-owning alias, only in simulation mode.
+    if (arguments.isSet(bleOption)) {
+#if defined(MICRO_ROBOT_HAS_BLE)
+        auto ble = std::make_unique<BleTransport>(makeQtBleBackend(), BleTransportConfig{}, logger.channel("ble"));
+        QObject::connect(ble.get(), &BleTransport::phaseChanged, &application,
+            [appLog](RobotId id, BlePhase phase) { appLog.info(std::string{"BLE setup: "} + blePhaseName(phase), id); });
+        transport = std::move(ble);
+#else
+        appLog.error("BLE support was not built; configure with -DMICRO_ROBOT_BUILD_BLE=ON");
+        return 2;
+#endif
+    } else {
+        auto backend = std::make_unique<SimulationTransport>(transportConfig, logger.channel("simulation"));
+        simulation = backend.get();
+        transport = std::move(backend);
+    }
     CameraDiscovery cameraDiscovery;
     WorldModel world;
     const RobotId robotId = config.robot.id;
@@ -133,11 +159,21 @@ int main(int argc, char* argv[])
     CalibrationController calibration{std::make_unique<OpenCvCalibrationDetector>(),
                                       std::make_unique<OpenCvIntrinsicCalibrationSolver>(),
                                       logger.channel("calibration")};
+    calibration.setProfileServices(std::make_unique<QtCalibrationProfileStore>(
+        QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
+            .filePath(QStringLiteral("calibration"))), std::make_unique<OpenCvCalibrationUndistorter>());
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &calibration, &CalibrationController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
                      &calibration, &CalibrationController::receiveFrame);
+    VisionController vision{std::make_unique<OpenCvAprilTagDetector>(), logger.channel("vision")};
+    QObject::connect(&controller, &DesktopController::cameraInputChanged,
+                     &vision, &VisionController::setInput);
+    QObject::connect(&controller, &DesktopController::frameAvailable,
+                     &vision, &VisionController::receiveFrame);
     MainWindow window{controller};
+    window.bindVision(vision);
+    if (arguments.isSet(bleOption)) window.setWindowTitle(QStringLiteral("Micro Robot — BLE connections"));
     window.bindCalibration(calibration);
     window.bindCameraSelection(cameraSelection);
     QTimer simulationTimer;
@@ -148,7 +184,7 @@ int main(int argc, char* argv[])
     bool cameraActive = false;
     bool transportActive = false;
     const auto finishShutdown = [&] {
-        if (closing && !cameraActive && !transportActive && calibration.isStopped()) application.quit();
+        if (closing && !cameraActive && !transportActive && calibration.isStopped() && vision.isStopped()) application.quit();
     };
     QObject::connect(&controller, &DesktopController::cameraStatusChanged, &window,
                      [&](const QString&, bool active) {
@@ -162,18 +198,20 @@ int main(int argc, char* argv[])
     });
     QObject::connect(&application, &QGuiApplication::lastWindowClosed, &window, [&] {
         closing = true;
+        vision.shutdown();
         calibration.shutdown();
         controller.shutdown();
         finishShutdown();
     });
     QObject::connect(&calibration, &CalibrationController::stopped, &window, finishShutdown);
+    QObject::connect(&vision, &VisionController::stopped, &window, finishShutdown);
     bool robotConnected = false;
     QObject::connect(&controller, &DesktopController::connectionStatusChanged, &window,
                      [&robotConnected](const QString&, bool connected) { robotConnected = connected; });
     QObject::connect(&simulationTimer, &QTimer::timeout, &window, [&] {
         const auto now = MonotonicClock::now();
-        transport->advanceTo(now);
-        if (robotConnected) {
+        if (simulation) simulation->advanceTo(now);
+        if (simulation && robotConnected) {
             // Explicit demo observation, independent of camera frames or telemetry.
             // No tracking, filtering, physics, or closed-loop control is performed.
             (void)controller.applyPose(robotId,
@@ -183,16 +221,17 @@ int main(int argc, char* argv[])
     QObject::connect(&application, &QCoreApplication::aboutToQuit, &window, [&] {
         appLog.info("Application shutting down");
         simulationTimer.stop();
+        vision.shutdown();
         calibration.shutdown();
         controller.shutdown();
         const auto now = MonotonicClock::now();
-        transport->advanceTo(now);
+        if (simulation) simulation->advanceTo(now);
     });
 
     controller.initialize(MonotonicClock::now());
     cameraSelection.initialize();
     window.show();
-    simulationTimer.start();
+    if (simulation) simulationTimer.start();
     appLog.info("Application started");
     if (arguments.isSet(exitAfterStartupOption)) {
         // Queued so that shutdown begins from the running event loop, as for a user close.

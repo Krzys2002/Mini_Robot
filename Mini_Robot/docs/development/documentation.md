@@ -64,7 +64,10 @@ full Markdown syntax validation. Historical planning/archive reports are not
 scanned as current guidance, but links to them still need valid destinations.
 The build-local report is also checked when supplied with `--inventory`.
 
-CI enables the option for macOS, Linux GCC/Clang and the core job. CTest runs
+The scheduled/master CI suite enables the option for macOS, Linux GCC/Clang and
+the core job. These full build workflows do not run on pull requests. The cheap
+`Documentation links` workflow checks maintained local links/anchors on PRs
+without configuring CMake or installing dependencies. CTest in full builds runs
 `Documentation.Links` and `Documentation.Tooling` under the `documentation` label.
 Core documentation checks require neither Qt nor OpenCV and do not build hardware
 adapters. Read each CI result before claiming platform success.
@@ -95,3 +98,18 @@ For example, BLE work updates the communication page, while detector work update
 vision; composition changes may also update desktop. Regenerate inventories instead
 of restoring the deleted manual source/target lists. This migration requires human
 content review; it is not an automatic merge strategy.
+
+## Current migration review
+
+The refresh against master preserves the detailed BLE connection/message guides,
+AprilTag detector/robot-observation guides and intrinsic-profile guide. Their
+capability and test summaries now live in communication, vision and calibration
+module pages; generated inventories replace the manual source/target tables.
+Runtime implementation and existing dated hardware evidence are unchanged.
+
+Merge this broad documentation change after the overlapping workspace,
+RobotManager and debug-overlay PRs (#208/#210/#212). Refresh once more after their
+human merges: retain their newer module pages and behavior guides, migrate their
+shared architecture/testing additions into those owners, and rerun inventories,
+links and tests. The current master refresh does not claim those open features
+are merged or eliminate conflicts against a future base.

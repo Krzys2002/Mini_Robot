@@ -74,7 +74,8 @@ These contracts apply across modules:
   The physical origin will be established by M2 workspace calibration. Image
   coordinates have a separate top-left origin with +u right and +v down.
 - `Meters` and `Radians` are explicit value wrappers. They do not normalize
-  angles, validate finite values, or provide dimensional arithmetic. Convert
+  angles, validate finite values, or provide dimensional arithmetic. Code that
+  needs a canonical angle calls `normalizeAngle`, which wraps to (−π, π]. Convert
   display/protocol units at boundaries; WorldModel validates accepted poses.
 - Timestamp and duration use steady-clock types. Epoch is unspecified and valid;
   it is not wall time, a persisted media offset, or a remote device clock. Missing

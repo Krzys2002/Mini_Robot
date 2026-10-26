@@ -10,6 +10,7 @@ target_sources(micro_robot_common INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/common/RobotId.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Pose2D.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Units.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/common/Angle.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Time.hpp"
 )
 micro_robot_platform_boundary(micro_robot_common)
@@ -39,6 +40,8 @@ add_library(micro_robot_calibration STATIC
     calibration/CalibrationCapture.cpp
     calibration/IntrinsicCalibration.hpp
     calibration/IntrinsicCalibration.cpp
+    calibration/CalibrationProfile.hpp
+    calibration/CalibrationProfile.cpp
 )
 target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api)
 micro_robot_target_defaults(micro_robot_calibration)
@@ -50,11 +53,32 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
         calibration/OpenCvCalibrationDetector.cpp
         calibration/OpenCvIntrinsicCalibrationSolver.hpp
         calibration/OpenCvIntrinsicCalibrationSolver.cpp
+        calibration/OpenCvCalibrationUndistorter.hpp
+        calibration/OpenCvCalibrationUndistorter.cpp
     )
     target_link_libraries(micro_robot_calibration_opencv PUBLIC micro_robot_calibration
         PRIVATE ${OpenCV_LIBS})
     target_include_directories(micro_robot_calibration_opencv SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
     micro_robot_target_defaults(micro_robot_calibration_opencv)
+endif()
+
+# Observation values and detector interface expose neither OpenCV nor Qt types.
+add_library(micro_robot_vision_api INTERFACE)
+target_link_libraries(micro_robot_vision_api INTERFACE micro_robot_camera_api)
+target_sources(micro_robot_vision_api INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vision/MarkerDetection.hpp")
+micro_robot_platform_boundary(micro_robot_vision_api)
+# Robot identity and pixel measurements from raw markers; no detector backend.
+add_library(micro_robot_vision_observation STATIC
+    vision/RobotObservation.hpp vision/RobotObservation.cpp)
+target_link_libraries(micro_robot_vision_observation PUBLIC micro_robot_vision_api)
+micro_robot_target_defaults(micro_robot_vision_observation)
+micro_robot_platform_boundary(micro_robot_vision_observation)
+if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)
+    add_library(micro_robot_vision_opencv STATIC
+        vision/OpenCvAprilTagDetector.hpp vision/OpenCvAprilTagDetector.cpp)
+    target_link_libraries(micro_robot_vision_opencv PUBLIC micro_robot_vision_api PRIVATE ${OpenCV_LIBS})
+    target_include_directories(micro_robot_vision_opencv SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    micro_robot_target_defaults(micro_robot_vision_opencv)
 endif()
 
 add_library(micro_robot_transport_api INTERFACE)
@@ -65,6 +89,28 @@ target_sources(micro_robot_transport_api INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/transport/IRobotDiscovery.hpp"
 )
 micro_robot_platform_boundary(micro_robot_transport_api)
+
+add_library(micro_robot_ble_contract STATIC transport/ble/BleTypes.hpp transport/ble/BleTypes.cpp
+    transport/ble/BleProtocol.hpp transport/ble/BleProtocol.cpp)
+target_link_libraries(micro_robot_ble_contract PUBLIC micro_robot_transport_api)
+micro_robot_target_defaults(micro_robot_ble_contract)
+micro_robot_platform_boundary(micro_robot_ble_contract)
+
+if(MICRO_ROBOT_BUILD_BLE)
+    add_library(micro_robot_ble_lifecycle STATIC
+        transport/ble/IBleBackend.hpp
+        transport/ble/BleTransport.hpp
+        transport/ble/BleTransport.cpp)
+    target_sources(micro_robot_ble_lifecycle PRIVATE transport/ble/BleTransportProtocol.cpp)
+    set_target_properties(micro_robot_ble_lifecycle PROPERTIES AUTOMOC ON)
+    target_link_libraries(micro_robot_ble_lifecycle PUBLIC micro_robot_ble_contract micro_robot_logging Qt6::Core)
+    micro_robot_target_defaults(micro_robot_ble_lifecycle)
+    micro_robot_platform_boundary(micro_robot_ble_lifecycle BACKEND ALLOW Qt6::Core)
+
+    add_library(micro_robot_ble_qt STATIC transport/ble/QtBleBackend.hpp transport/ble/QtBleBackend.cpp)
+    target_link_libraries(micro_robot_ble_qt PUBLIC micro_robot_ble_lifecycle PRIVATE Qt6::Bluetooth)
+    micro_robot_target_defaults(micro_robot_ble_qt)
+endif()
 
 add_library(micro_robot_control STATIC
     control/DifferentialDrive.hpp
@@ -134,6 +180,12 @@ if(MICRO_ROBOT_BUILD_REPLAY)
 endif()
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
+    add_library(micro_robot_calibration_profiles STATIC
+        calibration/QtCalibrationProfileStore.hpp
+        calibration/QtCalibrationProfileStore.cpp)
+    target_link_libraries(micro_robot_calibration_profiles PUBLIC micro_robot_calibration Qt6::Core)
+    micro_robot_target_defaults(micro_robot_calibration_profiles)
+
     add_library(micro_robot_camera_discovery STATIC
         camera/QtCameraDeviceDiscovery.hpp
         camera/QtCameraDeviceDiscovery.cpp
@@ -168,8 +220,11 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     endif()
 
     add_library(micro_robot_desktop_controller STATIC
+        app/VisionController.hpp
+        app/VisionController.cpp
         app/CalibrationController.hpp
         app/CalibrationController.cpp
+        app/CalibrationControllerProfiles.cpp
         app/DesktopController.hpp
         app/DesktopController.cpp
         app/CameraSelectionController.hpp
@@ -178,7 +233,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     set_target_properties(micro_robot_desktop_controller PROPERTIES AUTOMOC ON)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
         micro_robot_camera_api micro_robot_camera_selection micro_robot_transport_api
-        micro_robot_world micro_robot_logging micro_robot_calibration Qt6::Core
+        micro_robot_world micro_robot_logging micro_robot_calibration micro_robot_vision_api Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
     # Application adapters use Qt Core only; device backends stay in adapter targets.
@@ -200,12 +255,16 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     qt_add_executable(micro_robot_desktop app/main.cpp)
     target_link_libraries(micro_robot_desktop PRIVATE
         micro_robot_ui micro_robot_simulation ${MICRO_ROBOT_LIVE_CAMERA_TARGET} micro_robot_calibration_opencv
-        micro_robot_logging micro_robot_configuration
+        micro_robot_logging micro_robot_configuration micro_robot_calibration_profiles micro_robot_vision_opencv
     )
     target_compile_definitions(micro_robot_desktop PRIVATE
         MICRO_ROBOT_VERSION="${PROJECT_VERSION}"
         $<$<STREQUAL:${MICRO_ROBOT_CAMERA_BACKEND},V4L2>:MICRO_ROBOT_CAMERA_BACKEND_V4L2>
     )
+    if(MICRO_ROBOT_BUILD_BLE)
+        target_link_libraries(micro_robot_desktop PRIVATE micro_robot_ble_qt)
+        target_compile_definitions(micro_robot_desktop PRIVATE MICRO_ROBOT_HAS_BLE)
+    endif()
     micro_robot_configure_desktop_executable(micro_robot_desktop
         "${CMAKE_CURRENT_SOURCE_DIR}/app/Info.plist.in"
     )

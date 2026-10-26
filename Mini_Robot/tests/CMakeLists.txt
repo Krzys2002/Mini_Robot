@@ -1,5 +1,34 @@
 include(GoogleTest)
 
+if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)
+    add_executable(micro_robot_vision_tests vision/AprilTagDetectorTest.cpp)
+    target_link_libraries(micro_robot_vision_tests PRIVATE micro_robot_vision_opencv
+        micro_robot_vision_observation GTest::gtest_main ${OpenCV_LIBS})
+    target_include_directories(micro_robot_vision_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    micro_robot_target_defaults(micro_robot_vision_tests)
+    if(MICRO_ROBOT_BUILD_REPLAY)
+        target_sources(micro_robot_vision_tests PRIVATE vision/AprilTagReplayTest.cpp)
+        target_link_libraries(micro_robot_vision_tests PRIVATE micro_robot_camera_replay)
+    endif()
+    gtest_discover_tests(micro_robot_vision_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "vision")
+endif()
+
+add_executable(micro_robot_ble_contract_tests transport/BleTypesTest.cpp transport/BleProtocolTest.cpp)
+target_link_libraries(micro_robot_ble_contract_tests PRIVATE micro_robot_ble_contract GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_ble_contract_tests)
+gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST)
+
+if(MICRO_ROBOT_BUILD_BLE)
+    add_executable(micro_robot_ble_tests transport/ble-main.cpp transport/BleTransportTest.cpp)
+    target_link_libraries(micro_robot_ble_tests PRIVATE micro_robot_ble_qt GTest::gtest)
+    if(MICRO_ROBOT_BUILD_DESKTOP)
+        target_link_libraries(micro_robot_ble_tests PRIVATE micro_robot_desktop_controller)
+        target_compile_definitions(micro_robot_ble_tests PRIVATE MICRO_ROBOT_BLE_WITH_DESKTOP)
+    endif()
+    micro_robot_target_defaults(micro_robot_ble_tests)
+    gtest_discover_tests(micro_robot_ble_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "ble")
+endif()
+
 if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
     add_executable(micro_robot_marker_tests vision/MarkerPrintTest.cpp)
     target_link_libraries(micro_robot_marker_tests PRIVATE micro_robot_marker_print GTest::gtest_main)
@@ -10,14 +39,18 @@ if(MICRO_ROBOT_BUILD_MARKER_TOOLS)
 endif()
 
 add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp
-    calibration/IntrinsicCalibrationTest.cpp)
+    calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
-gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core;calibration")
+gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST)
+# Set list-valued labels after discovery; semicolon escaping through
+# GoogleTest.cmake differs between supported CMake versions.
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/DiscoveredCoreLabels.cmake")
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp
-        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp)
+        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp calibration/OpenCvCalibrationUndistorterTest.cpp)
     target_link_libraries(micro_robot_calibration_detector_tests PRIVATE
         micro_robot_calibration_opencv GTest::gtest_main ${OpenCV_LIBS})
     target_include_directories(micro_robot_calibration_detector_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
@@ -47,6 +80,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     set_tests_properties(DesktopStartup.StartsAndShutsDownCleanly PROPERTIES LABELS "ui")
     add_executable(micro_robot_tests
         main.cpp
+        calibration/QtCalibrationProfileStoreTest.cpp
+        ui/VisionControllerTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
         ui/MainWindowTest.cpp
@@ -56,7 +91,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     )
     find_package(Qt6 REQUIRED COMPONENTS Test)
     target_link_libraries(micro_robot_tests PRIVATE
-        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery GTest::gtest Qt6::Test
+        micro_robot_ui micro_robot_simulation micro_robot_camera_discovery micro_robot_calibration_profiles GTest::gtest Qt6::Test
     )
     if(TARGET micro_robot_camera_v4l2)
         target_sources(micro_robot_tests PRIVATE camera/V4l2CameraTest.cpp)
@@ -88,7 +123,7 @@ target_link_libraries(micro_robot_control_tests PRIVATE micro_robot_control GTes
 micro_robot_target_defaults(micro_robot_control_tests)
 gtest_discover_tests(micro_robot_control_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
-add_executable(micro_robot_common_tests common/TypesTest.cpp)
+add_executable(micro_robot_common_tests common/TypesTest.cpp common/AngleTest.cpp)
 target_link_libraries(micro_robot_common_tests PRIVATE micro_robot_common GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_common_tests)
 gtest_discover_tests(micro_robot_common_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
@@ -132,6 +167,18 @@ target_link_libraries(micro_robot_simulation_tests PRIVATE
 )
 micro_robot_target_defaults(micro_robot_simulation_tests)
 gtest_discover_tests(micro_robot_simulation_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
+# Robot identity, center and heading from raw markers; no detector backend.
+add_executable(micro_robot_vision_observation_tests vision/RobotObservationTest.cpp)
+target_link_libraries(micro_robot_vision_observation_tests PRIVATE
+    micro_robot_vision_observation GTest::gtest_main
+)
+micro_robot_target_defaults(micro_robot_vision_observation_tests)
+gtest_discover_tests(micro_robot_vision_observation_tests DISCOVERY_MODE PRE_TEST)
+# Apply list-valued properties after discovery, without escape-dependent parsing
+# through GoogleTest.cmake (including the supported CMake 3.24 baseline).
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/vision/RobotObservationLabels.cmake")
 
 add_executable(micro_robot_world_tests world/WorldModelTest.cpp)
 target_link_libraries(micro_robot_world_tests PRIVATE micro_robot_world GTest::gtest_main)

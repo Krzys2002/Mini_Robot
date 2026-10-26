@@ -1,21 +1,18 @@
 name: macOS build and test
 
 on:
-  pull_request:
-  push:
-    branches: [master]
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
   group: macos-build-test-${{ github.workflow }}-${{ github.ref }}
-  # Superseded pull request runs are cancelled; a running default-branch run is allowed to finish.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   build-test:
+    if: github.ref == 'refs/heads/master'
     name: macOS Apple Silicon / Debug
     runs-on: macos-15
     timeout-minutes: 30

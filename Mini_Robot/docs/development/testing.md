@@ -105,9 +105,23 @@ Tests that need devices or a person are listed separately in
 
 ## macOS continuous integration
 
-The repository-level `.github/workflows/macos-build-test.yml` runs when a pull
-request is opened, reopened, or updated with new commits, and on pushes to `master`.
-Its `macOS Apple Silicon / Debug`
+The repository-level `.github/workflows/daily-build-test.yml` checks `master`
+once daily at **02:00 UTC**. It calls the reusable macOS and Linux build workflows
+only when a newly merged pull request is present in the checked-out `master`
+snapshot. There are no PR, push or manual build triggers. Days without new merges
+run only the lightweight gate, without installing build dependencies.
+
+The gate compares against the last successful daily run, including successful
+no-op checks. Missed schedules and failed runs therefore retain pending merges
+for the next daily check. Merge detection uses GitHub's merge commit SHA, covering
+merge commits, squash merges and rebase merges. Direct pushes alone do not trigger
+builds. On the first run, the gate considers commits from the preceding 24 hours.
+GitHub may delay or drop scheduled runs; this is a daily batch rather than an
+immediate post-merge guarantee. The schedule takes effect after human merge to
+`master`.
+
+The reusable `.github/workflows/macos-build-test.yml` workflow's
+`macOS Apple Silicon / Debug`
 job uses the `macos-15` runner and the default AppleClang toolchain. It checks out
 the repository with read-only permissions and without persisted credentials,
 installs CMake/Ninja/Qt/OpenCV using Homebrew, configures the `macos` preset with the
@@ -121,16 +135,9 @@ FetchContent fallback. No secrets or developer-specific paths are required.
 The Qt prefix comes from `brew --prefix qt`, and commands run in `Mini_Robot`
 relative to the checkout. Configure/build/test failures fail the job; CTest also
 fails if no tests are discovered. Logs are available in the repository's Actions
-tab and the pull request checks. New pull request runs cancel superseded runs for
-the same ref; a running `master` run is allowed to finish so the README badge reports
-a completed result. Pushes to other branches do not trigger it, which avoids
-duplicate runs for PR branches. Manual
-`workflow_dispatch` runs can validate a selected branch even when PR merge
-conflicts prevent automatic CI:
-
-```sh
-gh workflow run macos-build-test.yml --repo Krzys2002/Mini_Robot --ref your-branch
-```
+tab under the daily workflow. Running builds are allowed to finish; scheduled
+runs share a concurrency group. Both reusable workflows also reject refs other
+than `master`. Run the documented presets locally for branch validation.
 
 To run the same commands locally on macOS, start in `Mini_Robot` with installed
 Xcode Command Line Tools; remove `build/macos` first for a fresh build:
@@ -150,7 +157,7 @@ hardware or deployment packaging. Windows CI is separate Issue #106.
 ## Linux continuous integration
 
 The repository-level `.github/workflows/linux-build-test.yml` uses the same
-triggers, permissions, checkout, and concurrency rules as the macOS workflow. It
+daily caller, read-only checkout, and master-only guard as the macOS workflow. It
 runs three jobs on the `ubuntu-24.04` runner:
 
 | Job (status check name) | Preset | Compiler | Builds |
@@ -170,7 +177,7 @@ through its test preset. Qt UI tests use the offscreen platform,
 so no display, camera, Bluetooth adapter, or robot is needed. GoogleTest comes from
 the system `libgtest-dev` CONFIG package. The jobs do not use a dependency or build
 cache. One compiler's failure does not cancel the other job, and each job reports
-its own pass/fail status on the pull request and in the Actions tab.
+its own pass/fail status in the daily run in the Actions tab.
 
 To run a job's commands locally on Ubuntu 24.04, start in `Mini_Robot`:
 
@@ -186,21 +193,21 @@ ctest --preset linux-gcc
 
 Use `linux-clang` in place of `linux-gcc` for the Clang job. For the core job,
 install only `build-essential cmake ninja-build libgtest-dev` and use the commands in
-[regression suite](#regression-suite). Start a manual run with:
-
-```sh
-gh workflow run linux-build-test.yml --repo Krzys2002/Mini_Robot --ref your-branch
-```
+[regression suite](#regression-suite).
 
 ### Required status checks
 
-Branch protection can require these job names as status checks:
-`macOS Apple Silicon / Debug`, `Ubuntu 24.04 / GCC / Debug`,
-`Ubuntu 24.04 / Clang / Debug`, and `Ubuntu 24.04 / GCC / Core without Qt and OpenCV`. GitHub lists a check as selectable only after it
-has run at least once in the repository. Renaming a job or matrix entry changes
-its check name, so update the branch protection rule at the same time. Branch
-protection is configured by a repository administrator; it is not part of the
-workflow files.
+Builds now validate merged `master` snapshots and do not produce per-PR checks.
+Repository administrators must remove these build checks from any required
+pre-merge checks to avoid blocking PRs while waiting for checks that no longer run.
+Branch protection is configured separately from workflow files.
+
+To verify the daily gate locally without hardware or build dependencies:
+
+```sh
+# From the repository root, above Mini_Robot:
+python3 -m unittest discover -s .github/scripts/tests -p test_daily_build_gate.py -v
+```
 
 ## Qt-free verification
 
@@ -229,6 +236,15 @@ Add a test source to the corresponding executable in `tests/CMakeLists.txt` and
 link the domain target it exercises. For a new module, create a separate executable
 linked with `GTest::gtest_main`, apply `micro_robot_target_defaults()`, and register
 it with `gtest_discover_tests(... DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")`.
+For multiple labels, apply `set_tests_properties(... PROPERTIES LABELS "core;ble")`
+in a CTest script registered with the directory's `TEST_INCLUDE_FILES` after the
+corresponding discovery calls. Use the populated `<target>_TESTS` list and guard
+against an empty list when that executable has not been built. Do not pass escaped
+semicolon lists through `gtest_discover_tests`: parsing differs between CMake
+versions. See `tests/DiscoveredCoreLabels.cmake` for BLE/calibration and
+`tests/vision/RobotObservationLabels.cmake` for vision. Check the resulting LABELS
+arrays with `ctest --show-only=json-v1` and run exact-label filters such as
+`ctest --preset core -L '^ble$' --no-tests=error`.
 Register a new platform-independent source target with
 `micro_robot_platform_boundary()` so its boundary checks run; platform adapters
 stay unregistered. Keep pure logic tests independent of widgets and physical backends.
@@ -236,11 +252,27 @@ A test that needs a physical device gets the `hardware` label and skips without 
 device variable; follow the [hardware test rules](hardware-tests.md#rules). Future path
 or calibration tests should use deterministic inputs through their module APIs.
 
+## AprilTag pipeline verification
+
+The desktop enables the detector and adds the required OpenCV ArUco/objdetect
+component. For a Qt-free detector/replay build use desktop OFF and
+`MICRO_ROBOT_BUILD_VISION=ON`; see the [vision build guide](../vision/apriltag-detection.md#build-and-verification).
+Run detector, replay and GUI-worker tests together with:
+
+```sh
+ctest --test-dir build -R '^(AprilTag|VisionControllerTest)' --output-on-failure --no-tests=error
+```
+
+Physical printed-tag detection is not established by generated images or videos;
+record the [commissioning checks](../vision/apriltag-detection.md#physical-acceptance-not-run)
+separately. Linux/Windows runtime and legacy OpenCV execution were not run locally.
+
 ## Documentation checks
 
 Enable `MICRO_ROBOT_BUILD_DOCUMENTATION=ON` to include the offline link/anchor
 checker and tooling tests in CTest (label `documentation`). The option also
 provides a `documentation` build target and build-local CMake source/target map.
-CI enables it for every platform configuration, including the core job. Python
+The scheduled/master CI suite enables it for every platform configuration,
+including the core job; a separate PR job checks local documentation links. Python
 3.9+ is required only when this option is enabled. See
 [documentation maintenance](documentation.md) for commands and ownership rules.
