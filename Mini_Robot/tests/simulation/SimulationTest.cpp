@@ -1,6 +1,7 @@
 #include "simulation/FakeCameraSource.hpp"
 #include "simulation/FakeCameraSourceFactory.hpp"
 #include "simulation/SimulationTransport.hpp"
+#include "../transport/CommandPriorityScenarios.hpp"
 
 #include <gtest/gtest.h>
 
@@ -74,6 +75,25 @@ bool containsLog(const std::vector<LogRecord>& records, LogLevel level, const st
     });
 }
 
+TEST(SimulationTransportTest, SharesPendingCommandPriorityWithProductionBle)
+{
+    for (const auto& scenario : test::commandPriorityScenarios(Timestamp{1s})) {
+        SCOPED_TRACE(scenario.name);
+        SimulationTransport transport;
+        const RobotId id{1};
+        transport.connect(id); transport.advanceTo(Timestamp{1s});
+        for (const auto& command : scenario.pending) transport.sendCommand(id, command);
+        transport.advanceTo(Timestamp{1100ms});
+        const auto sent = transport.lastSentCommand(id);
+        ASSERT_TRUE(sent);
+        EXPECT_EQ(std::holds_alternative<StopCommand>(sent->payload), scenario.stop);
+        if (!scenario.stop) EXPECT_DOUBLE_EQ(std::get<VelocityCommand>(sent->payload).linearMetersPerSecond, scenario.linear);
+        // Stop priority ends at dispatch; a later explicit velocity is accepted.
+        transport.sendCommand(id, {VelocityCommand{0.1, 0}, Timestamp{1100ms}, 1s});
+        transport.advanceTo(Timestamp{1200ms});
+        EXPECT_TRUE(std::holds_alternative<VelocityCommand>(transport.lastSentCommand(id)->payload));
+    }
+}
 TEST(FakeCameraTest, GeneratesRepeatableLatestFramesAndRetainsStorage)
 {
     FakeCameraConfig config;

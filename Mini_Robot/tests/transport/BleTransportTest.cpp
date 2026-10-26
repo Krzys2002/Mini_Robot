@@ -1,3 +1,4 @@
+#include "CommandPriorityScenarios.hpp"
 #include "transport/ble/BleTransport.hpp"
 #include "app/RobotManager.hpp"
 #include "transport/ble/QtBleBackend.hpp"
@@ -364,6 +365,19 @@ TEST(BleTransportTest, CancelsQueuedCallbacksOnDestructionAndUsesWeakSinks)
     detached.connecting();
     emit detached.backend->ready(detached.backend->links.at(robot)); drain();
     EXPECT_EQ(detached.transport->connectionState(robot), ConnectionState::Connected);
+}
+TEST(BleTransportTest, SharesPendingCommandPriorityWithSimulation)
+{
+    for (const auto& scenario : test::commandPriorityScenarios(MonotonicClock::now())) {
+        SCOPED_TRACE(scenario.name);
+        Fixture f; f.ready();
+        for (const auto& command : scenario.pending) f.transport->sendCommand(robot, command);
+        drain();
+        ASSERT_EQ(f.backend->writes.size(), 1U);
+        const auto& sent = f.backend->writes.back().request.command;
+        EXPECT_EQ(std::holds_alternative<StopCommand>(sent.payload), scenario.stop);
+        if (!scenario.stop) EXPECT_DOUBLE_EQ(std::get<VelocityCommand>(sent.payload).linearMetersPerSecond, scenario.linear);
+    }
 }
 TEST(BleTransportTest, CoalescesLatestVelocityAndKeepsStopAheadOfUnsentMotion)
 {
