@@ -1,4 +1,5 @@
 #include "transport/ble/BleTransport.hpp"
+#include "app/RobotManager.hpp"
 #include "transport/ble/QtBleBackend.hpp"
 #if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
 #include "app/DesktopController.hpp"
@@ -604,12 +605,52 @@ TEST(BleTransportTest, PhaseObserversCannotSubmitCommandsAfterIoHasBeenInvalidat
     EXPECT_TRUE(f.backend->writes.empty());
     EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::NotConnected);
 }
+TEST(BleTransportTest, RobotManagerRoutesTwoValidatedEndpointsAndDrainsRemoval)
+{
+    Fixture f;
+    WorldModel world;
+    RobotManager robots{*f.transport, world};
+    const RobotId second{8};
+    ASSERT_TRUE(robots.addRobot(robot, MonotonicClock::now()));
+    ASSERT_TRUE(robots.addRobot(second, MonotonicClock::now()));
+    ASSERT_TRUE(robots.connect(robot));
+    ASSERT_TRUE(robots.connect(second)); drain();
+    f.backend->found("opaque-a", "MR-7");
+    f.backend->found("opaque-b", "MR-8"); f.backend->finish(); drain();
+    const auto firstToken = f.backend->links.at(robot);
+    const auto secondToken = f.backend->links.at(second);
+    emit f.backend->ready(firstToken); emit f.backend->ready(secondToken); drain();
+    ASSERT_EQ(robots.connectionState(robot), ConnectionState::Connected);
+    ASSERT_EQ(robots.connectionState(second), ConnectionState::Connected);
+    EXPECT_EQ(robots.sendCommand(second, freshVelocity()), CommandSubmission::Submitted);
+    EXPECT_EQ(robots.stop(robot, MonotonicClock::now(), 1s), CommandSubmission::Submitted); drain();
+    ASSERT_EQ(f.backend->writes.size(), 2U);
+    EXPECT_TRUE(std::any_of(f.backend->writes.begin(), f.backend->writes.end(), [&](const auto& write) {
+        return write.token == secondToken && std::holds_alternative<VelocityCommand>(write.request.command.payload);
+    }));
+    EXPECT_TRUE(std::any_of(f.backend->writes.begin(), f.backend->writes.end(), [&](const auto& write) {
+        return write.token == firstToken && std::holds_alternative<StopCommand>(write.request.command.payload);
+    }));
+    emit f.backend->notification(secondToken, BleEndpoint::Telemetry, telemetryBytes(0), MonotonicClock::now()); drain();
+    ASSERT_TRUE(robots.session(second)->telemetry);
+    EXPECT_EQ(robots.session(second)->telemetry->robotId, second);
+    EXPECT_FALSE(robots.session(robot)->telemetry);
+    EXPECT_FALSE(world.robot(second)->pose);
+    ASSERT_TRUE(robots.removeRobot(robot)); drain();
+    ASSERT_TRUE(robots.session(robot));
+    emit f.backend->closed(firstToken); drain();
+    EXPECT_FALSE(robots.session(robot));
+    EXPECT_TRUE(robots.session(second)->telemetry);
+    robots.shutdown(); drain(); emit f.backend->closed(secondToken); drain();
+    EXPECT_TRUE(robots.isStopped());
+}
 #if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
 TEST(BleTransportTest, ValidatedWireTelemetryAndErrorsReachDesktopServicesWithoutWidgets)
 {
     Fixture f;
     WorldModel world;
-    DesktopController desktop{*f.transport, world, robot, f.logger.channel("desktop")};
+    RobotManager robots{*f.transport, world};
+    DesktopController desktop{robots, world, robot, f.logger.channel("desktop")};
     QString telemetry, error;
     QObject::connect(&desktop, &DesktopController::telemetryDescriptionChanged, &desktop,
         [&](const QString& text) { telemetry = text; });

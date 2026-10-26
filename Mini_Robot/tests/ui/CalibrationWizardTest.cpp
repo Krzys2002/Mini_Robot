@@ -364,7 +364,8 @@ TEST(CalibrationWizardTest, ClosingMainWindowClosesItsCalibrationDialog)
     CaptureFixture fixture;
     SimulationTransport transport;
     WorldModel world;
-    DesktopController desktop{transport, world, RobotId{1}, fixture.logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController desktop{robots, world, RobotId{1}, fixture.logger.channel("controller")};
     MainWindow window{desktop};
     window.bindCalibration(*fixture.controller);
     window.show();
@@ -400,7 +401,8 @@ TEST(CalibrationWizardTest, DesktopRoutesActualFramesAndStopInvalidatesCalibrati
     CaptureFixture fixture;
     SimulationTransport transport;
     WorldModel world;
-    DesktopController desktop{transport, world, RobotId{1}, fixture.logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController desktop{robots, world, RobotId{1}, fixture.logger.channel("controller")};
     QObject::connect(&desktop, &DesktopController::frameAvailable,
                      fixture.controller.get(), &CalibrationController::receiveFrame);
     QObject::connect(&desktop, &DesktopController::cameraInputChanged,

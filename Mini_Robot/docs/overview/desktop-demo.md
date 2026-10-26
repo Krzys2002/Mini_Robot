@@ -115,3 +115,12 @@ observations are available from `VisionController`; they do not alter the static
 demo WorldModel pose or issue robot commands. Shutdown drains this worker along
 with the calibration worker before application exit. Printed-tag live/recorded
 acceptance remains unverified.
+
+## Robot session service
+
+The composition root now owns one [RobotManager](robot-manager.md), injecting the
+selected simulation/BLE transport, WorldModel and logging channel. DesktopController
+receives that service for connect/disconnect and selected-robot events. Its shutdown
+request cancels every managed connection; a non-selected robot's terminal event also
+participates in draining the application. Camera ownership and explicit demo pose
+updates remain unchanged. Communication telemetry never becomes a camera pose.

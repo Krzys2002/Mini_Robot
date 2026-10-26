@@ -15,7 +15,7 @@ enum class PoseUpdateResult { Applied, UnknownRobot, StaleTimestamp, InvalidPose
 // Snapshot copies may be handed off to other threads through the application.
 // The composition root owns one instance and injects references into services.
 // Copying/moving the registry is forbidden; use snapshot() for detached state.
-// Future workspace/obstacle/task domain storage belongs here, with corresponding
+// Future obstacle/task domain storage belongs here, with corresponding
 // value fields in WorldSnapshot, rather than separate authoritative registries.
 class WorldModel final {
 public:
@@ -39,8 +39,14 @@ public:
     [[nodiscard]] std::size_t robotCount() const noexcept;
     [[nodiscard]] WorldSnapshot snapshot() const;
 
+    // Same owning thread as robot state. Bounds describe the table; they do not
+    // establish camera calibration or clamp/rewrite existing robot measurements.
+    void setWorkspaceBounds(std::optional<WorkspaceBounds> bounds);
+    [[nodiscard]] std::optional<WorkspaceBounds> workspaceBounds() const;
+
 private:
     std::map<RobotId, RobotState> robots_;
+    std::optional<WorkspaceBounds> workspace_;
 };
 
 } // namespace micro_robot
