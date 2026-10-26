@@ -158,7 +158,10 @@ public:
                     emit written(link->token, sequence);
                 });
             emit phaseChanged(link->token, BlePhase::DiscoveringCharacteristics);
-            link->service->discoverDetails(QLowEnergyService::SkipValueDiscovery);
+            // Qt 6.12 on macOS leaves CCCDs unavailable with SkipValueDiscovery.
+            // Full discovery populates them before validation and subscription.
+            // Robot Info is still explicitly read and validated below.
+            link->service->discoverDetails(QLowEnergyService::FullDiscovery);
         });
         link->controller->connectToDevice();
     }

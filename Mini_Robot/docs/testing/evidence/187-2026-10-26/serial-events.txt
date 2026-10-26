@@ -1,0 +1,164 @@
+2026-10-26T10:45:57.185761+01:00 SERIAL OPEN /dev/cu.usbmodem2101
+2026-10-26T10:46:20.789343+01:00 HOST SEND status
+2026-10-26T10:46:20.895258+01:00 [271790] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T10:47:15.903938+01:00 [326852] link connected handle=0
+2026-10-26T10:48:05.281828+01:00 HOST SEND status
+2026-10-26T10:48:05.384380+01:00 [327811] link disconnected reason=531; advertising resumes
+2026-10-26T10:48:05.384695+01:00 [376283] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T10:49:19.876086+01:00 [450846] link connected handle=0
+2026-10-26T10:51:12.871834+01:00 [451745] link disconnected reason=531; advertising resumes
+2026-10-26T10:51:12.871964+01:00 [563829] link connected handle=0
+2026-10-26T10:51:13.816877+01:00 [564728] link disconnected reason=531; advertising resumes
+2026-10-26T10:52:33.942316+01:00 [644860] link connected handle=0
+2026-10-26T10:52:34.765824+01:00 [645759] Robot Info read profile=normal
+2026-10-26T10:52:35.181978+01:00 [646179] Robot Info read profile=normal
+2026-10-26T10:52:35.284141+01:00 [646239] CCCD result=1 ready=0
+2026-10-26T10:52:35.388831+01:00 [646299] CCCD telemetry=1 ready=1
+2026-10-26T10:53:08.896324+01:00 [679870] CCCD telemetry=0 ready=0
+2026-10-26T10:53:08.896657+01:00 [679871] CCCD result=0 ready=0
+2026-10-26T10:53:08.896838+01:00 [679871] link disconnected reason=531; advertising resumes
+2026-10-26T10:53:23.910891+01:00 [694872] link connected handle=0
+2026-10-26T10:53:24.738136+01:00 [695741] Robot Info read profile=normal
+2026-10-26T10:53:25.259638+01:00 [696161] Robot Info read profile=normal
+2026-10-26T10:53:25.259952+01:00 [696221] CCCD result=1 ready=0
+2026-10-26T10:53:25.363779+01:00 [696281] CCCD telemetry=1 ready=1
+2026-10-26T10:54:08.412565+01:00 [739332] CCCD telemetry=0 ready=0
+2026-10-26T10:54:08.412858+01:00 [739332] CCCD result=0 ready=0
+2026-10-26T10:54:08.413040+01:00 [739332] link disconnected reason=531; advertising resumes
+2026-10-26T10:54:25.776915+01:00 [754844] link connected handle=0
+2026-10-26T10:54:25.777282+01:00 [756703] Robot Info read profile=normal
+2026-10-26T10:54:27.123686+01:00 [758023] Robot Info read profile=normal
+2026-10-26T10:54:27.124007+01:00 [758113] CCCD result=1 ready=0
+2026-10-26T10:54:27.228817+01:00 [758173] CCCD telemetry=1 ready=1
+2026-10-26T10:54:45.745854+01:00 [776684] CCCD telemetry=0 ready=0
+2026-10-26T10:54:45.746153+01:00 [776684] CCCD result=0 ready=0
+2026-10-26T10:54:45.746279+01:00 [776684] link disconnected reason=520; advertising resumes
+2026-10-26T10:55:31.900744+01:00 HOST SEND profile wrong-id
+2026-10-26T10:55:32.526114+01:00 [111] fixture=0.1.0 id=1 profile=wrong-id subscriptions=result:0 telemetry:0
+2026-10-26T10:55:50.942659+01:00 [18556] link connected handle=0
+2026-10-26T10:55:52.610058+01:00 [19665] Robot Info read profile=wrong-id
+2026-10-26T10:55:52.610435+01:00 [20265] Robot Info read profile=wrong-id
+2026-10-26T10:55:52.818908+01:00 [20415] link disconnected reason=531; advertising resumes
+2026-10-26T10:56:16.266703+01:00 HOST SEND profile normal
+2026-10-26T10:56:16.895731+01:00 [117] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T10:57:01.827219+01:00 [44225] link connected handle=0
+2026-10-26T10:57:01.827549+01:00 [45094] Robot Info read profile=normal
+2026-10-26T10:57:02.235094+01:00 [45514] Robot Info read profile=normal
+2026-10-26T10:57:02.335906+01:00 [45574] CCCD result=1 ready=0
+2026-10-26T10:57:02.336215+01:00 [45634] CCCD telemetry=1 ready=1
+2026-10-26T10:57:20.756041+01:00 [64024] CCCD telemetry=0 ready=0
+2026-10-26T10:57:20.756265+01:00 [64024] CCCD result=0 ready=0
+2026-10-26T10:57:20.756296+01:00 [64024] link disconnected reason=531; advertising resumes
+2026-10-26T10:57:32.032513+01:00 HOST SEND profile wrong-version
+2026-10-26T10:57:32.553674+01:00 [103] fixture=0.1.0 id=1 profile=wrong-version subscriptions=result:0 telemetry:0
+2026-10-26T10:57:46.917916+01:00 [14374] link connected handle=0
+2026-10-26T10:57:47.748545+01:00 [15243] Robot Info read profile=wrong-version
+2026-10-26T10:57:48.162975+01:00 [15663] Robot Info read profile=wrong-version
+2026-10-26T10:57:48.269219+01:00 [15753] link disconnected reason=531; advertising resumes
+2026-10-26T10:58:13.779019+01:00 HOST SEND profile normal
+2026-10-26T10:58:14.407114+01:00 [110] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T10:58:28.773701+01:00 [13668] link connected handle=0
+2026-10-26T10:58:28.773829+01:00 [14537] Robot Info read profile=normal
+2026-10-26T10:58:29.188755+01:00 [14957] Robot Info read profile=normal
+2026-10-26T10:58:29.292838+01:00 [15017] CCCD result=1 ready=0
+2026-10-26T10:58:29.292908+01:00 [15077] CCCD telemetry=1 ready=1
+2026-10-26T10:59:07.009767+01:00 SERIAL REOPEN read failed: [Errno 6] Device not configured
+2026-10-26T11:00:10.478185+01:00 SERIAL OPEN /dev/cu.usbmodem2101
+2026-10-26T11:00:10.582464+01:00 [105] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T11:00:10.582793+01:00 [643] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T11:00:35.837600+01:00 [25981] link connected handle=0
+2026-10-26T11:00:37.183636+01:00 [26850] Robot Info read profile=normal
+2026-10-26T11:00:37.183920+01:00 [27270] Robot Info read profile=normal
+2026-10-26T11:00:37.184074+01:00 [27330] CCCD result=1 ready=0
+2026-10-26T11:00:37.288934+01:00 [27390] CCCD telemetry=1 ready=1
+2026-10-26T11:00:38.322548+01:00 HOST SEND status
+2026-10-26T11:00:38.424623+01:00 [28488] fixture=0.1.0 id=1 profile=normal subscriptions=result:1 telemetry:1
+2026-10-26T11:00:58.503291+01:00 [48632] CCCD telemetry=0 ready=0
+2026-10-26T11:00:58.503887+01:00 [48632] CCCD result=0 ready=0
+2026-10-26T11:00:58.504212+01:00 [48632] link disconnected reason=531; advertising resumes
+2026-10-26T11:01:12.657760+01:00 HOST SEND profile missing-command
+2026-10-26T11:01:13.283845+01:00 [109] fixture=0.1.0 id=1 profile=missing-command subscriptions=result:0 telemetry:0
+2026-10-26T11:01:29.856869+01:00 [15823] link connected handle=0
+2026-10-26T11:01:29.857217+01:00 [16722] Robot Info read profile=missing-command
+2026-10-26T11:01:30.269332+01:00 [17172] link disconnected reason=531; advertising resumes
+2026-10-26T11:02:14.543818+01:00 HOST SEND profile normal
+2026-10-26T11:02:15.063916+01:00 [102] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T11:02:29.868992+01:00 [14871] link connected handle=0
+2026-10-26T11:02:31.217041+01:00 [15740] Robot Info read profile=normal
+2026-10-26T11:02:31.217490+01:00 [16160] Robot Info read profile=normal
+2026-10-26T11:02:31.217743+01:00 [16220] CCCD result=1 ready=0
+2026-10-26T11:02:31.319804+01:00 [16280] CCCD telemetry=1 ready=1
+2026-10-26T11:02:45.400625+01:00 [30411] CCCD telemetry=0 ready=0
+2026-10-26T11:02:45.400766+01:00 [30411] CCCD result=0 ready=0
+2026-10-26T11:02:45.400835+01:00 [30411] link disconnected reason=531; advertising resumes
+2026-10-26T11:02:59.883192+01:00 HOST SEND profile bad-properties
+2026-10-26T11:03:00.508216+01:00 [108] fixture=0.1.0 id=1 profile=bad-properties subscriptions=result:0 telemetry:0
+2026-10-26T11:03:14.915170+01:00 [14563] link connected handle=0
+2026-10-26T11:03:16.154046+01:00 [15822] Robot Info read profile=bad-properties
+2026-10-26T11:03:17.403813+01:00 [17022] link disconnected reason=531; advertising resumes
+2026-10-26T11:03:31.290097+01:00 HOST SEND profile normal
+2026-10-26T11:03:31.911620+01:00 [103] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T11:03:59.983428+01:00 [28218] link connected handle=0
+2026-10-26T11:04:00.914385+01:00 [29207] Robot Info read profile=normal
+2026-10-26T11:04:01.538158+01:00 [29777] Robot Info read profile=normal
+2026-10-26T11:04:01.643781+01:00 [29837] CCCD result=1 ready=0
+2026-10-26T11:04:01.852895+01:00 [30077] CCCD telemetry=1 ready=1
+2026-10-26T11:04:14.964952+01:00 [43248] CCCD telemetry=0 ready=0
+2026-10-26T11:04:14.965220+01:00 [43248] CCCD result=0 ready=0
+2026-10-26T11:04:14.965344+01:00 [43248] link disconnected reason=531; advertising resumes
+2026-10-26T11:04:24.152726+01:00 HOST SEND profile no-telemetry-notify
+2026-10-26T11:04:24.773413+01:00 [102] fixture=0.1.0 id=1 profile=no-telemetry-notify subscriptions=result:0 telemetry:0
+2026-10-26T11:04:40.884799+01:00 [16277] link connected handle=0
+2026-10-26T11:04:41.718664+01:00 [17146] Robot Info read profile=no-telemetry-notify
+2026-10-26T11:04:42.128561+01:00 [17475] link disconnected reason=531; advertising resumes
+2026-10-26T11:05:11.390273+01:00 HOST SEND profile normal
+2026-10-26T11:05:12.011624+01:00 [112] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T11:05:30.005281+01:00 [18150] link connected handle=0
+2026-10-26T11:05:30.828020+01:00 [19019] Robot Info read profile=normal
+2026-10-26T11:05:31.344421+01:00 [19439] Robot Info read profile=normal
+2026-10-26T11:05:31.344697+01:00 [19499] CCCD result=1 ready=0
+2026-10-26T11:05:31.447710+01:00 [19559] CCCD telemetry=1 ready=1
+2026-10-26T11:06:10.937599+01:00 [59070] CCCD telemetry=0 ready=0
+2026-10-26T11:06:10.937901+01:00 [59070] CCCD result=0 ready=0
+2026-10-26T11:06:10.938102+01:00 [59071] link disconnected reason=531; advertising resumes
+2026-10-26T11:06:32.832179+01:00 HOST SEND profile slow-info
+2026-10-26T11:06:33.458136+01:00 [111] fixture=0.1.0 id=1 profile=slow-info subscriptions=result:0 telemetry:0
+2026-10-26T11:06:50.966807+01:00 [17619] link connected handle=0
+2026-10-26T11:06:55.940263+01:00 [18788] Robot Info read profile=slow-info
+2026-10-26T11:06:55.940443+01:00 [22598] Robot Info read profile=slow-info
+2026-10-26T11:06:58.938546+01:00 [25629] CCCD result=1 ready=0
+2026-10-26T11:06:58.938835+01:00 [25689] CCCD telemetry=1 ready=1
+2026-10-26T11:07:38.176829+01:00 [64840] CCCD telemetry=0 ready=0
+2026-10-26T11:07:38.177173+01:00 [64841] CCCD result=0 ready=0
+2026-10-26T11:07:38.177325+01:00 [64841] link disconnected reason=531; advertising resumes
+2026-10-26T11:07:54.958762+01:00 [81612] link connected handle=0
+2026-10-26T11:08:00.226190+01:00 [82661] Robot Info read profile=slow-info
+2026-10-26T11:08:00.226419+01:00 [86921] Robot Info read profile=slow-info
+2026-10-26T11:08:03.219566+01:00 [89921] link disconnected reason=531; advertising resumes
+2026-10-26T11:08:38.947274+01:00 [124693] link connected handle=0
+2026-10-26T11:08:38.947619+01:00 [125652] Robot Info read profile=slow-info
+2026-10-26T11:08:42.553397+01:00 [129222] Robot Info read profile=slow-info
+2026-10-26T11:08:45.548281+01:00 [132252] CCCD result=1 ready=0
+2026-10-26T11:08:45.651088+01:00 [132312] CCCD telemetry=1 ready=1
+2026-10-26T11:08:53.183974+01:00 [139903] CCCD telemetry=0 ready=0
+2026-10-26T11:08:53.184074+01:00 [139903] CCCD result=0 ready=0
+2026-10-26T11:08:53.184097+01:00 [139903] link disconnected reason=531; advertising resumes
+2026-10-26T11:09:46.842267+01:00 [193545] link connected handle=0
+2026-10-26T11:09:47.672993+01:00 [194414] Robot Info read profile=slow-info
+2026-10-26T11:09:50.887110+01:00 [197594] link disconnected reason=531; advertising resumes
+2026-10-26T11:09:58.335431+01:00 HOST SEND profile normal
+2026-10-26T11:09:58.959983+01:00 [134] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T11:10:32.930967+01:00 HOST SEND profile wrong-service
+2026-10-26T11:10:33.550833+01:00 [112] fixture=0.1.0 id=1 profile=wrong-service subscriptions=result:0 telemetry:0
+2026-10-26T11:11:49.130952+01:00 HOST SEND profile normal
+2026-10-26T11:11:49.658514+01:00 [107] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0
+2026-10-26T11:12:04.983095+01:00 [15340] link connected handle=0
+2026-10-26T11:12:05.811124+01:00 [16239] Robot Info read profile=normal
+2026-10-26T11:12:06.327753+01:00 [16689] Robot Info read profile=normal
+2026-10-26T11:12:06.328032+01:00 [16749] CCCD result=1 ready=0
+2026-10-26T11:12:06.432861+01:00 [16809] CCCD telemetry=1 ready=1
+2026-10-26T11:12:39.461585+01:00 [49870] CCCD telemetry=0 ready=0
+2026-10-26T11:12:39.461946+01:00 [49870] CCCD result=0 ready=0
+2026-10-26T11:12:39.462130+01:00 [49870] link disconnected reason=531; advertising resumes
+2026-10-26T11:13:57.806500+01:00 HOST SEND status
+2026-10-26T11:13:57.908266+01:00 [128261] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0

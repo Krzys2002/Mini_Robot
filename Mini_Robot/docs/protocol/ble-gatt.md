@@ -4,8 +4,10 @@ Status: specification for [issue #64](https://github.com/Krzys2002/Mini_Robot/is
 The desktop [BLE lifecycle](../overview/ble-connection.md) implements discovery,
 identity/service validation and notification setup. Desktop
 [message handling](../overview/ble-messages.md) implements command writes and
-validated notifications; physical command delivery remains unverified. No firmware
-implementation is provided here.
+validated notifications; physical command delivery remains unverified. No production
+firmware implementation is provided here. A connection-only
+[CodeCell bench fixture](../../firmware/ble-lifecycle/README.md) supports #187;
+it does not implement the command/safety protocol below.
 
 This contract defines how [robot message protocol](robot-protocol.md) frames are
 carried over Bluetooth Low Energy. The ESP32-C6 is the GATT server (peripheral),

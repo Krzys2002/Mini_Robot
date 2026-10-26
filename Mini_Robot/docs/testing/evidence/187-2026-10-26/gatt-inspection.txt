@@ -1,0 +1,27 @@
+
+SOURCE gatt-inspection.log
+BLE GATT inspection "{4d520002-1f2a-4032-8415-63a5fef8a0dc}" present true read true write false writeNoResponse false notify false cccd false
+BLE GATT inspection "{4d520003-1f2a-4032-8415-63a5fef8a0dc}" present true read false write true writeNoResponse true notify false cccd false
+BLE GATT inspection "{4d520004-1f2a-4032-8415-63a5fef8a0dc}" present true read false write true writeNoResponse true notify false cccd false
+BLE GATT inspection "{4d520005-1f2a-4032-8415-63a5fef8a0dc}" present true read true write false writeNoResponse false notify true cccd false
+BLE GATT inspection "{4d520006-1f2a-4032-8415-63a5fef8a0dc}" present true read false write false writeNoResponse false notify true cccd false
+
+SOURCE full-discovery.log
+BLE GATT inspection "{4d520002-1f2a-4032-8415-63a5fef8a0dc}" present true read true write false writeNoResponse false notify false cccd false
+BLE GATT inspection "{4d520003-1f2a-4032-8415-63a5fef8a0dc}" present true read false write true writeNoResponse true notify false cccd false
+BLE GATT inspection "{4d520004-1f2a-4032-8415-63a5fef8a0dc}" present true read false write true writeNoResponse true notify false cccd false
+BLE GATT inspection "{4d520005-1f2a-4032-8415-63a5fef8a0dc}" present true read true write false writeNoResponse false notify true cccd true
+BLE GATT inspection "{4d520006-1f2a-4032-8415-63a5fef8a0dc}" present true read false write false writeNoResponse false notify true cccd true
+
+SOURCE physical-profiles.log
+BLE discovered robot "{3ee863c7-7209-f3e9-7192-53f63871b85c}" "MR-1"
+BLE GATT inspection "{4d520002-1f2a-4032-8415-63a5fef8a0dc}" present true read true write false writeNoResponse false notify false cccd false
+BLE GATT inspection "{4d520003-1f2a-4032-8415-63a5fef8a0dc}" present true read false write true writeNoResponse true notify false cccd false
+BLE GATT inspection "{4d520004-1f2a-4032-8415-63a5fef8a0dc}" present true read false write true writeNoResponse true notify false cccd false
+BLE GATT inspection "{4d520005-1f2a-4032-8415-63a5fef8a0dc}" present true read true write false writeNoResponse false notify true cccd true
+BLE GATT inspection "{4d520006-1f2a-4032-8415-63a5fef8a0dc}" present true read false write false writeNoResponse false notify true cccd true
+BLE Robot Info 1 "01 01 01 01 00 00 00 00 01 00 2c 01 70 17 f4 01 64 00"
+BLE Robot Info 1 "01 02 02 01 00 00 00 00 01 00 2c 01 70 17 f4 01 64 00"
+BLE GATT inspection "{4d520003-1f2a-4032-8415-63a5fef8a0dc}" present false read false write false writeNoResponse false notify false cccd false
+BLE GATT inspection "{4d520003-1f2a-4032-8415-63a5fef8a0dc}" present true read true write false writeNoResponse false notify false cccd false
+BLE GATT inspection "{4d520005-1f2a-4032-8415-63a5fef8a0dc}" present true read true write false writeNoResponse false notify false cccd false
