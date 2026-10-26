@@ -89,6 +89,7 @@ TEST(WorkspaceTest, WorldOwnsOptionalBoundsAndSnapshotsRemainDetached)
 {
     WorldModel world;
     EXPECT_FALSE(world.snapshot().workspace);
+    EXPECT_FALSE(world.workspaceBounds());
     world.setWorkspaceBounds(WorkspaceBounds{Meters{1.2}, Meters{0.8}});
     auto snapshot = world.snapshot();
     ASSERT_TRUE(snapshot.workspace);
@@ -96,8 +97,10 @@ TEST(WorkspaceTest, WorldOwnsOptionalBoundsAndSnapshotsRemainDetached)
     EXPECT_DOUBLE_EQ(snapshot.workspace->width().value, 1.2);
     snapshot.workspace.reset();
     EXPECT_DOUBLE_EQ(world.snapshot().workspace->height().value, 3);
+    EXPECT_DOUBLE_EQ(world.workspaceBounds()->height().value, 3);
     world.setWorkspaceBounds(std::nullopt);
     EXPECT_FALSE(world.snapshot().workspace);
+    EXPECT_FALSE(world.workspaceBounds());
 }
 TEST(WorkspaceTest, BoundsChangesDoNotClampOrReinterpretRobotPoses)
 {

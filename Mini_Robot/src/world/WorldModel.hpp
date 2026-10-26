@@ -42,6 +42,7 @@ public:
     // Same owning thread as robot state. Bounds describe the table; they do not
     // establish camera calibration or clamp/rewrite existing robot measurements.
     void setWorkspaceBounds(std::optional<WorkspaceBounds> bounds);
+    [[nodiscard]] std::optional<WorkspaceBounds> workspaceBounds() const;
 
 private:
     std::map<RobotId, RobotState> robots_;
