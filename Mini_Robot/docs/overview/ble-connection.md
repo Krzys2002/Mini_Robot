@@ -140,7 +140,12 @@ replacement/expiry and destruction. The [message tests](ble-messages.md) cover
 command dispatch, notification parsing and E-stop behavior. They do not
 open Bluetooth hardware or request permission.
 
-Physical acceptance remains required; it was **not run**:
+Physical acceptance remains incomplete. The
+[2026-10-26 CodeCell run](../testing/ble-connection-187-results-2026-10-26.md)
+records repeated connections, cancellation, fault/recovery and teardown, plus
+the full-discovery fix required for real CCCDs on the tested macOS/Qt 6.12 setup.
+Permission/adapter-off, duplicate-ID, isolated missing-CCCD and other-platform
+checks remain NOT RUN. The following procedure remains the acceptance checklist:
 
 The [CodeCell test procedure for #187](../testing/ble-connection-187.md) provides
 build/flash commands, a connection-only [ESP32-C6 fixture](../../firmware/ble-lifecycle/README.md),

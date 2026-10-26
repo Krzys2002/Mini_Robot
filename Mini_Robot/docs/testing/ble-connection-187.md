@@ -12,6 +12,11 @@ bytes/properties remains [BLE GATT](../protocol/ble-gatt.md) and the
 [robot protocol](../protocol/robot-protocol.md). The desktop lifecycle is described
 in [BLE connections](../overview/ble-connection.md).
 
+The [2026-10-26 physical run report](ble-connection-187-results-2026-10-26.md)
+records the first CodeCell execution, the discovery defect/fix, passed cases
+and remaining NOT RUN checks. The initial status above describes preparation;
+use the report for actual recorded outcomes.
+
 ## 1. Equipment and evidence directory
 
 Use a CodeCell ESP32-C6, a USB data cable, a macOS computer with Bluetooth, Qt 6
