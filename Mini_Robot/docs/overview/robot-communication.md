@@ -113,7 +113,9 @@ scan inventory with `IRobotDiscovery` remains separate work.
 | A future BLE adapter's headers are forbidden in core sources. | Headers of every unregistered first-party target become forbidden includes automatically. |
 
 The `RobotManager` application service ([#67](https://github.com/Krzys2002/Mini_Robot/issues/67))
-will hold the injected interfaces and route commands by `RobotId`. Control code
+holds the injected transport and routes commands by `RobotId`; its
+[behavior guide](robot-manager.md) defines per-robot sessions, telemetry, ownership
+and shutdown. Control code
 produces semantic commands and never addresses a radio peer.
 
 ## Mock transport tests

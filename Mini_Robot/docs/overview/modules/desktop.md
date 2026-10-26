@@ -26,3 +26,8 @@ Automated [GUI compatibility](../../development/gui-compatibility.md) checks cov
 resizing, mouse/keyboard input and scale factors 1.5/2. The guide retains executed
 Wayland and X11 (Xwayland) results and the limits of synthetic input. Physical
 input through the compositor remains a separate manual check.
+
+The [RobotManager guide](../robot-manager.md) owns all-session robot shutdown.
+World bounds and coordinate labels use the authoritative model without implying
+camera-to-world calibration. Closing the application drains the camera, all
+managed robot sessions and perception/calibration workers before destruction.

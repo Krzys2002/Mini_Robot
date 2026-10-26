@@ -206,7 +206,8 @@ TEST(VisionControllerTest, DesktopCameraEventsFeedServiceAndStatusWithoutWorldPo
     f.unblock();
     ManualTransport transport;
     WorldModel world;
-    DesktopController desktop{transport, world, RobotId{1}, f.logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController desktop{robots, world, RobotId{1}, f.logger.channel("controller")};
     QObject::connect(&desktop, &DesktopController::cameraInputChanged, f.vision.get(), &VisionController::setInput);
     QObject::connect(&desktop, &DesktopController::frameAvailable, f.vision.get(), &VisionController::receiveFrame);
     MainWindow window{desktop};

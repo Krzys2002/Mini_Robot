@@ -52,7 +52,8 @@ struct DesktopFixture {
     FakeCameraSourceFactory cameras; // Outlives the source owned by the controller.
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
     ICameraSource* camera{};
     Timestamp now{1s};
@@ -94,6 +95,38 @@ TEST(MainWindowSmokeTest, OpensAndCloses)
     EXPECT_TRUE(fixture.window.close());
     QApplication::processEvents();
     EXPECT_FALSE(fixture.window.isVisible());
+}
+
+TEST(DesktopIntegrationTest, TabletopConventionAndUnconfiguredWorkspaceAreVisible)
+{
+    DesktopFixture fixture;
+    fixture.window.show();
+    QApplication::processEvents();
+    auto* convention = fixture.label("worldCoordinateConvention");
+    ASSERT_NE(convention, nullptr);
+    EXPECT_TRUE(convention->isVisible());
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("lower-left (0, 0) m")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("+X")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("+Y")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("0 rad")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("counterclockwise")));
+    EXPECT_TRUE(fixture.label("workspaceDescription")->text().contains(QStringLiteral("not configured")));
+    const auto screenshot = qEnvironmentVariable("MICRO_ROBOT_WORKSPACE_SCREENSHOT");
+    if (!screenshot.isEmpty()) EXPECT_TRUE(fixture.window.grab().save(screenshot));
+}
+
+TEST(DesktopIntegrationTest, MeasuredBoundsReachUiWithoutClaimingCameraCalibration)
+{
+    DesktopFixture fixture;
+    fixture.controller.setWorkspaceBounds(WorkspaceBounds{Meters{1.2}, Meters{0.8}});
+    const auto text = fixture.label("workspaceDescription")->text();
+    EXPECT_TRUE(text.contains(QStringLiteral("1.2 m × 0.8 m")));
+    EXPECT_TRUE(text.contains(QStringLiteral("calibration not established")));
+    ASSERT_TRUE(fixture.world.snapshot().workspace);
+    EXPECT_DOUBLE_EQ(fixture.world.snapshot().workspace->width().value, 1.2);
+    fixture.controller.setWorkspaceBounds(std::nullopt);
+    EXPECT_FALSE(fixture.world.snapshot().workspace);
+    EXPECT_TRUE(fixture.label("workspaceDescription")->text().contains(QStringLiteral("not configured")));
 }
 
 TEST(DesktopIntegrationTest, StartupRegistersRobotAndShowsIdleControls)
@@ -192,7 +225,8 @@ TEST(DesktopIntegrationTest, DestroyedControllerDetachesSubscriptionsAndReleases
     SimulationTransport transport;
     WorldModel world;
     {
-        auto controller = std::make_unique<DesktopController>(transport, world, RobotId{1},
+        RobotManager robots{transport, world};
+        auto controller = std::make_unique<DesktopController>(robots, world, RobotId{1},
                                                               logger.channel("controller"));
         controller->setCameraSource(cameras.create({"fake", "Fake camera"}));
         controller->initialize(Timestamp{1s});
@@ -271,7 +305,8 @@ TEST(DesktopIntegrationTest, CameraTerminalStatesPermitRecoveryThroughTheInterfa
     Logger logger;
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.initialize(Timestamp{1s});
@@ -313,7 +348,8 @@ TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellat
     Logger logger;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.initialize(Timestamp{1s});
@@ -354,6 +390,7 @@ TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellat
     transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{3s});
     EXPECT_TRUE(button("connectRobot")->isEnabled());
 
+    button("connectRobot")->click(); // Start the next session before completing it.
     transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{4s});
     transport.publishTelemetry({RobotId{1}, Timestamp{4s}, std::nullopt, std::nullopt, std::nullopt});
     EXPECT_TRUE(label("telemetryDescription")->text().contains(QStringLiteral("unknown battery")));
@@ -367,6 +404,56 @@ TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellat
     transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{5s});
 }
 
+TEST(DesktopIntegrationTest, ShutdownWaitsForEveryManagedRobotWithoutMixingSelectedTelemetry)
+{
+    Logger logger;
+    test::ManualTransport transport;
+    WorldModel world;
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
+    MainWindow window{controller};
+    controller.initialize(Timestamp{1s});
+    ASSERT_TRUE(robots.addRobot(RobotId{2}, Timestamp{1s}));
+    controller.connectRobot();
+    ASSERT_TRUE(robots.connect(RobotId{2}));
+    transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{2s});
+    transport.publishState(RobotId{2}, ConnectionState::Connected, Timestamp{2s});
+    transport.publishTelemetry({RobotId{1}, Timestamp{3s}, 3.7, 0.0, 0.0});
+    const auto selected = window.findChild<QLabel*>(QStringLiteral("telemetryDescription"))->text();
+    transport.publishTelemetry({RobotId{2}, Timestamp{3s}, 4.2, 0.1, 0.2});
+    EXPECT_EQ(window.findChild<QLabel*>(QStringLiteral("telemetryDescription"))->text(), selected);
+    int drained = 0;
+    QObject::connect(&controller, &DesktopController::robotSessionsStopped, &controller, [&] { ++drained; });
+    controller.shutdown();
+    EXPECT_EQ(transport.disconnectRequests.size(), 2U);
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{4s});
+    EXPECT_EQ(drained, 0);
+    transport.publishState(RobotId{2}, ConnectionState::Disconnected, Timestamp{4s});
+    EXPECT_EQ(drained, 1);
+    EXPECT_TRUE(robots.isStopped());
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{5s});
+    EXPECT_EQ(drained, 1);
+}
+
+TEST(DesktopIntegrationTest, RejectedConnectDuringDisconnectReportsFeedback)
+{
+    Logger logger; test::ManualTransport transport; WorldModel world;
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
+    controller.initialize(Timestamp{1s});
+    controller.connectRobot();
+    transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{2s});
+    controller.disconnectRobot();
+    transport.publishState(RobotId{1}, ConnectionState::Disconnecting, Timestamp{3s});
+    QString error;
+    QObject::connect(&controller, &DesktopController::errorOccurred, &controller,
+        [&](const QString& message) { error = message; });
+    controller.connectRobot();
+    EXPECT_TRUE(error.contains("Disconnecting"));
+    EXPECT_EQ(transport.connectRequests.size(), 1U);
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{4s});
+}
+
 TEST(DesktopIntegrationTest, ControllerLogsLifecycleStateChangesAndErrors)
 {
     Logger logger{LogLevel::Debug};
@@ -374,7 +461,8 @@ TEST(DesktopIntegrationTest, ControllerLogsLifecycleStateChangesAndErrors)
     logger.addSink(sink);
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     auto& camera = installManualCamera(controller);
 
     controller.initialize(Timestamp{1s});
@@ -403,7 +491,8 @@ TEST(DesktopIntegrationTest, InitializationCannotRestartAShutdownController)
     Logger logger;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     auto& camera = installManualCamera(controller);
     MainWindow window{controller};
     controller.shutdown();
@@ -421,7 +510,8 @@ struct ReplacementFixture {
     Logger logger;
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
 
     ReplacementFixture() { controller.initialize(Timestamp{1s}); }
@@ -639,7 +729,8 @@ TEST(CameraStreamControlTest, FailedStartIsVisibleLoggedAndRetryable)
     logger.addSink(logs);
     test::ManualTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     MainWindow window{controller};
     auto& camera = installManualCamera(controller);
     controller.startCamera(); // No requests before initialization.

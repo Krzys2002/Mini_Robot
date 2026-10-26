@@ -107,9 +107,9 @@ capability and test summaries now live in communication, vision and calibration
 module pages; generated inventories replace the manual source/target tables.
 Runtime implementation and existing dated hardware evidence are unchanged.
 
-Merge this broad documentation change after the overlapping workspace,
-RobotManager and debug-overlay PRs (#208/#210/#212). Refresh once more after their
-human merges: retain their newer module pages and behavior guides, migrate their
+Workspace and RobotManager PRs (#208/#210) are now merged into master and
+incorporated in this refresh. Merge this broad documentation change after the
+remaining debug-overlay PR (#212), then refresh once more: retain their newer module pages and behavior guides, migrate their
 shared architecture/testing additions into those owners, and rerun inventories,
-links and tests. The current master refresh does not claim those open features
-are merged or eliminate conflicts against a future base.
+links and tests. The current master refresh does not claim the debug overlay is merged or
+eliminate conflicts against a future base.

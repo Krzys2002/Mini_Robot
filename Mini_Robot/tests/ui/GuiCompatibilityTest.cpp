@@ -65,7 +65,8 @@ struct GuiFixture {
     FakeCameraSourceFactory cameras; // Outlives the source owned by the controller.
     SimulationTransport transport;
     WorldModel world;
-    DesktopController controller{transport, world, RobotId{1}, logger.channel("controller")};
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
     CameraSelectionController selection{discovery, cameras, controller, logger.channel("camera")};
     CalibrationController calibration{std::make_unique<NoTargetDetector>(),
                                       std::make_unique<NoSolutionSolver>(),
@@ -132,7 +133,7 @@ struct GuiFixture {
         QList<QWidget*> widgets;
         for (const char* name : {"applicationStatus", "selectedCamera", "activeCamera",
                                  "cameraStatus", "frameDescription", "connectionStatus",
-                                 "telemetryDescription", "worldDescription"}) {
+                                 "telemetryDescription", "worldCoordinateConvention", "workspaceDescription", "worldDescription"}) {
             widgets.push_back(label(name));
         }
         widgets.push_back(selector());

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="450" viewBox="0 0 760 450">
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#145da0"/></marker></defs>
+  <rect width="760" height="450" fill="white"/>
+  <g font-family="sans-serif" font-size="17" fill="#182b3a">
+    <text x="35" y="34" font-size="23" font-weight="bold">Tabletop world frame — top-down world view</text>
+    <rect x="130" y="95" width="460" height="255" rx="2" fill="#f2f7fc" stroke="#607d93" stroke-width="2"/>
+    <text x="255" y="80">width W (metres)</text>
+    <text x="610" y="215">height H</text><text x="610" y="239">(metres)</text>
+    <path d="M130,350 H660" fill="none" stroke="#145da0" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M130,350 V56" fill="none" stroke="#145da0" stroke-width="3" marker-end="url(#arrow)"/>
+    <text x="672" y="357">+X</text><text x="76" y="65">+Y</text>
+    <circle cx="130" cy="350" r="5" fill="#145da0"/>
+    <text x="35" y="385">Origin (0, 0) m: measured lower-left workspace corner</text>
+    <text x="142" y="118">(0, H)</text><text x="512" y="118">(W, H)</text>
+    <text x="505" y="335">(W, 0)</text>
+    <circle cx="338" cy="254" r="23" fill="#d8ead9" stroke="#26734d" stroke-width="2"/>
+    <path d="M338,254 H438 M338,254 L420,197" fill="none" stroke="#145da0" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M391,254 A53,53 0 0 0 381,224" fill="none" stroke="#145da0" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="449" y="260">0 rad</text><text x="365" y="184">positive heading: CCW</text>
+    <text x="35" y="422">+Z points out of the table. Camera image axes are a separate frame.</text>
+  </g>
+</svg>

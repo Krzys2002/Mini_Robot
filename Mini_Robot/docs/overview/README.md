@@ -18,3 +18,5 @@
 
 Module/feature guides own capability details. GitHub owns live issue progress;
 indexes provide navigation. Project constraints remain in [AGENTS.md](../../AGENTS.md).
+
+- [WorldModel behavior](world-model.md): registration, poses and snapshots.

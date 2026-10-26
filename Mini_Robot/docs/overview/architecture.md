@@ -71,7 +71,9 @@ These contracts apply across modules:
   uses an optional value.
 - `Pose2D` uses metres for x/y and radians for heading. In a top-down world view,
   +x is right and +y is up; heading is zero along +x and positive counterclockwise.
-  The physical origin will be established by M2 workspace calibration. Image
+  The physical origin is the measured lower-left table corner in the intended
+  top-down world view; [workspace calibration](workspace.md) binds camera pixels
+  separately. Image
   coordinates have a separate top-left origin with +u right and +v down.
 - `Meters` and `Radians` are explicit value wrappers. They do not normalize
   angles, validate finite values, or provide dimensional arithmetic. Code that
@@ -100,3 +102,7 @@ Update the owning module/behavior guide for feature changes. Edit this page when
 shared boundaries or conventions change. Recipes live in the
 [testing guide](../development/testing.md); ownership and merge order are in
 [documentation maintenance](../development/documentation.md).
+
+Calibration depends on world value types; the world registry does not depend on
+camera models or Qt/OpenCV. RobotManager owns transport subscriptions above the
+adapter boundary; see the [communication module](modules/communication.md).

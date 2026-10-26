@@ -16,12 +16,17 @@ retry/reassertion is a transport primitive, not a domain safety latch or operato
 UI. Composition selects BLE with `--ble`; simulation remains the default. Radio
 objects and endpoint identity verification stay private.
 
-RobotManager, operator motion/safety controls and physical acceptance remain
-issue-scoped. Shared contract tests now exercise discovery ambiguity and pending
-connection/cancellation across simulation and an alternative test backend.
+[RobotManager](../robot-manager.md) coordinates injected sessions by RobotId and
+routes connection intent, commands, Stop requests, telemetry and errors. This
+Qt-free application service owns the transport event subscription and detached
+communication snapshots; WorldModel retains pose/workspace authority. Sessions
+are independent and shutdown drains all managed robots. Shutdown is teardown,
+not an implicit Stop-delivery protocol; firmware watchdog/stop-on-disconnect
+remains required. Operator motion/safety policy remains separate.
 
 ## Behavior guides
 
+- [RobotManager sessions and application ownership](../robot-manager.md)
 - [Transport contract](../transport.md)
 - [Discovery/platform preparation](../robot-communication.md)
 - [Wire protocol/GATT](../../protocol/README.md)
@@ -35,3 +40,9 @@ hardware. Opt-in Qt Core fake-radio tests exercise lifecycle, identity, command
 freshness, malformed notifications, result correlation and recovery. The guides
 own test selection, BlueZ requirements and physical acceptance (#187/#189).
 Fake-radio results do not prove over-air delivery, watchdog or physical E-stop.
+
+Manager tests cover independent routing, stale/invalid telemetry, removal,
+cancellation, callback reentrancy, retained-sink teardown and two fake BLE links.
+Physical RobotManager/multi-link acceptance remains [#209](https://github.com/Krzys2002/Mini_Robot/issues/209),
+with all physical checks NOT RUN. Manual motion UI, domain E-stop, reconnect
+policy and multi-robot coordination remain separate issues.

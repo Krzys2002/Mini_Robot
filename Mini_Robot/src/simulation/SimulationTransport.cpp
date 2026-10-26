@@ -72,6 +72,7 @@ std::string_view toString(TransportErrorCode code)
     case TransportErrorCode::InvalidCommand: return "InvalidCommand";
     case TransportErrorCode::BackendFailure: return "BackendFailure";
     case TransportErrorCode::UnsupportedVersion: return "UnsupportedVersion";
+    case TransportErrorCode::InvalidTelemetry: return "InvalidTelemetry";
     }
     return "Unknown";
 }

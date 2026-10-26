@@ -153,7 +153,8 @@ int main(int argc, char* argv[])
     CameraDiscovery cameraDiscovery;
     WorldModel world;
     const RobotId robotId = config.robot.id;
-    DesktopController controller{*transport, world, robotId, logger.channel("controller")};
+    RobotManager robots{*transport, world, logger.channel("robots")};
+    DesktopController controller{robots, world, robotId, logger.channel("controller")};
     CameraSelectionController cameraSelection{cameraDiscovery, cameraFactory, controller,
                                               logger.channel("camera")};
     CalibrationController calibration{std::make_unique<OpenCvCalibrationDetector>(),
@@ -184,7 +185,7 @@ int main(int argc, char* argv[])
     bool cameraActive = false;
     bool transportActive = false;
     const auto finishShutdown = [&] {
-        if (closing && !cameraActive && !transportActive && calibration.isStopped() && vision.isStopped()) application.quit();
+        if (closing && !cameraActive && !transportActive && robots.isStopped() && calibration.isStopped() && vision.isStopped()) application.quit();
     };
     QObject::connect(&controller, &DesktopController::cameraStatusChanged, &window,
                      [&](const QString&, bool active) {
@@ -203,6 +204,7 @@ int main(int argc, char* argv[])
         controller.shutdown();
         finishShutdown();
     });
+    QObject::connect(&controller, &DesktopController::robotSessionsStopped, &window, finishShutdown);
     QObject::connect(&calibration, &CalibrationController::stopped, &window, finishShutdown);
     QObject::connect(&vision, &VisionController::stopped, &window, finishShutdown);
     bool robotConnected = false;

@@ -2,7 +2,7 @@
 
 #include "camera/ICameraSource.hpp"
 #include "infrastructure/logging/Logger.hpp"
-#include "transport/IRobotTransport.hpp"
+#include "app/RobotManager.hpp"
 #include "world/WorldModel.hpp"
 
 #include <QObject>
@@ -23,12 +23,14 @@ class DesktopController final : public QObject {
     Q_OBJECT
 
 public:
-    DesktopController(IRobotTransport& transport, WorldModel& world, RobotId robotId,
+    DesktopController(RobotManager& robots, WorldModel& world, RobotId robotId,
                       LogChannel log, QObject* parent = nullptr);
     ~DesktopController() override;
 
     void initialize(Timestamp now);
     [[nodiscard]] PoseUpdateResult applyPose(RobotId id, const Pose2D& pose, Timestamp at);
+    // Measured table dimensions only; this never implies a calibrated camera.
+    void setWorkspaceBounds(std::optional<WorkspaceBounds> bounds);
 
     // Replaces the active camera; nullptr clears it. A running source is asked to
     // stop first and is replaced once it reports Stopped, Disconnected, or Fault,
@@ -62,6 +64,8 @@ signals:
     void connectionStatusChanged(const QString& status, bool connected, bool active);
     void telemetryDescriptionChanged(const QString& description);
     void worldDescriptionChanged(const QString& description);
+    void workspaceDescriptionChanged(const QString& description);
+    void robotSessionsStopped(); // All managed sessions drained during shutdown.
     void errorOccurred(const QString& message);
 
 private:
@@ -77,7 +81,7 @@ private:
     void receiveTelemetry(const RobotTelemetry& telemetry);
     [[nodiscard]] double elapsedSeconds(Timestamp at) const;
 
-    IRobotTransport& transport_;
+    RobotManager& robots_;
     WorldModel& world_;
     RobotId robotId_;
     LogChannel log_;
@@ -89,6 +93,7 @@ private:
     Timestamp startedAt_{};
     bool initialized_{};
     bool shuttingDown_{};
+    bool robotSessionsStoppedEmitted_{};
     bool replacementPending_{};
     bool replacementScheduled_{};
 };
