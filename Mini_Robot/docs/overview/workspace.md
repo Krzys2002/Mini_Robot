@@ -36,7 +36,15 @@ Sources: [Workspace.hpp](../../src/world/Workspace.hpp),
 `WorldModel::setWorkspaceBounds(optionalBounds)` sets or clears the current table
 bounds on the model's owning thread. `WorldSnapshot::workspace` is a detached
 optional copy; absence explicitly means **dimensions not configured**. No second
-workspace registry is created.
+workspace registry is created. `workspaceBounds()` reads those dimensions without
+copying the robot registry.
+
+A profile is saved calibration data, not a second live world authority. When #57
+activates a validated compatible profile, its application service must install
+`profile.bounds` in WorldModel on the owning thread. Subsequent dimension changes
+must invalidate/deactivate that transform before publishing the new bounds; never
+keep an active transform tied to a different table size. Profile loading and this
+activation lifecycle belong to #57, not this data-model issue.
 
 The main window always shows the lower-left origin, +X/+Y, SI units, zero heading
 and CCW convention. `DesktopController::setWorkspaceBounds` publishes measured
@@ -80,6 +88,12 @@ check mapping accuracy or authorize robot control. Compatibility rejects any
 camera identity, resolution, K or distortion change without silently resizing a
 transform. Moving a camera/lens/table also requires new workspace calibration;
 identity/metadata equality cannot detect physical motion.
+
+Profiles intentionally require explicit bounds at construction. A #57 loader
+should parse and validate dimensions first, then construct the aggregate; it must
+not introduce guessed default dimensions. K and distortion compare exactly, so
+persistence must preserve doubles losslessly (for decimal text, use
+`std::numeric_limits<double>::max_digits10`) and test save/load compatibility.
 
 No workspace serialization, filesystem store, homography estimator, metric robot
 pose conversion or tracking is added here. Those belong to

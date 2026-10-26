@@ -324,7 +324,7 @@ void DesktopController::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds
 
 void DesktopController::publishWorld()
 {
-    const auto workspace = world_.snapshot().workspace;
+    const auto workspace = world_.workspaceBounds();
     emit workspaceDescriptionChanged(workspace
         ? QStringLiteral("Workspace: %1 m × %2 m · camera-to-world calibration not established")
             .arg(workspace->width().value, 0, 'g', 6).arg(workspace->height().value, 0, 'g', 6)

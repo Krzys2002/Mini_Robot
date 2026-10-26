@@ -3,6 +3,11 @@
 #include "calibration/IntrinsicCalibration.hpp"
 #include "world/Workspace.hpp"
 
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+
 namespace micro_robot {
 inline constexpr std::uint32_t WorkspaceCalibrationProfileVersion = 1;
 enum class WorkspaceImageCoordinates { UndistortedNativeCameraMatrix };
@@ -14,6 +19,8 @@ struct WorkspaceHomography {
 };
 // Separate from lens intrinsics: changing camera placement/table requires a new
 // workspace calibration even when the lens model remains valid. No I/O or solver.
+// Deliberately not default-constructible: parse/validate dimensions before
+// aggregate construction; no placeholder or assumed physical table size.
 struct WorkspaceCalibrationProfile {
     std::uint32_t version{WorkspaceCalibrationProfileVersion};
     std::string workspaceId;
@@ -28,6 +35,8 @@ struct WorkspaceCalibrationProfile {
 // numerically nonsingular H), not physical accuracy or permission to control a robot.
 [[nodiscard]] std::string validateWorkspaceCalibrationProfile(const WorkspaceCalibrationProfile& profile);
 // Rejects camera/resolution or optical-model changes; never rescales a transform.
+// Optical doubles compare exactly. Persistence must round-trip them losslessly
+// (e.g. max_digits10 for decimal text), rather than relaxing compatibility.
 [[nodiscard]] std::string workspaceCalibrationCompatibilityError(
     const WorkspaceCalibrationProfile& profile, const IntrinsicCalibration& activeIntrinsics);
 } // namespace micro_robot
