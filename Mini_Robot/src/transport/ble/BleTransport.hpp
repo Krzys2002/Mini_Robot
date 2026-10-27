@@ -31,7 +31,8 @@ public:
     // (#70 owns the domain safety interface). Latches intent, rejects Velocity,
     // retries on the dedicated characteristic and reasserts before reconnect is
     // published Connected. Clearing the latch is deliberately not exposed here.
-    void requestEmergencyStop(RobotId id);
+    [[nodiscard]] bool supportsEmergencyStop() const noexcept override { return true; }
+    void requestEmergencyStop(RobotId id) override;
     void startDiscovery();
     void cancelDiscovery(); // Cancels robots still awaiting this scan, not active links.
     [[nodiscard]] bool discovering() const noexcept { return scanning_; }

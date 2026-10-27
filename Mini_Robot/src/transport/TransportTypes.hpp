@@ -43,6 +43,8 @@ struct RobotCommand {
     TransportMessageMetadata metadata{};
 };
 
+enum class RobotOperatingState { Unknown, Idle, Moving, EmergencyStop, Fault };
+
 struct RobotTelemetry {
     RobotId robotId;
     Timestamp receivedAt; // Desktop receipt time, not a remote device clock.
@@ -50,6 +52,7 @@ struct RobotTelemetry {
     std::optional<double> linearMetersPerSecond;
     std::optional<double> angularRadiansPerSecond;
     TransportMessageMetadata metadata{};
+    RobotOperatingState operatingState{RobotOperatingState::Unknown};
 };
 
 enum class TransportOperation { Connect, Disconnect, SendCommand, ReceiveTelemetry };

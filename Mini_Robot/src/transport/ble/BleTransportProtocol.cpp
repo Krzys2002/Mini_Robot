@@ -192,7 +192,10 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
         }
         if (auto sink = sink_.lock()) sink->onTelemetry({*id, at, telemetry->batteryVolts,
             telemetry->linearMetersPerSecond, telemetry->angularRadiansPerSecond,
-            {currentTransportModelVersion, accepted->unwrapped}});
+            {currentTransportModelVersion, accepted->unwrapped},
+            telemetry->state == BleRobotState::Fault ? RobotOperatingState::Fault
+                : telemetry->state == BleRobotState::EmergencyStop ? RobotOperatingState::EmergencyStop
+                : telemetry->state == BleRobotState::Moving ? RobotOperatingState::Moving : RobotOperatingState::Idle});
     } else {
         const auto& result = std::get<BleCommandResultFrame>(decoded.frame->payload);
         session.robotState = result.state;

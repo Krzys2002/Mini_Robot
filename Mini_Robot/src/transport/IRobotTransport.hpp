@@ -60,6 +60,14 @@ public:
     // Wire versions, sequence allocation, acknowledgments, and encoding belong
     // to adapters; callers need not assign a sequence to submit a domain command.
     virtual void sendCommand(RobotId id, const RobotCommand& command) = 0;
+
+    // Optional dedicated latch primitive, separate from ordinary Stop. Called on
+    // the owning thread; latches intent before return and dispatches asynchronously.
+    // No clear operation: #70 owns recovery/confirmation policy. Unsupported
+    // transports must advertise false; callers must not label Stop as E-stop.
+    [[nodiscard]] virtual bool supportsEmergencyStop() const noexcept { return false; }
+    virtual void requestEmergencyStop(RobotId) {}
+
 };
 
 } // namespace micro_robot
