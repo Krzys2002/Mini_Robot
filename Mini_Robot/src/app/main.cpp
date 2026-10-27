@@ -163,7 +163,7 @@ int main(int argc, char* argv[])
     calibration.setProfileServices(std::make_unique<QtCalibrationProfileStore>(
         QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
             .filePath(QStringLiteral("calibration"))), std::make_unique<OpenCvCalibrationUndistorter>());
-    QObject::connect(&controller, &DesktopController::cameraInputChanged,
+    QObject::connect(&controller, &DesktopController::calibrationInputChanged,
                      &calibration, &CalibrationController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
                      &calibration, &CalibrationController::receiveFrame);

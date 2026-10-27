@@ -8,21 +8,16 @@ source-based architecture assessment, not a live GitHub issue-status report.
 
 Early Ubuntu compatibility is part of M1 under
 [AGENTS.md](../../AGENTS.md) and the [Linux catalog](../planning/linux_compatibility_issues.md).
-Windows remains a project target under M8, with CI build/test now present and
-physical camera/BLE validation still pending.
+Windows remains a project target under M8. Its [CI and deployment path](../development/windows-deployment.md)
+is authored; successful Windows build/test execution and physical camera/BLE
+validation remain pending.
 
 ## Milestone status
 
-| Milestone | Current source state | Remaining capability |
-| --- | --- | --- |
-| M1 — Application Foundation & Camera Infrastructure | Partial: C++20/Qt/CMake shell, common types, camera/transport contracts, deterministic fakes, authoritative robot pose storage, system camera discovery, selection, and native stream control, application logging, configuration loading, recorded-video replay, tests, macOS and Ubuntu CI. | USB discovery/hotplug and physical capture acceptance, pixel preview, source recovery implementation, and manual GUI checks with physical input on Ubuntu and macOS. |
-| M2 — Vision, Calibration & Robot Localization | Partial: [chessboard capture](calibration-capture.md), worker detector, quality/diversity gates, review wizard and [intrinsic calculation/quality reporting](intrinsic-calibration.md); [AprilTag family/print profiles and identity mapping](../vision/apriltag-selection.md) specified, with printable sheets and opt-in offline verification tools; [AprilTag frame detection](../vision/apriltag-detection.md) with timestamped multi-tag observations and a bounded worker; [robot marker observations](../vision/robot-observation.md) with RobotId mapping, projective centers and provisional image-space headings. | Printed-tag live/recorded acceptance, profile persistence, workspace calibration, image-to-world conversion, tracking, freshness/quality estimates and localization measurements. |
-| M3 — Robot Communication & Manual Safety Control | Partial: [version 1 protocol/GATT contract](../protocol/README.md) and opt-in [Qt BLE discovery/connection lifecycle](ble-connection.md), with Robot Info/GATT readiness validation, [command/telemetry codec](ble-messages.md), bounded dispatch, adapter E-stop primitive and fake-radio tests. | Firmware, physical BLE acceptance, manual motion controls, domain E-stop/clear, reconnect policy, and hardware communication measurements. |
-| M4 — External-Vision Closed-Loop Robot Control | Pure [differential-drive kinematics](differential-drive.md), inverse conversion and bounded wheel targets implemented; a stored demo pose is not closed-loop feedback. | Supervisory scheduler/controller, target selection, body-command limits, tracking/connection safety transitions, and control experiments. |
-| M5 — Operator Path Drawing, Trajectory Generation & Tracking | Planned; no path or trajectory domain types exist. | World-space editor, simplification/smoothing, timing, Pure Pursuit, execution controls, and tracking metrics. |
-| M6 — Obstacles & Autonomous Single-Robot Path Planning | Planned; WorldModel currently stores robots only. | Obstacle/workspace storage, occupancy grid, footprint inflation, A*, route post-processing, obstacle observations, and planner evaluation. |
-| M7 — Multi-Robot Coordination & Collision Avoidance | Planned; independent registry entries and fake transport sessions are foundation support. | Multi-robot tracking/task execution, collision prediction, reservations/prioritized planning, coordination UI, and experiments; optional CBS/ORCA. |
-| M8 — Cross-Platform & Advanced Sensor/Communication Extensions | In progress; portable boundaries exist, Windows CI build/tests are active, and deployment/hardware validation is partially documented. | Physical Windows camera/BLE validation and optional Zigbee, multiple-camera fusion, onboard video, depth/LiDAR, semantics, and task allocation. |
+Use [current capability and integration limits](capabilities.md) for the concise
+implemented subset and acceptance gaps. The roadmap defines milestone scope;
+module/behavior guides retain dated evidence. A closed issue or build is not
+physical acceptance.
 
 ## M1 — Implemented foundation
 
@@ -228,31 +223,11 @@ on destruction; capture objects are released on the worker before stop acknowled
 
 ### M1 completion gaps
 
-The application foundation is runnable, but M1 exit criteria are not all met.
-System camera enumeration and selection are implemented: the production adapter
-detected a Mac internal camera and an exposed iPhone camera on the validation
-host. A selected camera uses the native [streaming adapter](camera-streaming.md)
-(#31); successful physical capture still requires manual validation. USB-camera
-visibility and physical hotplug remain unverified. There is no structured
-measurement recorder. [Application logging](logging.md) records startup,
-shutdown, controller state changes, and errors as human-readable lines; thesis
-measurements remain separate. Discovery retains its own Qt logging category,
-separate from the application's Logger channels and file sink.
-[Configuration](configuration.md) is loaded once by the composition root from an
-optional INI file and injected into modules as typed values; per-camera
-calibration and workspace profiles are not implemented yet.
-General-purpose pixel preview outside the calibration dialog and automatic
-capture-device reconnection are not implemented; interface and test-double
-support for those events is not physical backend verification.
-
-[Build setup](../development/build.md) and
-[Ubuntu setup](../development/linux-setup.md) document current recipes. The
-committed build/test workflows run on macOS and on Ubuntu 24.04 with GCC and Clang
-(see [continuous integration](../development/testing.md#linux-continuous-integration)).
-Automated Wayland and X11 (Xwayland) GUI checks were executed on Ubuntu for #130
-([GUI compatibility](../development/gui-compatibility.md)); physical input through the
-compositor, Windows builds, packaging, and device behavior require their own
-executed checks.
+See the [current-capability summary](capabilities.md) and its evidence owners.
+Native macOS and Linux capture have dated results in camera guides; broader USB,
+hotplug, display and hardware acceptance remains case-specific. Intrinsic profile
+persistence and matched debug preview are implemented; workspace transform solving,
+structured measurement recording and complete closed-loop operation remain separate.
 
 ## Domain conventions
 
@@ -287,13 +262,10 @@ CameraSource -> Vision / Calibration -> RobotTracker -> WorldModel
             -> RobotManager -> RobotTransport -> ESP32-C6
 ```
 
-M1 currently supplies the source/transport interfaces, robot registry, and
-simulation/UI shell. Calibration target capture is available. Issue #49 specifies
-the M2 marker selection and supplies offline print tooling under `tools/markers`;
-it does not connect a robot detector to camera frames or update WorldModel.
-Robot perception/control algorithms and physical robot
-endpoints are not present. Later work must follow the assigned issue and preserve
-these boundaries:
+The source includes calibration/profile persistence, detection, image-space robot
+observations, debug presentation, workspace-profile data and RobotManager. Those
+components do not complete calibrated localization/tracking/control. Follow the
+assigned issue and preserve these boundaries:
 
 - M2 transforms measurements into the common metric frame before tracking;
   detections are measurements, not permanent authoritative state.

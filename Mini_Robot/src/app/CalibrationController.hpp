@@ -29,11 +29,12 @@ public:
     [[nodiscard]] const std::optional<IntrinsicCalibration>& profile() const noexcept { return profile_; }
     [[nodiscard]] const QString& profileMessage() const noexcept { return profileMessage_; }
     [[nodiscard]] bool profileBusy() const noexcept { return profileIoBusy_; }
-    [[nodiscard]] bool canSaveProfile() const { return profileStore_ && profile_ && !profileIoBusy_ && !shuttingDown_; }
-    [[nodiscard]] bool canReloadProfile() const { return profileStore_ && latest_ && !profileIoBusy_ && !shuttingDown_; }
+    [[nodiscard]] bool canSaveProfile() const { return persistentIdentity_ && profileStore_ && profile_ && !profileIoBusy_ && !shuttingDown_; }
+    [[nodiscard]] bool canReloadProfile() const { return persistentIdentity_ && profileStore_ && latest_ && !profileIoBusy_ && !shuttingDown_; }
     [[nodiscard]] bool canUndistort() const { return undistorter_ && profile_ && latest_ && !shuttingDown_; }
     [[nodiscard]] bool undistortedPreview() const noexcept { return undistortedPreview_; }
-    void setInput(const QString& sourceId, bool streaming);
+    // Callers must explicitly attest persistence; the default is session-only.
+    void setInput(const QString& sourceId, bool streaming, bool persistentIdentity = false);
     void receiveFrame(FramePtr frame);
     [[nodiscard]] const CalibrationCapture& session() const noexcept { return session_; }
     [[nodiscard]] const QString& message() const noexcept { return message_; }
@@ -82,6 +83,7 @@ private:
     std::optional<IntrinsicCalibration> result_;
     std::uint64_t generation_{};
     bool streaming_{};
+    bool persistentIdentity_{};
     bool busy_{};
     bool live_{true};
     bool shuttingDown_{};

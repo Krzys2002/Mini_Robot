@@ -67,7 +67,7 @@ compiler needs a fresh build directory but no edits to CMake files.
 | --- | --- | --- | --- |
 | macOS | Apple Clang | 14 | macOS CI (Debug) |
 | Linux | GCC, Clang | GCC 11, Clang 14 | [Ubuntu 24.04 CI](testing.md#linux-continuous-integration) (GCC and Clang, Debug); see also [Ubuntu setup](linux-setup.md#verification-status) |
-| Windows | MSVC | 19.29 (VS 2019 16.10) | [Windows CI](testing.md#windows-continuous-integration) (MSVC, Release) |
+| Windows | MSVC | 19.29 (VS 2019 16.10) | [Windows CI](testing.md#windows-continuous-integration) authored (MSVC, Release); successful execution pending |
 
 Other compilers, older versions, or other platforms produce a configure warning
 but are not blocked.

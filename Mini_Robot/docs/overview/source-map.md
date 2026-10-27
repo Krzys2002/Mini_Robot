@@ -124,26 +124,23 @@ Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 Each target's layer and the configure/test-time checks that enforce it are listed
 in [platform boundaries](platform-boundaries.md).
 
+## Audit correction helpers
+
+- [V4L2 physical identity](../../src/camera/V4l2Identity.hpp),
+  [implementation](../../src/camera/V4l2Identity.cpp): filesystem-only adapter helper
+  used by Linux capture; [profile behavior](calibration-profiles.md#physical-camera-identity-and-review-corrections).
+- [Prototype actuator gate](../../../T1-ESP-C6/include/ActuatorSafety.hpp): owned by
+  the legacy firmware, with the actual controller compiled against host fakes in
+  its separate CMake test target; [firmware guide](../../../T1-ESP-C6/README.md).
+
 ## Implementation limits
 
-Only common types, asynchronous camera/transport contracts, deterministic fakes,
-robot pose storage, system device discovery and selection, human-readable application
-logging, INI configuration loading, recorded-video replay, pure differential-drive
-kinematics, and a Qt simulation
-window are implemented. Discovery diagnostics use a separate Qt logging category.
-[Calibration capture](calibration-capture.md) supplies a chessboard detector and capture wizard;
-[intrinsic calibration](intrinsic-calibration.md) adds solving, result validation and reprojection quality.
-[AprilTag detection](../vision/apriltag-detection.md) adds pixel observations and a bounded worker;
-[robot marker observations](../vision/robot-observation.md) add RobotId mapping, centers and provisional image headings.
-There are no profile persistence, robot tracking, planning, supervisory controller,
-Zigbee, or structured measurement-recording modules. The optional
-[BLE adapter](ble-connection.md) provides discovery/connection setup and
-[command/telemetry handling](ble-messages.md); physical BLE validation remains
-tracked separately in #187 and #189. Qt Multimedia
-is isolated in the concrete discovery and [streaming](camera-streaming.md) adapters. OpenCV is isolated in the optional
-replay adapter, calibration detector/solver, AprilTag detector and the Linux [V4L2 camera adapter](camera-backends.md); other proposed dependencies are absent from current CMake targets.
-The desktop
-does not perform autonomous motion or implement real safety/watchdog behavior.
+The [current-capability summary](capabilities.md) owns implemented behavior and
+remaining integration/acceptance. The source map describes target ownership; a
+source/target entry is not physical verification. Intrinsic profile storage and
+undistorted preview, BLE command/telemetry handling and the matched-frame debug
+overlay are implemented; metric localization/tracking/control and structured
+experiment recording remain separate.
 
 ## Documentation maintenance
 

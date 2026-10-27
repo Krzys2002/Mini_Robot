@@ -10,7 +10,7 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  initController();
+  const bool initialized = initController();
 
   myCodeCell.Init(
     LIGHT +
@@ -21,11 +21,16 @@ void setup() {
   myCodeCell.Drive1.Init();
   myCodeCell.Drive2.Init();
 
-  setDirectControl(0, 0);
+  myCodeCell.Drive1.Drive(true, 0);
+  myCodeCell.Drive2.Drive(true, 0);
+  if (!initialized) { Serial.println("Controller initialization failed; drives disabled"); return; }
 
-  xTaskCreate(motorTask, "MotorTask", 2048, NULL, 3, NULL);
-  xTaskCreate(controlTask, "ControlTask", 4096, NULL, 2, NULL);
-  xTaskCreate(communicationTask, "CommunicationTask", 8192, NULL, 1, NULL);
+  if (xTaskCreate(motorTask, "MotorTask", 2048, NULL, 3, NULL) != pdPASS
+      || xTaskCreate(controlTask, "ControlTask", 4096, NULL, 2, NULL) != pdPASS
+      || xTaskCreate(communicationTask, "CommunicationTask", 8192, NULL, 1, NULL) != pdPASS) {
+    controllerFaultNow();
+    Serial.println("Task creation failed; controller fault latched, drives disabled");
+  }
 }
 
 void loop() {

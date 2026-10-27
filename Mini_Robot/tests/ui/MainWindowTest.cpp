@@ -120,6 +120,28 @@ TEST(MainWindowSmokeTest, OpensAndCloses)
     EXPECT_FALSE(fixture.window.isVisible());
 }
 
+TEST(DesktopIntegrationTest, ReentrantSourceReplacementCannotRestoreOldCalibrationIdentity)
+{
+    Logger logger; test::ManualTransport transport; WorldModel world;
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
+    std::vector<QString> identities;
+    QObject::connect(&controller, &DesktopController::cameraInputChanged, &controller,
+        [&](const QString& source, bool) {
+            if (source == "node-a") controller.setCameraSource(std::make_unique<test::ManualCamera>(
+                CameraInfo{"node-b", "Camera B", "physical-b"}));
+        });
+    QObject::connect(&controller, &DesktopController::calibrationInputChanged, &controller,
+        [&](const QString& id, bool, bool persistent) {
+            if (persistent) identities.push_back(id);
+        });
+    controller.setCameraSource(std::make_unique<test::ManualCamera>(
+        CameraInfo{"node-a", "Camera A", "physical-a"}));
+    ASSERT_FALSE(identities.empty());
+    EXPECT_EQ(identities.back(), "physical-b");
+    EXPECT_EQ(std::count(identities.begin(), identities.end(), QStringLiteral("physical-a")), 0);
+}
+
 TEST(DesktopIntegrationTest, TabletopConventionAndUnconfiguredWorkspaceAreVisible)
 {
     DesktopFixture fixture;
