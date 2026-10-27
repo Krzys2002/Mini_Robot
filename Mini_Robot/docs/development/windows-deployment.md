@@ -16,9 +16,11 @@ on Windows after a successful `windows-msvc` build.
 
 ## Build
 
-From `Mini_Robot`:
+From `Mini_Robot`, add the Qt and matching OpenCV runtime directories before
+building (GoogleTest discovery can execute tests during the build):
 
 ```powershell
+$env:PATH = "C:\Qt\6.8.3\msvc2022_64\bin;C:\tools\opencv\build\x64\vc16\bin;$env:PATH"
 cmake --preset windows-msvc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON `
   -DCMAKE_PREFIX_PATH="C:\Qt\6.8.3\msvc2022_64;C:\path\to\OpenCV\cmake"
 cmake --build --preset windows-msvc --parallel 4
@@ -45,8 +47,8 @@ Run the app from that folder:
 
 ## Verification checklist
 
-- Build and automated tests: covered by
-  [Windows CI](testing.md#windows-continuous-integration).
+- Build and automated tests: workflow authored; successful Windows execution
+  remains **pending**. See [Windows CI](testing.md#windows-continuous-integration).
 - Camera discovery/preview on physical Windows hardware: **not run in this issue**
   (hardware access not available in CI).
 - BLE path on physical Windows hardware: **not run in this issue** (hardware and

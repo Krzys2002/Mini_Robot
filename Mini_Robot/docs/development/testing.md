@@ -274,12 +274,25 @@ the `core` preset against MSVC, so it fails if core targets or tests gain a Qt/O
 dependency. UI tests still run in their offscreen mode and hardware tests remain
 excluded by label.
 
+The prefix step selects an x64 MSVC OpenCV config and verifies its sibling
+`bin` contains OpenCV DLLs. It adds that directory and Qt's verified `bin` to
+`GITHUB_PATH` before configuration/build, so build-time GoogleTest discovery and
+CTest can load the runtime libraries. `CMAKE_PREFIX_PATH` alone does not configure
+DLL loading. Compiler version reporting reads `cl.exe` file metadata rather than
+invoking `cl /Bv` without a source file (which exits with D8003).
+
+Windows runtime verification is **pending**: the workflow is restricted to daily
+merged `master` snapshots, so authoring/linting it does not prove a Windows build
+or test pass. Require a successful Windows run before claiming #106 validation.
+
 To run the same desktop commands locally from a Visual Studio developer terminal
 in `Mini_Robot`:
 
 ```powershell
 python -m pip install aqtinstall==3.2.1
 python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtmultimedia -O C:\Qt
+# Use the bin paired with your selected x64 MSVC OpenCV config.
+$env:PATH = "C:\Qt\6.8.3\msvc2022_64\bin;C:\tools\opencv\build\x64\vc16\bin;$env:PATH"
 cmake --preset windows-msvc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON `
   -DCMAKE_PREFIX_PATH="C:\Qt\6.8.3\msvc2022_64;C:\path\to\OpenCV\cmake"
 cmake --build --preset windows-msvc --parallel 4

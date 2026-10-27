@@ -43,18 +43,33 @@ jobs:
             throw "Qt prefix not found: $qtPrefix"
           }
           $openCvConfig = Get-ChildItem -Path C:\tools -Filter OpenCVConfig.cmake -Recurse -ErrorAction Stop |
+            Where-Object { $_.Directory.FullName -match '\\x64\\vc\d+\\lib$' } |
             Select-Object -First 1
           if (-not $openCvConfig) {
-            throw "OpenCVConfig.cmake not found under C:\tools"
+            throw "x64 MSVC OpenCVConfig.cmake not found under C:\tools"
+          }
+          $qtBin = Join-Path $qtPrefix "bin"
+          # The selected x64 MSVC config is next to its matching runtime bin.
+          $openCvBin = Join-Path $openCvConfig.Directory.Parent.FullName "bin"
+          if (-not (Test-Path "$qtBin\Qt6Core.dll" -PathType Leaf)) {
+            throw "Qt runtime not found: $qtBin"
+          }
+          if (-not (Get-ChildItem -Path $openCvBin -Filter "opencv*.dll" -File -ErrorAction Stop)) {
+            throw "OpenCV runtime DLLs not found: $openCvBin"
           }
           "QT_PREFIX=$qtPrefix" >> $env:GITHUB_ENV
           "OpenCV_DIR=$($openCvConfig.Directory.FullName)" >> $env:GITHUB_ENV
+          # Needed during build-time GoogleTest discovery as well as CTest.
+          $qtBin >> $env:GITHUB_PATH
+          $openCvBin >> $env:GITHUB_PATH
 
       - name: Report tool versions
         run: |
           cmake --version
           ninja --version
-          cl /Bv
+          # cl /Bv without a source exits with D8003; file metadata succeeds.
+          (Get-Item (Get-Command cl.exe -ErrorAction Stop).Source).VersionInfo |
+            Format-List FileName, FileVersion, ProductVersion
 
       - name: Configure
         run: >-

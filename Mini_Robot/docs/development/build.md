@@ -129,7 +129,9 @@ requirements, and Linux-specific troubleshooting, with explicit verification lim
 For Windows, install a C++20 toolchain, CMake, and Qt 6 Widgets/Multimedia
 built for that toolchain, plus compatible OpenCV packages including the chessboard
 component listed above. Run from the Visual Studio developer terminal with the
-`windows-msvc` preset:
+`windows-msvc` preset. First add Qt `bin` and the matching x64 MSVC OpenCV `bin`
+to `PATH` as shown in [Windows deployment](windows-deployment.md#build); runtime
+DLLs are needed during build-time test discovery and CTest:
 
 ```sh
 cmake --preset windows-msvc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON \
