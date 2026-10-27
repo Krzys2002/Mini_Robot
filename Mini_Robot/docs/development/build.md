@@ -67,7 +67,7 @@ compiler needs a fresh build directory but no edits to CMake files.
 | --- | --- | --- | --- |
 | macOS | Apple Clang | 14 | macOS CI (Debug) |
 | Linux | GCC, Clang | GCC 11, Clang 14 | [Ubuntu 24.04 CI](testing.md#linux-continuous-integration) (GCC and Clang, Debug); see also [Ubuntu setup](linux-setup.md#verification-status) |
-| Windows | MSVC | 19.29 (VS 2019 16.10) | Portability target only; not validated (#106) |
+| Windows | MSVC | 19.29 (VS 2019 16.10) | [Windows CI](testing.md#windows-continuous-integration) (MSVC, Release) |
 
 Other compilers, older versions, or other platforms produce a configure warning
 but are not blocked.
@@ -83,6 +83,7 @@ host, so `cmake --list-presets` shows only those for the current OS and `core`.
 | `macos` | macOS | `clang++` (Apple Clang) | Default options (desktop and replay ON) |
 | `linux-gcc` | Linux | `g++` | Default options |
 | `linux-clang` | Linux | `clang++` | Default options |
+| `windows-msvc` | Windows | `cl` (MSVC) | Default options with Qt camera backend; Release |
 | `core` | any | Default `c++` | Core libraries and tests only; Qt and OpenCV are not searched |
 
 Each name works for configure, build, and test:
@@ -126,18 +127,21 @@ to a tested build: apt packages, GCC/Clang and headless recipes, camera and Blue
 requirements, and Linux-specific troubleshooting, with explicit verification limits.
 
 For Windows, install a C++20 toolchain, CMake, and Qt 6 Widgets/Multimedia
-built for that toolchain, plus compatible OpenCV packages including the chessboard component listed above.
-Run from its developer terminal and pass the matching Qt prefix:
+built for that toolchain, plus compatible OpenCV packages including the chessboard
+component listed above. Run from the Visual Studio developer terminal with the
+`windows-msvc` preset:
 
 ```sh
-cmake -S . -B build/windows -DCMAKE_PREFIX_PATH="C:/Qt/your-compatible-Qt-prefix" -DBUILD_TESTING=ON
-cmake --build build/windows --config Debug --parallel
-ctest --test-dir build/windows -C Debug --output-on-failure --no-tests=error
+cmake --preset windows-msvc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON \
+  -DCMAKE_PREFIX_PATH="C:/Qt/your-compatible-Qt-prefix;C:/path/to/OpenCV/cmake"
+cmake --build --preset windows-msvc --parallel 4
+ctest --preset windows-msvc
 ```
 
-The prefix is a placeholder; use your actual compatible installation. Visual
-Studio multi-configuration generators select Debug at build/test time. Windows
-commands have not been executed in this audit; Windows CI/deployment remain #106.
+The prefixes are placeholders; use your actual compatible installations. The
+`windows-msvc` preset uses Ninja with a single Release configuration, so
+`--config` is not needed. For packaging and runtime deployment,
+see [Windows deployment](windows-deployment.md).
 
 ## Domain-only and offline builds
 

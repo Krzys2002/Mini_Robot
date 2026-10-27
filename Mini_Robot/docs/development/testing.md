@@ -129,13 +129,14 @@ configuration's subdirectory, for example
 
 The regression suite is every CTest test except those labelled `hardware`. It needs
 no camera, Bluetooth adapter, robot, or display session, and it is the selection
-that CI runs on macOS and Linux. Every test preset applies it (exclude label
+that CI runs on macOS, Linux, and Windows. Every test preset applies it (exclude label
 `hardware`, output on failure, error when no tests are found):
 
 ```sh
 ctest --preset macos        # macOS, AppleClang
 ctest --preset linux-gcc    # Ubuntu, GCC
 ctest --preset linux-clang  # Ubuntu, Clang
+ctest --preset windows-msvc # Windows, MSVC
 ctest --preset core         # any host, core libraries only
 ```
 
@@ -213,7 +214,7 @@ ctest --preset macos
 ```
 
 This workflow verifies compilation and automated tests, without camera/BLE
-hardware or deployment packaging. Windows CI is separate Issue #106.
+hardware or deployment packaging.
 
 ## Linux continuous integration
 
@@ -253,6 +254,39 @@ ctest --preset linux-gcc
 Use `linux-clang` in place of `linux-gcc` for the Clang job. For the core job,
 install only `build-essential cmake ninja-build libgtest-dev` and use the commands in
 [regression suite](#regression-suite).
+
+## Windows continuous integration
+
+The reusable `.github/workflows/windows-build-test.yml` workflow uses the same
+daily caller, read-only checkout, and master-only guard as macOS/Linux. It runs
+two jobs on `windows-2022`:
+
+| Job (status check name) | Preset | Compiler | Builds |
+| --- | --- | --- | --- |
+| `Windows Server 2022 / MSVC / Desktop + tests` | `windows-msvc` | MSVC `cl` | Desktop, replay, and all test targets |
+| `Windows Server 2022 / MSVC / Core without Qt and OpenCV` | `core` | MSVC `cl` | Core libraries and their tests |
+
+The desktop job installs Ninja and OpenCV through Chocolatey, installs Qt 6.8.3
+(`win64_msvc2022_64`) through `aqtinstall`, configures the `windows-msvc` preset
+with explicit desktop/replay ON, builds all targets, and runs the
+[regression suite](#regression-suite). The core job installs only Ninja and runs
+the `core` preset against MSVC, so it fails if core targets or tests gain a Qt/OpenCV
+dependency. UI tests still run in their offscreen mode and hardware tests remain
+excluded by label.
+
+To run the same desktop commands locally from a Visual Studio developer terminal
+in `Mini_Robot`:
+
+```powershell
+python -m pip install aqtinstall==3.2.1
+python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtmultimedia -O C:\Qt
+cmake --preset windows-msvc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON `
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.8.3\msvc2022_64;C:\path\to\OpenCV\cmake"
+cmake --build --preset windows-msvc --parallel 4
+ctest --preset windows-msvc
+```
+
+Runtime packaging is handled separately; see [Windows deployment](windows-deployment.md).
 
 ### Required status checks
 

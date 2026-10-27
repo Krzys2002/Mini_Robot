@@ -8,7 +8,8 @@ source-based architecture assessment, not a live GitHub issue-status report.
 
 Early Ubuntu compatibility is part of M1 under
 [AGENTS.md](../../AGENTS.md) and the [Linux catalog](../planning/linux_compatibility_issues.md).
-Windows remains a project target with deployment work assigned to M8.
+Windows remains a project target under M8, with CI build/test now present and
+physical camera/BLE validation still pending.
 
 ## Milestone status
 
@@ -21,7 +22,7 @@ Windows remains a project target with deployment work assigned to M8.
 | M5 — Operator Path Drawing, Trajectory Generation & Tracking | Planned; no path or trajectory domain types exist. | World-space editor, simplification/smoothing, timing, Pure Pursuit, execution controls, and tracking metrics. |
 | M6 — Obstacles & Autonomous Single-Robot Path Planning | Planned; WorldModel currently stores robots only. | Obstacle/workspace storage, occupancy grid, footprint inflation, A*, route post-processing, obstacle observations, and planner evaluation. |
 | M7 — Multi-Robot Coordination & Collision Avoidance | Planned; independent registry entries and fake transport sessions are foundation support. | Multi-robot tracking/task execution, collision prediction, reservations/prioritized planning, coordination UI, and experiments; optional CBS/ORCA. |
-| M8 — Cross-Platform & Advanced Sensor/Communication Extensions | Planned; portable boundaries exist, but Windows deployment is unverified. | Windows CI/deployment/device validation and optional Zigbee, multiple-camera fusion, onboard video, depth/LiDAR, semantics, and task allocation. |
+| M8 — Cross-Platform & Advanced Sensor/Communication Extensions | In progress; portable boundaries exist, Windows CI build/tests are active, and deployment/hardware validation is partially documented. | Physical Windows camera/BLE validation and optional Zigbee, multiple-camera fusion, onboard video, depth/LiDAR, semantics, and task allocation. |
 
 ## M1 — Implemented foundation
 

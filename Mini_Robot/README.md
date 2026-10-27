@@ -36,8 +36,8 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure --no-tests=error
 ```
 
-On macOS and Linux, `cmake --preset macos`, `linux-gcc`, or `linux-clang` runs the
-same configuration with a per-preset build directory; see
+On macOS, Linux, and Windows, `cmake --preset macos`, `linux-gcc`, `linux-clang`,
+or `windows-msvc` runs the same configuration with a per-preset build directory; see
 [CMake presets](docs/development/build.md#cmake-presets) and the
 [Ubuntu setup guide](docs/development/linux-setup.md).
 
@@ -67,10 +67,12 @@ ctest --test-dir build/core --output-on-failure --no-tests=error
 
 For selecting suites, running an individual test executable, and adding tests,
 see [the testing guide](docs/development/testing.md).
-The macOS and Linux build/test workflows run once daily on `master` when new PRs
-have merged; the badge above shows the latest daily result. Their local
-equivalent commands are in [macOS continuous integration](docs/development/testing.md#macos-continuous-integration)
-and [Linux continuous integration](docs/development/testing.md#linux-continuous-integration).
+The macOS, Linux, and Windows build/test workflows run once daily on `master`
+when new PRs have merged; the badge above shows the latest daily result. Their local
+equivalent commands are in [macOS continuous integration](docs/development/testing.md#macos-continuous-integration),
+[Linux continuous integration](docs/development/testing.md#linux-continuous-integration),
+and [Windows continuous integration](docs/development/testing.md#windows-continuous-integration).
+For deployment packaging, see [Windows deployment](docs/development/windows-deployment.md).
 For architectural details, see [the architecture overview](docs/overview/architecture.md).
 
 ## Documentation
