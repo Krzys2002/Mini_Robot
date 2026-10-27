@@ -91,12 +91,22 @@ Resulting control classification for #154 acceptance:
 
 ## 4. Initialization and zero-output behavior audit (code-level)
 
-Observed in current firmware source:
+Code audit refreshed against the merged #214 safety correction; these are source
+observations, not electrical verification:
 
-- Startup sets direct command to zero before tasks are started (`setDirectControl(0, 0)`).
+- Setup explicitly writes zero to both drives before starting tasks. Mutex/task
+  initialization failures latch a controller fault; no startup motion command is
+  issued.
 - Motor output buffer initializes to zero speed (`{true, true, 0, 0}`).
-- Emergency stop sets both outputs to zero.
-- Motor task writes zero-speed values while E-stop is active.
+- E-stop latches independently of the command handoff mutex. The actuator task
+  checks the latch, receipt-relative command expiry and output generation on each
+  nominal 20 ms cycle; contention produces zero rather than waiting for control.
+- Clear invalidates pending command/computed output and requires new post-clear
+  intent. A stale computation cannot restore the old generation.
+- This remains the [legacy HTTP prototype](../../../T1-ESP-C6/README.md), not a
+  production BLE endpoint or a measured immediate electrical-disable guarantee.
+  The nominal 300 ms validity plus scheduler/driver behavior requires physical
+  measurement; it does not satisfy the supply/output gates below.
 
 Evidence files:
 
@@ -180,7 +190,8 @@ Procedure:
 5. For each step, record:
    - observed left/right wheel direction,
    - sign-to-direction mapping,
-   - whether motion stops within watchdog timeout when commands cease.
+   - measured stop timing after command expiry, including actuator scheduling and
+     driver response; compare with separately approved acceptance bounds.
 6. Record battery API readings before and after sequence and compare to a
    multimeter reading at battery leads.
 7. Disconnect power immediately if current/output exceeds an approved bound,

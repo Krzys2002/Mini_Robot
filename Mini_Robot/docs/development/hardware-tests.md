@@ -67,5 +67,5 @@ and the results executed so far:
 | Linux V4L2 capture and modes | A V4L2 camera | [Camera backends](../overview/camera-backends.md#verification) |
 | Calibration capture | A camera and a printed chessboard | [Calibration capture](../overview/calibration-capture.md#manual-acceptance-procedure) |
 | GUI on a real display (X11, Wayland, macOS) | A desktop session; mouse, keyboard, scaled screens | [GUI compatibility](gui-compatibility.md#manual-checklist); the offscreen UI tests in CI do not prove it |
-| Robot communication over BLE | A Bluetooth adapter, BlueZ on Linux, and an ESP32-C6 robot | No physical transport exists yet; automated tests use the [simulation transport](../overview/simulation.md) |
+| Robot communication over BLE | A Bluetooth adapter, BlueZ on Linux, and an ESP32-C6 robot | Native [BLE lifecycle](../overview/ble-connection.md) and [message](../overview/ble-messages.md) adapters exist; fake-radio tests do not replace their physical acceptance procedures |
 | CodeCell C6 actuator/IMU safety profile (#154) | Physical CodeCell C6 robot, restrained wheels-raised setup, operator supervision | [CodeCell C6 hardware validation profile](../testing/codecell-c6-hardware-154.md) |

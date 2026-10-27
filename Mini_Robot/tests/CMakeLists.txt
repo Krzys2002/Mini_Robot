@@ -235,3 +235,20 @@ add_test(NAME PlatformBoundary.LinkCheckSelfTest
         "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/boundaries/VerifyBoundaryConfigure.cmake")
 set_tests_properties(PlatformBoundary.LinkCheckSelfTest PROPERTIES LABELS "core;boundary")
+
+# Filesystem-only sysfs identity tests run on every host, without Linux APIs or devices.
+add_executable(micro_robot_camera_identity_tests camera/V4l2IdentityTest.cpp
+    ../src/camera/V4l2Identity.cpp)
+target_link_libraries(micro_robot_camera_identity_tests PRIVATE micro_robot_camera_api GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_camera_identity_tests)
+gtest_discover_tests(micro_robot_camera_identity_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
+# Compile the real legacy controller against deterministic Arduino/CodeCell fakes.
+# This complements firmware compilation; it does not establish physical stop time.
+add_executable(micro_robot_firmware_safety_tests firmware/ActuatorSafetyTest.cpp
+    "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/src/controller.cpp")
+target_include_directories(micro_robot_firmware_safety_tests PRIVATE firmware/fakes
+    "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/include" "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/src")
+target_link_libraries(micro_robot_firmware_safety_tests PRIVATE GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_firmware_safety_tests)
+gtest_discover_tests(micro_robot_firmware_safety_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")

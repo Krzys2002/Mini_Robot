@@ -9,6 +9,7 @@
 #include <QString>
 #include <QTimer>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -58,6 +59,8 @@ signals:
     // Same-owner-thread consumers may retain immutable frames. No work queues here.
     void frameAvailable(FramePtr frame);
     void cameraInputChanged(const QString& sourceId, bool streaming);
+    // Calibration uses physical identity independently from capture access paths.
+    void calibrationInputChanged(const QString& identity, bool streaming, bool persistent);
     void frameDescriptionChanged(const QString& description);
     // Active includes connecting/disconnecting, so the UI can cancel a connection
     // attempt without treating a pending connection as connected.
@@ -91,6 +94,7 @@ private:
     std::optional<CameraState> cameraRequest_;
     QTimer frameExpiry_;
     Timestamp startedAt_{};
+    std::uint64_t cameraPublicationGeneration_{};
     bool initialized_{};
     bool shuttingDown_{};
     bool robotSessionsStoppedEmitted_{};

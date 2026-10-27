@@ -16,7 +16,7 @@ void CalibrationController::setProfileServices(std::unique_ptr<ICalibrationProfi
 }
 void CalibrationController::reloadProfile()
 {
-    if (!profileStore_ || !latest_ || shuttingDown_ || busy_) return;
+    if (!persistentIdentity_ || !profileStore_ || !latest_ || shuttingDown_ || busy_) return;
     profileLookupRequested_ = true;
     if (profileIoBusy_) { reloadPending_ = true; return; }
     profileIoBusy_ = true;

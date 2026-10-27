@@ -87,8 +87,10 @@ without streaming:
 The ID is the node path, for example `/dev/video0`. The display name is the sysfs
 `name`, or the driver's card name when that is empty. A missing name stays empty,
 and the selector shows its usual fallback. Node numbers can change after replugging,
-so IDs are not persistent across sessions; persistent `/dev/v4l/by-id` mapping is
-calibration-profile work for M2.
+so access IDs are not persistent across sessions. Profile persistence now uses
+a separate physical identity derived from USB vendor/product/serial, interface
+and video index; missing or ambiguous identity disables saved-profile I/O. See
+[calibration identity](calibration-profiles.md#physical-camera-identity-and-review-corrections).
 
 `V4l2CameraDeviceDiscovery` watches `/dev` with `QFileSystemWatcher` (inotify).
 When nodes appear or disappear it rescans in one coalesced, queued step and

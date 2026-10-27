@@ -8,11 +8,10 @@ permissions:
 
 concurrency:
   group: macos-build-test-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-test:
-    if: github.ref == 'refs/heads/master'
     name: macOS Apple Silicon / Debug
     runs-on: macos-15
     timeout-minutes: 30
@@ -35,6 +34,7 @@ jobs:
           cmake --preset macos
           -DMICRO_ROBOT_BUILD_DESKTOP=ON
           -DMICRO_ROBOT_BUILD_REPLAY=ON
+          -DMICRO_ROBOT_BUILD_BLE=ON
           -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
 
       - name: Build application and tests

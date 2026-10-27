@@ -41,6 +41,7 @@ private:
     void receiveError(std::uint64_t generation, const CameraError& error);
 
     CameraDevice device_;
+    std::optional<std::string> calibrationId_;
     std::weak_ptr<ICameraEvents> sink_;
     QThread worker_;
     Backend* backend_{}; // Worker thread deletes it when that thread finishes.

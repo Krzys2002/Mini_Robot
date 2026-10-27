@@ -144,7 +144,10 @@ void SimulationTransport::disconnect(RobotId id)
 
 void SimulationTransport::sendCommand(RobotId id, const RobotCommand& command)
 {
-    sessions_[id].pendingCommand = command;
+    auto& pending = sessions_[id].pendingCommand;
+    // Match BLE: a queued Stop has priority over subsequent unsent motion.
+    if (!pending || std::holds_alternative<StopCommand>(command.payload)
+        || !std::holds_alternative<StopCommand>(pending->payload)) pending = command;
     if (log_) log_->debug("Simulated command submitted: " + describe(command), id);
 }
 

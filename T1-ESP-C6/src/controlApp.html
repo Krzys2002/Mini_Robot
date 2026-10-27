@@ -175,12 +175,25 @@
         return await response.json();
     }
 
+    // Serialize motion requests so a delayed /move cannot arrive after /target.
+    // Generation changes cancel queued intent; firmware remains the safety gate.
+    let motionRequests = Promise.resolve();
+    let motionGeneration = 0;
+    let safetyLatched = false;
+    let estopRequest = Promise.resolve();
+    function queueMotion(path, generation) {
+        const request = motionRequests.catch(() => {}).then(() =>
+            generation === motionGeneration && !safetyLatched ? apiGet(path) : null);
+        motionRequests = request;
+        return request;
+    }
+
     async function sendMove(move, rotation) {
         move = clamp(Math.round(move), -100, 100);
         rotation = clamp(Math.round(rotation), -100, 100);
 
         try {
-            await apiGet(`/move?move=${move}&rotation=${rotation}`);
+            await queueMotion(`/move?move=${move}&rotation=${rotation}`, motionGeneration);
         } catch (err) {
             showError(err);
         }
@@ -219,7 +232,7 @@
             Math.round(rotationCmd);
     }
 
-    function centerJoystick() {
+    function centerJoystick(sendStop = true) {
         stick.style.left = "80px";
         stick.style.top = "80px";
 
@@ -229,10 +242,12 @@
         document.getElementById("moveValue").textContent = "0";
         document.getElementById("rotationValue").textContent = "0";
 
-        sendMove(0, 0);
+        if (sendStop) sendMove(0, 0);
     }
 
     base.addEventListener("pointerdown", (e) => {
+        if (safetyLatched) return;
+        ++motionGeneration;
         joystickActive = true;
         updateJoystick(e.clientX, e.clientY);
     });
@@ -243,21 +258,25 @@
     });
 
     window.addEventListener("pointerup", () => {
+        if (!joystickActive) return;
         joystickActive = false;
         centerJoystick();
     });
 
     setInterval(() => {
-        sendMove(moveCmd, rotationCmd);
+        if (joystickActive && !safetyLatched) sendMove(moveCmd, rotationCmd);
     }, 100);
 
     async function sendTarget() {
+        if (safetyLatched) return;
+        joystickActive = false;
+        ++motionGeneration;
         const distance = Number(document.getElementById("distance").value);
         const angle = Number(document.getElementById("angle").value);
         const imu = document.getElementById("imu").checked ? 1 : 0;
 
         try {
-            const data = await apiGet(`/target?distance=${distance}&angle=${angle}&imu=${imu}`);
+            const data = await queueMotion(`/target?distance=${distance}&angle=${angle}&imu=${imu}`, motionGeneration);
             showResponse(data);
             updateStatus();
         } catch (err) {
@@ -266,8 +285,12 @@
     }
 
     async function emergencyStop() {
+        safetyLatched = true;
+        joystickActive = false;
+        ++motionGeneration;
         try {
-            const data = await apiGet("/estop");
+            estopRequest = apiGet("/estop");
+            const data = await estopRequest;
             showResponse(data);
             updateStatus();
         } catch (err) {
@@ -276,8 +299,16 @@
     }
 
     async function clearEmergency() {
+        joystickActive = false;
+        ++motionGeneration;
         try {
+            await estopRequest;
+            await motionRequests.catch(() => {});
             const data = await apiGet("/clear_estop");
+            if (data.ok) {
+                safetyLatched = false;
+                moveCmd = rotationCmd = 0;
+            }
             showResponse(data);
             updateStatus();
         } catch (err) {
@@ -304,7 +335,7 @@
             "ERROR:\n" + err.message;
     }
 
-    centerJoystick();
+    centerJoystick(false);
 
     setInterval(updateStatus, 1000);
 </script>

@@ -3,7 +3,6 @@
 import json
 import os
 import subprocess
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -37,24 +36,22 @@ def main():
         "?branch=master&event=schedule&status=success&per_page=100"
     )
     previous = previous_checkpoint(pages, os.environ["GITHUB_RUN_ID"])
-    revision = [os.environ["GITHUB_SHA"]]
-    if previous:
-        revision.append(f'^{previous["head_sha"]}')
+    if previous is None:
+        # Until one complete daily suite succeeds, validate the actual current
+        # baseline regardless of merge age or the duration of an Actions outage.
+        should_build = True
     else:
-        # Bootstrap without rebuilding for all historical merges.
-        since = datetime.now(timezone.utc) - timedelta(days=1)
-        revision.append(f"--since={since.isoformat()}")
-    result = subprocess.run(
-        ["git", "rev-list", *revision], check=True, text=True, capture_output=True,
-    )
-    commits = set(result.stdout.splitlines())
-    should_build = bool(commits) and merged_in_commits(
-        api_pages(f"repos/{repo}/pulls?state=closed&base=master&per_page=100"),
-        commits,
-    )
+        result = subprocess.run(
+            ["git", "rev-list", os.environ["GITHUB_SHA"], f'^{previous["head_sha"]}'],
+            check=True, text=True, capture_output=True,
+        )
+        commits = set(result.stdout.splitlines())
+        should_build = bool(commits) and merged_in_commits(
+            api_pages(f"repos/{repo}/pulls?state=closed&base=master&per_page=100"), commits,
+        )
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
         output.write(f"build={str(should_build).lower()}\n")
-    print("New master merges: run builds" if should_build else "No new master merges: skip builds")
+    print("Validate baseline/new master merges: run builds" if should_build else "No new master merges: skip builds")
 
 
 if __name__ == "__main__":

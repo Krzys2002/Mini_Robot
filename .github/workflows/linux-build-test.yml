@@ -8,11 +8,10 @@ permissions:
 
 concurrency:
   group: linux-build-test-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-test:
-    if: github.ref == 'refs/heads/master'
     # Keep platform/compiler labels stable for daily run comparisons.
     name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
@@ -26,14 +25,14 @@ jobs:
             preset: linux-gcc
             packages: >-
               build-essential clang cmake ninja-build
-              qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
-            configure-options: -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON
+              qt6-base-dev qt6-multimedia-dev qt6-connectivity-dev libgtest-dev libopencv-dev
+            configure-options: -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON -DMICRO_ROBOT_BUILD_BLE=ON
           - name: Ubuntu 24.04 / Clang / Debug
             preset: linux-clang
             packages: >-
               build-essential clang cmake ninja-build
-              qt6-base-dev qt6-multimedia-dev libgtest-dev libopencv-dev
-            configure-options: -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON
+              qt6-base-dev qt6-multimedia-dev qt6-connectivity-dev libgtest-dev libopencv-dev
+            configure-options: -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON -DMICRO_ROBOT_BUILD_BLE=ON
           # Qt and OpenCV are deliberately not installed: the core library and its
           # tests must build and pass without them.
           - name: Ubuntu 24.04 / GCC / Core without Qt and OpenCV

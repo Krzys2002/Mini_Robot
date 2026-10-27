@@ -48,8 +48,10 @@ public:
         onWorker = QThread::currentThread() != QApplication::instance()->thread();
         ++calls;
         if (gate.valid()) gate.wait();
-        return captureDetection(250 + (frame.sequence % 3) * 250);
+        return captureDetection(250 + (frame.sequence % 3) * 250, 400, 40,
+            distinctFourth && frame.sequence == 4 ? 0.4 : 0.0);
     }
+    bool distinctFourth{};
     std::shared_future<void> gate;
     std::atomic<int> calls{};
     std::atomic<bool> onWorker{};
@@ -152,7 +154,7 @@ struct CaptureFixture {
             controller->setProfileServices(std::move(storeOverride), std::move(remapper));
         }
         wizard = std::make_unique<CalibrationWizard>(*controller);
-        controller->setInput(QStringLiteral("camera-a"), true);
+        controller->setInput(QStringLiteral("camera-a"), true, true);
     }
     ~CaptureFixture()
     {
@@ -174,6 +176,62 @@ struct CaptureFixture {
         ASSERT_TRUE(processUntil([&] { return !controller->busy(); }));
     }
 };
+TEST(CalibrationProfileUiTest, UnidentifiedCameraCannotReloadOrSaveButCanCalibrateInSession)
+{
+    auto store = std::make_unique<ControlledProfileStore>();
+    auto* observed = store.get();
+    CaptureFixture f{{}, {}, std::move(store)};
+    f.controller->setInput("/dev/video0", true, false);
+    f.frame(1); QApplication::processEvents();
+    f.controller->reloadProfile();
+    EXPECT_EQ(observed->calls, 0);
+    EXPECT_FALSE(f.controller->canReloadProfile());
+    f.controller->restart();
+    f.capture(1); f.capture(2); f.capture(3);
+    f.controller->finish();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    ASSERT_TRUE(f.controller->result());
+    EXPECT_FALSE(f.controller->canSaveProfile());
+    EXPECT_TRUE(f.controller->canUndistort());
+    f.controller->setInput("v4l2-usb:camera-a", true, true);
+    f.frame(4);
+    ASSERT_TRUE(processUntil([&] { return !f.controller->profileBusy(); }));
+    ASSERT_TRUE(f.controller->profile());
+    EXPECT_EQ(f.controller->profile()->sourceId, "v4l2-usb:camera-a");
+    f.controller->setInput("v4l2-usb:camera-b", true, true);
+    EXPECT_FALSE(f.controller->profile());
+    f.frame(5);
+    ASSERT_TRUE(processUntil([&] { return !f.controller->profileBusy(); }));
+    ASSERT_TRUE(f.controller->profile());
+    EXPECT_EQ(f.controller->profile()->sourceId, "v4l2-usb:camera-b");
+}
+TEST(CalibrationWizardTest, RemovingSolvedViewKeepsOtherCapturesAndRequiresRecalculation)
+{
+    QTemporaryDir directory;
+    CaptureFixture f{{}, directory.path()};
+    f.controller->restart();
+    f.detector->distinctFourth = true;
+    f.capture(1); f.capture(2); f.capture(3); f.capture(4);
+    f.controller->finish();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    ASSERT_TRUE(f.controller->result());
+    ASSERT_TRUE(f.controller->canSaveProfile());
+    EXPECT_TRUE(f.button("calibrationRemove")->isEnabled());
+    const auto keptFrame = f.controller->session().views()[1].frame;
+    f.controller->removeView(0);
+    EXPECT_EQ(f.controller->session().state(), CalibrationCaptureState::Collecting);
+    ASSERT_EQ(f.controller->session().views().size(), 3U);
+    EXPECT_EQ(f.controller->session().views()[0].frame, keptFrame);
+    EXPECT_FALSE(f.controller->result());
+    EXPECT_FALSE(f.controller->profile());
+    EXPECT_FALSE(f.controller->canSaveProfile());
+    EXPECT_FALSE(f.controller->canUndistort());
+    f.controller->finish();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    ASSERT_TRUE(f.controller->result());
+    EXPECT_EQ(f.controller->result()->perViewErrors.size(), 3U);
+    EXPECT_EQ(f.solver->calls, 2);
+}
 TEST(CalibrationWizardTest, CompletesCaptureAndReviewsAcceptedDetectionsWithoutScripts)
 {
     CaptureFixture fixture;
@@ -279,8 +337,8 @@ TEST(CalibrationWizardTest, SolvingIsBoundedAndInvalidatedWithoutBlockingTheGui)
         fixture.controller->finish(); // No second job.
         if (mode == 0) fixture.controller->cancel();
         if (mode == 1) fixture.controller->restart();
-        if (mode == 2) fixture.controller->setInput(QStringLiteral("camera-b"), true);
-        if (mode == 3) fixture.controller->setInput(QStringLiteral("camera-a"), false);
+        if (mode == 2) fixture.controller->setInput(QStringLiteral("camera-b"), true, true);
+        if (mode == 3) fixture.controller->setInput(QStringLiteral("camera-a"), false, true);
         if (mode == 4) fixture.controller->shutdown();
         EXPECT_TRUE(fixture.controller->busy());
         EXPECT_FALSE(fixture.controller->result());
@@ -312,10 +370,10 @@ TEST(CalibrationWizardTest, SourceStopChangeAndResolutionChangeClearSession)
     CaptureFixture fixture;
     fixture.controller->restart();
     fixture.capture(1);
-    fixture.controller->setInput(QStringLiteral("camera-a"), false);
+    fixture.controller->setInput(QStringLiteral("camera-a"), false, true);
     EXPECT_TRUE(fixture.controller->session().views().empty());
     EXPECT_FALSE(fixture.controller->canCapture());
-    fixture.controller->setInput(QStringLiteral("camera-b"), true);
+    fixture.controller->setInput(QStringLiteral("camera-b"), true, true);
     fixture.controller->restart();
     fixture.capture(2);
     EXPECT_EQ(fixture.controller->session().sourceId(), "camera-b");
@@ -405,7 +463,7 @@ TEST(CalibrationWizardTest, DesktopRoutesActualFramesAndStopInvalidatesCalibrati
     DesktopController desktop{robots, world, RobotId{1}, fixture.logger.channel("controller")};
     QObject::connect(&desktop, &DesktopController::frameAvailable,
                      fixture.controller.get(), &CalibrationController::receiveFrame);
-    QObject::connect(&desktop, &DesktopController::cameraInputChanged,
+    QObject::connect(&desktop, &DesktopController::calibrationInputChanged,
                      fixture.controller.get(), &CalibrationController::setInput);
     auto source = std::make_unique<ManualCamera>();
     auto* camera = source.get();
@@ -453,13 +511,13 @@ TEST(CalibrationProfileUiTest, SavesCalculatedProfileAndReloadsAfterControllerRe
     EXPECT_TRUE(toggle->isEnabled());
     EXPECT_FALSE(toggle->isChecked());
     EXPECT_TRUE(restarted.controller->profileMessage().contains(QStringLiteral("loaded")));
-    restarted.controller->setInput(QStringLiteral("camera-b"), true);
+    restarted.controller->setInput(QStringLiteral("camera-b"), true, true);
     EXPECT_FALSE(restarted.controller->profile());
     restarted.frame(1);
     ASSERT_TRUE(processUntil([&] { return !restarted.controller->profileBusy(); }));
     EXPECT_FALSE(restarted.controller->profile());
     EXPECT_FALSE(toggle->isEnabled());
-    restarted.controller->setInput(QStringLiteral("camera-a"), true);
+    restarted.controller->setInput(QStringLiteral("camera-a"), true, true);
     restarted.frame(1, 1200);
     ASSERT_TRUE(processUntil([&] { return !restarted.controller->profileBusy(); }));
     EXPECT_FALSE(restarted.controller->profile()); // No automatic scaling/reuse.
@@ -535,9 +593,9 @@ TEST(CalibrationProfileUiTest, LateRemapsAreDiscardedAfterModeSourceResolutionSt
         QObject::connect(fixture.controller.get(), &CalibrationController::previewChanged, &observer,
             [&](FramePtr frame, const auto&, bool) { if (frame && (*frame->pixels)[0] == std::byte{127}) ++corrected; });
         if (mode == 0) fixture.controller->setUndistortedPreview(false);
-        if (mode == 1) fixture.controller->setInput(QStringLiteral("camera-b"), true);
+        if (mode == 1) fixture.controller->setInput(QStringLiteral("camera-b"), true, true);
         if (mode == 2) fixture.frame(2, 1200);
-        if (mode == 3) fixture.controller->setInput(QStringLiteral("camera-a"), false);
+        if (mode == 3) fixture.controller->setInput(QStringLiteral("camera-a"), false, true);
         if (mode == 4) fixture.controller->shutdown();
         EXPECT_FALSE(fixture.controller->undistortedPreview());
         release.set_value();
@@ -574,7 +632,7 @@ TEST(CalibrationProfileUiTest, SlowProfileLookupFollowsNewestCameraAndResolution
     fixture.frame(1);
     const bool began = processUntil([&] { return backend->calls.load() == 1; });
     if (!began) { release.set_value(); FAIL() << "Profile lookup did not start"; }
-    fixture.controller->setInput(QStringLiteral("camera-b"), true);
+    fixture.controller->setInput(QStringLiteral("camera-b"), true, true);
     fixture.frame(1, 1200);
     EXPECT_FALSE(fixture.controller->profile());
     EXPECT_EQ(backend->calls, 1); // At most one lookup plus a coalesced pending request.

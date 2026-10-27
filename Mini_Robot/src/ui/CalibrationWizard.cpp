@@ -198,8 +198,9 @@ void CalibrationWizard::refresh()
             .arg(k[0], 0, 'f', 2).arg(k[4], 0, 'f', 2).arg(k[2], 0, 'f', 2).arg(k[5], 0, 'f', 2);
     }
     quality_->setText(quality);
-    remove_->setEnabled(!controller_.busy() && progress.count > 0
-        && session.state() == CalibrationCaptureState::Collecting);
+    remove_->setEnabled(!controller_.busy() && !controller_.profileBusy() && progress.count > 0
+        && (session.state() == CalibrationCaptureState::Collecting
+            || session.state() == CalibrationCaptureState::Complete));
     // Rebuild only when count changes, avoiding selector churn on live frames.
     if (views_->count() != static_cast<int>(progress.count)) {
         const QSignalBlocker blocker(views_);

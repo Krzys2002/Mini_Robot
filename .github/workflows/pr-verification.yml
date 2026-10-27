@@ -1,0 +1,40 @@
+name: Pull request verification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One Linux job keeps pre-merge feedback affordable; the daily suite retains
+  # macOS and GCC/Clang coverage. No Bluetooth device or camera is required.
+  desktop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes nodejs cmake ninja-build g++ libgtest-dev qt6-base-dev qt6-multimedia-dev qt6-connectivity-dev libopencv-dev
+      - name: Test repository automation
+        run: python3 -m unittest discover -s .github/scripts/tests -v
+      - name: Test prototype browser command ordering
+        run: node Mini_Robot/tests/firmware/browser-control.test.js
+      - name: Configure BLE-enabled desktop and deterministic tests
+        working-directory: Mini_Robot
+        run: cmake --preset linux-gcc -DMICRO_ROBOT_BUILD_BLE=ON -DMICRO_ROBOT_BUILD_MARKER_TOOLS=ON
+      - name: Build
+        working-directory: Mini_Robot
+        run: cmake --build --preset linux-gcc --parallel 4
+      - name: Test without hardware
+        working-directory: Mini_Robot
+        run: ctest --preset linux-gcc
