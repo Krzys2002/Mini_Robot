@@ -155,12 +155,17 @@ void DesktopController::publishActiveCamera()
 
 void DesktopController::publishCameraActions()
 {
+    const auto publication = ++cameraPublicationGeneration_;
     const auto info = camera_ ? camera_->info() : CameraInfo{};
     const bool streaming = camera_ && camera_->state() == CameraState::Streaming && !cameraRequest_
         && !replacementPending_ && !shuttingDown_;
     emit cameraInputChanged(QString::fromStdString(info.sourceId), streaming);
+    // A direct observer may replace the source and publish newer identity before
+    // this signal returns. Never restore the older calibration input afterward.
+    if (publication != cameraPublicationGeneration_) return;
     emit calibrationInputChanged(QString::fromStdString(info.persistentCalibrationId.value_or(info.sourceId)),
         streaming, info.persistentCalibrationId && !info.persistentCalibrationId->empty());
+    if (publication != cameraPublicationGeneration_) return;
     const bool ready = initialized_ && !shuttingDown_ && camera_ && !replacementPending_;
     const auto state = camera_ ? camera_->state() : CameraState::Stopped;
     const bool active = isCameraActive(state);

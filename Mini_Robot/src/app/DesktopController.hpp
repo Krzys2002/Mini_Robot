@@ -9,6 +9,7 @@
 #include <QString>
 #include <QTimer>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 
@@ -93,6 +94,7 @@ private:
     std::optional<CameraState> cameraRequest_;
     QTimer frameExpiry_;
     Timestamp startedAt_{};
+    std::uint64_t cameraPublicationGeneration_{};
     bool initialized_{};
     bool shuttingDown_{};
     bool robotSessionsStoppedEmitted_{};
