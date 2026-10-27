@@ -7,6 +7,7 @@
 | [Vision](vision/README.md) | AprilTag selection, camera sampling constraints, and printable markers |
 | [Planning](planning/README.md) | Milestone roadmap and issue catalogs |
 | [Development](development/README.md) | Build/test procedures and GitHub automation |
+| [Physical BLE test #187](testing/ble-connection-187.md) | CodeCell firmware, test steps, fault profiles and evidence record |
 | [Archive](archive/README.md) | Historical import, dependency, and schedule records |
 
 Use [GitHub issues](https://github.com/Krzys2002/Mini_Robot/issues),
