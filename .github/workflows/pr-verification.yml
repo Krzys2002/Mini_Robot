@@ -24,9 +24,11 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes cmake ninja-build g++ libgtest-dev qt6-base-dev qt6-multimedia-dev qt6-connectivity-dev libopencv-dev
+          sudo apt-get install --yes nodejs cmake ninja-build g++ libgtest-dev qt6-base-dev qt6-multimedia-dev qt6-connectivity-dev libopencv-dev
       - name: Test repository automation
         run: python3 -m unittest discover -s .github/scripts/tests -v
+      - name: Test prototype browser command ordering
+        run: node Mini_Robot/tests/firmware/browser-control.test.js
       - name: Configure BLE-enabled desktop and deterministic tests
         working-directory: Mini_Robot
         run: cmake --preset linux-gcc -DMICRO_ROBOT_BUILD_BLE=ON -DMICRO_ROBOT_BUILD_MARKER_TOOLS=ON

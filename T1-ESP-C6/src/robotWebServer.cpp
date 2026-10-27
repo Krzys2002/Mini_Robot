@@ -37,7 +37,10 @@ void handleEmergencyStop() {
 }
 
 void handleEmergencyClear() {
-  clearEmergencyStop();
+  if (!clearEmergencyStop()) {
+    sendJson(503, "{\"ok\":false,\"error\":\"Controller busy or faulted; E-stop retained\"}");
+    return;
+  }
 
   sendJson(
     200,
@@ -57,7 +60,10 @@ void handleMoveCommand() {
   int move = constrain(server.arg("move").toInt(), -100, 100);
   int rotation = constrain(server.arg("rotation").toInt(), -100, 100);
 
-  setDirectControl(move, rotation);
+  if (!setDirectControl(move, rotation)) {
+    sendJson(503, "{\"ok\":false,\"error\":\"Motion rejected: stopped, faulted or busy\"}");
+    return;
+  }
 
   String json = "{";
   json += "\"ok\":true,";
@@ -82,7 +88,10 @@ void handleTargetCommand() {
   float angleDeg = server.arg("angle").toFloat();
   bool useImu = server.hasArg("imu") && server.arg("imu").toInt() == 1;
 
-  setTargetControl(distanceM, angleDeg, useImu);
+  if (!setTargetControl(distanceM, angleDeg, useImu)) {
+    sendJson(503, "{\"ok\":false,\"error\":\"Target rejected: invalid, stopped, faulted or busy\"}");
+    return;
+  }
 
   String json = "{";
   json += "\"ok\":true,";

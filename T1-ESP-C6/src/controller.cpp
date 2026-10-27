@@ -3,6 +3,8 @@
 //
 
 #include "controller.h"
+#include "ActuatorSafety.hpp"
+#include <cmath>
 
 RobotCommand commandBuffer = {
   CONTROL_DIRECT, 0, 0, 0.0f, 0.0f, false, 0, 0
@@ -12,14 +14,16 @@ MotorOutput motorBuffer = {true, true, 0, 0};
 RobotStatus statusBuffer;
 
 SemaphoreHandle_t commandMutex;
-SemaphoreHandle_t motorMutex;
 SemaphoreHandle_t statusMutex;
 
 uint32_t startTimeMs;
 
-volatile bool emergencyStop = false;
+std::atomic<bool> emergencyStop{false};
+static std::atomic<bool> runtimeFault{false};
+static std::atomic<uint32_t> emergencyEpoch{0};
 
 const uint32_t COMMAND_TIMEOUT_MS = 300;
+static prototype::ActuatorSafety actuatorSafety{COMMAND_TIMEOUT_MS};
 const float MAX_ANGLE_SETPOINT_RATE_DPS = 100.0f;
 
 const float YAW_KP = 0.25f;
@@ -35,12 +39,20 @@ const float IMU_MAX_DT_S = 0.10f;
 static float debugYawError = 0.0f;
 static float debugYawCorrection = 0.0f;
 
-void initController() {
+bool initController() {
   startTimeMs = millis();
-
   commandMutex = xSemaphoreCreateMutex();
-  motorMutex = xSemaphoreCreateMutex();
   statusMutex = xSemaphoreCreateMutex();
+  if (!commandMutex || !statusMutex) {
+    controllerFaultNow();
+    return false;
+  }
+  return true;
+}
+void controllerFaultNow() {
+  runtimeFault.store(true);
+  emergencyStop.store(true);
+  // The actuator task tests these atomics even if a handoff mutex is unavailable.
 }
 
 float angleError(float target, float current) {
@@ -96,54 +108,57 @@ void debugMotorState(const char* source, int8_t move, int8_t rotation, int16_t m
   Serial.println("================================");
 }
 
-void setDirectControl(int8_t move, int8_t rotation) {
-  if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE) {
+bool setDirectControl(int8_t move, int8_t rotation) {
+  if (!commandMutex || emergencyStop.load() || runtimeFault.load()
+      || xSemaphoreTake(commandMutex, 0) != pdTRUE) return false;
+  const auto now = millis();
+  const auto generation = emergencyStop.load() ? 0 : actuatorSafety.accept(now);
+  if (generation) {
     commandBuffer.mode = CONTROL_DIRECT;
     commandBuffer.move = constrain(move, -100, 100);
     commandBuffer.rotation = constrain(rotation, -100, 100);
-    commandBuffer.updatedMs = millis();
-    commandBuffer.sequence++;
-    xSemaphoreGive(commandMutex);
+    commandBuffer.updatedMs = now;
+    commandBuffer.safetyGeneration = generation;
+    ++commandBuffer.sequence;
   }
+  xSemaphoreGive(commandMutex);
+  return generation != 0;
 }
 
-void setTargetControl(float distanceM, float rotationDeg, bool useImuDistance) {
-  if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE) {
+bool setTargetControl(float distanceM, float rotationDeg, bool useImuDistance) {
+  if (!std::isfinite(distanceM) || !std::isfinite(rotationDeg) || !commandMutex
+      || emergencyStop.load() || runtimeFault.load()
+      || xSemaphoreTake(commandMutex, 0) != pdTRUE) return false;
+  const auto now = millis();
+  const auto generation = emergencyStop.load() ? 0 : actuatorSafety.accept(now);
+  if (generation) {
     commandBuffer.mode = CONTROL_TARGET;
     commandBuffer.targetDistanceM = distanceM;
     commandBuffer.targetRotationDeg = constrain(rotationDeg, -100.0f, 100.0f);
     commandBuffer.useImuDistance = useImuDistance;
-    commandBuffer.updatedMs = millis();
-    commandBuffer.sequence++;
-    xSemaphoreGive(commandMutex);
+    commandBuffer.updatedMs = now;
+    commandBuffer.safetyGeneration = generation;
+    ++commandBuffer.sequence;
   }
+  xSemaphoreGive(commandMutex);
+  return generation != 0;
 }
 
-void writeMotorOutput(int16_t m1Signed, int16_t m2Signed) {
-  if (xSemaphoreTake(motorMutex, portMAX_DELAY) == pdTRUE) {
-    motorBuffer.m1Forward = m1Signed >= 0;
-    motorBuffer.m2Forward = m2Signed >= 0;
-    motorBuffer.m1Speed = abs(m1Signed);
-    motorBuffer.m2Speed = abs(m2Signed);
-    xSemaphoreGive(motorMutex);
+void writeMotorOutput(int16_t m1Signed, int16_t m2Signed, uint64_t generation = 0) {
+  if (!commandMutex || xSemaphoreTake(commandMutex, 0) != pdTRUE) return;
+  if (emergencyStop.load() || runtimeFault.load() || !actuatorSafety.permits(generation, millis())) {
+    motorBuffer = {true, true, 0, 0};
+  } else {
+    motorBuffer = {m1Signed >= 0, m2Signed >= 0,
+      static_cast<uint8_t>(abs(m1Signed)), static_cast<uint8_t>(abs(m2Signed)), generation};
   }
-}
-
-MotorOutput readMotorOutput() {
-  MotorOutput out = {true, true, 0, 0};
-
-  if (xSemaphoreTake(motorMutex, portMAX_DELAY) == pdTRUE) {
-    out = motorBuffer;
-    xSemaphoreGive(motorMutex);
-  }
-
-  return out;
+  xSemaphoreGive(commandMutex);
 }
 
 RobotStatus readRobotStatus() {
-  RobotStatus s;
+  RobotStatus s{};
 
-  if (xSemaphoreTake(statusMutex, portMAX_DELAY) == pdTRUE) {
+  if (xSemaphoreTake(statusMutex, 0) == pdTRUE) {
     s = statusBuffer;
     xSemaphoreGive(statusMutex);
   }
@@ -152,17 +167,35 @@ RobotStatus readRobotStatus() {
 }
 
 void emergencyStopNow() {
-  emergencyStop = true;
-  writeMotorOutput(0, 0);
-
-  Serial.println("################################");
-  Serial.println("### EMERGENCY STOP ACTIVATED ###");
-  Serial.println("################################");
+  // Latch independently of command/control progress or a held handoff mutex.
+  emergencyEpoch.fetch_add(1);
+  emergencyStop.store(true);
+  if (commandMutex && xSemaphoreTake(commandMutex, 0) == pdTRUE) {
+    actuatorSafety.stop();
+    motorBuffer = {true, true, 0, 0};
+    xSemaphoreGive(commandMutex);
+  }
+  Serial.println("Emergency stop latched; actuator loop disables outputs");
 }
 
-void clearEmergencyStop() {
-  emergencyStop = false;
-  Serial.println("Emergency stop cleared");
+bool clearEmergencyStop() {
+  const auto epoch = emergencyEpoch.load();
+  if (runtimeFault.load() || !commandMutex || xSemaphoreTake(commandMutex, 0) != pdTRUE) return false;
+  // Clearing invalidates both pending intent and computed output. An old control
+  // snapshot cannot replay after clear, even if a new command arrives meanwhile.
+  actuatorSafety.clear();
+  commandBuffer.move = commandBuffer.rotation = 0;
+  commandBuffer.mode = CONTROL_DIRECT;
+  commandBuffer.safetyGeneration = 0;
+  ++commandBuffer.sequence;
+  motorBuffer = {true, true, 0, 0};
+  emergencyStop.store(false);
+  const bool racedStop = epoch != emergencyEpoch.load();
+  if (racedStop) emergencyStop.store(true);
+  xSemaphoreGive(commandMutex);
+  if (racedStop || runtimeFault.load()) return false;
+  Serial.println("Emergency stop cleared to idle; new command required");
+  return true;
 }
 
 void resetDistanceState(DistanceState &state) {
@@ -278,7 +311,7 @@ void controlDirectRealtime(
 
   // Timeout only stops motors.
   // Do NOT reset directYawSetpoint.
-  if (now - cmd.updatedMs > COMMAND_TIMEOUT_MS) {
+  if (now - cmd.updatedMs >= COMMAND_TIMEOUT_MS) {
     m1 = 0;
     m2 = 0;
     return;
@@ -373,26 +406,24 @@ void controlPreliminaryRotation(
   debugMotorState("PRE_ROTATE", 0, rot, m1, m2);
 }
 
-void motorTask(void* parameter) {
+void motorTask(void* /*parameter*/) {
   while (true) {
-    if (emergencyStop) {
-      myCodeCell.Drive1.Drive(true, 0);
-      myCodeCell.Drive2.Drive(true, 0);
-
-      vTaskDelay(pdMS_TO_TICKS(10));
-      continue;
-    }
-
-    MotorOutput out = readMotorOutput();
-
+    MotorOutput out = {true, true, 0, 0};
+    // Never wait on a stalled control/command task. Contention means zero output.
+    const bool locked = commandMutex && xSemaphoreTake(commandMutex, 0) == pdTRUE;
+    if (locked && !emergencyStop.load() && !runtimeFault.load()
+        && actuatorSafety.permits(motorBuffer.safetyGeneration, millis())) out = motorBuffer;
+    // Only this task writes actuators after setup. Keep gate evaluation and writes
+    // serialized with clear/new intent; an E-stop latch is rechecked every cycle.
+    if (emergencyStop.load() || runtimeFault.load()) out = {true, true, 0, 0};
     myCodeCell.Drive1.Drive(!out.m1Forward, out.m1Speed);
     myCodeCell.Drive2.Drive(out.m2Forward, out.m2Speed);
-
+    if (locked) xSemaphoreGive(commandMutex);
     vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
 
-void controlTask(void* parameter) {
+void controlTask(void* /*parameter*/) {
   uint32_t lastSeq = 0;
   uint32_t motionStartMs = 0;
   bool wasMoving = false;
@@ -418,11 +449,14 @@ void controlTask(void* parameter) {
 
     myCodeCell.Run(20);
 
-    RobotCommand cmd;
+    RobotCommand cmd{};
 
-    if (xSemaphoreTake(commandMutex, portMAX_DELAY) == pdTRUE) {
+    if (xSemaphoreTake(commandMutex, 0) == pdTRUE) {
       cmd = commandBuffer;
       xSemaphoreGive(commandMutex);
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
     }
 
     int16_t m1 = 0;
@@ -452,7 +486,7 @@ void controlTask(void* parameter) {
       Serial.println(cmd.sequence);
     }
 
-    bool commandFresh = (millis() - cmd.updatedMs) <= COMMAND_TIMEOUT_MS;
+    bool commandFresh = (millis() - cmd.updatedMs) < COMMAND_TIMEOUT_MS;
 
     if (cmd.mode == CONTROL_DIRECT) {
       targetRunning = false;
@@ -509,9 +543,9 @@ void controlTask(void* parameter) {
 
     wasMoving = movingNow;
 
-    writeMotorOutput(m1, m2);
+    writeMotorOutput(m1, m2, cmd.safetyGeneration);
 
-    if (xSemaphoreTake(statusMutex, portMAX_DELAY) == pdTRUE) {
+    if (xSemaphoreTake(statusMutex, 0) == pdTRUE) {
       statusBuffer.batteryMv = myCodeCell.BatteryVoltageRead();
       statusBuffer.batteryPercent = myCodeCell.BatteryLevelRead();
       statusBuffer.uptimeMs = millis() - startTimeMs;
