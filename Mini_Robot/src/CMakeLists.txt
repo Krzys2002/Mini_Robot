@@ -44,6 +44,8 @@ add_library(micro_robot_calibration STATIC
     calibration/CalibrationProfile.cpp
     calibration/WorkspaceCalibration.hpp
     calibration/WorkspaceCalibration.cpp
+    calibration/TabletopHomography.cpp calibration/TabletopHomography.hpp
+    calibration/WorkspaceProfile.cpp calibration/WorkspaceProfile.hpp
 )
 target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api micro_robot_world)
 micro_robot_target_defaults(micro_robot_calibration)
@@ -51,6 +53,7 @@ micro_robot_platform_boundary(micro_robot_calibration)
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_library(micro_robot_calibration_opencv STATIC
+        calibration/OpenCvWorkspaceHomographySolver.cpp calibration/OpenCvWorkspaceHomographySolver.hpp
         calibration/OpenCvCalibrationDetector.hpp
         calibration/OpenCvCalibrationDetector.cpp
         calibration/OpenCvIntrinsicCalibrationSolver.hpp
@@ -193,6 +196,7 @@ endif()
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_calibration_profiles STATIC
+        calibration/QtWorkspaceProfileStore.cpp calibration/QtWorkspaceProfileStore.hpp
         calibration/QtCalibrationProfileStore.hpp
         calibration/QtCalibrationProfileStore.cpp)
     target_link_libraries(micro_robot_calibration_profiles PUBLIC micro_robot_calibration Qt6::Core)
