@@ -138,7 +138,9 @@ CaptureDecision CalibrationCapture::add(FramePtr frame, CalibrationDetection det
 }
 bool CalibrationCapture::remove(std::size_t index)
 {
-    if (state_ != CalibrationCaptureState::Collecting || index >= views_.size()) return false;
+    if ((state_ != CalibrationCaptureState::Collecting && state_ != CalibrationCaptureState::Complete)
+        || index >= views_.size()) return false;
+    state_ = CalibrationCaptureState::Collecting;
     storedBytes_ -= views_[index].frame->pixels->size();
     views_.erase(views_.begin() + static_cast<std::ptrdiff_t>(index));
     return true;

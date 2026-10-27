@@ -37,6 +37,34 @@ lens, focus, zoom or capture processing: matching ID/resolution alone cannot
 establish unchanged optics. Backends whose device IDs change across restarts need
 a new calibration; the application does not guess identity from display names.
 
+## Physical camera identity and review corrections
+
+Capture access paths and physical profile identity are separate. `CameraInfo`
+exposes optional `persistentCalibrationId`; composition passes that identity and
+its persistence eligibility through `calibrationInputChanged`. Calibration's
+`setInput` defaults to session-only unless the caller explicitly attests identity.
+On Linux V4L2, the resolver uses USB vendor/product/serial, interface number and
+video index from sysfs. Renumbering `/dev/videoN` preserves the key; another camera
+at the old node gets another key. Missing serial/metadata or duplicate identities
+disable saved-profile loading and saving. Capture and in-session calculation and
+undistorted preview still work. The source rechecks identity around device open;
+a changed/ambiguous identity faults and requires reselection. Qt's Linux adapter
+also disables persistence until it can resolve physical identity. Existing
+node-path-keyed Linux profiles are intentionally not migrated or auto-loaded.
+
+The other native Qt backends retain their opaque device identity; those IDs are
+backend-specific and do not promise cross-OS portability. Identity equality cannot
+prove unchanged optics or camera placement. The USB resolver uses Linux's
+[documented USB attributes](https://github.com/torvalds/linux/blob/master/Documentation/ABI/testing/sysfs-bus-usb)
+without treating a port path or camera display name as a physical serial.
+
+After solving, select a poor view and choose **Remove view**. The capture session
+returns to Collecting and retains the other observations. The computed result,
+active calibration and undistorted preview are invalidated; save stays disabled
+until recalculation succeeds. Previously saved files are preserved. Removal is
+blocked while worker/profile I/O is active. Capture more views if the remaining
+set no longer meets count/diversity requirements, then calculate again.
+
 ## Version 1 format and validation
 
 `CalibrationProfile.hpp` defines Qt/OpenCV-free serialization, parsing, exact

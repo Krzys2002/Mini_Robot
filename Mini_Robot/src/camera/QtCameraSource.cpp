@@ -285,7 +285,16 @@ QtCameraSource::~QtCameraSource()
 }
 
 void QtCameraSource::setEventSink(std::weak_ptr<ICameraEvents> sink) { sink_ = std::move(sink); }
-CameraInfo QtCameraSource::info() const { return {device_.id, device_.displayName}; }
+CameraInfo QtCameraSource::info() const
+{
+#if defined(Q_OS_LINUX)
+    // Qt's Linux IDs may also be recyclable video-node paths. Until this adapter
+    // resolves physical metadata, persistence must fail closed here too.
+    return {device_.id, device_.displayName, std::nullopt};
+#else
+    return {device_.id, device_.displayName, device_.id};
+#endif
+}
 CameraState QtCameraSource::state() const { return state_; }
 
 void QtCameraSource::start()

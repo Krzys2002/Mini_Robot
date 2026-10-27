@@ -1,5 +1,7 @@
 # Project overview
 
+- [Current capability and integration limits](capabilities.md): implemented components, remaining workflow and evidence owners.
+
 - [Architecture](architecture.md): application modules, interfaces, ownership,
   domain units, threading boundaries, and current capability mapped to M1–M8.
 - [Source map](source-map.md): every implemented source file and its CMake target.

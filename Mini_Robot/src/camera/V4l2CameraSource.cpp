@@ -1,5 +1,6 @@
 #include "camera/V4l2CameraSource.hpp"
 #include "camera/V4l2Device.hpp"
+#include "camera/V4l2Identity.hpp"
 
 #include <QLoggingCategory>
 #include <QMetaObject>
@@ -47,7 +48,7 @@ public:
         lastState_.reset();
         // Reopen on each start, including after a failure.
         releaseCapture();
-        if (!checkNode()) return;
+        if (!checkNode() || !checkIdentity()) return;
         try {
             streams_.resize(1);
             auto& capture = streams_.front();
@@ -56,6 +57,7 @@ public:
                      + "; it may be in use by another application", CameraState::Fault);
                 return;
             }
+            if (!checkIdentity()) return;
             if (settings_.resolution) requestResolution(capture, *settings_.resolution);
             qCInfo(captureLog) << "event=camera_capture_opened" << "backend=v4l2"
                                << "id=" << QString::fromStdString(path_)
@@ -88,6 +90,15 @@ private:
         FramePtr frame;
         bool scheduled{};
     };
+
+    bool checkIdentity()
+    {
+        if (persistentV4l2Identity(path_) == owner_.calibrationId_) return true;
+        fail(CameraErrorCode::Unavailable,
+             "Camera identity changed or is ambiguous; reselect the physical camera before capture",
+             CameraState::Fault);
+        return false;
+    }
 
     // Classifies the node before OpenCV opens it: OpenCV reports only success or
     // failure, which cannot distinguish a missing device from a permission error.
@@ -280,7 +291,7 @@ private:
 };
 
 V4l2CameraSource::V4l2CameraSource(CameraDevice device, CameraCaptureSettings settings)
-    : device_(std::move(device))
+    : device_(std::move(device)), calibrationId_(persistentV4l2Identity(device_.id))
 {
     backend_ = new Backend(*this, device_.id, settings);
     backend_->moveToThread(&worker_);
@@ -296,7 +307,7 @@ V4l2CameraSource::~V4l2CameraSource()
 }
 
 void V4l2CameraSource::setEventSink(std::weak_ptr<ICameraEvents> sink) { sink_ = std::move(sink); }
-CameraInfo V4l2CameraSource::info() const { return {device_.id, device_.displayName}; }
+CameraInfo V4l2CameraSource::info() const { return {device_.id, device_.displayName, calibrationId_}; }
 CameraState V4l2CameraSource::state() const { return state_; }
 
 void V4l2CameraSource::start()

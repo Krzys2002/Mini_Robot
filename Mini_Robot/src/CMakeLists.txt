@@ -215,6 +215,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         add_library(micro_robot_camera_v4l2 STATIC
             camera/V4l2Device.hpp
             camera/V4l2Device.cpp
+        camera/V4l2Identity.cpp camera/V4l2Identity.hpp
             camera/V4l2CameraDeviceDiscovery.hpp
             camera/V4l2CameraDeviceDiscovery.cpp
             camera/V4l2CameraSource.hpp

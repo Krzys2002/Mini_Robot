@@ -36,7 +36,7 @@ class DailyBuildGateTest(unittest.TestCase):
                    "GITHUB_RUN_ID": "3", "GITHUB_SHA": "head", "GITHUB_OUTPUT": str(output)}
             with patch.dict(os.environ, env), patch.object(gate, "api_pages", side_effect=[runs, pulls]) as api, patch.object(gate.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, commits)) as git:
                 gate.main()
-                return output.read_text(), git.call_args.args[0], api.call_count
+                return output.read_text(), git.call_args.args[0] if git.called else None, api.call_count
 
     def test_catch_up_uses_last_successful_snapshot_without_time_limit(self):
         runs = [{"workflow_runs": [{"id": 1, "created_at": "2026-10-20", "head_sha": "old"}]}]
@@ -47,14 +47,16 @@ class DailyBuildGateTest(unittest.TestCase):
         self.assertEqual(calls, 2)
 
     def test_unchanged_snapshot_skips_pull_lookup_and_builds(self):
-        output, _, calls = self.run_gate([], "", [])
+        output, _, calls = self.run_gate(
+            [{"workflow_runs": [{"id": 1, "created_at": "2026-10-20", "head_sha": "head"}]}], "", [])
         self.assertEqual(output, "build=false\n")
         self.assertEqual(calls, 1)
 
-    def test_first_run_uses_one_day_bootstrap_window(self):
-        output, command, _ = self.run_gate([], "direct-push\n", [[]])
-        self.assertEqual(output, "build=false\n")
-        self.assertTrue(command[-1].startswith("--since="))
+    def test_first_run_builds_baseline_even_after_prolonged_outage(self):
+        output, command, calls = self.run_gate([], "", [])
+        self.assertEqual(output, "build=true\n")
+        self.assertIsNone(command)
+        self.assertEqual(calls, 1)
 
     def test_other_branches_rejected_before_api_access(self):
         with patch.dict(os.environ, {"GITHUB_REF": "refs/heads/feature"}), patch.object(gate, "api_pages") as api:

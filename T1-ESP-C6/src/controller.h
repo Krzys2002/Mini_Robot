@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <CodeCell.h>
+#include <atomic>
 
 extern CodeCell myCodeCell;
 
@@ -30,6 +31,7 @@ struct RobotCommand {
     bool useImuDistance;
     uint32_t sequence;
     uint32_t updatedMs;       // command freshness watchdog timestamp
+    uint64_t safetyGeneration{}; // Identifies this accepted intent at the actuator gate.
 };
 
 struct MotorOutput {
@@ -37,6 +39,7 @@ struct MotorOutput {
     bool m2Forward;
     uint8_t m1Speed;
     uint8_t m2Speed;
+    uint64_t safetyGeneration{};
 };
 
 struct RobotStatus {
@@ -63,15 +66,16 @@ struct DistanceState {
     bool imuBiasReady;
 };
 
-extern volatile bool emergencyStop;
+extern std::atomic<bool> emergencyStop;
 
-void initController();
+bool initController();
+void controllerFaultNow();
 
-void setDirectControl(int8_t move, int8_t rotation);
-void setTargetControl(float distanceM, float rotationDeg, bool useImuDistance);
+bool setDirectControl(int8_t move, int8_t rotation);
+bool setTargetControl(float distanceM, float rotationDeg, bool useImuDistance);
 
 void emergencyStopNow();
-void clearEmergencyStop();
+bool clearEmergencyStop();
 
 RobotStatus readRobotStatus();
 
