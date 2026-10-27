@@ -24,6 +24,9 @@
 - [Communication module](modules/communication.md): RobotManager sessions and backend isolation.
 - [Robot communication](robot-communication.md): platform-neutral robot discovery,
   Qt Bluetooth review for Linux/macOS, control isolation, and mock transport tests.
+- [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
+  verified board/motor facts, unresolved safety blockers, and the bench envelope
+  used before powered motion acceptance.
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
 - [World module](modules/world.md): robot registry, tabletop frame, metric bounds and workspace-calibration model.
 - [WorldModel behavior](world-model.md): registration, poses and snapshots.
