@@ -28,6 +28,7 @@ public:
                             std::unique_ptr<ICalibrationUndistorter> undistorter);
     [[nodiscard]] const std::optional<IntrinsicCalibration>& profile() const noexcept { return profile_; }
     [[nodiscard]] const QString& profileMessage() const noexcept { return profileMessage_; }
+    [[nodiscard]] bool persistentIdentity() const noexcept { return persistentIdentity_; }
     [[nodiscard]] bool profileBusy() const noexcept { return profileIoBusy_; }
     [[nodiscard]] bool canSaveProfile() const { return persistentIdentity_ && profileStore_ && profile_ && !profileIoBusy_ && !shuttingDown_; }
     [[nodiscard]] bool canReloadProfile() const { return persistentIdentity_ && profileStore_ && latest_ && !profileIoBusy_ && !shuttingDown_; }

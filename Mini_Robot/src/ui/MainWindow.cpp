@@ -106,6 +106,7 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     auto* workspaceDescription = new QLabel(QStringLiteral("Workspace dimensions not configured"), worldGroup);
     workspaceDescription->setObjectName(QStringLiteral("workspaceDescription"));
     workspaceDescription->setWordWrap(true);
+    workspaceDescription->setTextFormat(Qt::PlainText);
     // Wrapped labels must retain their text height when the window is resized.
     for (auto* label : {convention, workspaceDescription, worldDescription})
         label->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
@@ -202,6 +203,11 @@ void MainWindow::bindCalibration(CalibrationController& calibration)
         wizard->raise();
         calibration.showLive();
     });
+}
+
+void MainWindow::bindWorkspaceCalibration(WorkspaceCalibrationController& workspace)
+{
+    if (calibrationWizard_) calibrationWizard_->bindWorkspaceCalibration(workspace);
 }
 
 void MainWindow::bindCameraSelection(CameraSelectionController& selection)

@@ -24,6 +24,7 @@
 - [Communication module](modules/communication.md): RobotManager sessions and backend isolation.
 - [Robot communication](robot-communication.md): platform-neutral robot discovery,
   Qt Bluetooth review for Linux/macOS, control isolation, and mock transport tests.
+- [Tabletop homography](tabletop-homography.md): paired undistorted image/world points, residuals, workspace profile save/load and commissioning.
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
   verified board/motor facts, unresolved safety blockers, and the bench envelope
   used before powered motion acceptance.

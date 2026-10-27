@@ -6,6 +6,7 @@
 #include "simulation/FakeCameraSourceFactory.hpp"
 #include "simulation/SimulationTransport.hpp"
 #include "ManualBackends.hpp"
+#include "../calibration/HomographyFixtures.hpp"
 
 #include <QApplication>
 #include <QEventLoop>
@@ -172,6 +173,21 @@ TEST(DesktopIntegrationTest, MeasuredBoundsReachUiWithoutClaimingCameraCalibrati
     fixture.controller.setWorkspaceBounds(std::nullopt);
     EXPECT_FALSE(fixture.world.snapshot().workspace);
     EXPECT_TRUE(fixture.label("workspaceDescription")->text().contains(QStringLiteral("not configured")));
+}
+
+TEST(DesktopIntegrationTest, WorkspaceTransformActivatesAndInvalidatesAuthoritativeBounds)
+{
+    DesktopFixture fixture;
+    auto profile = test::homographyInput().profile;
+    profile.homography = test::knownHomography();
+    fixture.controller.setWorkspaceCalibration(profile);
+    ASSERT_TRUE(fixture.world.workspaceBounds());
+    EXPECT_DOUBLE_EQ(fixture.world.workspaceBounds()->width().value, 1);
+    EXPECT_TRUE(fixture.label("workspaceDescription")->text().contains("transform available"));
+    EXPECT_FALSE(fixture.world.robot(RobotId{1})->pose);
+    fixture.controller.setWorkspaceCalibration({});
+    EXPECT_FALSE(fixture.world.workspaceBounds());
+    EXPECT_TRUE(fixture.label("workspaceDescription")->text().contains("not configured"));
 }
 
 TEST(DesktopIntegrationTest, StartupRegistersRobotAndShowsIdleControls)

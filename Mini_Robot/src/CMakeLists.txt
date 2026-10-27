@@ -239,6 +239,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_desktop_controller STATIC
         app/VisionController.hpp
         app/VisionController.cpp
+        app/WorkspaceCalibrationController.cpp app/WorkspaceCalibrationController.hpp
         app/CalibrationController.hpp
         app/CalibrationController.cpp
         app/CalibrationControllerProfiles.cpp
@@ -258,6 +259,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
+        ui/WorkspaceCalibrationDialog.cpp ui/WorkspaceCalibrationDialog.hpp
         ui/CalibrationWizard.hpp
         ui/CalibrationWizard.cpp
         ui/MainWindow.cpp

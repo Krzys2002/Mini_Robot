@@ -14,6 +14,7 @@ class VisionController;
 class VisionDebugDialog;
 class CalibrationWizard;
 class CalibrationController;
+class WorkspaceCalibrationController;
 class CameraSelectionController;
 class DesktopController;
 struct CameraChoiceItem;
@@ -28,6 +29,7 @@ public:
 
     // Opens the capture/review dialog for the injected calibration service.
     void bindCalibration(CalibrationController& calibration);
+    void bindWorkspaceCalibration(WorkspaceCalibrationController& workspace);
 
     // Shows the controller's choices and selection and forwards user choices.
     void bindCameraSelection(CameraSelectionController& selection);
