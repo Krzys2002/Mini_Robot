@@ -307,7 +307,7 @@ explains the choice.
 
 | Purpose | Ubuntu package | Notes |
 | --- | --- | --- |
-| Qt Bluetooth headers and CMake package (`Qt6::Bluetooth`) for the future BLE adapter | `qt6-connectivity-dev` (pulls in `libqt6bluetooth6`) | Universe component. Use the same Qt version as `qt6-base-dev`. |
+| Qt Bluetooth headers and CMake package (`Qt6::Bluetooth`) for the native BLE adapter | `qt6-connectivity-dev` (pulls in `libqt6bluetooth6`) | Universe component. Use the same Qt version as `qt6-base-dev`. |
 | BlueZ daemon (`bluetoothd`), which Qt Bluetooth uses through D-Bus | `bluez` | Installed by default on Ubuntu Desktop. Includes `bluetoothctl` and `btmon`. |
 | Radio kill-switch control | `rfkill` (util-linux) | Usually preinstalled. |
 

@@ -1,3 +1,11 @@
+# Historical architecture proposal
+
+This document is a design sketch retained for context. Proposed folders, types,
+frameworks and dependencies below do not describe the implemented repository.
+Use the [current architecture](Mini_Robot/docs/overview/architecture.md),
+[current capability](Mini_Robot/docs/overview/capabilities.md), and
+[source map](Mini_Robot/docs/overview/source-map.md) for current guidance.
+
 **1\. Directory structure**
 
 ```
