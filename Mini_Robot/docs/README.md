@@ -8,6 +8,7 @@
 | [Planning](planning/README.md) | Milestone roadmap and issue catalogs |
 | [Development](development/README.md) | Build/test procedures and GitHub automation |
 | [Physical BLE test #187](testing/ble-connection-187.md) | CodeCell firmware, test steps, fault profiles and evidence record |
+| [CodeCell C6 hardware validation #154](testing/codecell-c6-hardware-154.md) | Versioned hardware profile, unresolved blockers, and safe wheels-raised bench procedure |
 | [Archive](archive/README.md) | Historical import, dependency, and schedule records |
 
 Use [GitHub issues](https://github.com/Krzys2002/Mini_Robot/issues),
