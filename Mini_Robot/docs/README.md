@@ -15,3 +15,5 @@ Use [GitHub issues](https://github.com/Krzys2002/Mini_Robot/issues),
 [Project #4](https://github.com/users/Krzys2002/projects/4) for current progress,
 blocking relationships, priorities, and dates. Planning catalogs describe scope;
 their checkboxes are not synchronized progress reports.
+
+- [Project audit corrections and validation (2026-10-27)](testing/project-audit-2026-10-27.md)

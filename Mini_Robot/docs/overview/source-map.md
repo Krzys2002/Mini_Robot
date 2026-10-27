@@ -124,6 +124,15 @@ Desktop targets are omitted when MICRO_ROBOT_BUILD_DESKTOP=OFF.
 Each target's layer and the configure/test-time checks that enforce it are listed
 in [platform boundaries](platform-boundaries.md).
 
+## Audit correction helpers
+
+- [V4L2 physical identity](../../src/camera/V4l2Identity.hpp),
+  [implementation](../../src/camera/V4l2Identity.cpp): filesystem-only adapter helper
+  used by Linux capture; [profile behavior](calibration-profiles.md#physical-camera-identity-and-review-corrections).
+- [Prototype actuator gate](../../../T1-ESP-C6/include/ActuatorSafety.hpp): owned by
+  the legacy firmware, with the actual controller compiled against host fakes in
+  its separate CMake test target; [firmware guide](../../../T1-ESP-C6/README.md).
+
 ## Implementation limits
 
 The [current-capability summary](capabilities.md) owns implemented behavior and

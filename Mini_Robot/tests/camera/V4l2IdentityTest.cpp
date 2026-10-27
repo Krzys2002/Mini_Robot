@@ -25,10 +25,16 @@ struct UsbTree {
         std::ofstream(root / "dev" / node) << "fake";
         return root / "dev" / node;
     }
+    bool supportsSymlinks() {
+        std::error_code error;
+        fs::create_directory_symlink(root / "sys", root / "link-probe", error);
+        return !error;
+    }
     auto id(const fs::path& node) { return persistentV4l2Identity(node, root / "sys"); }
 };
 TEST(V4l2IdentityTest, RenumberingPreservesPhysicalIdentityAndNodeReuseChangesIt) {
     UsbTree t;
+    if (!t.supportsSymlinks()) GTEST_SKIP() << "Host does not permit filesystem symlinks";
     auto node = t.add("video0", "usb-a", "serial-a");
     const auto original = t.id(node); ASSERT_TRUE(original);
     fs::rename(t.root / "dev/video0", t.root / "dev/video4");
@@ -39,6 +45,7 @@ TEST(V4l2IdentityTest, RenumberingPreservesPhysicalIdentityAndNodeReuseChangesIt
 }
 TEST(V4l2IdentityTest, RejectsMissingSerialAndDuplicatePhysicalIdentity) {
     UsbTree t;
+    if (!t.supportsSymlinks()) GTEST_SKIP() << "Host does not permit filesystem symlinks";
     auto a = t.add("video0", "usb-a", "");
     EXPECT_FALSE(t.id(a));
     std::ofstream(t.root / "usb-a/serial") << "same";
@@ -49,6 +56,7 @@ TEST(V4l2IdentityTest, RejectsMissingSerialAndDuplicatePhysicalIdentity) {
 }
 TEST(V4l2IdentityTest, SeparatesInterfacesAndVideoIndicesAndRejectsIncompleteMetadata) {
     UsbTree t;
+    if (!t.supportsSymlinks()) GTEST_SKIP() << "Host does not permit filesystem symlinks";
     auto a = t.add("video0", "usb-a", "serial", "0");
     auto b = t.add("video1", "usb-a", "serial", "1");
     ASSERT_TRUE(t.id(a)); ASSERT_TRUE(t.id(b)); EXPECT_NE(t.id(a), t.id(b));
@@ -57,6 +65,7 @@ TEST(V4l2IdentityTest, SeparatesInterfacesAndVideoIndicesAndRejectsIncompleteMet
 }
 TEST(V4l2IdentityTest, ResolvesAccessSymlinkButNeverInventsIdentityFromPathOrName) {
     UsbTree t;
+    if (!t.supportsSymlinks()) GTEST_SKIP() << "Host does not permit filesystem symlinks";
     auto a = t.add("video0", "usb-a", "serial");
     fs::create_symlink(a, t.root / "dev/by-id-camera");
     EXPECT_EQ(t.id(t.root / "dev/by-id-camera"), t.id(a));
