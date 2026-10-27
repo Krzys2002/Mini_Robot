@@ -3,7 +3,11 @@
 #include "camera/ICameraSource.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include "app/RobotManager.hpp"
+#include "transport/IRobotDiscovery.hpp"
+
 #include "world/WorldModel.hpp"
+
+#include <QList>
 
 #include <QObject>
 #include <QString>
@@ -11,9 +15,24 @@
 
 #include <cstdint>
 #include <memory>
+#include <map>
+#include <vector>
 #include <optional>
 
 namespace micro_robot {
+
+struct RobotChoiceItem {
+    RobotId id;
+    QString label;
+    bool ambiguous{};
+};
+struct ManualControlConfig {
+    // Software bring-up bounds, not physical actuator/supply acceptance (#154).
+    double maximumLinearMetersPerSecond{0.1};
+    double maximumAngularRadiansPerSecond{1.0};
+    std::chrono::milliseconds refreshInterval{100};
+    std::chrono::milliseconds commandValidity{250};
+};
 
 // Qt application adapter. Dependencies must outlive the controller; all calls and
 // backend callbacks run on its owning thread. No concrete backend or widgets here.
@@ -25,7 +44,7 @@ class DesktopController final : public QObject {
 
 public:
     DesktopController(RobotManager& robots, WorldModel& world, RobotId robotId,
-                      LogChannel log, QObject* parent = nullptr);
+                      LogChannel log, QObject* parent = nullptr, ManualControlConfig manual = {});
     ~DesktopController() override;
 
     void initialize(Timestamp now);
@@ -41,7 +60,19 @@ public:
     void setCameraSource(std::unique_ptr<ICameraSource> source);
     [[nodiscard]] bool hasCameraSource() const noexcept { return camera_ != nullptr; }
 
+    // Composition/discovery adapter supplies domain snapshots; no native peers
+    // cross this boundary. Selection changes stop the old robot before switching.
+    void setDiscoveredRobots(std::vector<DiscoveredRobot> robots);
+    void setRobotScanState(bool scanning);
+    [[nodiscard]] RobotId selectedRobot() const noexcept { return robotId_; }
+    [[nodiscard]] ManualControlConfig manualControlConfig() const noexcept { return manualConfig_; }
+
 public slots:
+    void selectRobot(quint32 id);
+    void scanRobots();
+    void beginManualDrive(double linearMetersPerSecond, double angularRadiansPerSecond);
+    void stopManualDrive();
+    void emergencyStop();
     void startCamera();
     void stopCamera();
     void connectRobot();
@@ -50,6 +81,12 @@ public slots:
     void shutdown();
 
 signals:
+    void robotChoicesChanged(const QList<RobotChoiceItem>& robots, quint32 selectedId);
+    void robotScanChanged(bool scanning);
+    void robotScanRequested();
+    void robotActionsChanged(bool canConnect, bool canDisconnect, bool canDrive,
+                             bool canStop, bool canEmergencyStop);
+    void manualStatusChanged(const QString& description);
     void applicationStatusChanged(const QString& status);
     // Present is false when no source is selected; description names the source.
     void activeCameraChanged(const QString& description, bool present);
@@ -74,6 +111,11 @@ signals:
 private:
     class EventSink;
     void publishWorld();
+    void publishRobotChoices();
+    void publishRobotActions();
+    void refreshManualDrive();
+    [[nodiscard]] bool canManualDrive() const;
+    [[nodiscard]] bool selectedAmbiguous() const;
     void publishActiveCamera();
     void publishCameraActions();
     void requestCameraStop();
@@ -84,6 +126,12 @@ private:
     void receiveTelemetry(const RobotTelemetry& telemetry);
     [[nodiscard]] double elapsedSeconds(Timestamp at) const;
 
+    ManualControlConfig manualConfig_;
+    QTimer manualRefresh_;
+    std::optional<VelocityCommand> manualVelocity_;
+    std::map<RobotId, DiscoveredRobot> discoveredRobots_;
+    bool scanningRobots_{};
+    bool manualFault_{};
     RobotManager& robots_;
     WorldModel& world_;
     RobotId robotId_;

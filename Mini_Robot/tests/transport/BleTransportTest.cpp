@@ -686,4 +686,37 @@ TEST(BleTransportTest, ValidatedWireTelemetryAndErrorsReachDesktopServicesWithou
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
 }
 #endif
+#if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
+TEST(BleTransportTest, ManualServiceBoundsMotionStopsAndUsesDedicatedEmergencyEndpoint)
+{
+    Fixture f;
+    WorldModel world;
+    RobotManager robots{*f.transport, world};
+    DesktopController controller{robots, world, robot, f.logger.channel("manual")};
+    controller.initialize(MonotonicClock::now());
+    controller.connectRobot(); drain();
+    f.backend->found(); f.backend->finish(); drain();
+    f.backend->ready(f.backend->links.at(robot)); drain();
+    ASSERT_EQ(robots.connectionState(robot), ConnectionState::Connected);
+    controller.beginManualDrive(99, -99); drain();
+    ASSERT_FALSE(f.backend->writes.empty());
+    const auto& sent = f.backend->writes.back().request;
+    ASSERT_FALSE(sent.emergencyStop);
+    EXPECT_DOUBLE_EQ(std::get<VelocityCommand>(sent.command.payload).linearMetersPerSecond, 0.1);
+    EXPECT_DOUBLE_EQ(std::get<VelocityCommand>(sent.command.payload).angularRadiansPerSecond, -1);
+    controller.stopManualDrive(); drain();
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(f.backend->writes.back().request.command.payload));
+    controller.emergencyStop(); drain();
+    EXPECT_TRUE(f.backend->writes.back().request.emergencyStop);
+    EXPECT_EQ(f.backend->writes.back().frame.endpoint, BleEndpoint::EmergencyStop);
+    const auto count = f.backend->writes.size();
+    controller.beginManualDrive(0.1, 0); drain();
+    for (std::size_t i = count; i < f.backend->writes.size(); ++i)
+        EXPECT_TRUE(f.backend->writes[i].request.emergencyStop
+            || std::holds_alternative<StopCommand>(f.backend->writes[i].request.command.payload));
+    controller.shutdown(); drain();
+    emit f.backend->closed(f.backend->links.at(robot)); drain();
+    EXPECT_TRUE(robots.isStopped());
+}
+#endif
 } // namespace

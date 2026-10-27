@@ -172,6 +172,31 @@ int main(int argc, char* argv[])
                      &vision, &VisionController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
                      &vision, &VisionController::receiveFrame);
+    // Native discovery mapping stays in composition; the UI receives only IDs,
+    // names and ambiguity, never radio addresses or BLE device objects.
+#if defined(MICRO_ROBOT_HAS_BLE)
+    if (auto* ble = dynamic_cast<BleTransport*>(transport.get())) {
+        QObject::connect(&controller, &DesktopController::robotScanRequested, ble, &BleTransport::startDiscovery);
+        QObject::connect(ble, &BleTransport::discoveryChanged, &controller, [ble, &controller] {
+            std::vector<DiscoveredRobot> found;
+            for (const auto& device : ble->devices()) {
+                if (device.advertisedId)
+                    found.push_back({*device.advertisedId, device.name, MonotonicClock::now(), false});
+            }
+            controller.setDiscoveredRobots(std::move(found));
+            controller.setRobotScanState(ble->discovering());
+        });
+        QObject::connect(ble, &BleTransport::discoveryError, &controller,
+            [&controller](const QString& message) { emit controller.errorOccurred(message); });
+    }
+#endif
+    if (simulation) {
+        QObject::connect(&controller, &DesktopController::robotScanRequested, &controller,
+            [&controller, robotId] {
+                controller.setDiscoveredRobots({{robotId, "Simulated robot", MonotonicClock::now(), false}});
+                controller.setRobotScanState(false);
+            });
+    }
     MainWindow window{controller};
     window.bindVision(vision);
     if (arguments.isSet(bleOption)) window.setWindowTitle(QStringLiteral("Micro Robot — BLE connections"));
@@ -232,6 +257,7 @@ int main(int argc, char* argv[])
 
     controller.initialize(MonotonicClock::now());
     cameraSelection.initialize();
+    controller.scanRobots();
     window.show();
     if (simulation) simulationTimer.start();
     appLog.info("Application started");

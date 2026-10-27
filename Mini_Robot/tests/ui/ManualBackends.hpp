@@ -97,6 +97,11 @@ public:
         if (auto sink = sink_.lock()) sink->onTelemetry(telemetry);
     }
 
+    void publishError(const TransportError& error)
+    {
+        if (auto sink = sink_.lock()) sink->onTransportError(error);
+    }
+
     std::vector<RobotId> connectRequests;
     std::vector<RobotId> disconnectRequests;
     std::vector<std::pair<RobotId, RobotCommand>> commands;

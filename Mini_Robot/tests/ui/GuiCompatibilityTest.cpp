@@ -16,6 +16,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QScreen>
+#include <QScrollArea>
 #include <QSet>
 #include <QStyleHints>
 #include <QTest>
@@ -148,7 +149,7 @@ struct GuiFixture {
         }
         widgets.push_back(selector());
         for (const char* name : {"openCalibration", "openVisionDebug", "startCamera", "stopCamera", "connectRobot",
-                                 "disconnectRobot"}) {
+                                 "disconnectRobot", "manualStop", "emergencyStop"}) {
             widgets.push_back(button(name));
         }
         return widgets;
@@ -164,6 +165,11 @@ void expectControlsUsable(GuiFixture& fixture)
         ASSERT_NE(widget, nullptr);
         SCOPED_TRACE(widget->objectName().toStdString());
         EXPECT_TRUE(widget->isVisibleTo(&fixture.window));
+        // Camera/world content scrolls so Stop/E-stop can remain on screen.
+        if (auto* scroll = fixture.window.findChild<QScrollArea*>(); scroll && scroll->isAncestorOf(widget)) {
+            scroll->ensureWidgetVisible(widget);
+            QApplication::processEvents();
+        }
         const QRect geometry{widget->mapTo(&fixture.window, QPoint{}), widget->size()};
         EXPECT_TRUE(bounds.contains(geometry));
         const QSize minimum = widget->minimumSizeHint();
@@ -330,7 +336,7 @@ TEST(GuiCompatibilityTest, TabFollowsTheVisualOrderOfEnabledControls)
     fixture.key(Qt::Key_Down); // Select a camera so that Start camera is enabled.
 
     // Stop camera and Disconnect robot are disabled and skipped.
-    for (const char* name : {"openCalibration", "openVisionDebug", "startCamera", "connectRobot"}) {
+    for (const char* name : {"openCalibration", "openVisionDebug", "startCamera", "robotSelector", "scanRobots", "connectRobot", "emergencyStop"}) {
         fixture.key(Qt::Key_Tab);
         ASSERT_NE(fixture.window.focusWidget(), nullptr);
         EXPECT_EQ(fixture.window.focusWidget()->objectName().toStdString(), name);
@@ -338,7 +344,7 @@ TEST(GuiCompatibilityTest, TabFollowsTheVisualOrderOfEnabledControls)
     fixture.key(Qt::Key_Tab);
     EXPECT_EQ(fixture.window.focusWidget(), fixture.selector());
     QTest::keyClick(fixture.handle(), Qt::Key_Backtab, Qt::ShiftModifier);
-    EXPECT_EQ(fixture.window.focusWidget(), fixture.button("connectRobot"));
+    EXPECT_EQ(fixture.window.focusWidget(), fixture.button("emergencyStop"));
 }
 
 TEST(GuiCompatibilityTest, CalibrationDialogOpensAndClosesWithTheMainWindow)
