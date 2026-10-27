@@ -45,3 +45,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.build == 'true'
     uses: ./.github/workflows/macos-build-test.yml
+
+  windows:
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    uses: ./.github/workflows/windows-build-test.yml

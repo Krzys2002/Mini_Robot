@@ -8,7 +8,9 @@ source-based architecture assessment, not a live GitHub issue-status report.
 
 Early Ubuntu compatibility is part of M1 under
 [AGENTS.md](../../AGENTS.md) and the [Linux catalog](../planning/linux_compatibility_issues.md).
-Windows remains a project target with deployment work assigned to M8.
+Windows remains a project target under M8. Its [CI and deployment path](../development/windows-deployment.md)
+is authored; successful Windows build/test execution and physical camera/BLE
+validation remain pending.
 
 ## Milestone status
 

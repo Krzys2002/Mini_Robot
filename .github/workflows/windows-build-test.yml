@@ -1,0 +1,115 @@
+name: Windows build and test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  desktop-build-test:
+    if: github.ref == 'refs/heads/master'
+    name: Windows Server 2022 / MSVC / Desktop + tests
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: Mini_Robot
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Configure MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install dependencies
+        run: |
+          choco install ninja --yes --no-progress
+          choco install opencv --yes --no-progress
+          python -m pip install --disable-pip-version-check --quiet aqtinstall==3.2.1
+          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtmultimedia -O C:\Qt
+
+      - name: Resolve OpenCV and Qt prefixes
+        run: |
+          $qtPrefix = "C:\Qt\6.8.3\msvc2022_64"
+          if (-not (Test-Path "$qtPrefix\lib\cmake\Qt6\Qt6Config.cmake")) {
+            throw "Qt prefix not found: $qtPrefix"
+          }
+          $openCvConfig = Get-ChildItem -Path C:\tools -Filter OpenCVConfig.cmake -Recurse -ErrorAction Stop |
+            Where-Object { $_.Directory.FullName -match '\\x64\\vc\d+\\lib$' } |
+            Select-Object -First 1
+          if (-not $openCvConfig) {
+            throw "x64 MSVC OpenCVConfig.cmake not found under C:\tools"
+          }
+          $qtBin = Join-Path $qtPrefix "bin"
+          # The selected x64 MSVC config is next to its matching runtime bin.
+          $openCvBin = Join-Path $openCvConfig.Directory.Parent.FullName "bin"
+          if (-not (Test-Path "$qtBin\Qt6Core.dll" -PathType Leaf)) {
+            throw "Qt runtime not found: $qtBin"
+          }
+          if (-not (Get-ChildItem -Path $openCvBin -Filter "opencv*.dll" -File -ErrorAction Stop)) {
+            throw "OpenCV runtime DLLs not found: $openCvBin"
+          }
+          "QT_PREFIX=$qtPrefix" >> $env:GITHUB_ENV
+          "OpenCV_DIR=$($openCvConfig.Directory.FullName)" >> $env:GITHUB_ENV
+          # Needed during build-time GoogleTest discovery as well as CTest.
+          $qtBin >> $env:GITHUB_PATH
+          $openCvBin >> $env:GITHUB_PATH
+
+      - name: Report tool versions
+        run: |
+          cmake --version
+          ninja --version
+          # cl /Bv without a source exits with D8003; file metadata succeeds.
+          (Get-Item (Get-Command cl.exe -ErrorAction Stop).Source).VersionInfo |
+            Format-List FileName, FileVersion, ProductVersion
+
+      - name: Configure
+        run: >-
+          cmake --preset windows-msvc
+          -DMICRO_ROBOT_BUILD_DESKTOP=ON
+          -DMICRO_ROBOT_BUILD_REPLAY=ON
+          -DCMAKE_PREFIX_PATH="$env:QT_PREFIX;$env:OpenCV_DIR"
+
+      - name: Build
+        run: cmake --build --preset windows-msvc --parallel 4
+
+      - name: Run regression tests
+        run: ctest --preset windows-msvc
+
+  core-build-test:
+    if: github.ref == 'refs/heads/master'
+    name: Windows Server 2022 / MSVC / Core without Qt and OpenCV
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: Mini_Robot
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Configure MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install dependencies
+        run: choco install ninja --yes --no-progress
+
+      - name: Configure
+        run: cmake --preset core -DCMAKE_CXX_COMPILER=cl
+
+      - name: Build
+        run: cmake --build --preset core --parallel 4
+
+      - name: Run regression tests
+        run: ctest --preset core

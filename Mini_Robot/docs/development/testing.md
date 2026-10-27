@@ -129,13 +129,14 @@ configuration's subdirectory, for example
 
 The regression suite is every CTest test except those labelled `hardware`. It needs
 no camera, Bluetooth adapter, robot, or display session, and it is the selection
-that CI runs on macOS and Linux. Every test preset applies it (exclude label
+that CI runs on macOS, Linux, and Windows. Every test preset applies it (exclude label
 `hardware`, output on failure, error when no tests are found):
 
 ```sh
 ctest --preset macos        # macOS, AppleClang
 ctest --preset linux-gcc    # Ubuntu, GCC
 ctest --preset linux-clang  # Ubuntu, Clang
+ctest --preset windows-msvc # Windows, MSVC
 ctest --preset core         # any host, core libraries only
 ```
 
@@ -219,7 +220,7 @@ ctest --preset macos
 ```
 
 This workflow verifies compilation and automated tests, without camera/BLE
-hardware or deployment packaging. Windows CI is separate Issue #106.
+hardware or deployment packaging.
 
 ## Linux continuous integration
 
@@ -260,12 +261,58 @@ Use `linux-clang` in place of `linux-gcc` for the Clang job. For the core job,
 install only `build-essential cmake ninja-build libgtest-dev` and use the commands in
 [regression suite](#regression-suite).
 
+## Windows continuous integration
+
+The reusable `.github/workflows/windows-build-test.yml` uses the daily caller
+and read-only checkout. Its Windows jobs remain master-only and run on
+`windows-2022`; the affordable Linux PR/manual job remains separate:
+
+| Job (status check name) | Preset | Compiler | Builds |
+| --- | --- | --- | --- |
+| `Windows Server 2022 / MSVC / Desktop + tests` | `windows-msvc` | MSVC `cl` | Desktop, replay, and all test targets |
+| `Windows Server 2022 / MSVC / Core without Qt and OpenCV` | `core` | MSVC `cl` | Core libraries and their tests |
+
+The desktop job installs Ninja and OpenCV through Chocolatey, installs Qt 6.8.3
+(`win64_msvc2022_64`) through `aqtinstall`, configures the `windows-msvc` preset
+with explicit desktop/replay ON, builds all targets, and runs the
+[regression suite](#regression-suite). The core job installs only Ninja and runs
+the `core` preset against MSVC, so it fails if core targets or tests gain a Qt/OpenCV
+dependency. UI tests still run in their offscreen mode and hardware tests remain
+excluded by label.
+
+The prefix step selects an x64 MSVC OpenCV config and verifies its sibling
+`bin` contains OpenCV DLLs. It adds that directory and Qt's verified `bin` to
+`GITHUB_PATH` before configuration/build, so build-time GoogleTest discovery and
+CTest can load the runtime libraries. `CMAKE_PREFIX_PATH` alone does not configure
+DLL loading. Compiler version reporting reads `cl.exe` file metadata rather than
+invoking `cl /Bv` without a source file (which exits with D8003).
+
+Windows runtime verification is **pending**: the workflow is restricted to daily
+merged `master` snapshots, so authoring/linting it does not prove a Windows build
+or test pass. Require a successful Windows run before claiming #106 validation.
+
+To run the same desktop commands locally from a Visual Studio developer terminal
+in `Mini_Robot`:
+
+```powershell
+python -m pip install aqtinstall==3.2.1
+python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtmultimedia -O C:\Qt
+# Use the bin paired with your selected x64 MSVC OpenCV config.
+$env:PATH = "C:\Qt\6.8.3\msvc2022_64\bin;C:\tools\opencv\build\x64\vc16\bin;$env:PATH"
+cmake --preset windows-msvc -DMICRO_ROBOT_BUILD_DESKTOP=ON -DMICRO_ROBOT_BUILD_REPLAY=ON `
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.8.3\msvc2022_64;C:\path\to\OpenCV\cmake"
+cmake --build --preset windows-msvc --parallel 4
+ctest --preset windows-msvc
+```
+
+Runtime packaging is handled separately; see [Windows deployment](windows-deployment.md).
+
 ### Required status checks
 
 The affordable `Pull request verification / desktop` job provides pre-merge build
 and test feedback. Administrators can require its actual check name after a
 successful run; branch protection is configured separately. The daily GCC/Clang/
-macOS matrix provides broader post-merge coverage. Billing/spending-limit failures
+macOS/Windows matrix provides broader post-merge coverage. Billing/spending-limit failures
 that prevent a runner starting are infrastructure failures, not compiler/test
 results; only executed jobs count as validation.
 

@@ -56,6 +56,20 @@
       }
     },
     {
+      "name": "windows-msvc",
+      "displayName": "Windows (MSVC, Release)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MICRO_ROBOT_CAMERA_BACKEND": "Qt"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
       "name": "core",
       "displayName": "Core only, no Qt or OpenCV (default compiler, Debug)",
       "inherits": "base",
@@ -79,6 +93,10 @@
     {
       "name": "linux-clang",
       "configurePreset": "linux-clang"
+    },
+    {
+      "name": "windows-msvc",
+      "configurePreset": "windows-msvc"
     },
     {
       "name": "core",
@@ -115,6 +133,11 @@
       "name": "linux-clang",
       "inherits": "test-defaults",
       "configurePreset": "linux-clang"
+    },
+    {
+      "name": "windows-msvc",
+      "inherits": "test-defaults",
+      "configurePreset": "windows-msvc"
     },
     {
       "name": "core",
