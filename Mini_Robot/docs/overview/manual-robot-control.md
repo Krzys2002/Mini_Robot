@@ -81,5 +81,9 @@ ctest --test-dir build/macos -R 'RobotControlPanelTest|ManualServiceBounds|Robot
 Remaining manual checks: real-display mouse/keyboard input and scaling on macOS,
 Linux X11/Wayland and Windows; physical forward/reverse/turn polarity, release
 stop, disconnect/watchdog and E-stop; actual battery/status telemetry. Automated
-offscreen/fake-radio success does not establish those results. Keep #69 open
-pending review and any required physical acceptance; no issue is closed here.
+offscreen/fake-radio success does not establish those results. At the maintainer's
+request, physical/manual acceptance is tracked separately in
+[#217](https://github.com/Krzys2002/Mini_Robot/issues/217), due **Monday,
+2 November 2026**. Its powered checks remain blocked by the #154/#189 prerequisites.
+Issue #69 owns software implementation and deterministic acceptance and remains
+open for review/publication; neither issue is closed here.
