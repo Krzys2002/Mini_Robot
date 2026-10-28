@@ -4,8 +4,9 @@ Issue [#57](https://github.com/Krzys2002/Mini_Robot/issues/57) estimates and sav
 a planar image-to-world transform. It builds on the [workspace model](workspace.md)
 and [intrinsic profiles](calibration-profiles.md). Robot detection/pose conversion
 and tracking are separate work in #58 and later issues; this workflow does not
-move robots or infer poses. Accepted profiles install measured workspace bounds
-in the authoritative WorldModel; invalidation clears those bounds. H remains
+move robots or infer poses. Explicitly activated profiles install measured workspace bounds
+in the authoritative WorldModel. Draft edits leave that calibration intact; camera
+or optical incompatibility invalidates the active calibration and its bounds. H remains
 in the calibration service until future observation consumers are implemented.
 
 ## Coordinate convention
@@ -15,7 +16,11 @@ camera matrix K**. Raw camera frames use Brown–Conrady distortion; the worker
 undistorts a frozen frame with the existing OpenCV adapter, retaining the original
 K, dimensions, pixel format and timestamps. It does not crop, resize, mirror or
 choose a new camera matrix. Preview scaling/letterboxing is presentation only;
-clicks map back to the frozen image's native pixel coordinates. Black borders
+clicks map back to the frozen image's native pixel coordinates. Integer coordinates
+are pixel centres, matching OpenCV: the centre of the top-left pixel is (0,0).
+The displayed raster edges correspond to -0.5 and width/height minus 0.5; picking
+subtracts 0.5 and marker rendering adds it. Numeric centres range from zero to
+width/height minus one. Black borders
 from undistortion are not physical reference features.
 
 World points use measured **metres**, origin at the tabletop's lower-left, +X to
@@ -45,14 +50,13 @@ points. It does not establish a safe extrapolation region or permission to contr
 3. Press **Freeze undistorted frame**. A fresh frame (at most two seconds old) is
    remapped on the worker. Point selection always refers to that immutable frame;
    incoming frames do not move its reference features. Freezing again clears all
-   old correspondences and the old estimate.
+   old correspondences while retaining the draft transform for verification.
 4. Click reference points or press **Add point**, then enter each paired u/v pixel
-   coordinate and measured x/y position. Use 4–64 fitting points forming a convex
-   perimeter, in matching order. Start at any labelled physical point and proceed
-   around the perimeter; either winding is allowed. No duplicate, crossed,
-   collinear or interior fitting vertices are accepted. A rotated correspondence
-   assignment can still describe a mathematical transform: verify physical labels,
-   do not rely only on fitting residuals to detect a mistaken association.
+   coordinate and measured x/y position. Use 4–64 paired fitting points in any
+   order, including rectangular corners, edge midpoints and interior references.
+   Each pair must identify the same physical reference in both frames; duplicate
+   image/world coordinates and collinear/degenerate layouts are rejected. Verify
+   physical labels; fitting residuals alone cannot detect every mistaken pairing.
 5. Add independent interior/reference points and tick **Check only**. Up to 64
    check points are held out of estimation. They must not repeat fitting points
    or each other. All image points must lie inside the native image, and all world
@@ -63,31 +67,46 @@ points. It does not establish a safe extrapolation region or permission to contr
    is wrong. No check points is explicitly reported as missing validation, not as
    zero independent error. No project-specific physical accuracy threshold is
    invented; compare errors to an approved experiment requirement.
-7. **Save transform** atomically stores the accepted workspace profile. **Load
-   transform** explicitly loads its exact workspace/camera/resolution key and
-   rejects an optical-model mismatch. Loaded measured dimensions replace the
-   form's dimensions. A loaded transform has no current frozen correspondences or
-   re-measured residuals; inspect camera placement and use independent measurements
-   before commissioning. Reload is explicit because image identity cannot detect
-   a moved camera or table.
+7. **Save transform** atomically stores the draft profile. Saving does not activate
+   it. **Load transform** loads an exact workspace/camera/resolution key, rejects
+   optical mismatches and updates the draft dimensions. It does not replace the
+   active calibration. To recheck a loaded transform, freeze a fresh frame, enter
+   independent points with **Check only** selected, then press **Verify checks**.
+   New points default to Check when a draft transform exists. Verification reports
+   metric errors without refitting or changing H; an invalid check is rejected.
+8. Review fit/check errors against the experiment's approved accuracy requirement,
+   then press **Activate transform** to install the draft. Activation is an explicit
+   operator decision; missing checks and the absence of an automatic accuracy
+   threshold are visible warnings. A finite fit alone never establishes physical
+   acceptance. Keep the previous active calibration until a replacement is accepted.
 
-Editing identity, dimensions or points invalidates the estimate before it can be
-saved. Camera loss/change, delivered resolution changes and optical-model changes
-also clear the frozen frame and result. Late worker completion cannot restore an
-old result. Capture, solving and disk I/O are serialized off the GUI thread;
-shutdown drains the worker asynchronously. Closing the dialog leaves the service's
-current profile available during the session; it does not declare physical acceptance.
+Identity, dimensions and fitting-point edits invalidate only the draft. Check-point
+edits retain H for verification. Camera loss/change, delivered resolution changes
+and optical-model changes clear both draft and active transforms and their bounds;
+repeated mismatched frames produce a single notification per mismatch episode.
+This remains deliberate because reconnection does not prove unchanged camera/table
+placement. The service remembers workspace identity/dimensions across a hiccup and
+reopening the dialog, so the operator can reload and recheck without retyping them.
+It does not automatically re-arm a transform after a camera interruption.
+Late worker completion cannot restore an old result. Capture, solving and disk I/O
+are serialized off the GUI thread; shutdown drains the worker asynchronously.
+Closing the dialog preserves active and draft calibrations and session references.
 
 ## Estimation and persistence
 
-The Qt/OpenCV-free domain owns paired coordinates, ordering validation, projection,
-residual evaluation and profile parsing. The injected OpenCV adapter solves a
-normalized homogeneous DLT system with SVD: image coordinates are normalized by
-native dimensions, world coordinates by measured extents. Rank/conditioning checks
-reject unresolved fits. A horizon crossing inside the convex fitting polygon is
-rejected. All fitting points contribute; no RANSAC silently removes operator pairs.
-Residuals are evaluated in world metres. Check points never influence estimation.
-No extrapolation accuracy outside the measured fitting region is established.
+The Qt/OpenCV-free domain owns paired coordinates, geometry validation, projection,
+residual evaluation and profile parsing. A dimension-scaled homogeneous DLT/SVD
+estimate supplies a double-precision starting fit and explicit conditioning guard;
+this scaling is not Hartley centroid/isotropic normalization. The OpenCV adapter
+also computes `cv::findHomography(image, world, 0)`, using every fitting pair and
+refining geometric error in destination metres. It selects that candidate only if
+its measured RMS is lower than the double-precision estimate (OpenCV may internally
+round inputs). No RANSAC silently discards pairs. Invalid geometry, unresolved fits
+and horizons crossing the convex hull of the unordered fitting set are rejected.
+Checking the denominator sign at every sample is equivalent to checking hull
+vertices; interior and edge samples do not impose perimeter-order restrictions.
+Check points never influence estimation. No extrapolation accuracy outside the
+measured fitting region is established.
 
 The workspace profile remains separate from the intrinsic profile. Version 1 uses
 strict `micro_robot_workspace 1` text, quoted workspace identity, metric dimensions,
@@ -109,7 +128,7 @@ matching metadata does not prove unchanged extrinsics.
 ## Verification and manual commissioning
 
 Deterministic tests cover affine/perspective maps, overdetermined/noisy fits,
-independent check errors, invalid geometry/ordering, horizon/conditioning failures,
+independent check errors, invalid geometry, horizon/conditioning failures,
 strict serialization, atomic store recreation and optical mismatch, dialog point
 entry, asynchronous invalidation, stale frames and worker failure feedback.
 
