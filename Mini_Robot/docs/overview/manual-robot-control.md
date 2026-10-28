@@ -81,9 +81,20 @@ ctest --test-dir build/macos -R 'RobotControlPanelTest|ManualServiceBounds|Robot
 Remaining manual checks: real-display mouse/keyboard input and scaling on macOS,
 Linux X11/Wayland and Windows; physical forward/reverse/turn polarity, release
 stop, disconnect/watchdog and E-stop; actual battery/status telemetry. Automated
-offscreen/fake-radio success does not establish those results. At the maintainer's
-request, physical/manual acceptance is tracked separately in
-[#217](https://github.com/Krzys2002/Mini_Robot/issues/217), due **Monday,
-2 November 2026**. Its powered checks remain blocked by the #154/#189 prerequisites.
-Issue #69 owns software implementation and deterministic acceptance and remains
-open for review/publication; neither issue is closed here.
+offscreen/fake-radio success does not establish those results. Physical/manual acceptance is tracked separately in
+[#217](https://github.com/Krzys2002/Mini_Robot/issues/217); consult the issue for
+current prerequisites and status.
+
+E-stop is excluded from sequential Tab navigation to reduce accidental activation;
+it remains clickable and visibly available. Recovery requires restarting the desktop
+application and separately clearing the robot-side latch using the firmware's
+approved procedure. Restarting the desktop does not clear the physical robot latch.
+The bench operator must establish that procedure before testing E-stop recovery.
+All selected-robot transport errors, including malformed or unsupported telemetry,
+inhibit driving until disconnect/reconnect. This conservative bring-up policy avoids
+continuing with an uncertain protocol session.
+
+Manual speed ceilings are loaded from `[manual]` in the application INI config:
+`maximum_linear_m_per_s` and `maximum_angular_rad_per_s`. Values must be finite
+and positive. Invalid values retain the built-in defaults with a configuration
+warning; the service enforces the injected bounds as well as the UI.

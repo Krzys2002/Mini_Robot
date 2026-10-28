@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QShowEvent>
 #include <QStandardItemModel>
 
 namespace micro_robot {
@@ -62,8 +63,9 @@ RobotControlPanel::RobotControlPanel(DesktopController& controller, QWidget* par
     auto* right = button("manualRight", QStringLiteral("Turn CW"));
     auto* stop = button("manualStop", QStringLiteral("Stop"));
     auto* emergency = button("emergencyStop", QStringLiteral("E-STOP ALL ROBOTS"));
+    emergency->setFocusPolicy(Qt::ClickFocus);
     emergency->setStyleSheet(QStringLiteral("QPushButton { font-weight: bold; padding: 8px; } QPushButton:enabled { background: #a40000; color: white; } QPushButton:disabled { background: #dedede; color: #666666; }"));
-    emergency->setToolTip(QStringLiteral("Requests a latched emergency stop for every registered robot. Physical execution is unconfirmed."));
+    emergency->setToolTip(QStringLiteral("Requests a latched emergency stop for every registered robot. Restart the app and clear the robot-side latch before recovery. Physical execution is unconfirmed."));
     layout->addWidget(selector, 0, 0, 1, 3);
     layout->addWidget(scan, 0, 3);
     layout->addWidget(connectRobot, 0, 4);
@@ -85,12 +87,17 @@ RobotControlPanel::RobotControlPanel(DesktopController& controller, QWidget* par
     connect(&controller, &DesktopController::robotChoicesChanged, this,
         [selector](const QList<RobotChoiceItem>& choices, quint32 selected) {
         const QSignalBlocker blocker(selector);
-        selector->clear();
         auto* model = qobject_cast<QStandardItemModel*>(selector->model());
-        for (const auto& item : choices) {
-            selector->addItem(item.label, item.id.value());
-            if (item.ambiguous && model) model->item(selector->count() - 1)->setEnabled(false);
+        for (int row = 0; row < choices.size(); ++row) {
+            const auto& item = choices[row];
+            if (row == selector->count()) selector->addItem(item.label, item.id.value());
+            else {
+                selector->setItemText(row, item.label);
+                selector->setItemData(row, item.id.value());
+            }
+            if (model) model->item(row)->setEnabled(!item.ambiguous);
         }
+        while (selector->count() > choices.size()) selector->removeItem(selector->count() - 1);
         selector->setCurrentIndex(selector->findData(selected));
     });
     connect(&controller, &DesktopController::robotScanChanged, this, [scan](bool scanning) {
@@ -108,10 +115,11 @@ RobotControlPanel::RobotControlPanel(DesktopController& controller, QWidget* par
             controller.beginManualDrive(direction == forward ? linear->value() : direction == backward ? -linear->value() : 0,
                 direction == left ? angular->value() : (direction == forward || direction == backward) ? 0 : -angular->value());
         });
-        connect(direction, &QPushButton::released, &controller, &DesktopController::stopManualDrive);
+        direction->installEventFilter(this);
+        connect(direction, &QPushButton::released, &controller, &DesktopController::cancelManualDrive);
     }
-    connect(linear, &QDoubleSpinBox::valueChanged, &controller, &DesktopController::stopManualDrive);
-    connect(angular, &QDoubleSpinBox::valueChanged, &controller, &DesktopController::stopManualDrive);
+    connect(linear, &QDoubleSpinBox::valueChanged, &controller, &DesktopController::cancelManualDrive);
+    connect(angular, &QDoubleSpinBox::valueChanged, &controller, &DesktopController::cancelManualDrive);
     connect(&controller, &DesktopController::robotActionsChanged, this,
         [=](bool canConnect, bool canDisconnect, bool drive, bool canStop, bool estop) {
         connectRobot->setEnabled(canConnect);
@@ -126,21 +134,33 @@ RobotControlPanel::RobotControlPanel(DesktopController& controller, QWidget* par
         [connection](const QString& text, bool, bool) { connection->setText(text); });
     connect(&controller, &DesktopController::telemetryDescriptionChanged, telemetry, &QLabel::setText);
     connect(&controller, &DesktopController::manualStatusChanged, status, &QLabel::setText);
-    qApp->installEventFilter(this);
+    installEventFilter(this);
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+        if (state != Qt::ApplicationActive) controller_.cancelManualDrive();
+    });
 }
 RobotControlPanel::~RobotControlPanel()
 {
-    qApp->removeEventFilter(this);
-    controller_.stopManualDrive();
+    if (watchedWindow_) watchedWindow_->removeEventFilter(this);
+    controller_.cancelManualDrive();
+}
+void RobotControlPanel::showEvent(QShowEvent* event)
+{
+    if (watchedWindow_ != window()) {
+        if (watchedWindow_) watchedWindow_->removeEventFilter(this);
+        watchedWindow_ = window();
+        watchedWindow_->installEventFilter(this);
+    }
+    QWidget::showEvent(event);
 }
 bool RobotControlPanel::eventFilter(QObject* watched, QEvent* event)
 {
-    if (event->type() == QEvent::ApplicationDeactivate || event->type() == QEvent::WindowDeactivate
+    if ((event->type() == QEvent::WindowDeactivate && watched == watchedWindow_)
         || (event->type() == QEvent::Hide && (watched == this || watched == window()))
         || (event->type() == QEvent::EnabledChange && watched == this && !isEnabled())
         || (event->type() == QEvent::FocusOut && qobject_cast<QPushButton*>(watched)
             && static_cast<QWidget*>(watched)->parentWidget() == this))
-        controller_.stopManualDrive();
+        controller_.cancelManualDrive();
     return QWidget::eventFilter(watched, event);
 }
 } // namespace micro_robot

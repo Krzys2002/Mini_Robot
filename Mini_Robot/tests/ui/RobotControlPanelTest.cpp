@@ -120,14 +120,44 @@ TEST(RobotControlPanelTest, DeactivationHidingAndDisablingPanelCancelManualInput
     Fixture f; f.connected(); f.window.show(); QApplication::processEvents();
     auto* panel = f.window.findChild<RobotControlPanel*>();
     ASSERT_NE(panel, nullptr);
-    f.controller.beginManualDrive(0.1, 0);
-    QEvent deactivate{QEvent::ApplicationDeactivate};
-    QApplication::sendEvent(qApp, &deactivate); f.expectStop();
-    f.controller.beginManualDrive(0.1, 0);
-    panel->setEnabled(false); f.expectStop();
+    auto cancelled = [&](auto action) {
+        f.controller.beginManualDrive(0.1, 0);
+        ASSERT_TRUE(std::holds_alternative<VelocityCommand>(f.transport.commands.back().second.payload));
+        const auto before = f.transport.commands.size();
+        action();
+        ASSERT_EQ(f.transport.commands.size(), before + 1);
+        f.expectStop();
+        QTest::qWait(150);
+        EXPECT_EQ(f.transport.commands.size(), before + 1);
+    };
+    cancelled([&] { emit qApp->applicationStateChanged(Qt::ApplicationInactive); });
+    cancelled([&] { QEvent event{QEvent::WindowDeactivate}; QApplication::sendEvent(&f.window, &event); });
+    cancelled([&] { panel->setEnabled(false); });
     panel->setEnabled(true);
-    f.controller.beginManualDrive(0.1, 0);
-    panel->hide(); f.expectStop();
+    cancelled([&] { panel->hide(); });
+}
+TEST(RobotControlPanelTest, IdleDeactivationDoesNotSendStopButExplicitStopDoes)
+{
+    Fixture f; f.connected(); f.window.show(); QApplication::processEvents();
+    const auto before = f.transport.commands.size();
+    QEvent event{QEvent::WindowDeactivate};
+    QApplication::sendEvent(&f.window, &event);
+    for (auto* child : f.window.findChildren<QWidget*>()) QApplication::sendEvent(child, &event);
+    emit qApp->applicationStateChanged(Qt::ApplicationInactive);
+    EXPECT_EQ(f.transport.commands.size(), before);
+    f.button("manualStop")->click();
+    ASSERT_EQ(f.transport.commands.size(), before + 1);
+    f.expectStop();
+}
+TEST(RobotControlPanelTest, RepeatedUnsafeTelemetryPublishesOnlyOnStateTransitions)
+{
+    Fixture f; f.connected();
+    int statuses = 0;
+    QObject::connect(&f.controller, &DesktopController::manualStatusChanged, &f.window, [&] { ++statuses; });
+    for (int i = 0; i < 3; ++i)
+        f.transport.publishTelemetry({one, MonotonicClock::now(), 3.6, {}, {}, {}, RobotOperatingState::EmergencyStop});
+    EXPECT_EQ(statuses, 1);
+    EXPECT_EQ(f.button("emergencyStop")->focusPolicy(), Qt::ClickFocus);
 }
 TEST(RobotControlPanelTest, SelectionStopsOldRobotAndTelemetryDoesNotCrossSessions)
 {
@@ -203,7 +233,12 @@ TEST(RobotControlPanelTest, SimulationUsesSameServiceAndEmergencyStopLatchesAllS
     ASSERT_TRUE(transport.lastSentCommand(one));
     EXPECT_DOUBLE_EQ(std::get<VelocityCommand>(transport.lastSentCommand(one)->payload).linearMetersPerSecond, 0.08);
     auto* estop = window.findChild<QPushButton*>("emergencyStop");
-    ASSERT_TRUE(estop->isEnabled()); estop->click(); transport.advanceTo(MonotonicClock::now());
+    ASSERT_TRUE(estop->isEnabled()); estop->click();
+    auto* status = window.findChild<QLabel*>("manualStatus");
+    const auto recoveryMessage = status->text();
+    EXPECT_TRUE(recoveryMessage.contains("restart app"));
+    transport.advanceTo(MonotonicClock::now());
+    EXPECT_EQ(status->text(), recoveryMessage);
     EXPECT_TRUE(robots.session(one)->emergencyStopRequested);
     EXPECT_TRUE(robots.session(two)->emergencyStopRequested);
     EXPECT_EQ(robots.session(two)->telemetry->operatingState, RobotOperatingState::EmergencyStop);

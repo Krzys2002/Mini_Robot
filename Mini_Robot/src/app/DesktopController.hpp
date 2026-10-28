@@ -1,23 +1,23 @@
 #pragma once
 
-#include "camera/ICameraSource.hpp"
-#include "infrastructure/logging/Logger.hpp"
 #include "app/RobotManager.hpp"
+#include "camera/ICameraSource.hpp"
+#include "infrastructure/configuration/ApplicationConfig.hpp"
+#include "infrastructure/logging/Logger.hpp"
 #include "transport/IRobotDiscovery.hpp"
-
 #include "world/WorldModel.hpp"
 
 #include <QList>
-
 #include <QObject>
 #include <QString>
 #include <QTimer>
 
+#include <chrono>
 #include <cstdint>
-#include <memory>
 #include <map>
-#include <vector>
+#include <memory>
 #include <optional>
+#include <vector>
 
 namespace micro_robot {
 
@@ -26,14 +26,6 @@ struct RobotChoiceItem {
     QString label;
     bool ambiguous{};
 };
-struct ManualControlConfig {
-    // Software bring-up bounds, not physical actuator/supply acceptance (#154).
-    double maximumLinearMetersPerSecond{0.1};
-    double maximumAngularRadiansPerSecond{1.0};
-    std::chrono::milliseconds refreshInterval{100};
-    std::chrono::milliseconds commandValidity{250};
-};
-
 // Qt application adapter. Dependencies must outlive the controller; all calls and
 // backend callbacks run on its owning thread. No concrete backend or widgets here.
 // It owns the active camera source, if any; none is active until one is set.
@@ -71,7 +63,8 @@ public slots:
     void selectRobot(quint32 id);
     void scanRobots();
     void beginManualDrive(double linearMetersPerSecond, double angularRadiansPerSecond);
-    void stopManualDrive();
+    void stopManualDrive(); // Explicit Stop also submits while idle.
+    void cancelManualDrive(); // Input cancellation submits only while held.
     void emergencyStop();
     void startCamera();
     void stopCamera();
@@ -132,6 +125,7 @@ private:
     std::map<RobotId, DiscoveredRobot> discoveredRobots_;
     bool scanningRobots_{};
     bool manualFault_{};
+    std::optional<RobotOperatingState> reportedOperatingState_;
     RobotManager& robots_;
     WorldModel& world_;
     RobotId robotId_;

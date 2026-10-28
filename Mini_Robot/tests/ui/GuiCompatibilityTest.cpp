@@ -336,7 +336,7 @@ TEST(GuiCompatibilityTest, TabFollowsTheVisualOrderOfEnabledControls)
     fixture.key(Qt::Key_Down); // Select a camera so that Start camera is enabled.
 
     // Stop camera and Disconnect robot are disabled and skipped.
-    for (const char* name : {"openCalibration", "openVisionDebug", "startCamera", "robotSelector", "scanRobots", "connectRobot", "emergencyStop"}) {
+    for (const char* name : {"openCalibration", "openVisionDebug", "startCamera", "robotSelector", "scanRobots", "connectRobot"}) {
         fixture.key(Qt::Key_Tab);
         ASSERT_NE(fixture.window.focusWidget(), nullptr);
         EXPECT_EQ(fixture.window.focusWidget()->objectName().toStdString(), name);
@@ -344,7 +344,7 @@ TEST(GuiCompatibilityTest, TabFollowsTheVisualOrderOfEnabledControls)
     fixture.key(Qt::Key_Tab);
     EXPECT_EQ(fixture.window.focusWidget(), fixture.selector());
     QTest::keyClick(fixture.handle(), Qt::Key_Backtab, Qt::ShiftModifier);
-    EXPECT_EQ(fixture.window.focusWidget(), fixture.button("emergencyStop"));
+    EXPECT_EQ(fixture.window.focusWidget(), fixture.button("connectRobot"));
 }
 
 TEST(GuiCompatibilityTest, CalibrationDialogOpensAndClosesWithTheMainWindow)
