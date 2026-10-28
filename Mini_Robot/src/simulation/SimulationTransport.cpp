@@ -1,5 +1,6 @@
 #include "simulation/SimulationTransport.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -40,13 +41,17 @@ bool elapsedAtLeast(Timestamp from, Timestamp to, Duration interval)
     return to - from >= interval;
 }
 
-bool valid(const RobotCommand& command, Timestamp now)
+bool valid(const RobotCommand& command, Timestamp now, const SimulationTransportConfig& config)
 {
     if (!fresh(command, now)) {
         return false;
     }
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(
+            command.validFor - (now - command.issuedAt)).count() < 1) return false;
     if (const auto* velocity = std::get_if<VelocityCommand>(&command.payload)) {
-        return std::isfinite(velocity->linearMetersPerSecond)
+        return std::abs(velocity->linearMetersPerSecond) <= config.maximumLinearMetersPerSecond
+            && std::abs(velocity->angularRadiansPerSecond) <= config.maximumAngularRadiansPerSecond
+            && std::isfinite(velocity->linearMetersPerSecond)
             && std::isfinite(velocity->angularRadiansPerSecond);
     }
     return true;
@@ -109,6 +114,13 @@ SimulationTransport::SimulationTransport(SimulationTransportConfig config,
                                          std::optional<LogChannel> log)
     : config_(config), log_(std::move(log))
 {
+    if (!std::isfinite(config_.maximumLinearMetersPerSecond)
+        || config_.maximumLinearMetersPerSecond <= 0 || config_.maximumLinearMetersPerSecond > 32.767
+        || !std::isfinite(config_.maximumAngularRadiansPerSecond)
+        || config_.maximumAngularRadiansPerSecond <= 0 || config_.maximumAngularRadiansPerSecond > 32.767
+        || config_.maximumCommandValidity.count() < 1 || config_.maximumCommandValidity.count() > 65535) {
+        throw std::invalid_argument("Simulation command limits exceed the v1 protocol range");
+    }
     if (config_.telemetryInterval < Duration::zero()) {
         throw std::invalid_argument("Simulation telemetry interval must not be negative");
     }
@@ -151,6 +163,23 @@ void SimulationTransport::sendCommand(RobotId id, const RobotCommand& command)
     if (log_) log_->debug("Simulated command submitted: " + describe(command), id);
 }
 
+void SimulationTransport::simulateDisconnect(RobotId id)
+{
+    sessions_[id].pendingFailure = ConnectionState::Disconnected;
+}
+
+void SimulationTransport::simulateFault(RobotId id)
+{
+    sessions_[id].pendingFailure = ConnectionState::Fault;
+}
+
+std::optional<SimulationRobotStatus> SimulationTransport::robotStatus(RobotId id) const
+{
+    const auto found = sessions_.find(id);
+    if (found == sessions_.end() || found->second.state != ConnectionState::Connected) return {};
+    return found->second.status;
+}
+
 std::optional<RobotCommand> SimulationTransport::lastSentCommand(RobotId id) const
 {
     const auto found = sessions_.find(id);
@@ -190,18 +219,46 @@ void SimulationTransport::advanceTo(Timestamp now)
                 sink->onConnectionStateChanged(id, state, now);
             }
         };
-        if (session.desiredConnected && session.state == ConnectionState::Disconnected) {
+        auto resetSession = [&] {
             session.lastSentCommand.reset();
             session.lastTelemetryAt.reset();
+            session.motionStartedAt.reset();
+            session.velocity = {};
+            session.status = {};
+            session.transmitSequence = 0;
+            session.telemetrySequence = 0;
+            session.statusChanged = false;
+        };
+        if (const auto failure = std::exchange(session.pendingFailure, {})) {
+            session.desiredConnected = false;
+            session.pendingCommand.reset();
+            resetSession();
+            changeState(*failure);
+            if (auto sink = sink_.lock()) {
+                sink->onTransportError({id, TransportOperation::Disconnect,
+                    TransportErrorCode::BackendFailure,
+                    *failure == ConnectionState::Fault ? "Simulated backend fault" : "Simulated connection loss", now});
+            }
+            continue; // Recovery explicitly requested in a callback waits for next advance.
+        }
+        if (session.desiredConnected && (session.state == ConnectionState::Disconnected
+            || session.state == ConnectionState::Fault)) {
+            resetSession();
             changeState(ConnectionState::Connected);
         }
         // A connection callback may request immediate disconnection.
         if (!session.desiredConnected && session.state == ConnectionState::Connected) {
-            session.lastSentCommand.reset();
-            session.lastTelemetryAt.reset();
+            resetSession();
             changeState(ConnectionState::Disconnected);
         }
 
+        if (session.motionStartedAt && elapsedAtLeast(*session.motionStartedAt, now, session.motionValidity)) {
+            session.motionStartedAt.reset();
+            session.velocity = {};
+            session.status.state = SimulationRobotState::Idle;
+            session.status.commandExpired = true;
+            session.statusChanged = true;
+        }
         const auto command = std::exchange(session.pendingCommand, std::nullopt);
         if (command) {
             std::optional<TransportErrorCode> error;
@@ -209,10 +266,27 @@ void SimulationTransport::advanceTo(Timestamp now)
                 error = TransportErrorCode::NotConnected;
             } else if (!isSupportedTransportModelVersion(command->metadata.modelVersion)) {
                 error = TransportErrorCode::UnsupportedVersion;
-            } else if (!valid(*command, now)) {
+            } else if (!valid(*command, now, config_)) {
                 error = TransportErrorCode::InvalidCommand;
             } else {
                 session.lastSentCommand = *command;
+                session.status.lastAcceptedSequence = session.transmitSequence++;
+                session.status.commandExpired = false;
+                const auto previousState = session.status.state;
+                if (const auto* velocity = std::get_if<VelocityCommand>(&command->payload)) {
+                    // Echo the scaled setpoint a v1 device would receive.
+                    session.velocity = {std::round(velocity->linearMetersPerSecond * 1000) / 1000,
+                                        std::round(velocity->angularRadiansPerSecond * 1000) / 1000};
+                    session.motionStartedAt = now;
+                    session.motionValidity = std::min(config_.maximumCommandValidity,
+                        std::chrono::duration_cast<std::chrono::milliseconds>(command->validFor - (now - command->issuedAt)));
+                    session.status.state = SimulationRobotState::Moving;
+                } else {
+                    session.velocity = {};
+                    session.motionStartedAt.reset();
+                    session.status.state = SimulationRobotState::Idle;
+                }
+                session.statusChanged = session.statusChanged || previousState != session.status.state;
                 if (log_) log_->debug("Simulated command accepted: " + describe(*command), id);
             }
             if (error) {
@@ -233,17 +307,14 @@ void SimulationTransport::advanceTo(Timestamp now)
         }
 
         if (session.state != ConnectionState::Connected || !session.desiredConnected
-            || (session.lastTelemetryAt && (*session.lastTelemetryAt == now
+            || (!session.statusChanged && session.lastTelemetryAt && (*session.lastTelemetryAt == now
                 || !elapsedAtLeast(*session.lastTelemetryAt, now, config_.telemetryInterval)))) {
             continue;
         }
-        VelocityCommand velocity{};
-        if (session.lastSentCommand && fresh(*session.lastSentCommand, now)) {
-            if (const auto* sent = std::get_if<VelocityCommand>(&session.lastSentCommand->payload)) {
-                velocity = *sent;
-            }
-        }
+        const auto velocity = session.velocity;
         session.lastTelemetryAt = now;
+        session.statusChanged = false;
+        const auto telemetrySequence = session.telemetrySequence++;
         if (log_) {
             auto text = logStream();
             text << "Simulated telemetry: battery=" << config_.batteryVoltageVolts
@@ -253,7 +324,8 @@ void SimulationTransport::advanceTo(Timestamp now)
         }
         if (auto sink = sink_.lock()) {
             sink->onTelemetry({id, now, config_.batteryVoltageVolts,
-                velocity.linearMetersPerSecond, velocity.angularRadiansPerSecond});
+                velocity.linearMetersPerSecond, velocity.angularRadiansPerSecond,
+                {currentTransportModelVersion, telemetrySequence}});
         }
     }
 }

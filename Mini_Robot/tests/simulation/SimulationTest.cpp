@@ -477,7 +477,7 @@ TEST(SimulationTransportTest, TelemetryMetadataDoesNotImplyCommandAcknowledgemen
     transport.advanceTo(Timestamp{1s});
     ASSERT_EQ(events->telemetry.size(), 1u);
     EXPECT_EQ(events->telemetry.back().metadata.modelVersion, currentTransportModelVersion);
-    EXPECT_FALSE(events->telemetry.back().metadata.sequence);
+    EXPECT_EQ(events->telemetry.back().metadata.sequence, 0u);
 }
 
 TEST(SimulationTransportTest, FreshnessHasExclusiveDeadlineAndHandlesExtremeTimestamps)
@@ -503,7 +503,7 @@ TEST(SimulationTransportTest, FreshnessHasExclusiveDeadlineAndHandlesExtremeTime
     boundary.connect(id);
     const RobotCommand command{VelocityCommand{0.3, 0.5}, Timestamp{1s}, 100ms};
     boundary.sendCommand(id, command);
-    boundary.advanceTo(Timestamp{1s + 100ms} - Duration{1});
+    boundary.advanceTo(Timestamp{1s + 99ms});
     ASSERT_TRUE(boundary.lastSentCommand(id));
     EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.3);
     boundary.sendCommand(id, command);
@@ -559,6 +559,156 @@ TEST(SimulationTransportTest, RejectsDisconnectedStaleFutureAndNonfiniteCommands
     }
     EXPECT_EQ(events->errors.size(), 1 + invalid.size());
     EXPECT_FALSE(transport.lastSentCommand(id));
+}
+
+TEST(SimulationTransportTest, WatchdogUsesRemainingMillisecondsAndAdvertisedCeiling)
+{
+    SimulationTransportConfig config;
+    config.telemetryInterval = 10s; // Transitions must still be reported immediately.
+    config.maximumCommandValidity = 50ms;
+    SimulationTransport transport{config};
+    auto events = std::make_shared<TransportEvents>();
+    transport.setEventSink(events);
+    const RobotId id{7};
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1s});
+    transport.sendCommand(id, {VelocityCommand{0.1236, -0.5004}, Timestamp{1s}, 10s});
+    transport.advanceTo(Timestamp{1s});
+    EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.124);
+    EXPECT_EQ(events->telemetry.back().angularRadiansPerSecond, -0.500);
+    EXPECT_EQ(transport.robotStatus(id)->state, SimulationRobotState::Moving);
+    const auto count = events->telemetry.size();
+    transport.advanceTo(Timestamp{1049ms});
+    EXPECT_EQ(events->telemetry.size(), count);
+    // Invalid submissions cannot refresh the active watchdog.
+    transport.sendCommand(id, {VelocityCommand{100, 0}, Timestamp{1050ms}, 1s});
+    transport.advanceTo(Timestamp{1050ms});
+    EXPECT_EQ(events->telemetry.size(), count + 1);
+    EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.0);
+    EXPECT_TRUE(transport.robotStatus(id)->commandExpired);
+    EXPECT_EQ(transport.robotStatus(id)->state, SimulationRobotState::Idle);
+    EXPECT_EQ(transport.robotStatus(id)->lastAcceptedSequence, 0);
+    EXPECT_EQ(events->errors.back().code, TransportErrorCode::InvalidCommand);
+    // Floor remaining validity, even when the original issue time is fractional.
+    transport.sendCommand(id, {VelocityCommand{0.1, 0}, Timestamp{1050ms + 500us}, 10ms});
+    transport.advanceTo(Timestamp{1051ms});
+    EXPECT_FALSE(transport.robotStatus(id)->commandExpired);
+    transport.advanceTo(Timestamp{1060ms});
+    EXPECT_TRUE(transport.robotStatus(id)->commandExpired);
+    transport.sendCommand(id, {StopCommand{}, Timestamp{1060ms}, 1s});
+    transport.advanceTo(Timestamp{1060ms});
+    EXPECT_FALSE(transport.robotStatus(id)->commandExpired);
+}
+
+TEST(SimulationTransportTest, RejectsSubmillisecondValidityAndConfiguredLimitsWithoutClamping)
+{
+    SimulationTransportConfig config;
+    config.maximumLinearMetersPerSecond = 0.2;
+    config.maximumAngularRadiansPerSecond = 0.5;
+    SimulationTransport transport{config};
+    auto events = std::make_shared<TransportEvents>();
+    transport.setEventSink(events);
+    const RobotId id{7};
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1s});
+    for (const auto& command : std::vector<RobotCommand>{
+        {VelocityCommand{0.2001, 0}, Timestamp{1s}, 1s},
+        {VelocityCommand{0, -0.5001}, Timestamp{1s}, 1s},
+        {VelocityCommand{0.1, 0}, Timestamp{1s}, 999us},
+        {StopCommand{}, Timestamp{1s}, 999us}}) {
+        transport.sendCommand(id, command);
+        transport.advanceTo(Timestamp{1s});
+    }
+    EXPECT_EQ(events->errors.size(), 4u);
+    EXPECT_FALSE(transport.lastSentCommand(id));
+    transport.sendCommand(id, {VelocityCommand{-0.2, 0.5}, Timestamp{1s}, 1ms});
+    transport.advanceTo(Timestamp{1s});
+    ASSERT_TRUE(transport.lastSentCommand(id));
+    EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, -0.2);
+    transport.advanceTo(Timestamp{1001ms});
+    EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.0);
+}
+
+TEST(SimulationTransportTest, AdapterSequencesIgnoreCallerMetadataWrapAndResetPerSession)
+{
+    SimulationTransport transport;
+    auto events = std::make_shared<TransportEvents>();
+    transport.setEventSink(events);
+    const RobotId id{7};
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1s});
+    RobotCommand stop{StopCommand{}, Timestamp{1s}, 1s, {currentTransportModelVersion, 99999}};
+    for (unsigned i = 0; i <= 65536; ++i) {
+        transport.sendCommand(id, stop);
+        transport.advanceTo(Timestamp{1s});
+        ASSERT_EQ(transport.robotStatus(id)->lastAcceptedSequence, static_cast<std::uint16_t>(i));
+    }
+    transport.advanceTo(Timestamp{1001ms});
+    EXPECT_EQ(events->telemetry.back().metadata.sequence, 1u);
+    EXPECT_EQ(transport.lastSentCommand(id)->metadata.sequence, 99999u);
+    transport.disconnect(id);
+    transport.advanceTo(Timestamp{1002ms});
+    EXPECT_FALSE(transport.robotStatus(id));
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1003ms});
+    EXPECT_FALSE(transport.robotStatus(id)->lastAcceptedSequence);
+    EXPECT_EQ(events->telemetry.back().metadata.sequence, 0u);
+}
+
+TEST(SimulationTransportTest, FailureScenariosAreDeferredIsolatedAndRequireExplicitRecovery)
+{
+    for (const bool fault : {false, true}) {
+        SimulationTransport transport;
+        auto events = std::make_shared<TransportEvents>();
+        transport.setEventSink(events);
+        const RobotId id{7}, other{8};
+        transport.connect(id);
+        transport.connect(other);
+        transport.sendCommand(id, {VelocityCommand{0.2, 0}, Timestamp{1s}, 1s});
+        transport.sendCommand(other, {VelocityCommand{0.3, 0}, Timestamp{1s}, 1s});
+        transport.advanceTo(Timestamp{1s});
+        if (fault) transport.simulateFault(id); else transport.simulateDisconnect(id);
+        transport.sendCommand(id, {VelocityCommand{0.4, 0}, Timestamp{1s}, 1s});
+        EXPECT_EQ(transport.connectionState(id), ConnectionState::Connected);
+        EXPECT_TRUE(events->errors.empty());
+        transport.advanceTo(Timestamp{1001ms});
+        EXPECT_EQ(transport.connectionState(id), fault ? ConnectionState::Fault : ConnectionState::Disconnected);
+        EXPECT_FALSE(transport.lastSentCommand(id));
+        EXPECT_FALSE(transport.robotStatus(id));
+        ASSERT_EQ(events->errors.size(), 1u);
+        EXPECT_EQ(events->errors.back().occurredAt, Timestamp{1001ms});
+        EXPECT_EQ(events->errors.back().robotId, id);
+        EXPECT_EQ(events->errors.back().code, TransportErrorCode::BackendFailure);
+        EXPECT_EQ(events->telemetry.back().robotId, other);
+        EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.3);
+        transport.advanceTo(Timestamp{1002ms});
+        EXPECT_NE(transport.connectionState(id), ConnectionState::Connected);
+        transport.connect(id);
+        transport.advanceTo(Timestamp{1003ms});
+        EXPECT_EQ(transport.connectionState(id), ConnectionState::Connected);
+        EXPECT_FALSE(transport.lastSentCommand(id));
+        EXPECT_FALSE(transport.robotStatus(id)->lastAcceptedSequence);
+        EXPECT_EQ(events->telemetry[events->telemetry.size() - 2].linearMetersPerSecond, 0.0);
+    }
+}
+
+TEST(SimulationTransportTest, RejectsInvalidProtocolLimits)
+{
+    SimulationTransportConfig config;
+    config.maximumCommandValidity = 0ms;
+    EXPECT_THROW(SimulationTransport{config}, std::invalid_argument);
+    config.maximumCommandValidity = 65536ms;
+    EXPECT_THROW(SimulationTransport{config}, std::invalid_argument);
+    config.maximumCommandValidity = 1ms;
+    for (const auto value : {0.0, -1.0, 32.768, std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::quiet_NaN()}) {
+        config.maximumLinearMetersPerSecond = value;
+        EXPECT_THROW(SimulationTransport{config}, std::invalid_argument);
+        config.maximumLinearMetersPerSecond = 0.2;
+        config.maximumAngularRadiansPerSecond = value;
+        EXPECT_THROW(SimulationTransport{config}, std::invalid_argument);
+        config.maximumAngularRadiansPerSecond = 0.5;
+    }
 }
 
 TEST(SimulationTransportTest, OrdersRobotsAndHandlesCallbacksAndExpiredSinks)

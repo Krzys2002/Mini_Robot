@@ -59,6 +59,47 @@ struct Fixture {
         transport.state(id, ConnectionState::Connected, at);
     }
 };
+TEST(RobotManagerTest, SimulationWatchdogAndFailuresUseTheProductionServiceBoundary)
+{
+    SimulationTransport transport;
+    WorldModel world;
+    RobotManager robots{transport, world};
+    auto observer = std::make_shared<Observer>();
+    robots.setEventSink(observer);
+    ASSERT_TRUE(robots.addRobot(one, Timestamp{}));
+    ASSERT_TRUE(robots.addRobot(two, Timestamp{}));
+    ASSERT_TRUE(robots.connect(one));
+    ASSERT_TRUE(robots.connect(two));
+    transport.advanceTo(Timestamp{1s});
+    const RobotCommand motion{VelocityCommand{0.1, -0.2}, Timestamp{1s}, 20ms};
+    ASSERT_EQ(robots.sendCommand(one, motion), CommandSubmission::Submitted);
+    ASSERT_EQ(robots.sendCommand(two, motion), CommandSubmission::Submitted);
+    transport.advanceTo(Timestamp{1001ms});
+    EXPECT_EQ(robots.session(one)->telemetry->linearMetersPerSecond, 0.1);
+    transport.advanceTo(Timestamp{1020ms});
+    EXPECT_EQ(robots.session(one)->telemetry->linearMetersPerSecond, 0.0);
+    transport.simulateFault(one);
+    transport.advanceTo(Timestamp{1021ms});
+    EXPECT_EQ(robots.connectionState(one), ConnectionState::Fault);
+    EXPECT_FALSE(robots.session(one)->telemetry);
+    ASSERT_TRUE(robots.session(one)->lastError);
+    EXPECT_EQ(robots.session(one)->lastError->code, TransportErrorCode::BackendFailure);
+    EXPECT_EQ(robots.sendCommand(one, motion), CommandSubmission::NotConnected);
+    EXPECT_EQ(robots.connectionState(two), ConnectionState::Connected);
+    ASSERT_TRUE(robots.connect(one));
+    transport.advanceTo(Timestamp{1022ms});
+    EXPECT_EQ(robots.session(one)->telemetry->linearMetersPerSecond, 0.0);
+    ASSERT_EQ(robots.stop(one, Timestamp{1022ms}, 1s), CommandSubmission::Submitted);
+    transport.advanceTo(Timestamp{1022ms});
+    transport.simulateDisconnect(one);
+    transport.advanceTo(Timestamp{1023ms});
+    EXPECT_EQ(robots.connectionState(one), ConnectionState::Disconnected);
+    EXPECT_FALSE(robots.session(one)->telemetry);
+    robots.shutdown();
+    transport.advanceTo(Timestamp{1024ms});
+    EXPECT_TRUE(robots.isStopped());
+}
+
 TEST(RobotManagerTest, ExplicitRegistrationPreservesWorldPoseAndRejectsUnknownRequests)
 {
     Fixture f;
