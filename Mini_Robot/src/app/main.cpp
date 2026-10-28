@@ -154,7 +154,7 @@ int main(int argc, char* argv[])
     WorldModel world;
     const RobotId robotId = config.robot.id;
     RobotManager robots{*transport, world, logger.channel("robots")};
-    DesktopController controller{robots, world, robotId, logger.channel("controller")};
+    DesktopController controller{robots, world, robotId, logger.channel("controller"), nullptr, config.manual};
     CameraSelectionController cameraSelection{cameraDiscovery, cameraFactory, controller,
                                               logger.channel("camera")};
     CalibrationController calibration{std::make_unique<OpenCvCalibrationDetector>(),
@@ -257,7 +257,7 @@ int main(int argc, char* argv[])
 
     controller.initialize(MonotonicClock::now());
     cameraSelection.initialize();
-    controller.scanRobots();
+    if (simulation) controller.scanRobots();
     window.show();
     if (simulation) simulationTimer.start();
     appLog.info("Application started");

@@ -5,6 +5,8 @@
 #include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <cmath>
+#include <locale>
 #include <fstream>
 #include <map>
 #include <optional>
@@ -114,6 +116,26 @@ struct Setting {
 };
 
 const std::array settings{
+    Setting{"manual.maximum_linear_m_per_s", "a finite positive SI speed limit",
+        [](std::string_view text, ApplicationConfig& config) {
+            std::istringstream stream{std::string{text}};
+            stream.imbue(std::locale::classic());
+            double value{};
+            if (!(stream >> value) || !stream.eof() || !std::isfinite(value) || value <= 0) return false;
+            config.manual.maximumLinearMetersPerSecond = value;
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.manual.maximumLinearMetersPerSecond); }},
+    Setting{"manual.maximum_angular_rad_per_s", "a finite positive SI speed limit",
+        [](std::string_view text, ApplicationConfig& config) {
+            std::istringstream stream{std::string{text}};
+            stream.imbue(std::locale::classic());
+            double value{};
+            if (!(stream >> value) || !stream.eof() || !std::isfinite(value) || value <= 0) return false;
+            config.manual.maximumAngularRadiansPerSecond = value;
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.manual.maximumAngularRadiansPerSecond); }},
     Setting{"logging.level", "one of debug, info, warning, error",
         [](std::string_view value, ApplicationConfig& config) {
             const auto level = parseLogLevel(value);
