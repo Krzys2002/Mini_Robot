@@ -113,12 +113,27 @@ CommandSubmission RobotManager::sendCommand(RobotId id, const RobotCommand& comm
     const auto& state = found->second;
     if (!state.connectRequested || state.removing || state.connection != ConnectionState::Connected)
         return CommandSubmission::NotConnected;
+    if (state.emergencyStopRequested && std::holds_alternative<VelocityCommand>(command.payload))
+        return CommandSubmission::EmergencyStopped;
     transport_.sendCommand(id, command);
     return CommandSubmission::Submitted;
 }
 CommandSubmission RobotManager::stop(RobotId id, Timestamp at, Duration validFor)
 {
     return sendCommand(id, {StopCommand{}, at, validFor});
+}
+bool RobotManager::supportsEmergencyStop() const noexcept
+{
+    return transport_.supportsEmergencyStop();
+}
+bool RobotManager::requestEmergencyStop(RobotId id)
+{
+    const auto found = sessions_.find(id);
+    if (shuttingDown_ || found == sessions_.end() || !supportsEmergencyStop()) return false;
+    found->second.emergencyStopRequested = true;
+    transport_.requestEmergencyStop(id);
+    if (log_) log_->warning("Emergency stop requested; physical execution unconfirmed", id);
+    return true;
 }
 void RobotManager::shutdown()
 {

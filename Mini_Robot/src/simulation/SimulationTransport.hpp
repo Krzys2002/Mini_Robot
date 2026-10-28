@@ -36,6 +36,8 @@ public:
     void connect(RobotId id) override;
     void disconnect(RobotId id) override;
     void sendCommand(RobotId id, const RobotCommand& command) override;
+    [[nodiscard]] bool supportsEmergencyStop() const noexcept override { return true; }
+    void requestEmergencyStop(RobotId id) override;
 
     // Nondecreasing virtual time, no recursive calls. Telemetry is emitted at most
     // once per new timestamp per connected robot, in RobotId order: on the first
@@ -48,6 +50,7 @@ public:
 private:
     struct Session {
         bool desiredConnected{};
+        bool emergencyStopRequested{};
         ConnectionState state{ConnectionState::Disconnected};
         std::optional<RobotCommand> pendingCommand;
         std::optional<RobotCommand> lastSentCommand;

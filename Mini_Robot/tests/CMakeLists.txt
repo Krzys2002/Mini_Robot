@@ -88,6 +88,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/VisionDebugViewTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
+        ui/RobotControlPanelTest.cpp
         ui/MainWindowTest.cpp
         ui/CameraSelectionControllerTest.cpp
         ui/GuiCompatibilityTest.cpp

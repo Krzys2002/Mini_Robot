@@ -256,6 +256,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_ui STATIC
         ui/CalibrationWizard.hpp
         ui/CalibrationWizard.cpp
+        ui/RobotControlPanel.hpp
+        ui/RobotControlPanel.cpp
         ui/MainWindow.cpp
         ui/MainWindow.hpp
         ui/VisionDebugView.hpp

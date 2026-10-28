@@ -2,7 +2,11 @@
 
 #include <QMetaObject>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace micro_robot {
@@ -68,6 +72,12 @@ public:
     void onTelemetry(const RobotTelemetry& telemetry) override { owner_.receiveTelemetry(telemetry); }
     void onTransportError(const TransportError& error) override
     {
+        if (error.robotId == owner_.robotId_) {
+            owner_.manualFault_ = true;
+            if (owner_.manualVelocity_) owner_.cancelManualDrive();
+            owner_.publishRobotActions();
+            emit owner_.manualStatusChanged(QStringLiteral("Command/transport error — reconnect before driving"));
+        }
         owner_.log_.error("Transport error: " + error.message, error.robotId);
         emit owner_.errorOccurred(QStringLiteral("Robot %1: %2")
             .arg(error.robotId.value()).arg(QString::fromStdString(error.message)));
@@ -77,10 +87,18 @@ private:
 };
 
 DesktopController::DesktopController(RobotManager& robots, WorldModel& world,
-                                     RobotId robotId, LogChannel log, QObject* parent)
-    : QObject(parent), robots_(robots), world_(world), robotId_(robotId),
+                                     RobotId robotId, LogChannel log, QObject* parent, ManualControlConfig manual)
+    : QObject(parent), manualConfig_(manual), robots_(robots), world_(world), robotId_(robotId),
       log_(std::move(log)), events_(std::make_shared<EventSink>(*this))
 {
+    if (!std::isfinite(manual.maximumLinearMetersPerSecond) || manual.maximumLinearMetersPerSecond <= 0
+        || !std::isfinite(manual.maximumAngularRadiansPerSecond) || manual.maximumAngularRadiansPerSecond <= 0
+        || manual.refreshInterval.count() <= 0 || manual.commandValidity <= manual.refreshInterval
+        || manual.commandValidity.count() > std::numeric_limits<int>::max())
+        throw std::invalid_argument("Manual control requires finite positive bounds and validity longer than refresh");
+    manualRefresh_.setInterval(manual.refreshInterval);
+    manualRefresh_.setTimerType(Qt::PreciseTimer);
+    connect(&manualRefresh_, &QTimer::timeout, this, &DesktopController::refreshManualDrive);
     robots_.setEventSink(events_);
     frameExpiry_.setSingleShot(true);
     frameExpiry_.setTimerType(Qt::PreciseTimer);
@@ -108,6 +126,9 @@ void DesktopController::initialize(Timestamp now)
     emit applicationStatusChanged(QStringLiteral("Ready"));
     publishActiveCamera();
     receiveConnectionState(robotId_, robots_.connectionState(robotId_));
+    publishRobotChoices();
+    publishRobotActions();
+    emit manualStatusChanged(QStringLiteral("Hold a direction to drive; release to stop"));
     publishWorld();
 }
 
@@ -210,23 +231,40 @@ void DesktopController::stopCamera()
 
 void DesktopController::connectRobot()
 {
-    if (initialized_ && !shuttingDown_ && !robots_.connect(robotId_)) {
+    if (!initialized_ || shuttingDown_ || selectedAmbiguous()) return;
+    const auto previous = robots_.connectionState(robotId_);
+    const bool accepted = robots_.connect(robotId_);
+    if (accepted && (previous == ConnectionState::Disconnected || previous == ConnectionState::Fault))
+        manualFault_ = false;
+    if (!accepted) {
         const auto message = QStringLiteral("Robot %1: connection request refused while session is %2")
             .arg(robotId_.value()).arg(connectionStateText(robots_.connectionState(robotId_)));
         log_.warning(message.toStdString(), robotId_);
         emit errorOccurred(message);
     }
+    publishRobotActions();
 }
 
 void DesktopController::disconnectRobot()
 {
-    if (initialized_ && !shuttingDown_) (void)robots_.disconnect(robotId_);
+    if (initialized_ && !shuttingDown_) {
+        cancelManualDrive();
+        (void)robots_.disconnect(robotId_);
+        publishRobotActions();
+    }
 }
 
 void DesktopController::shutdown()
 {
     if (shuttingDown_) return;
+    stopManualDrive();
+    // Stop every managed connected session before teardown; this is handoff only.
+    for (const auto& [id, session] : robots_.sessions()) {
+        if (id != robotId_ && session.connection == ConnectionState::Connected)
+            (void)robots_.stop(id, MonotonicClock::now(), manualConfig_.commandValidity);
+    }
     shuttingDown_ = true;
+    publishRobotActions();
     log_.info("Shutdown requested; stopping camera and disconnecting robot");
     replacementPending_ = false;
     pendingCamera_.reset();
@@ -298,7 +336,12 @@ void DesktopController::receiveConnectionState(RobotId id, ConnectionState state
         robotSessionsStoppedEmitted_ = true;
         emit robotSessionsStopped();
     }
-    if (id != robotId_) return;
+    if (id != robotId_) { publishRobotChoices(); return; }
+    if (state != ConnectionState::Connected) {
+        reportedOperatingState_.reset();
+        manualVelocity_.reset();
+        manualRefresh_.stop();
+    }
     const bool active = state == ConnectionState::Connecting || state == ConnectionState::Connected
         || state == ConnectionState::Disconnecting;
     const auto text = connectionStateText(state);
@@ -308,7 +351,10 @@ void DesktopController::receiveConnectionState(RobotId id, ConnectionState state
         log_.info("Connection state: " + text.toStdString(), id);
     }
     emit connectionStatusChanged(text, state == ConnectionState::Connected, active);
+    publishRobotChoices();
+    publishRobotActions();
     if (state != ConnectionState::Connected) {
+        emit manualStatusChanged(QStringLiteral("Manual input inactive — %1").arg(text));
         emit telemetryDescriptionChanged(QStringLiteral("No active telemetry"));
     }
 }
@@ -316,11 +362,177 @@ void DesktopController::receiveConnectionState(RobotId id, ConnectionState state
 void DesktopController::receiveTelemetry(const RobotTelemetry& telemetry)
 {
     if (telemetry.robotId != robotId_) return;
+    const bool unsafe = telemetry.operatingState == RobotOperatingState::Fault
+        || telemetry.operatingState == RobotOperatingState::EmergencyStop;
+    const bool stateChanged = reportedOperatingState_ != telemetry.operatingState;
+    reportedOperatingState_ = telemetry.operatingState;
+    if (unsafe && stateChanged) {
+        manualFault_ = true;
+        if (manualVelocity_) cancelManualDrive();
+        publishRobotActions();
+        if (!robots_.session(robotId_)->emergencyStopRequested)
+            emit manualStatusChanged(QStringLiteral("Robot fault/E-stop reported — drive disabled; physical stop unconfirmed"));
+    }
     const auto battery = telemetry.batteryVoltageVolts
         ? QStringLiteral("%1 V").arg(*telemetry.batteryVoltageVolts, 0, 'f', 2)
         : QStringLiteral("unknown battery");
-    emit telemetryDescriptionChanged(QStringLiteral("Robot %1 · %2 · received +%3 s")
-        .arg(robotId_.value()).arg(battery).arg(elapsedSeconds(telemetry.receivedAt), 0, 'f', 2));
+    const auto state = telemetry.operatingState == RobotOperatingState::Fault ? QStringLiteral("FAULT")
+        : telemetry.operatingState == RobotOperatingState::EmergencyStop ? QStringLiteral("E-stop")
+        : telemetry.operatingState == RobotOperatingState::Moving ? QStringLiteral("Moving")
+        : telemetry.operatingState == RobotOperatingState::Idle ? QStringLiteral("Idle") : QStringLiteral("Unknown status");
+    emit telemetryDescriptionChanged(QStringLiteral("Robot %1 · %2 · %3 · received +%4 s")
+        .arg(robotId_.value()).arg(battery).arg(state).arg(elapsedSeconds(telemetry.receivedAt), 0, 'f', 2));
+}
+
+bool DesktopController::selectedAmbiguous() const
+{
+    const auto found = discoveredRobots_.find(robotId_);
+    return found != discoveredRobots_.end() && found->second.ambiguous;
+}
+
+bool DesktopController::canManualDrive() const
+{
+    const auto session = robots_.session(robotId_);
+    const bool unsafe = session && session->telemetry
+        && (session->telemetry->operatingState == RobotOperatingState::Fault
+            || session->telemetry->operatingState == RobotOperatingState::EmergencyStop);
+    return !unsafe && initialized_ && !shuttingDown_ && !manualFault_ && !selectedAmbiguous()
+        && session && session->connectRequested && !session->removing
+        && session->connection == ConnectionState::Connected && !session->emergencyStopRequested;
+}
+
+void DesktopController::publishRobotActions()
+{
+    const auto session = robots_.session(robotId_);
+    const bool ready = initialized_ && !shuttingDown_ && session.has_value();
+    const auto state = robots_.connectionState(robotId_);
+    const bool active = session && (session->connectRequested || state == ConnectionState::Connecting
+        || state == ConnectionState::Connected || state == ConnectionState::Disconnecting);
+    emit robotActionsChanged(ready && !active && !selectedAmbiguous(), ready && active,
+        canManualDrive(), ready && state == ConnectionState::Connected,
+        ready && robots_.supportsEmergencyStop());
+}
+
+void DesktopController::publishRobotChoices()
+{
+    std::map<RobotId, RobotChoiceItem> choices;
+    for (const auto& [id, item] : discoveredRobots_) {
+        choices.emplace(id, RobotChoiceItem{id, QStringLiteral("Robot %1 · %2%3")
+            .arg(id.value()).arg(QString::fromStdString(item.displayName))
+            .arg(item.ambiguous ? QStringLiteral(" · conflicting identity") : QString{}), item.ambiguous});
+    }
+    for (const auto& [id, session] : robots_.sessions()) {
+        auto [it, inserted] = choices.try_emplace(id, RobotChoiceItem{id,
+            QStringLiteral("Robot %1 · configured / not discovered").arg(id.value()), false});
+        (void)inserted;
+        it->second.label += QStringLiteral(" · %1").arg(connectionStateText(session.connection));
+        if (session.emergencyStopRequested) it->second.label += QStringLiteral(" · E-stop requested");
+    }
+    QList<RobotChoiceItem> list;
+    for (const auto& [id, item] : choices) { (void)id; list.push_back(item); }
+    emit robotChoicesChanged(list, robotId_.value());
+}
+
+void DesktopController::setDiscoveredRobots(std::vector<DiscoveredRobot> robots)
+{
+    if (shuttingDown_) return;
+    discoveredRobots_.clear();
+    for (auto& robot : robots) {
+        auto [it, inserted] = discoveredRobots_.emplace(robot.robotId, robot);
+        if (!inserted) it->second.ambiguous = true;
+    }
+    if (selectedAmbiguous()) cancelManualDrive();
+    publishRobotChoices();
+    publishRobotActions();
+}
+
+void DesktopController::setRobotScanState(bool scanning)
+{
+    scanningRobots_ = scanning;
+    emit robotScanChanged(scanning);
+}
+
+void DesktopController::scanRobots()
+{
+    if (!initialized_ || shuttingDown_ || scanningRobots_) return;
+    cancelManualDrive();
+    emit robotScanRequested();
+}
+
+void DesktopController::selectRobot(quint32 id)
+{
+    if (!initialized_ || shuttingDown_ || robotId_ == RobotId{id}) return;
+    if (!discoveredRobots_.contains(RobotId{id}) && !robots_.session(RobotId{id})) return;
+    cancelManualDrive();
+    const RobotId next{id};
+    if (!robots_.session(next) && !robots_.addRobot(next, MonotonicClock::now())) {
+        emit errorOccurred(QStringLiteral("Robot %1: cannot adopt an unmanaged active session").arg(id));
+        publishRobotChoices();
+        return;
+    }
+    robotId_ = next;
+    reportedOperatingState_.reset();
+    manualFault_ = robots_.session(robotId_)->lastError.has_value();
+    receiveConnectionState(robotId_, robots_.connectionState(robotId_));
+    emit telemetryDescriptionChanged(QStringLiteral("No active telemetry"));
+    if (const auto telemetry = robots_.session(robotId_)->telemetry) receiveTelemetry(*telemetry);
+    publishWorld();
+}
+
+void DesktopController::beginManualDrive(double linear, double angular)
+{
+    if (!canManualDrive() || !std::isfinite(linear) || !std::isfinite(angular)) {
+        cancelManualDrive();
+        return;
+    }
+    manualVelocity_ = VelocityCommand{
+        std::clamp(linear, -manualConfig_.maximumLinearMetersPerSecond, manualConfig_.maximumLinearMetersPerSecond),
+        std::clamp(angular, -manualConfig_.maximumAngularRadiansPerSecond, manualConfig_.maximumAngularRadiansPerSecond)};
+    refreshManualDrive();
+    if (manualVelocity_) manualRefresh_.start();
+}
+
+void DesktopController::refreshManualDrive()
+{
+    if (!manualVelocity_) return;
+    if (!canManualDrive()) { cancelManualDrive(); return; }
+    const auto now = MonotonicClock::now();
+    if (robots_.sendCommand(robotId_, {*manualVelocity_, now, manualConfig_.commandValidity})
+        != CommandSubmission::Submitted) { cancelManualDrive(); return; }
+    emit manualStatusChanged(QStringLiteral("Manual command: %1 m/s · %2 rad/s (delivery unconfirmed)")
+        .arg(manualVelocity_->linearMetersPerSecond, 0, 'f', 2)
+        .arg(manualVelocity_->angularRadiansPerSecond, 0, 'f', 2));
+}
+
+void DesktopController::cancelManualDrive()
+{
+    if (manualVelocity_) stopManualDrive();
+}
+
+void DesktopController::stopManualDrive()
+{
+    const bool wasDriving = manualVelocity_.has_value();
+    manualVelocity_.reset();
+    manualRefresh_.stop();
+    if (wasDriving) emit manualStatusChanged(QStringLiteral("Stop requested — physical execution unconfirmed"));
+    if (initialized_ && !shuttingDown_ && robots_.connectionState(robotId_) == ConnectionState::Connected)
+        (void)robots_.stop(robotId_, MonotonicClock::now(), manualConfig_.commandValidity);
+}
+
+void DesktopController::emergencyStop()
+{
+    if (!initialized_ || shuttingDown_) return;
+    cancelManualDrive();
+    // All registered sessions, including non-selected and disconnected sessions.
+    for (const auto& [id, session] : robots_.sessions()) {
+        (void)session;
+        (void)robots_.requestEmergencyStop(id);
+    }
+    emit manualStatusChanged(robots_.supportsEmergencyStop()
+        ? QStringLiteral("E-STOP REQUESTED — physical stop unconfirmed; restart app and clear robot-side latch before recovery")
+        : QStringLiteral("Dedicated E-stop unsupported by this transport"));
+    publishRobotChoices();
+    publishRobotActions();
 }
 
 void DesktopController::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds)
