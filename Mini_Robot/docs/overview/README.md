@@ -22,6 +22,7 @@
 - [BLE connection lifecycle](ble-connection.md): opt-in Qt Central, discovery, GATT readiness, cancellation and hardware acceptance.
 - [BLE messages](ble-messages.md): bounded command writes, telemetry validation, sequences, diagnostics and adapter E-stop.
 - [Communication module](modules/communication.md): RobotManager sessions and backend isolation.
+- [Manual robot control](manual-robot-control.md): discovery/selection, connection, bounded hold-to-drive, Stop/E-stop, validation and physical limits.
 - [Robot communication](robot-communication.md): platform-neutral robot discovery,
   Qt Bluetooth review for Linux/macOS, control isolation, and mock transport tests.
 - [Tabletop homography](tabletop-homography.md): paired undistorted image/world points, residuals, workspace profile save/load and commissioning.

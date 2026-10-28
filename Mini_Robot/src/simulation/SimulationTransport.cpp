@@ -151,6 +151,15 @@ void SimulationTransport::sendCommand(RobotId id, const RobotCommand& command)
     if (log_) log_->debug("Simulated command submitted: " + describe(command), id);
 }
 
+void SimulationTransport::requestEmergencyStop(RobotId id)
+{
+    auto& session = sessions_[id];
+    session.emergencyStopRequested = true;
+    session.pendingCommand.reset();
+    session.lastSentCommand.reset();
+    if (log_) log_->warning("Simulated emergency-stop latch requested", id);
+}
+
 std::optional<RobotCommand> SimulationTransport::lastSentCommand(RobotId id) const
 {
     const auto found = sessions_.find(id);
@@ -209,6 +218,9 @@ void SimulationTransport::advanceTo(Timestamp now)
                 error = TransportErrorCode::NotConnected;
             } else if (!isSupportedTransportModelVersion(command->metadata.modelVersion)) {
                 error = TransportErrorCode::UnsupportedVersion;
+            } else if (session.emergencyStopRequested
+                       && std::holds_alternative<VelocityCommand>(command->payload)) {
+                error = TransportErrorCode::InvalidCommand;
             } else if (!valid(*command, now)) {
                 error = TransportErrorCode::InvalidCommand;
             } else {
@@ -253,7 +265,10 @@ void SimulationTransport::advanceTo(Timestamp now)
         }
         if (auto sink = sink_.lock()) {
             sink->onTelemetry({id, now, config_.batteryVoltageVolts,
-                velocity.linearMetersPerSecond, velocity.angularRadiansPerSecond});
+                velocity.linearMetersPerSecond, velocity.angularRadiansPerSecond, {},
+                session.emergencyStopRequested ? RobotOperatingState::EmergencyStop
+                    : (velocity.linearMetersPerSecond != 0 || velocity.angularRadiansPerSecond != 0)
+                        ? RobotOperatingState::Moving : RobotOperatingState::Idle});
         }
     }
 }

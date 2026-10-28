@@ -22,6 +22,7 @@ Radio backends locate robots through the separate
 | `connect(id)` | Prompt, idempotent request; completion is a state event. |
 | `disconnect(id)` | Cancels pending connect; completion is a state event. |
 | `sendCommand(id, command)` | Submission only; returning does not confirm delivery or execution. |
+| `supportsEmergencyStop()` / `requestEmergencyStop(id)` | Optional dedicated latch, independent of ordinary Stop; unsupported by default. BLE and simulation support it; no recovery/clear API in #69. |
 
 `ConnectionState` includes Disconnected, Connecting, Connected, Disconnecting,
 and Fault. State is per robot, and state queries reflect transitions before the
@@ -54,7 +55,11 @@ strictly less than `validFor`; expiry at the exact deadline is rejected. This
 applies to Stop too. Disconnected or invalid submissions report an error event.
 
 `RobotTelemetry` contains RobotId, local receipt time, and optional battery voltage,
-linear velocity, and angular velocity. Missing values are unknown. Telemetry is
+linear velocity, and angular velocity. Missing values are unknown. Its
+`operatingState` is Unknown by default, or Idle/Moving/EmergencyStop/Fault when
+reported by the adapter; it is independent of connection state. The
+[manual control panel](manual-robot-control.md) uses it to inhibit motion on fault
+or E-stop without depending on wire-specific state codes. Telemetry is
 not an authoritative pose update: pose storage remains in [WorldModel](world-model.md).
 `TransportError` carries identity, operation, portable error code, message, and
 local timestamp. Portable codes are Unavailable, NotConnected, InvalidCommand,

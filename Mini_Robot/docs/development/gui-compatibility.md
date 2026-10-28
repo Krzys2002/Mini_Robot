@@ -92,7 +92,7 @@ Two defects found during validation were fixed:
 
 ### Small logical screens
 
-The main window needs about 554 logical pixels of height (290x554 minimum here;
+The historical #130 layout needed about 554 logical pixels of height (290x554 minimum here;
 fonts and style change it). If the work area is smaller, for example 1920x1080 at
 200% (540 logical pixels) or 1280x800 at 150%, the window cannot show all controls:
 
@@ -100,8 +100,12 @@ fonts and style change it). If the work area is smaller, for example 1920x1080 a
   lowest panels (robot transport and WorldModel) are clipped and cannot be reached.
 - **X11/Xwayland** keeps the minimum size, so the window extends past the screen edge.
 
-There is no scrolling container yet. Use a lower display scale, or a larger
-display, until the layout handles small screens.
+Issue #69 now places camera/world content in a scrolling container and keeps the
+manual robot panel, Stop and E-stop outside it. Automated offscreen checks verify
+scroll access, persistent stop controls and 1.5×/2× scaling. The historical native
+platform measurements above do not validate the revised layout; repeat the manual
+checklist on each real display. Extremely small work areas can still be narrower
+or shorter than the persistent panel's font/style minimum.
 
 ### Xwayland under fractional scaling
 
@@ -138,13 +142,15 @@ the log is visible.
    and the camera list replaces “Looking for cameras…”.
 2. Drag each window edge and corner, maximize, and restore. Controls stay inside
    the window, text is not truncated, and the window cannot be made smaller than
-   its controls (see [small screens](#small-logical-screens)).
+   the persistent robot panel. Camera/world content scrolls when needed; Stop and
+   E-stop stay visible (see [small screens](#small-logical-screens)).
 3. Open the camera drop-down with the mouse and choose a camera. The popup opens
    next to the drop-down and closes after the choice; Active camera source names it.
 4. Click Start camera and Stop camera, Connect robot and Disconnect robot. Status
    labels follow each click.
 5. Press Tab and Shift+Tab. Focus moves in visual order: camera drop-down, Camera
-   calibration…, Start camera, then the robot buttons; disabled buttons are skipped.
+   calibration…, Vision debug…, Start camera, robot selector, Scan, Connect,
+   then the available manual/stop controls; disabled buttons are skipped.
    Space activates the focused button, and arrow keys change the camera.
 6. Open Camera calibration…. The dialog appears as a separate window and can be
    moved and resized. Close it, then reopen it.

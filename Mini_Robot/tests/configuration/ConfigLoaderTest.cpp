@@ -528,3 +528,15 @@ TEST_F(ConfigLoggingTest, LogsLoadErrorsOnlyOnce)
 }
 
 } // namespace
+
+TEST(ConfigLoaderTest, ManualSpeedLimitsAreConfigurableAndRejectInvalidValues)
+{
+    const auto valid = micro_robot::parseConfig("[manual]\nmaximum_linear_m_per_s = 0.025\nmaximum_angular_rad_per_s = 0.4\n", "test.ini");
+    EXPECT_DOUBLE_EQ(valid.config.manual.maximumLinearMetersPerSecond, 0.025);
+    EXPECT_DOUBLE_EQ(valid.config.manual.maximumAngularRadiansPerSecond, 0.4);
+    for (const auto value : {"0", "-1", "nan", "inf", "1junk"}) {
+        const auto invalid = micro_robot::parseConfig(std::string{"[manual]\nmaximum_linear_m_per_s = "} + value, "test.ini");
+        EXPECT_DOUBLE_EQ(invalid.config.manual.maximumLinearMetersPerSecond, 0.1);
+        EXPECT_FALSE(invalid.diagnostics.empty());
+    }
+}

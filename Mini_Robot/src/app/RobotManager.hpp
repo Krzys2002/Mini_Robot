@@ -17,8 +17,9 @@ struct RobotSession {
     std::optional<TransportError> lastError{};
     bool connectRequested{};
     bool removing{};
+    bool emergencyStopRequested{};
 };
-enum class CommandSubmission { Submitted, UnknownRobot, NotConnected, ShuttingDown };
+enum class CommandSubmission { Submitted, UnknownRobot, NotConnected, ShuttingDown, EmergencyStopped };
 
 // Application service, owning-thread only; no Qt, radio handles or pose estimates.
 // Exclusively coordinates one injected transport's sessions/event subscription.
@@ -52,6 +53,11 @@ public:
     // command validation, dispatch-time freshness, wire sequence and watchdogs.
     [[nodiscard]] CommandSubmission sendCommand(RobotId id, const RobotCommand& command);
     [[nodiscard]] CommandSubmission stop(RobotId id, Timestamp issuedAt, Duration validFor);
+    // Dedicated backend latch; returns submission only, never physical success.
+    // Intent persists in this service across disconnect/reconnect; Velocity is
+    // rejected once requested. Stop remains available. No UI recovery in #69.
+    [[nodiscard]] bool supportsEmergencyStop() const noexcept;
+    [[nodiscard]] bool requestEmergencyStop(RobotId id);
     // Teardown only: does not submit Stop or await its physical execution. Robot
     // stop-on-disconnect/watchdog remains required; callers needing an orderly
     // motion stop must do so before shutdown using their command/ack policy.

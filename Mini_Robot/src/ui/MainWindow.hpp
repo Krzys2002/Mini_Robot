@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QString>
 
+class QVBoxLayout;
 class QComboBox;
 class QLabel;
 class QPushButton;
@@ -38,8 +39,6 @@ signals:
     void cameraSelectionRequested(const QString& id);
     void cameraStartRequested();
     void cameraStopRequested();
-    void robotConnectRequested();
-    void robotDisconnectRequested();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -49,6 +48,7 @@ private:
     void showSelectedCamera(const QString& id, const QString& description);
 
     // Non-owning; the Qt parent owns the widgets.
+    QVBoxLayout* contentLayout_{};
     CalibrationWizard* calibrationWizard_{};
     VisionDebugDialog* visionDebug_{};
     QPushButton* visionAction_{};
