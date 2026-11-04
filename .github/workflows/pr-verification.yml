@@ -1,20 +1,19 @@
-name: Pull request verification
+name: Daily desktop verification
 
 on:
-  pull_request:
-  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *" # Once daily at 02:00 UTC.
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-verification-${{ github.ref }}
-  cancel-in-progress: true
+  group: daily-desktop-verification
+  cancel-in-progress: false
 
 jobs:
-  # One Linux job keeps pre-merge feedback affordable; the daily suite retains
-  # macOS and GCC/Clang coverage. No Bluetooth device or camera is required.
   desktop:
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
