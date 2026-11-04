@@ -3,6 +3,7 @@
 #include "common/Pose2D.hpp"
 #include "common/RobotId.hpp"
 #include "common/Time.hpp"
+#include "world/TrackingState.hpp"
 
 #include <optional>
 
@@ -15,6 +16,7 @@ struct RobotState {
     Timestamp registeredAt;
     std::optional<Pose2D> pose;
     std::optional<Timestamp> poseUpdatedAt;
+    std::optional<TrackingMetadata> tracking;
 };
 
 } // namespace micro_robot

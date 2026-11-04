@@ -6,7 +6,7 @@ namespace micro_robot {
 
 bool WorldModel::registerRobot(RobotId id, Timestamp registeredAt)
 {
-    return robots_.try_emplace(id, RobotState{id, registeredAt, std::nullopt, std::nullopt}).second;
+    return robots_.try_emplace(id, RobotState{id, registeredAt, std::nullopt, std::nullopt, std::nullopt}).second;
 }
 
 bool WorldModel::removeRobot(RobotId id) { return robots_.erase(id) != 0; }
@@ -28,7 +28,35 @@ PoseUpdateResult WorldModel::updatePose(RobotId id, const Pose2D& pose, Timestam
     }
     state.pose = pose;
     state.poseUpdatedAt = updatedAt;
+    state.tracking.reset();
     return PoseUpdateResult::Applied;
+}
+
+PoseUpdateResult WorldModel::updateTrackedPose(RobotId id, const Pose2D& pose,
+                                             Timestamp capturedAt, TrackingThresholds thresholds)
+{
+    if (thresholds.staleAfter <= Duration::zero() || thresholds.lostAfter <= thresholds.staleAfter)
+        return PoseUpdateResult::InvalidPose;
+    const auto result = updatePose(id, pose, capturedAt);
+    if (result == PoseUpdateResult::Applied) robots_.at(id).tracking = TrackingMetadata{thresholds, false};
+    return result;
+}
+void WorldModel::invalidateTracking(RobotId id)
+{
+    const auto found = robots_.find(id);
+    if (found != robots_.end() && found->second.tracking) found->second.tracking->invalidated = true;
+}
+TrackingInfo WorldModel::tracking(RobotId id, Timestamp now) const
+{
+    const auto found = robots_.find(id);
+    if (found == robots_.end() || !found->second.tracking || !found->second.poseUpdatedAt) return {};
+    const auto& state = found->second;
+    if (now < *state.poseUpdatedAt) return {TrackingStatus::Lost, {}};
+    const auto age = now - *state.poseUpdatedAt;
+    if (state.tracking->invalidated || age >= state.tracking->thresholds.lostAfter)
+        return {TrackingStatus::Lost, age};
+    if (age >= state.tracking->thresholds.staleAfter) return {TrackingStatus::Stale, age};
+    return {TrackingStatus::Fresh, age};
 }
 
 std::optional<RobotState> WorldModel::robot(RobotId id) const
