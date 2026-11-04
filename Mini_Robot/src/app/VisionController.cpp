@@ -17,6 +17,7 @@ VisionController::VisionController(std::unique_ptr<IMarkerDetector> detector, Lo
     if (!detector_) throw std::invalid_argument("Marker detector is required");
     qRegisterMetaType<MarkerDetectionsPtr>();
     qRegisterMetaType<VisionDebugFramePtr>();
+    qRegisterMetaType<MetricObservationBatchPtr>();
     workerContext_ = new QObject;
     workerContext_->moveToThread(&worker_);
     connect(&worker_, &QThread::finished, workerContext_, &QObject::deleteLater);
@@ -41,6 +42,7 @@ void VisionController::invalidate()
     lastSequence_.reset();
     width_ = height_ = 0;
     emit observationsAvailable(sourceId_, {});
+    emit metricObservationsAvailable(sourceId_, {});
     emit previewAvailable(sourceId_, {});
 }
 void VisionController::setInput(const QString& sourceId, bool streaming)
@@ -52,6 +54,18 @@ void VisionController::setInput(const QString& sourceId, bool streaming)
     streaming_ = streaming && !sourceId.isEmpty();
     describe(streaming_ ? QStringLiteral("AprilTag: waiting for camera frames")
                         : QStringLiteral("AprilTag: camera inactive"));
+}
+void VisionController::setMetricConverter(std::unique_ptr<IMetricObservationConverter> converter)
+{
+    if (shuttingDown_) return;
+    invalidate();
+    metricConverter_ = std::move(converter);
+}
+void VisionController::setWorkspaceCalibration(std::optional<WorkspaceCalibrationProfile> profile)
+{
+    if (shuttingDown_) return;
+    invalidate();
+    workspace_ = std::move(profile);
 }
 void VisionController::receiveFrame(FramePtr frame)
 {
@@ -78,7 +92,10 @@ void VisionController::dispatch()
     const auto generation = generation_;
     const auto detector = detector_;
     const auto markerMap = markerMap_;
-    QMetaObject::invokeMethod(workerContext_, [this, detector, markerMap, frame, generation] {
+    const auto converter = metricConverter_;
+    const auto workspace = workspace_;
+    const auto sourceName = sourceId_.toStdString();
+    QMetaObject::invokeMethod(workerContext_, [this, detector, markerMap, converter, workspace, sourceName, frame, generation] {
         const auto start = MonotonicClock::now();
         auto result = std::make_shared<MarkerDetections>();
         try {
@@ -95,7 +112,17 @@ void VisionController::dispatch()
         result->height = frame->height;
         result->processingTime = MonotonicClock::now() - start;
         auto preview = makeVisionDebugFrame(frame, result, markerMap);
-        QMetaObject::invokeMethod(this, [this, generation, result = std::move(result), preview = std::move(preview)] {
+        MetricObservationBatchPtr metric;
+        if (converter) {
+            try {
+                metric = std::make_shared<MetricObservationBatch>(converter->convert(*result, sourceName, markerMap, workspace));
+            } catch (const std::exception& error) {
+                metric = std::make_shared<MetricObservationBatch>(MetricObservationBatch{MetricObservationStatus::InvalidGeometry, {}, error.what()});
+            } catch (...) {
+                metric = std::make_shared<MetricObservationBatch>(MetricObservationBatch{MetricObservationStatus::InvalidGeometry, {}, "Metric conversion failed"});
+            }
+        }
+        QMetaObject::invokeMethod(this, [this, generation, result = std::move(result), preview = std::move(preview), metric = std::move(metric)] {
             busy_ = false;
             if (generation == generation_ && !shuttingDown_ && streaming_) {
                 if (!result->error.empty()) log_.warning(result->error);
@@ -114,6 +141,8 @@ void VisionController::dispatch()
                 // A synchronous description observer can invalidate the input.
                 if (generation == generation_ && !shuttingDown_)
                     emit observationsAvailable(source, result);
+                if (generation == generation_ && !shuttingDown_)
+                    emit metricObservationsAvailable(source, metric);
                 // Observation consumers can also invalidate synchronously.
                 if (generation == generation_ && !shuttingDown_)
                     emit previewAvailable(source, preview);

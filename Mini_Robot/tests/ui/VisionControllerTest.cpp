@@ -254,3 +254,30 @@ TEST(VisionControllerTest, DesktopCameraEventsFeedServiceAndStatusWithoutWorldPo
     desktop.shutdown();
 }
 } // namespace
+
+namespace {
+class TestMetricConverter final : public micro_robot::IMetricObservationConverter {
+public:
+    micro_robot::MetricObservationBatch convert(const micro_robot::MarkerDetections&, const std::string&,
+        const micro_robot::RobotMarkerMap&, const std::optional<micro_robot::WorkspaceCalibrationProfile>&) override
+    {
+        return {micro_robot::MetricObservationStatus::Valid, {}, {}};
+    }
+};
+TEST(VisionControllerMetricTest, CalibrationChangeDiscardsInFlightMeasurement)
+{
+    VisionFixture f;
+    f.vision->setMetricConverter(std::make_unique<TestMetricConverter>());
+    int batches = 0;
+    QObject::connect(f.vision.get(), &VisionController::metricObservationsAvailable, f.vision.get(),
+        [&](const QString&, MetricObservationBatchPtr result) { if (result) ++batches; });
+    f.vision->receiveFrame(visionFrame(1));
+    ASSERT_TRUE(visionUntil([&] { return f.detector->calls == 1; }));
+    f.vision->setWorkspaceCalibration({});
+    f.unblock();
+    ASSERT_TRUE(visionUntil([&] { return !f.vision->busy(); }));
+    EXPECT_EQ(batches, 0);
+    f.vision->receiveFrame(visionFrame(2));
+    ASSERT_TRUE(visionUntil([&] { return batches == 1; }));
+}
+}

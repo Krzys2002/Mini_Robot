@@ -89,3 +89,23 @@ checks the heading and center of a generated tag in all four quarter-turns.
 Not yet verified with a physical printed tag or camera: front-edge orientation
 of a mounted robot remains part of the commissioning steps in
 [#191](https://github.com/Krzys2002/Mini_Robot/issues/191).
+
+## Metric measurement boundary
+
+With an explicitly activated compatible workspace calibration, the vision worker
+undistorts each decoded corner with the bound intrinsic camera matrix and
+Brown–Conrady coefficients, retaining the native pixel coordinate convention.
+It then finds the projective center and maps it and all four corners through the
+image-to-world homography. The world heading uses the vector from the midpoint of
+BL/BR to the midpoint of TL/TR, after transformation: zero is +X and positive is
+counterclockwise. All points must map inside the measured workspace; invalid
+geometry, a horizon crossing, unknown/duplicate IDs, incompatible source or
+resolution and absent calibration do not yield measurements. Capture timestamp,
+frame sequence, shortest raw-image edge and optional detector decision margin are
+preserved; neither quality value is a calibrated confidence score.
+
+`VisionController::metricObservationsAvailable` delivers immutable measurement
+batches on its owner thread. A null batch invalidates earlier output; calibration
+or camera changes invalidate in-flight results. This is a measurement boundary,
+not a tracker or an automatic WorldModel update. Physical tag mounting, height,
+calibration accuracy and physical acceptance remain to be evaluated in #224.

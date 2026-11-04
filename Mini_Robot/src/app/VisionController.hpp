@@ -1,5 +1,6 @@
 #pragma once
 #include "vision/VisionDebugFrame.hpp"
+#include "vision/MetricObservation.hpp"
 #include "infrastructure/logging/Logger.hpp"
 
 #include <QObject>
@@ -23,6 +24,8 @@ public:
     ~VisionController() override;
     void setInput(const QString& sourceId, bool streaming);
     void receiveFrame(FramePtr frame);
+    void setMetricConverter(std::unique_ptr<IMetricObservationConverter> converter);
+    void setWorkspaceCalibration(std::optional<WorkspaceCalibrationProfile> profile);
     [[nodiscard]] std::uint64_t inputGeneration() const noexcept { return generation_; }
     [[nodiscard]] bool busy() const noexcept { return busy_; }
     [[nodiscard]] bool isStopped() const { return worker_.isFinished(); }
@@ -33,6 +36,8 @@ signals:
     // Owner-thread delivery. Immutable values may be retained. Null clears old
     // observations on input invalidation/shutdown; source ID scopes the sequence.
     void observationsAvailable(const QString& sourceId, MarkerDetectionsPtr detections);
+    // Owner-thread measurement boundary; null invalidates previous batches.
+    void metricObservationsAvailable(const QString& sourceId, MetricObservationBatchPtr batch);
     void previewAvailable(const QString& sourceId, VisionDebugFramePtr preview);
     void descriptionChanged(const QString& description);
     void stopped();
@@ -44,6 +49,8 @@ private:
     RobotMarkerMap markerMap_;
     VisionOutputRate outputRate_;
     std::shared_ptr<IMarkerDetector> detector_;
+    std::shared_ptr<IMetricObservationConverter> metricConverter_;
+    std::optional<WorkspaceCalibrationProfile> workspace_;
     QThread worker_;
     QObject* workerContext_{}; // Deleted on worker completion.
     FramePtr pending_;
@@ -59,3 +66,4 @@ private:
 Q_DECLARE_METATYPE(micro_robot::MarkerDetectionsPtr)
 
 Q_DECLARE_METATYPE(micro_robot::VisionDebugFramePtr)
+Q_DECLARE_METATYPE(micro_robot::MetricObservationBatchPtr)
