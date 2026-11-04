@@ -5,6 +5,13 @@ T1-ESP-C6/.idea/doNotAskNotifications.xml
 /Mini_Robot/.codex
 /Mini_Robot/.idea
 
+# Repository-root CMake/CLion builds and machine-local settings.
+/build/
+/cmake-build-*/
+/out/
+/CMakeUserPresets.json
+/.idea/
+
 # Optional local Graphify tooling, independent in every worktree.
 graphify-out/
 /tools/graphify/.venv/
