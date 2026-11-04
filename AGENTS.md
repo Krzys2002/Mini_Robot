@@ -20,6 +20,9 @@ and `core arhiteture.md` do not establish implemented functionality.
   Preserve standalone configuration from that directory and existing CI commands.
 - Root `CMakePresets.json` includes `Mini_Robot/CMakePresets.json`; edit shared
   presets there rather than duplicating configurations.
+- The shared `desktop` preset builds the GUI without tests. Use host/core presets
+  for validation. Optional `firmware_*` targets delegate build-only work to nested
+  PlatformIO manifests; never make them desktop/default-build dependencies.
 - Keep project-relative paths valid for both entry points. Within Mini_Robot,
   use `PROJECT_SOURCE_DIR` or `CMAKE_CURRENT_SOURCE_DIR` as appropriate rather
   than assuming `CMAKE_SOURCE_DIR` is the application directory.
