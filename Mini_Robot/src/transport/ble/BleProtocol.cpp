@@ -70,6 +70,10 @@ EncodedBleCommand encodeBleEmergencyStop(std::uint16_t sequence)
 {
     return {header(3, sequence), BleEndpoint::EmergencyStop, true};
 }
+EncodedBleCommand encodeBleEmergencyClear(std::uint16_t sequence)
+{
+    return {header(4, sequence), BleEndpoint::Command, true};
+}
 BleDecodeResult decodeBleNotification(BleEndpoint endpoint, std::span<const std::uint8_t> b)
 {
     const auto invalid = [](const char* message) { return BleDecodeResult{{}, TransportErrorCode::BackendFailure, message}; };

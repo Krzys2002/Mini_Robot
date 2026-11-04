@@ -55,8 +55,11 @@ was performed for this change.
 The optional `IRobotTransport::supportsEmergencyStop()` / `requestEmergencyStop()`
 capability exposes BLE's existing dedicated, retried latch primitive through the
 manager. Simulation implements the same persistent per-robot intent. The manager
-refuses Velocity after the request, including after reconnect. No clear/re-arm UI
-is exposed; #70 owns broader safety policy and recovery. The UI says **requested**
+refuses Velocity after the request, including after reconnect. The selected robot
+can be explicitly cleared when connected and reporting E-stop; drive remains
+inhibited until its matching accepted Idle result. Rejection, timeout, a newer
+E-stop or connection loss keeps inhibition, and new manual input is required.
+The UI says **requested**
 and **physical execution unconfirmed**: submission is not delivery or physical
 stopping. Restarting the desktop is not a verified robot-side recovery procedure.
 
@@ -86,10 +89,9 @@ offscreen/fake-radio success does not establish those results. Physical/manual a
 current prerequisites and status.
 
 E-stop is excluded from sequential Tab navigation to reduce accidental activation;
-it remains clickable and visibly available. Recovery requires restarting the desktop
-application and separately clearing the robot-side latch using the firmware's
-approved procedure. Restarting the desktop does not clear the physical robot latch.
-The bench operator must establish that procedure before testing E-stop recovery.
+it remains clickable and visibly available. Clear is a separate explicit action.
+Resolve the cause before requesting clear; the result is not physical proof of a
+safe robot. Physical recovery validation is tracked in #228.
 All selected-robot transport errors, including malformed or unsupported telemetry,
 inhibit driving until disconnect/reconnect. This conservative bring-up policy avoids
 continuing with an uncertain protocol session.

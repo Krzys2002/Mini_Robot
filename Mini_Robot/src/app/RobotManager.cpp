@@ -1,6 +1,7 @@
 #include "app/RobotManager.hpp"
 
 #include <cmath>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -31,6 +32,8 @@ public:
     { if (owner) owner->receiveTelemetry(sample); }
     void onTransportError(const TransportError& error) override
     { if (owner) owner->receiveError(error); }
+    void onEmergencyClearResult(RobotId id, std::uint64_t request, bool accepted, Timestamp at) override
+    { if (owner) owner->receiveEmergencyClearResult(id, request, accepted, at); }
     RobotManager* owner; // Invalidated before detach/destruction, even for a retained sink.
 };
 RobotManager::RobotManager(IRobotTransport& transport, WorldModel& world, std::optional<LogChannel> log)
@@ -79,6 +82,7 @@ bool RobotManager::disconnect(RobotId id)
     const bool pending = state.connectRequested || !terminal(state.connection);
     state.connectRequested = false;
     state.telemetry.reset();
+    state.clearRequest.reset();
     if (!state.emergencyStopRequested)
         state.safety = state.everConnected ? DesktopSafetyState::LostConnection : DesktopSafetyState::Disconnected;
     if (pending) transport_.disconnect(id);
@@ -122,7 +126,8 @@ CommandSubmission RobotManager::sendCommand(RobotId id, const RobotCommand& comm
     if (std::holds_alternative<VelocityCommand>(command.payload)) {
         if (state.emergencyStopRequested) return CommandSubmission::EmergencyStopped;
         if (state.safetyFault) return CommandSubmission::SafetyFault;
-        if (state.connectionChangedAt && command.issuedAt < *state.connectionChangedAt)
+        if (state.motionAllowedAfter && (command.issuedAt < *state.motionAllowedAfter
+            || (state.strictMotionBarrier && command.issuedAt == *state.motionAllowedAfter)))
             return CommandSubmission::StaleSession;
     }
     transport_.sendCommand(id, command);
@@ -142,6 +147,7 @@ bool RobotManager::requestEmergencyStop(RobotId id)
     if (shuttingDown_ || found == sessions_.end()) return false;
     emergencyLatched_.insert(id);
     found->second.emergencyStopRequested = true;
+    found->second.clearRequest.reset();
     found->second.emergencyRequestedByOperator = true;
     found->second.safety = DesktopSafetyState::EmergencyStop;
     transport_.cancelPendingMotion(id);
@@ -149,6 +155,40 @@ bool RobotManager::requestEmergencyStop(RobotId id)
     transport_.requestEmergencyStop(id);
     if (log_) log_->warning("Emergency stop requested; physical execution unconfirmed", id);
     return true;
+}
+bool RobotManager::supportsEmergencyClear() const noexcept { return transport_.supportsEmergencyClear(); }
+bool RobotManager::requestEmergencyClear(RobotId id)
+{
+    const auto found = sessions_.find(id);
+    if (shuttingDown_ || found == sessions_.end() || !supportsEmergencyClear()) return false;
+    auto& state = found->second;
+    if (!state.emergencyStopRequested || state.clearRequest || state.safetyFault || !state.connectRequested
+        || state.connection != ConnectionState::Connected || !state.telemetry
+        || state.telemetry->operatingState != RobotOperatingState::EmergencyStop
+        || nextClearRequest_ == std::numeric_limits<std::uint64_t>::max()) return false;
+    const auto request = nextClearRequest_++;
+    state.clearRequest = request;
+    if (!transport_.requestEmergencyClear(id, request)) { state.clearRequest.reset(); return false; }
+    return true;
+}
+void RobotManager::receiveEmergencyClearResult(RobotId id, std::uint64_t request, bool accepted, Timestamp at)
+{
+    const auto found = sessions_.find(id);
+    if (found == sessions_.end()) return;
+    auto& state = found->second;
+    if (state.clearRequest != request || !state.connectRequested || state.connection != ConnectionState::Connected
+        || (state.connectionChangedAt && at < *state.connectionChangedAt)) return;
+    state.clearRequest.reset();
+    if (accepted && !state.safetyFault) {
+        state.emergencyStopRequested = false;
+        state.emergencyRequestedByOperator = false;
+        emergencyLatched_.erase(id);
+        state.telemetry.reset();
+        state.motionAllowedAfter = at;
+        state.strictMotionBarrier = true;
+        state.safety = DesktopSafetyState::Ready;
+    }
+    if (auto sink = sink_.lock()) sink->onEmergencyClearResult(id, request, accepted && !state.safetyFault, at);
 }
 void RobotManager::shutdown()
 {
@@ -178,14 +218,16 @@ void RobotManager::receiveState(RobotId id, ConnectionState next, Timestamp at)
     state.connectionChangedAt = at;
     if (next == ConnectionState::Connected && previous != ConnectionState::Connected && state.connectRequested) {
         state.everConnected = true;
+        state.motionAllowedAfter = at;
+        state.strictMotionBarrier = false;
         state.safetyFault = false; // Explicit reconnect starts a new session.
     }
     if (state.emergencyStopRequested) state.safety = DesktopSafetyState::EmergencyStop;
-    else if (next == ConnectionState::Fault) state.safety = DesktopSafetyState::Fault;
+    else if (next == ConnectionState::Fault || state.safetyFault) state.safety = DesktopSafetyState::Fault;
     else if (next == ConnectionState::Connected && state.connectRequested && !state.safetyFault)
         state.safety = DesktopSafetyState::Ready;
     else state.safety = state.everConnected ? DesktopSafetyState::LostConnection : DesktopSafetyState::Disconnected;
-    if (next != ConnectionState::Connected) state.telemetry.reset();
+    if (next != ConnectionState::Connected) { state.telemetry.reset(); state.clearRequest.reset(); }
     if (terminal(next)) {
         state.connectRequested = false;
         if (state.removing) sessions_.erase(found);
@@ -224,6 +266,10 @@ void RobotManager::receiveTelemetry(const RobotTelemetry& sample)
         state.emergencyStopRequested = true;
         state.safety = DesktopSafetyState::EmergencyStop;
     } else if (sample.operatingState == RobotOperatingState::Fault) {
+        if (state.clearRequest) {
+            state.clearRequest.reset();
+            transport_.requestEmergencyStop(sample.robotId);
+        }
         transport_.cancelPendingMotion(sample.robotId);
         state.safetyFault = true;
         if (!state.emergencyStopRequested) state.safety = DesktopSafetyState::Fault;
@@ -241,6 +287,10 @@ void RobotManager::receiveError(const TransportError& error)
     // Connection/receive failures are conservative motion-inhibition events.
     if (error.operation != TransportOperation::SendCommand
         || (error.code != TransportErrorCode::InvalidCommand && error.code != TransportErrorCode::UnsupportedVersion)) {
+        if (found->second.clearRequest) {
+            found->second.clearRequest.reset();
+            transport_.requestEmergencyStop(error.robotId);
+        }
         transport_.cancelPendingMotion(error.robotId);
         found->second.safetyFault = true;
         if (!found->second.emergencyStopRequested) found->second.safety = DesktopSafetyState::Fault;

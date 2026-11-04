@@ -52,7 +52,9 @@ public:
         const auto now = MonotonicClock::now() + dispatchDelay;
         const auto encoded = request.emergencyStop
             ? BleEncodeResult{encodeBleEmergencyStop(request.sequence), TransportErrorCode::InvalidCommand, {}}
-            : encodeBleCommand(request.command, BleRobotInfo{robot, 300, 6000, 500, 100}, request.sequence, now);
+            : request.emergencyClear
+                ? BleEncodeResult{encodeBleEmergencyClear(request.sequence), TransportErrorCode::InvalidCommand, {}}
+                : encodeBleCommand(request.command, BleRobotInfo{robot, 300, 6000, 500, 100}, request.sequence, now);
         if (!encoded.frame) return {false, {}, encoded.code, encoded.error};
         writes.push_back({token, request, *encoded.frame});
         if (completeWrites) emit written(token, request.sequence);
@@ -80,6 +82,9 @@ public:
     std::vector<TransportError> errors;
     std::function<void(ConnectionState)> onState;
     int telemetry{};
+    std::vector<std::pair<std::uint64_t, bool>> clears;
+    void onEmergencyClearResult(RobotId, std::uint64_t request, bool accepted, Timestamp) override
+    { clears.emplace_back(request, accepted); }
     std::vector<RobotTelemetry> samples;
     void onConnectionStateChanged(RobotId id, ConnectionState state, Timestamp) override
     {
@@ -577,11 +582,13 @@ TEST(BleTransportTest, RobotFaultAndEmergencyStatusBlockVelocityUntilValidReadyS
     for (const auto state : {2U, 3U}) {
         emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(static_cast<std::uint16_t>(state), state), MonotonicClock::now()); drain();
         f.transport->sendCommand(robot, freshVelocity()); drain();
-        EXPECT_TRUE(f.backend->writes.empty());
+        EXPECT_TRUE(std::none_of(f.backend->writes.begin(), f.backend->writes.end(),
+            [](const auto& w) { return w.frame.bytes[1] == 2; }));
     }
     emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(4, 0), MonotonicClock::now()); drain();
     f.transport->sendCommand(robot, freshVelocity()); drain();
-    EXPECT_EQ(f.backend->writes.size(), 1U);
+    EXPECT_TRUE(std::none_of(f.backend->writes.begin(), f.backend->writes.end(),
+        [](const auto& w) { return w.frame.bytes[1] == 2; })); // E-stop needs explicit clear.
 }
 TEST(BleTransportTest, BoundsCorrelationHistoryAndRateLimitsToNewestPendingVelocity)
 {
@@ -740,4 +747,60 @@ TEST(BleTransportSafetyTest, CancelsQueuedVelocityButPreservesQueuedStop)
     emit f.backend->written(f.backend->links.at(robot), 1); drain();
     ASSERT_EQ(f.backend->writes.size(), 3U);
     EXPECT_EQ(f.backend->writes.back().frame.bytes[1], 1);
+}
+
+TEST(BleTransportSafetyTest, ClearRequiresMatchingApplicationResultAndLateClearReassertsEstop)
+{
+    Fixture f; f.ready();
+    const auto token = f.backend->links.at(robot);
+    f.transport->requestEmergencyStop(robot); drain();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0, 2), MonotonicClock::now()); drain();
+    ASSERT_TRUE(f.transport->requestEmergencyClear(robot, 123)); drain();
+    ASSERT_GE(f.backend->writes.size(), 2U);
+    const auto clear = f.backend->writes.back().request.sequence;
+    EXPECT_EQ(f.backend->writes.back().frame.bytes[1], 4);
+    EXPECT_TRUE(f.events->clears.empty()); // ATT acknowledgement is not robot acceptance.
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(1, clear + 1, 0, 4, 0), MonotonicClock::now()); drain();
+    EXPECT_TRUE(f.events->clears.empty());
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(2, clear, 0, 4, 0), MonotonicClock::now()); drain();
+    ASSERT_EQ(f.events->clears.size(), 1U);
+    EXPECT_EQ(f.events->clears.back(), (std::pair<std::uint64_t, bool>{123, true}));
+    f.transport->requestEmergencyStop(robot); drain();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(3, 2), MonotonicClock::now()); drain();
+    ASSERT_TRUE(f.transport->requestEmergencyClear(robot, 124)); drain();
+    const auto oldClear = f.backend->writes.back().request.sequence;
+    f.transport->requestEmergencyStop(robot); drain();
+    const auto before = f.backend->writes.size();
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(4, oldClear, 0, 4, 0), MonotonicClock::now()); drain();
+    ASSERT_GT(f.backend->writes.size(), before);
+    EXPECT_TRUE(f.backend->writes.back().request.emergencyStop);
+    EXPECT_EQ(f.events->clears.size(), 1U);
+}
+
+TEST(BleTransportSafetyTest, RejectedOrTimedOutClearStaysLatched)
+{
+    BleTransportConfig config; config.phaseTimeout = 40ms;
+    Fixture f{config}; f.ready();
+    const auto token = f.backend->links.at(robot);
+    f.transport->requestEmergencyStop(robot); drain();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0, 2), MonotonicClock::now()); drain();
+    ASSERT_TRUE(f.transport->requestEmergencyClear(robot, 1)); drain();
+    const auto seq = f.backend->writes.back().request.sequence;
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(1, seq, 8, 4, 3), MonotonicClock::now()); drain();
+    ASSERT_EQ(f.events->clears.size(), 1U);
+    EXPECT_FALSE(f.events->clears.back().second);
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    ASSERT_FALSE(f.events->errors.empty());
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::InvalidCommand);
+
+    Fixture timeout{config}; timeout.ready();
+    const auto token2 = timeout.backend->links.at(robot);
+    timeout.transport->requestEmergencyStop(robot); drain();
+    emit timeout.backend->notification(token2, BleEndpoint::Telemetry, telemetryBytes(0, 2), MonotonicClock::now()); drain();
+    ASSERT_TRUE(timeout.transport->requestEmergencyClear(robot, 2)); drain();
+    ASSERT_TRUE(until([&] { return !timeout.events->clears.empty(); }));
+    EXPECT_EQ(timeout.events->clears.back(), (std::pair<std::uint64_t, bool>{2, false}));
+    timeout.transport->sendCommand(robot, freshVelocity()); drain();
+    ASSERT_FALSE(timeout.events->errors.empty());
+    EXPECT_EQ(timeout.events->errors.back().code, TransportErrorCode::InvalidCommand);
 }

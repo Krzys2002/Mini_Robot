@@ -70,6 +70,15 @@ public:
         owner_.receiveConnectionState(id, state);
     }
     void onTelemetry(const RobotTelemetry& telemetry) override { owner_.receiveTelemetry(telemetry); }
+    void onEmergencyClearResult(RobotId id, std::uint64_t, bool accepted, Timestamp) override
+    {
+        if (id != owner_.robotId_) return;
+        if (accepted) owner_.manualFault_ = false;
+        owner_.publishRobotActions();
+        emit owner_.manualStatusChanged(accepted
+            ? QStringLiteral("E-stop clear accepted — idle; physical output unconfirmed, new input required")
+            : QStringLiteral("E-stop clear not confirmed — motion remains inhibited"));
+    }
     void onTransportError(const TransportError& error) override
     {
         if (error.robotId == owner_.robotId_) {
@@ -411,6 +420,10 @@ void DesktopController::publishRobotActions()
     emit robotActionsChanged(ready && !active && !selectedAmbiguous(), ready && active,
         canManualDrive(), ready && state == ConnectionState::Connected,
         ready && robots_.supportsEmergencyStop());
+    emit emergencyClearAvailable(ready && robots_.supportsEmergencyClear() && session->connectRequested
+        && session->connection == ConnectionState::Connected && session->emergencyStopRequested
+        && !session->clearRequest && !session->safetyFault && session->telemetry
+        && session->telemetry->operatingState == RobotOperatingState::EmergencyStop);
 }
 
 void DesktopController::publishRobotChoices()
@@ -529,9 +542,20 @@ void DesktopController::emergencyStop()
         (void)robots_.requestEmergencyStop(id);
     }
     emit manualStatusChanged(robots_.supportsEmergencyStop()
-        ? QStringLiteral("E-STOP REQUESTED — physical stop unconfirmed; restart app and clear robot-side latch before recovery")
+        ? QStringLiteral("E-STOP REQUESTED — physical stop unconfirmed; resolve cause before explicit clear")
         : QStringLiteral("Dedicated E-stop unsupported by this transport"));
     publishRobotChoices();
+    publishRobotActions();
+}
+
+void DesktopController::clearEmergencyStop()
+{
+    if (!initialized_ || shuttingDown_) return;
+    cancelManualDrive();
+    const bool queued = robots_.requestEmergencyClear(robotId_);
+    emit manualStatusChanged(queued
+        ? QStringLiteral("E-stop clear requested — awaiting robot result; motion inhibited")
+        : QStringLiteral("E-stop clear unavailable — motion remains inhibited"));
     publishRobotActions();
 }
 

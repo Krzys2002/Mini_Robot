@@ -50,6 +50,8 @@ public:
     void cancelPendingMotion(RobotId id) override;
     [[nodiscard]] bool supportsEmergencyStop() const noexcept override { return true; }
     void requestEmergencyStop(RobotId id) override;
+    [[nodiscard]] bool supportsEmergencyClear() const noexcept override { return true; }
+    bool requestEmergencyClear(RobotId id, std::uint64_t request) override;
 
     // Harness-only scenarios, deferred to the next advancement. They cancel
     // connection intent and pending/active motion; no automatic reconnect.
@@ -72,6 +74,7 @@ private:
     struct Session {
         bool desiredConnected{};
         bool emergencyStopRequested{};
+        std::optional<std::uint64_t> clearRequest;
         ConnectionState state{ConnectionState::Disconnected};
         std::optional<RobotCommand> pendingCommand;
         std::optional<RobotCommand> lastSentCommand;

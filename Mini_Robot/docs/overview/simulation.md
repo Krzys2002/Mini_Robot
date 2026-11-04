@@ -70,8 +70,9 @@ Both current `RobotCommand` alternatives (Stop and Velocity) use the same
 composition already selects simulation or BLE; no command conversion is required
 in UI/control consumers. Emergency stop uses the separate transport operation: it
 latches, clears pending and active motion, reports zero velocity and emergency-stop
-state, and rejects later velocity commands even after reconnect. No clear operation
-is currently exposed.
+state, and rejects later velocity commands even after reconnect. Explicit clear is
+deferred to the next virtual-time advancement, reports a correlated result and
+returns to zero idle; it never replays prior velocity.
 
 Commands require a connected, desired-connected destination, supported domain
 version, positive validity, `issuedAt <= now`, and at least one whole millisecond

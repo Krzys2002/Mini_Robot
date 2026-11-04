@@ -20,6 +20,9 @@ struct RobotSession {
     bool connectRequested{};
     bool removing{};
     bool emergencyStopRequested{};
+    std::optional<std::uint64_t> clearRequest{};
+    std::optional<Timestamp> motionAllowedAfter{};
+    bool strictMotionBarrier{};
     bool emergencyRequestedByOperator{};
     bool everConnected{};
     bool safetyFault{};
@@ -64,6 +67,8 @@ public:
     // rejected once requested. Stop remains available. No UI recovery in #69.
     [[nodiscard]] bool supportsEmergencyStop() const noexcept;
     [[nodiscard]] bool requestEmergencyStop(RobotId id);
+    [[nodiscard]] bool supportsEmergencyClear() const noexcept;
+    [[nodiscard]] bool requestEmergencyClear(RobotId id);
     // Teardown only: does not submit Stop or await its physical execution. Robot
     // stop-on-disconnect/watchdog remains required; callers needing an orderly
     // motion stop must do so before shutdown using their command/ack policy.
@@ -76,6 +81,7 @@ private:
     class Events;
     void receiveState(RobotId id, ConnectionState state, Timestamp at);
     void receiveTelemetry(const RobotTelemetry& sample);
+    void receiveEmergencyClearResult(RobotId id, std::uint64_t request, bool accepted, Timestamp at);
     void receiveError(const TransportError& error);
     IRobotTransport& transport_;
     WorldModel& world_;
@@ -84,6 +90,7 @@ private:
     std::set<RobotId> emergencyLatched_;
     std::shared_ptr<Events> events_;
     std::weak_ptr<IRobotTransportEvents> sink_;
+    std::uint64_t nextClearRequest_{1};
     bool shuttingDown_{};
 };
 } // namespace micro_robot

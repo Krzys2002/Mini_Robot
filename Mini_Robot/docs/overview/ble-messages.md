@@ -48,8 +48,9 @@ faults and releases the session.
 The intent survives disconnect/fault. On reconnect, the adapter reasserts it
 before publishing Connected. Velocity remains blocked while intent is latched,
 or validated robot state is EmergencyStop/Fault. There is no implicit clear.
-The domain safety request/explicit clear and operator controls remain #70/#69;
-this issue adds no motion buttons or autonomous command source.
+Explicit clear is available after confirmed E-stop on a connected session. A
+matching accepted Idle CommandResult is required; timeout, rejection, disconnect
+or a newer E-stop retains inhibition. This does not prove physical output state.
 
 ## Notifications and domain delivery
 

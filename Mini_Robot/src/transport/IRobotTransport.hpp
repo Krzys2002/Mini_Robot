@@ -17,6 +17,8 @@ public:
     virtual void onTelemetry(const RobotTelemetry& telemetry) = 0;
     // Diagnostic only; an error does not implicitly change connection state.
     virtual void onTransportError(const TransportError& error) = 0;
+    // Correlated application result, not ATT acknowledgement; old sessions are fenced.
+    virtual void onEmergencyClearResult(RobotId, std::uint64_t, bool, Timestamp) {}
 
 };
 
@@ -68,10 +70,12 @@ public:
 
     // Optional dedicated latch primitive, separate from ordinary Stop. Called on
     // the owning thread; latches intent before return and dispatches asynchronously.
-    // No clear operation: #70 owns recovery/confirmation policy. Unsupported
-    // transports must advertise false; callers must not label Stop as E-stop.
+    // Unsupported transports must advertise false; callers must not label Stop as E-stop.
     [[nodiscard]] virtual bool supportsEmergencyStop() const noexcept { return false; }
     virtual void requestEmergencyStop(RobotId) {}
+    [[nodiscard]] virtual bool supportsEmergencyClear() const noexcept { return false; }
+    // Prompt submission only. A later matching result is required to release inhibition.
+    virtual bool requestEmergencyClear(RobotId, std::uint64_t) { return false; }
 
 
 };

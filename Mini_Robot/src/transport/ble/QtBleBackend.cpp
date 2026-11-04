@@ -185,7 +185,9 @@ public:
         const auto now = MonotonicClock::now();
         auto encoded = request.emergencyStop
             ? BleEncodeResult{encodeBleEmergencyStop(request.sequence), TransportErrorCode::InvalidCommand, {}}
-            : encodeBleCommand(request.command, link->info, request.sequence, now);
+            : request.emergencyClear
+                ? BleEncodeResult{encodeBleEmergencyClear(request.sequence), TransportErrorCode::InvalidCommand, {}}
+                : encodeBleCommand(request.command, link->info, request.sequence, now);
         if (!encoded.frame) return {false, {}, encoded.code, encoded.error};
         const auto& frame = *encoded.frame;
         const QByteArray bytes(reinterpret_cast<const char*>(frame.bytes.data()), static_cast<qsizetype>(frame.bytes.size()));

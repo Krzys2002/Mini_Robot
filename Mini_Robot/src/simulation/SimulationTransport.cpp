@@ -152,6 +152,7 @@ void SimulationTransport::disconnect(RobotId id)
     if (log_) log_->debug("Simulated disconnect requested", id);
     session.desiredConnected = false;
     session.pendingCommand.reset();
+    session.clearRequest.reset();
 }
 
 void SimulationTransport::sendCommand(RobotId id, const RobotCommand& command)
@@ -175,6 +176,7 @@ void SimulationTransport::requestEmergencyStop(RobotId id)
 {
     auto& session = sessions_[id];
     session.emergencyStopRequested = true;
+    session.clearRequest.reset();
     session.pendingCommand.reset();
     session.lastSentCommand.reset();
     session.motionStartedAt.reset();
@@ -182,6 +184,16 @@ void SimulationTransport::requestEmergencyStop(RobotId id)
     session.status.state = SimulationRobotState::Idle;
     session.statusChanged = true;
     if (log_) log_->warning("Simulated emergency-stop latch requested", id);
+}
+
+bool SimulationTransport::requestEmergencyClear(RobotId id, std::uint64_t request)
+{
+    const auto found = sessions_.find(id);
+    if (found == sessions_.end() || found->second.state != ConnectionState::Connected
+        || !found->second.desiredConnected || !found->second.emergencyStopRequested || found->second.clearRequest)
+        return false;
+    found->second.clearRequest = request;
+    return true;
 }
 
 void SimulationTransport::simulateDisconnect(RobotId id)
@@ -241,6 +253,7 @@ void SimulationTransport::advanceTo(Timestamp now)
             }
         };
         auto resetSession = [&] {
+            session.clearRequest.reset();
             session.lastSentCommand.reset();
                     session.lastTelemetryAt.reset();
             session.motionStartedAt.reset();
@@ -279,6 +292,16 @@ void SimulationTransport::advanceTo(Timestamp now)
             session.status.state = SimulationRobotState::Idle;
             session.status.commandExpired = true;
             session.statusChanged = true;
+        }
+        if (session.clearRequest && session.state == ConnectionState::Connected && session.desiredConnected) {
+            const auto request = *std::exchange(session.clearRequest, {});
+            session.emergencyStopRequested = false;
+            session.pendingCommand.reset();
+            session.motionStartedAt.reset();
+            session.velocity = {};
+            session.status.state = SimulationRobotState::Idle;
+            session.statusChanged = true;
+            if (auto sink = sink_.lock()) sink->onEmergencyClearResult(id, request, true, now);
         }
         const auto command = std::exchange(session.pendingCommand, std::nullopt);
         if (command) {

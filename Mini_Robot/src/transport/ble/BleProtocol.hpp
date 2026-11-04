@@ -21,6 +21,7 @@ struct BleEncodeResult {
 [[nodiscard]] BleEncodeResult encodeBleCommand(const RobotCommand& command, const BleRobotInfo& limits,
                                               std::uint16_t sequence, Timestamp now);
 [[nodiscard]] EncodedBleCommand encodeBleEmergencyStop(std::uint16_t sequence);
+[[nodiscard]] EncodedBleCommand encodeBleEmergencyClear(std::uint16_t sequence);
 struct BleTelemetryFrame {
     BleRobotState state{};
     bool commandExpired{}, batteryLow{};

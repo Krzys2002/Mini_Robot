@@ -17,6 +17,14 @@ public:
     std::map<RobotId, ConnectionState> states;
     std::vector<RobotId> connects, disconnects;
     std::vector<std::pair<RobotId, RobotCommand>> commands;
+    bool clearSupported{};
+    std::uint64_t clearToken{};
+    bool supportsEmergencyStop() const noexcept override { return clearSupported; }
+    void requestEmergencyStop(RobotId) override {}
+    bool supportsEmergencyClear() const noexcept override { return clearSupported; }
+    bool requestEmergencyClear(RobotId, std::uint64_t request) override { clearToken = request; return clearSupported; }
+    void clearResult(RobotId id, std::uint64_t token, bool accepted, Timestamp at)
+    { if (auto locked = sink.lock()) locked->onEmergencyClearResult(id, token, accepted, at); }
     void setEventSink(std::weak_ptr<IRobotTransportEvents> value) override { sink = std::move(value); }
     ConnectionState connectionState(RobotId id) const override
     { const auto it = states.find(id); return it == states.end() ? ConnectionState::Disconnected : it->second; }
@@ -386,6 +394,7 @@ TEST(DesktopSafetyTest, SessionLossRejectsOldMotionAndIndependentFaultsRemainInh
     f.transport.error({one, TransportOperation::SendCommand, TransportErrorCode::BackendFailure, "failed", Timestamp{4s}});
     EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Fault);
     f.transport.state(one, ConnectionState::Connected, Timestamp{5s}); // Duplicate notification cannot clear fault.
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Fault);
     EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{5s}, 1s}), CommandSubmission::SafetyFault);
     EXPECT_EQ(f.robots.stop(one, Timestamp{5s}, 1s), CommandSubmission::Submitted);
 }
@@ -419,4 +428,90 @@ TEST(DesktopSafetyTest, EmergencyStopCancelsUnsentMotionAndLatchSurvivesRemoval)
     ASSERT_TRUE(robots.removeRobot(one));
     ASSERT_TRUE(robots.addRobot(one, Timestamp{1003ms}));
     EXPECT_TRUE(robots.session(one)->emergencyStopRequested);
+}
+
+TEST(DesktopSafetyTest, ClearRequiresCorrelatedAcknowledgementAndNewerEstopWins)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.transport.clearSupported = true; f.connected(one);
+    ASSERT_TRUE(f.robots.requestEmergencyStop(one));
+    auto telemetry = sample(one, Timestamp{2s});
+    telemetry.operatingState = RobotOperatingState::EmergencyStop;
+    f.transport.telemetry(telemetry);
+    ASSERT_TRUE(f.robots.requestEmergencyClear(one));
+    const auto old = f.transport.clearToken;
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{2s}, 1s}), CommandSubmission::EmergencyStopped);
+    ASSERT_TRUE(f.robots.requestEmergencyStop(one));
+    f.transport.clearResult(one, old, true, Timestamp{3s});
+    EXPECT_TRUE(f.robots.session(one)->emergencyStopRequested);
+    ASSERT_TRUE(f.robots.requestEmergencyClear(one));
+    const auto current = f.transport.clearToken;
+    f.transport.clearResult(one, current, false, Timestamp{3s});
+    EXPECT_TRUE(f.robots.session(one)->emergencyStopRequested);
+    ASSERT_TRUE(f.robots.requestEmergencyClear(one));
+    f.transport.clearResult(one, f.transport.clearToken, true, Timestamp{4s});
+    EXPECT_FALSE(f.robots.session(one)->emergencyStopRequested);
+    EXPECT_FALSE(f.robots.session(one)->telemetry);
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{3500ms}, 1s}), CommandSubmission::StaleSession);
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{4s}, 1s}), CommandSubmission::StaleSession);
+    EXPECT_TRUE(f.transport.commands.empty()); // Clear never replays motion.
+}
+TEST(DesktopSafetyTest, SimulationClearRequiresNewMotionAfterAcknowledgement)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    SimulationTransport transport; WorldModel world; RobotManager robots{transport, world};
+    ASSERT_TRUE(robots.addRobot(one, Timestamp{})); ASSERT_TRUE(robots.connect(one));
+    transport.advanceTo(Timestamp{1s});
+    ASSERT_TRUE(robots.requestEmergencyStop(one));
+    transport.advanceTo(Timestamp{1001ms});
+    ASSERT_TRUE(robots.requestEmergencyClear(one));
+    EXPECT_EQ(robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{1001ms}, 1s}), CommandSubmission::EmergencyStopped);
+    transport.advanceTo(Timestamp{1002ms});
+    EXPECT_FALSE(robots.session(one)->emergencyStopRequested);
+    EXPECT_EQ(robots.session(one)->telemetry->linearMetersPerSecond, 0.0);
+    EXPECT_FALSE(transport.lastSentCommand(one));
+}
+
+TEST(DesktopSafetyTest, FaultDuringClearKeepsLatchDespiteLateSuccess)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.transport.clearSupported = true; f.connected(one);
+    ASSERT_TRUE(f.robots.requestEmergencyStop(one));
+    auto telemetry = sample(one, Timestamp{2s});
+    telemetry.operatingState = RobotOperatingState::EmergencyStop;
+    f.transport.telemetry(telemetry);
+    ASSERT_TRUE(f.robots.requestEmergencyClear(one));
+    const auto token = f.transport.clearToken;
+    f.transport.error({one, TransportOperation::ReceiveTelemetry, TransportErrorCode::BackendFailure, "failure", Timestamp{3s}});
+    f.transport.clearResult(one, token, true, Timestamp{4s});
+    EXPECT_TRUE(f.robots.session(one)->emergencyStopRequested);
+    EXPECT_TRUE(f.robots.session(one)->safetyFault);
+}
+
+TEST(DesktopSafetyTest, ReconnectFencesOldClearResults)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.transport.clearSupported = true; f.connected(one);
+    ASSERT_TRUE(f.robots.requestEmergencyStop(one));
+    auto telemetry = sample(one, Timestamp{2s});
+    telemetry.operatingState = RobotOperatingState::EmergencyStop;
+    f.transport.telemetry(telemetry);
+    ASSERT_TRUE(f.robots.requestEmergencyClear(one));
+    const auto old = f.transport.clearToken;
+    ASSERT_TRUE(f.robots.disconnect(one));
+    f.transport.state(one, ConnectionState::Disconnected, Timestamp{3s});
+    ASSERT_TRUE(f.robots.connect(one));
+    f.transport.state(one, ConnectionState::Connected, Timestamp{4s});
+    telemetry.receivedAt = Timestamp{5s}; f.transport.telemetry(telemetry);
+    ASSERT_TRUE(f.robots.requestEmergencyClear(one));
+    const auto current = f.transport.clearToken;
+    f.transport.clearResult(one, old, true, Timestamp{6s});
+    EXPECT_TRUE(f.robots.session(one)->emergencyStopRequested);
+    EXPECT_EQ(f.robots.session(one)->clearRequest, current);
+    f.transport.clearResult(one, current, true, Timestamp{7s});
+    EXPECT_FALSE(f.robots.session(one)->emergencyStopRequested);
 }

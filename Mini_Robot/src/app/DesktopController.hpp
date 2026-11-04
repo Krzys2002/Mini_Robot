@@ -70,6 +70,7 @@ public slots:
     void stopManualDrive(); // Explicit Stop also submits while idle.
     void cancelManualDrive(); // Input cancellation submits only while held.
     void emergencyStop();
+    void clearEmergencyStop();
     void startCamera();
     void stopCamera();
     void connectRobot();
@@ -84,6 +85,7 @@ signals:
     void robotActionsChanged(bool canConnect, bool canDisconnect, bool canDrive,
                              bool canStop, bool canEmergencyStop);
     void manualStatusChanged(const QString& description);
+    void emergencyClearAvailable(bool available);
     void applicationStatusChanged(const QString& status);
     // Present is false when no source is selected; description names the source.
     void activeCameraChanged(const QString& description, bool present);
