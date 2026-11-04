@@ -9,6 +9,16 @@
 
 namespace micro_robot {
 namespace {
+RobotOperatingState operatingState(BleRobotState state)
+{
+    switch (state) {
+    case BleRobotState::Idle: return RobotOperatingState::Idle;
+    case BleRobotState::Moving: return RobotOperatingState::Moving;
+    case BleRobotState::EmergencyStop: return RobotOperatingState::EmergencyStop;
+    case BleRobotState::Fault: return RobotOperatingState::Fault;
+    }
+    return RobotOperatingState::Unknown;
+}
 auto steadyMicroseconds(Timestamp at)
 {
     return std::chrono::duration_cast<std::chrono::microseconds>(at.time_since_epoch()).count();
@@ -192,7 +202,8 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
         }
         if (auto sink = sink_.lock()) sink->onTelemetry({*id, at, telemetry->batteryVolts,
             telemetry->linearMetersPerSecond, telemetry->angularRadiansPerSecond,
-            {currentTransportModelVersion, accepted->unwrapped}});
+            {currentTransportModelVersion, accepted->unwrapped},
+            operatingState(telemetry->state)});
     } else {
         const auto& result = std::get<BleCommandResultFrame>(decoded.frame->payload);
         session.robotState = result.state;

@@ -40,6 +40,7 @@ introduced.
 | `removeRobot(id)` | Removes an idle session immediately; otherwise requests disconnect and retains the record until terminal acknowledgement |
 | `sendCommand(id, command)` | Routes unchanged command metadata/payload to that RobotId only when connected and not removing/shutting down |
 | `stop(id, at, validFor)` | Routes a semantic `StopCommand` with caller-supplied monotonic issue time and validity; not an E-stop latch |
+| `supportsEmergencyStop()` / `requestEmergencyStop(id)` | Optional dedicated backend latch; records persistent intent, blocks Velocity and permits ordinary Stop; returns submission only |
 | `shutdown()` | Idempotently cancels/disconnects every managed robot and refuses new connections/commands |
 | `isStopped()` | All remaining published sessions are terminal and have no connect intent |
 
@@ -57,8 +58,9 @@ cancellation and old radio-token rejection remain the adapter's responsibility.
 Removing a communication session deliberately retains its WorldModel record;
 retirement of robot observations is a separate explicit world operation.
 
-`CommandSubmission` distinguishes `Submitted`, `UnknownRobot`, `NotConnected` and
-`ShuttingDown`. Submitted means handed to the adapter, never radio delivery or
+`CommandSubmission` distinguishes `Submitted`, `UnknownRobot`, `NotConnected`,
+`ShuttingDown` and `EmergencyStopped`. Submitted means handed to the adapter, never
+radio delivery or
 execution. The adapter still validates finite setpoints/domain versions/positive
 validity and rechecks freshness at dispatch. Stop is an ordinary transport command;
 it does not bypass the link or replace the robot watchdog or future domain E-stop
@@ -138,5 +140,6 @@ tracked separately in [#209](https://github.com/Krzys2002/Mini_Robot/issues/209)
 protocol acceptance in [#189](https://github.com/Krzys2002/Mini_Robot/issues/189).
 Native Linux BlueZ and
 Windows execution are not established by these deterministic tests. Manual-motion
-UI, high-level safety/E-stop, automatic reconnect and measurements remain separate
-issues #69–#72; no M7 coordination is implemented here.
+UI and the dedicated E-stop handoff are described in
+[manual robot control](manual-robot-control.md). Broader safety/recovery policy,
+automatic reconnect and measurements remain #70–#72; no M7 coordination is implemented here.

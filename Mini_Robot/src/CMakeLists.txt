@@ -44,6 +44,10 @@ add_library(micro_robot_calibration STATIC
     calibration/CalibrationProfile.cpp
     calibration/WorkspaceCalibration.hpp
     calibration/WorkspaceCalibration.cpp
+    calibration/TabletopHomography.cpp
+    calibration/TabletopHomography.hpp
+    calibration/WorkspaceProfile.cpp
+    calibration/WorkspaceProfile.hpp
 )
 target_link_libraries(micro_robot_calibration PUBLIC micro_robot_camera_api micro_robot_world)
 micro_robot_target_defaults(micro_robot_calibration)
@@ -51,6 +55,8 @@ micro_robot_platform_boundary(micro_robot_calibration)
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_library(micro_robot_calibration_opencv STATIC
+        calibration/OpenCvWorkspaceHomographySolver.cpp
+        calibration/OpenCvWorkspaceHomographySolver.hpp
         calibration/OpenCvCalibrationDetector.hpp
         calibration/OpenCvCalibrationDetector.cpp
         calibration/OpenCvIntrinsicCalibrationSolver.hpp
@@ -193,6 +199,8 @@ endif()
 
 if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_calibration_profiles STATIC
+        calibration/QtWorkspaceProfileStore.cpp
+        calibration/QtWorkspaceProfileStore.hpp
         calibration/QtCalibrationProfileStore.hpp
         calibration/QtCalibrationProfileStore.cpp)
     target_link_libraries(micro_robot_calibration_profiles PUBLIC micro_robot_calibration Qt6::Core)
@@ -235,6 +243,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_desktop_controller STATIC
         app/VisionController.hpp
         app/VisionController.cpp
+        app/WorkspaceCalibrationController.cpp
+        app/WorkspaceCalibrationController.hpp
         app/CalibrationController.hpp
         app/CalibrationController.cpp
         app/CalibrationControllerProfiles.cpp
@@ -254,8 +264,12 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
+        ui/WorkspaceCalibrationDialog.cpp
+        ui/WorkspaceCalibrationDialog.hpp
         ui/CalibrationWizard.hpp
         ui/CalibrationWizard.cpp
+        ui/RobotControlPanel.hpp
+        ui/RobotControlPanel.cpp
         ui/MainWindow.cpp
         ui/MainWindow.hpp
         ui/VisionDebugView.hpp

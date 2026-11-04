@@ -68,8 +68,10 @@ advancement. Connect explicitly recovers a quiescent Fault.
 Both current `RobotCommand` alternatives (Stop and Velocity) use the same
 `IRobotTransport` / [RobotManager](robot-manager.md) boundary as BLE. Desktop
 composition already selects simulation or BLE; no command conversion is required
-in UI/control consumers. E-stop/clear are not current domain command variants;
-BLE's adapter-specific E-stop and the future safety-domain API are outside #68.
+in UI/control consumers. Emergency stop uses the separate transport operation: it
+latches, clears pending and active motion, reports zero velocity and emergency-stop
+state, and rejects later velocity commands even after reconnect. No clear operation
+is currently exposed.
 
 Commands require a connected, desired-connected destination, supported domain
 version, positive validity, `issuedAt <= now`, and at least one whole millisecond

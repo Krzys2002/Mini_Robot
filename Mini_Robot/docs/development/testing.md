@@ -171,11 +171,10 @@ Tests that need devices or a person are listed separately in
 The repository-level `.github/workflows/daily-build-test.yml` checks `master`
 once daily at **02:00 UTC**. It calls the reusable macOS and Linux build workflows
 only when a newly merged pull request is present in the checked-out `master`
-snapshot. A separate `pr-verification.yml` job runs on pull requests and manual
-dispatch: one Ubuntu GCC desktop build with native BLE and marker tools enabled,
+snapshot. A separate `pr-verification.yml` workflow runs daily at 02:00 UTC on
+`master`: one Ubuntu GCC desktop build with native BLE and marker tools enabled,
 all hardware-free CTest cases, repository automation and prototype browser tests.
-Superseded PR runs are cancelled. Days without new merges run only the lightweight
-daily gate after an initial successful baseline exists.
+It runs independently of the merge gate, including on days without new merges.
 
 The gate compares against the last successful daily run, including successful
 no-op checks. Missed schedules and failed runs therefore retain pending merges
@@ -309,10 +308,10 @@ Runtime packaging is handled separately; see [Windows deployment](windows-deploy
 
 ### Required status checks
 
-The affordable `Pull request verification / desktop` job provides pre-merge build
-and test feedback. Administrators can require its actual check name after a
-successful run; branch protection is configured separately. The daily GCC/Clang/
-macOS/Windows matrix provides broader post-merge coverage. Billing/spending-limit failures
+The desktop workflow no longer provides a pull request status check. If branch
+protection requires `Pull request verification / desktop`, an administrator must
+update that rule separately. The daily GCC/Clang/macOS/Windows matrix provides
+broader post-merge coverage. Billing/spending-limit failures
 that prevent a runner starting are infrastructure failures, not compiler/test
 results; only executed jobs count as validation.
 

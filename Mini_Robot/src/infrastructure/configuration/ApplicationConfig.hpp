@@ -41,9 +41,18 @@ struct CameraConfig {
     CameraCaptureSettings capture;
 };
 
+struct ManualControlConfig {
+    // Software bring-up bounds, not physical actuator/supply acceptance (#154).
+    double maximumLinearMetersPerSecond{0.1};
+    double maximumAngularRadiansPerSecond{1.0};
+    std::chrono::milliseconds refreshInterval{100};
+    std::chrono::milliseconds commandValidity{250};
+};
+
 struct ApplicationConfig {
     LoggingConfig logging;
     RobotConfig robot;
+    ManualControlConfig manual;
     CameraConfig camera;
     SimulationConfig simulation;
 };

@@ -17,6 +17,16 @@
       }
     },
     {
+      "name": "desktop",
+      "displayName": "Desktop app only (native host toolchain)",
+      "inherits": "base",
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF",
+        "MICRO_ROBOT_BUILD_DESKTOP": "ON",
+        "MICRO_ROBOT_BUILD_REPLAY": "ON"
+      }
+    },
+    {
       "name": "macos",
       "displayName": "macOS (Apple Clang, Debug)",
       "inherits": "base",
@@ -75,13 +85,20 @@
       "inherits": "base",
       "cacheVariables": {
         "MICRO_ROBOT_BUILD_DESKTOP": "OFF",
+        "MICRO_ROBOT_BUILD_BLE": "OFF",
         "MICRO_ROBOT_BUILD_REPLAY": "OFF",
+        "MICRO_ROBOT_BUILD_VISION": "OFF",
         "MICRO_ROBOT_BUILD_CALIBRATION": "OFF",
         "MICRO_ROBOT_BUILD_MARKER_TOOLS": "OFF"
       }
     }
   ],
   "buildPresets": [
+    {
+      "name": "desktop",
+      "configurePreset": "desktop",
+      "targets": ["micro_robot_desktop"]
+    },
     {
       "name": "macos",
       "configurePreset": "macos"

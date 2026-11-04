@@ -5,8 +5,31 @@ Source: [root CMakeLists.txt](../../CMakeLists.txt),
 [CMake presets](../../CMakePresets.json),
 [source targets](../../src/CMakeLists.txt), and
 [test targets](../../tests/CMakeLists.txt).
-Commands run from the checkout's `Mini_Robot` directory; GitHub workflows live
-one level above it in the repository's `.github` directory.
+Unless stated otherwise, commands in this guide run from the checkout's
+`Mini_Robot` directory; GitHub workflows live one level above it in `.github`.
+
+## Repository-root builds and CLion
+
+The repository also has a top-level CMake project and preset file. Open the whole
+repository in CLion, enable the imported host preset under Settings → Build,
+Execution, Deployment → CMake, and select `micro_robot_desktop` to run/debug.
+See the [repository README](../../../README.md#open-the-repository-in-clion) for
+setup and [JetBrains' preset instructions](https://www.jetbrains.com/help/clion/cmake-presets.html)
+for profile import/activation.
+
+The same preset names work from the repository root. Root builds use
+`build/<preset>/Mini_Robot/src/` for desktop artifacts, whereas standalone builds
+use `Mini_Robot/build/<preset>/src/`. Root CTest discovers the nested tests.
+Use separate build trees for the two source roots; existing standalone CI
+commands remain valid. Firmware stays in its own PlatformIO projects.
+
+For a GUI-only root or standalone build, `cmake --preset desktop` and
+`cmake --build --preset desktop --parallel` build `micro_robot_desktop` without
+GoogleTest. Select that executable in CLion. Optional `firmware_*` custom targets
+delegate build-only operations to discovered `firmware/*/platformio.ini` projects
+when `pio` is found; no embedded code enters desktop targets. The
+[same-window workflow](clion-workspace.md) covers native plugin attachment and
+`MICRO_ROBOT_PLATFORMIO_EXECUTABLE` / `MICRO_ROBOT_ENABLE_FIRMWARE_TOOLS` settings.
 
 ## Required dependencies
 
@@ -74,12 +97,14 @@ but are not blocked.
 
 ### CMake presets
 
-[CMakePresets.json](../../CMakePresets.json) provides Debug presets with tests
-enabled, each building into `build/<preset>`. Platform presets are filtered by
+[CMakePresets.json](../../CMakePresets.json) provides Debug presets, each building
+into `build/<preset>`. Tests are enabled except in the GUI-only `desktop` preset.
+Platform presets are filtered by
 host, so `cmake --list-presets` shows only those for the current OS and `core`.
 
 | Preset | Host | Compiler | Targets |
 | --- | --- | --- | --- |
+| `desktop` | any | Native default toolchain | Explicit desktop/replay ON, tests OFF; build preset selects only `micro_robot_desktop` |
 | `macos` | macOS | `clang++` (Apple Clang) | Default options (desktop and replay ON) |
 | `linux-gcc` | Linux | `g++` | Default options |
 | `linux-clang` | Linux | `clang++` | Default options |

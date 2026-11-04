@@ -1,4 +1,5 @@
 #include "ui/CalibrationWizard.hpp"
+#include "ui/WorkspaceCalibrationDialog.hpp"
 #include "app/CalibrationController.hpp"
 
 #include <QComboBox>
@@ -221,8 +222,18 @@ void CalibrationWizard::refresh()
         }
     }
 }
+void CalibrationWizard::bindWorkspaceCalibration(WorkspaceCalibrationController& controller)
+{
+    auto* action = new QPushButton(QStringLiteral("Tabletop / workspace calibration…"), this);
+    action->setObjectName(QStringLiteral("openWorkspaceCalibration"));
+    qobject_cast<QVBoxLayout*>(layout())->insertWidget(1, action);
+    workspace_ = new WorkspaceCalibrationDialog(controller, this);
+    workspace_->setAttribute(Qt::WA_QuitOnClose, false);
+    connect(action, &QPushButton::clicked, workspace_, [dialog = workspace_] { dialog->show(); dialog->raise(); });
+}
 void CalibrationWizard::reject()
 {
+    if (workspace_) workspace_->close();
     controller_.setUndistortedPreview(false);
     if (controller_.session().state() != CalibrationCaptureState::Complete) controller_.cancel();
     QDialog::reject();

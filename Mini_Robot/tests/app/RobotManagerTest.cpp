@@ -332,4 +332,40 @@ TEST(RobotManagerTest, DisconnectAndFaultClearOnlyThatSessionAndAllowExplicitRet
     f.transport.telemetry(sample(one, Timestamp{3500ms}));
     EXPECT_FALSE(f.robots.session(one)->telemetry);
 }
+TEST(RobotManagerTest, UnsupportedEmergencyStopIsExplicitAndNeverSubstitutesOrdinaryStop)
+{
+    Fixture f; f.connected(one);
+    EXPECT_FALSE(f.robots.supportsEmergencyStop());
+    EXPECT_FALSE(f.robots.requestEmergencyStop(one));
+    EXPECT_FALSE(f.robots.session(one)->emergencyStopRequested);
+    EXPECT_TRUE(f.transport.commands.empty());
+}
+TEST(RobotManagerTest, EmergencyLatchPreemptsPendingMotionPersistsAcrossReconnectAndIsolatesRobots)
+{
+    SimulationTransport transport; WorldModel world; RobotManager robots{transport, world};
+    ASSERT_TRUE(robots.addRobot(one, Timestamp{})); ASSERT_TRUE(robots.addRobot(two, Timestamp{}));
+    ASSERT_TRUE(robots.connect(one)); ASSERT_TRUE(robots.connect(two)); transport.advanceTo(Timestamp{1s});
+    RobotCommand motion{VelocityCommand{0.1, 0.2}, Timestamp{1s}, 10s};
+    ASSERT_EQ(robots.sendCommand(one, motion), CommandSubmission::Submitted);
+    ASSERT_EQ(robots.sendCommand(two, motion), CommandSubmission::Submitted);
+    EXPECT_FALSE(robots.requestEmergencyStop(unknown));
+    ASSERT_TRUE(robots.requestEmergencyStop(one)); transport.advanceTo(Timestamp{2s});
+    EXPECT_FALSE(transport.lastSentCommand(one));
+    EXPECT_EQ(robots.session(one)->telemetry->operatingState, RobotOperatingState::EmergencyStop);
+    EXPECT_EQ(robots.session(two)->telemetry->operatingState, RobotOperatingState::Moving);
+    EXPECT_NE(robots.sendCommand(one, motion), CommandSubmission::Submitted);
+    EXPECT_EQ(robots.stop(one, Timestamp{2s}, 10s), CommandSubmission::Submitted);
+    // Even a caller bypassing RobotManager cannot bypass the simulation latch.
+    transport.sendCommand(one, motion); transport.advanceTo(Timestamp{3s});
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.lastSentCommand(one)->payload));
+    transport.sendCommand(one, motion); transport.advanceTo(Timestamp{4s});
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.lastSentCommand(one)->payload));
+    ASSERT_TRUE(robots.disconnect(one)); transport.advanceTo(Timestamp{5s});
+    ASSERT_TRUE(robots.connect(one)); transport.advanceTo(Timestamp{6s});
+    EXPECT_TRUE(robots.session(one)->emergencyStopRequested);
+    EXPECT_EQ(robots.session(one)->telemetry->operatingState, RobotOperatingState::EmergencyStop);
+    EXPECT_NE(robots.sendCommand(one, motion), CommandSubmission::Submitted);
+    robots.shutdown(); transport.advanceTo(Timestamp{7s});
+    EXPECT_FALSE(robots.requestEmergencyStop(one));
+}
 } // namespace

@@ -561,6 +561,43 @@ TEST(SimulationTransportTest, RejectsDisconnectedStaleFutureAndNonfiniteCommands
     EXPECT_FALSE(transport.lastSentCommand(id));
 }
 
+TEST(SimulationTransportTest, EmergencyStopClearsActiveMotionAndSurvivesReconnect)
+{
+    SimulationTransportConfig config;
+    config.telemetryInterval = 10s;
+    SimulationTransport transport{config};
+    auto events = std::make_shared<TransportEvents>();
+    transport.setEventSink(events);
+    const RobotId id{7};
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1s});
+    transport.sendCommand(id, {VelocityCommand{0.2, 0.1}, Timestamp{1s}, 1s});
+    transport.advanceTo(Timestamp{1s});
+    ASSERT_EQ(transport.robotStatus(id)->state, SimulationRobotState::Moving);
+    const auto count = events->telemetry.size();
+    transport.requestEmergencyStop(id);
+    transport.advanceTo(Timestamp{1001ms});
+    ASSERT_EQ(events->telemetry.size(), count + 1);
+    EXPECT_EQ(events->telemetry.back().operatingState, RobotOperatingState::EmergencyStop);
+    ASSERT_TRUE(events->telemetry.back().linearMetersPerSecond);
+    ASSERT_TRUE(events->telemetry.back().angularRadiansPerSecond);
+    EXPECT_DOUBLE_EQ(*events->telemetry.back().linearMetersPerSecond, 0.0);
+    EXPECT_DOUBLE_EQ(*events->telemetry.back().angularRadiansPerSecond, 0.0);
+    EXPECT_EQ(transport.robotStatus(id)->state, SimulationRobotState::Idle);
+    transport.sendCommand(id, {VelocityCommand{0.2, 0}, Timestamp{1001ms}, 1s});
+    transport.advanceTo(Timestamp{1002ms});
+    ASSERT_FALSE(events->errors.empty());
+    EXPECT_EQ(events->errors.back().code, TransportErrorCode::InvalidCommand);
+    transport.disconnect(id);
+    transport.advanceTo(Timestamp{1003ms});
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1004ms});
+    EXPECT_EQ(events->telemetry.back().operatingState, RobotOperatingState::EmergencyStop);
+    transport.sendCommand(id, {VelocityCommand{0.2, 0}, Timestamp{1004ms}, 1s});
+    transport.advanceTo(Timestamp{1005ms});
+    EXPECT_EQ(events->errors.back().code, TransportErrorCode::InvalidCommand);
+}
+
 TEST(SimulationTransportTest, WatchdogUsesRemainingMillisecondsAndAdvertisedCeiling)
 {
     SimulationTransportConfig config;

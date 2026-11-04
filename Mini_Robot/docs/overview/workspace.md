@@ -39,12 +39,11 @@ optional copy; absence explicitly means **dimensions not configured**. No second
 workspace registry is created. `workspaceBounds()` reads those dimensions without
 copying the robot registry.
 
-A profile is saved calibration data, not a second live world authority. When #57
-activates a validated compatible profile, its application service must install
-`profile.bounds` in WorldModel on the owning thread. Subsequent dimension changes
-must invalidate/deactivate that transform before publishing the new bounds; never
-keep an active transform tied to a different table size. Profile loading and this
-activation lifecycle belong to #57, not this data-model issue.
+A profile is saved calibration data, not a second live world authority. The #57
+application service installs accepted `profile.bounds` in WorldModel on the owning
+thread. Dimension/input changes invalidate the transform and clear active bounds;
+a loaded transform is never paired with another table size. The calibration
+service retains H; conversion of robot observations remains #58.
 
 The main window always shows the lower-left origin, +X/+Y, SI units, zero heading
 and CCW convention. `DesktopController::setWorkspaceBounds` publishes measured
@@ -81,7 +80,7 @@ world +Y along image up or treat a world-view fraction as a detector pixel.
 | `imageCoordinates` | Only `UndistortedNativeCameraMatrix`: undistorted pixels using the bound K, native size, no crop/resize/mirroring |
 | `homography` | Optional row-major 3×3 image-to-world matrix; absent means no workspace transform |
 
-For a future estimated H, `[x′, y′, w′] = H [u, v, 1]`, with world metres
+For an estimated H, `[x′, y′, w′] = H [u, v, 1]`, with world metres
 `(x′/w′, y′/w′)`. Profile validation checks finite, numerically nonsingular optional
 matrix storage and valid intrinsic metadata. It does not solve correspondences,
 check mapping accuracy or authorize robot control. Compatibility rejects any
@@ -95,10 +94,10 @@ not introduce guessed default dimensions. K and distortion compare exactly, so
 persistence must preserve doubles losslessly (for decimal text, use
 `std::numeric_limits<double>::max_digits10`) and test save/load compatibility.
 
-No workspace serialization, filesystem store, homography estimator, metric robot
-pose conversion or tracking is added here. Those belong to
-[#57](https://github.com/Krzys2002/Mini_Robot/issues/57) and
-[#58](https://github.com/Krzys2002/Mini_Robot/issues/58). A valid draft profile with
+Workspace serialization, filesystem storage and estimation are now implemented by
+[tabletop homography calibration](tabletop-homography.md) (#57). The application
+installs accepted profile bounds in WorldModel and clears them on invalidation.
+Metric robot pose conversion and tracking remain #58 and later issues. A draft profile with
 no H remains uncalibrated; lens intrinsics alone never establish a table transform.
 
 ## Verification
@@ -116,3 +115,8 @@ the new labels.
 Before physical use, mark the origin and axes on the measured table, verify W/H in
 metres, and commission image-to-world calibration with independent points under
 #57/#58. No physical camera/table accuracy is established by this issue's tests.
+
+Homography estimation, point acquisition, residuals and workspace-profile persistence
+are implemented by [tabletop homography calibration](tabletop-homography.md) (#57).
+Physical placement/accuracy still require commissioning; detection-to-pose conversion
+remains #58.

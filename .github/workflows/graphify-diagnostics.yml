@@ -1,0 +1,58 @@
+name: Graphify diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graphify-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  graph:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.12"
+      GRAPHIFY_BACKEND: none
+      GRAPHIFY_QUERY_LOG_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Test wrapper without Graphify
+        run: python3 -m unittest discover -s tools/graphify -p 'test_*.py' -v
+      - name: Install isolated locked tools
+        run: |
+          python3 -m pip install --user uv==0.10.11
+          python3 -m uv sync --project tools/graphify --locked
+      - name: Build and verify code-only graph
+        run: |
+          python3 tools/graphify/project_graph.py build
+          python3 tools/graphify/project_graph.py status
+          python3 tools/graphify/project_graph.py affected WorldModel
+      - name: Summarize counts
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          graph = json.loads(Path('graphify-out/graph.json').read_text())
+          summary = {'nodes': len(graph['nodes']), 'edges': len(graph['links']),
+                     'metadata': graph['graph'], 'profile': 'code-only'}
+          Path('graphify-out/counts.json').write_text(json.dumps(summary, indent=2))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('Graphify code-only diagnostics\n\n```json\n' +
+                           json.dumps(summary, indent=2) + '\n```\n')
+          PY
+      - name: Keep private diagnostic artifacts briefly
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: graphify-diagnostics
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            graphify-out/graph.json
+            graphify-out/GRAPH_REPORT.md
+            graphify-out/counts.json

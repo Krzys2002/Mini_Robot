@@ -1,4 +1,6 @@
 #include "ui/MainWindow.hpp"
+#include "ui/RobotControlPanel.hpp"
+#include <QScrollArea>
 #include "ui/CalibrationWizard.hpp"
 #include "ui/VisionDebugView.hpp"
 #include "app/CalibrationController.hpp"
@@ -21,10 +23,13 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     : QMainWindow(parent)
 {
     setWindowTitle(QStringLiteral("Micro Robot"));
-    resize(620, 460);
+    resize(800, 760);
 
     auto* central = new QWidget(this);
-    auto* layout = new QVBoxLayout(central);
+    auto* rootLayout = new QVBoxLayout(central);
+    auto* content = new QWidget(central);
+    auto* layout = new QVBoxLayout(content);
+    contentLayout_ = layout;
     // Selection details can add wrapped lines; grow the window instead of
     // compressing controls below their usable size.
     layout->setSizeConstraint(QLayout::SetMinimumSize);
@@ -74,25 +79,6 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     cameraLayout->addLayout(cameraButtons);
     layout->addWidget(cameraGroup);
 
-    auto* transportGroup = new QGroupBox(QStringLiteral("Robot transport"), central);
-    auto* transportLayout = new QVBoxLayout(transportGroup);
-    auto* connectionStatus = new QLabel(QStringLiteral("Disconnected"), transportGroup);
-    connectionStatus->setObjectName(QStringLiteral("connectionStatus"));
-    auto* telemetry = new QLabel(QStringLiteral("No active telemetry"), transportGroup);
-    telemetry->setObjectName(QStringLiteral("telemetryDescription"));
-    auto* transportButtons = new QHBoxLayout;
-    auto* connectRobot = new QPushButton(QStringLiteral("Connect robot"), transportGroup);
-    connectRobot->setObjectName(QStringLiteral("connectRobot"));
-    auto* disconnectRobot = new QPushButton(QStringLiteral("Disconnect robot"), transportGroup);
-    disconnectRobot->setObjectName(QStringLiteral("disconnectRobot"));
-    disconnectRobot->setEnabled(false);
-    transportButtons->addWidget(connectRobot);
-    transportButtons->addWidget(disconnectRobot);
-    transportLayout->addWidget(connectionStatus);
-    transportLayout->addWidget(telemetry);
-    transportLayout->addLayout(transportButtons);
-    layout->addWidget(transportGroup);
-
     auto* worldGroup = new QGroupBox(QStringLiteral("WorldModel — static demo pose"), central);
     auto* worldLayout = new QVBoxLayout(worldGroup);
     auto* worldDescription = new QLabel(QStringLiteral("No registered robots"), worldGroup);
@@ -106,6 +92,7 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     auto* workspaceDescription = new QLabel(QStringLiteral("Workspace dimensions not configured"), worldGroup);
     workspaceDescription->setObjectName(QStringLiteral("workspaceDescription"));
     workspaceDescription->setWordWrap(true);
+    workspaceDescription->setTextFormat(Qt::PlainText);
     // Wrapped labels must retain their text height when the window is resized.
     for (auto* label : {convention, workspaceDescription, worldDescription})
         label->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
@@ -114,6 +101,14 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     worldLayout->addWidget(worldDescription);
     layout->addWidget(worldGroup);
     layout->addStretch();
+    auto* scroll = new QScrollArea(central);
+    scroll->setWidgetResizable(true);
+    scroll->setMinimumHeight(160);
+    scroll->setFocusPolicy(Qt::NoFocus);
+    scroll->setWidget(content);
+    rootLayout->addWidget(scroll, 1);
+    // Manual Stop/E-stop stay visible when camera/world content must scroll.
+    rootLayout->addWidget(new RobotControlPanel(controller, central));
     setCentralWidget(central);
 
     // activated fires for user choices only, never for programmatic updates.
@@ -122,18 +117,13 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     });
     connect(startCamera_, &QPushButton::clicked, this, &MainWindow::cameraStartRequested);
     connect(stopCamera_, &QPushButton::clicked, this, &MainWindow::cameraStopRequested);
-    connect(connectRobot, &QPushButton::clicked, this, &MainWindow::robotConnectRequested);
-    connect(disconnectRobot, &QPushButton::clicked, this, &MainWindow::robotDisconnectRequested);
     connect(this, &MainWindow::cameraStartRequested, &controller, &DesktopController::startCamera);
     connect(this, &MainWindow::cameraStopRequested, &controller, &DesktopController::stopCamera);
-    connect(this, &MainWindow::robotConnectRequested, &controller, &DesktopController::connectRobot);
-    connect(this, &MainWindow::robotDisconnectRequested, &controller, &DesktopController::disconnectRobot);
 
     connect(&controller, &DesktopController::applicationStatusChanged,
             applicationStatus, &QLabel::setText);
     connect(&controller, &DesktopController::frameDescriptionChanged,
             frameDescription, &QLabel::setText);
-    connect(&controller, &DesktopController::telemetryDescriptionChanged, telemetry, &QLabel::setText);
     connect(&controller, &DesktopController::worldDescriptionChanged, worldDescription, &QLabel::setText);
     connect(&controller, &DesktopController::workspaceDescriptionChanged, workspaceDescription, &QLabel::setText);
     connect(&controller, &DesktopController::activeCameraChanged, this,
@@ -144,12 +134,6 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
             [this](bool canStart, bool canStop) {
         startCamera_->setEnabled(canStart);
         stopCamera_->setEnabled(canStop);
-    });
-    connect(&controller, &DesktopController::connectionStatusChanged, this,
-            [connectionStatus, connectRobot, disconnectRobot](const QString& status, bool, bool active) {
-        connectionStatus->setText(status);
-        connectRobot->setEnabled(!active);
-        disconnectRobot->setEnabled(active);
     });
     connect(&controller, &DesktopController::errorOccurred, this, [this](const QString& message) {
         statusBar()->showMessage(message);
@@ -169,7 +153,7 @@ void MainWindow::bindVision(VisionController& vision)
     status->setObjectName(QStringLiteral("visionStatus"));
     status->setTextFormat(Qt::PlainText);
     status->setWordWrap(true);
-    auto* layout = qobject_cast<QVBoxLayout*>(centralWidget()->layout());
+    auto* layout = contentLayout_;
     layout->insertWidget(3, status);
     connect(&vision, &VisionController::descriptionChanged, status, &QLabel::setText);
     auto* action = new QPushButton(QStringLiteral("Vision debug…"), this);
@@ -188,7 +172,7 @@ void MainWindow::bindCalibration(CalibrationController& calibration)
 {
     auto* action = new QPushButton(QStringLiteral("Camera calibration…"), this);
     action->setObjectName(QStringLiteral("openCalibration"));
-    auto* layout = qobject_cast<QVBoxLayout*>(centralWidget()->layout());
+    auto* layout = contentLayout_;
     layout->insertWidget(3, action);
     // Keyboard focus follows the visual order, after the camera selector.
     setTabOrder(cameraSelector_, action);
@@ -202,6 +186,11 @@ void MainWindow::bindCalibration(CalibrationController& calibration)
         wizard->raise();
         calibration.showLive();
     });
+}
+
+void MainWindow::bindWorkspaceCalibration(WorkspaceCalibrationController& workspace)
+{
+    if (calibrationWizard_) calibrationWizard_->bindWorkspaceCalibration(workspace);
 }
 
 void MainWindow::bindCameraSelection(CameraSelectionController& selection)

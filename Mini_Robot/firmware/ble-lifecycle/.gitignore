@@ -1,2 +1,8 @@
 .pio/
 .vscode/
+.idea/
+cmake-build-*/
+compile_commands.json
+# Legacy PlatformIO CLion generators; never include these in desktop CMake.
+CMakeLists.txt
+CMakeListsPrivate.txt

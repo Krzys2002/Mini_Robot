@@ -163,6 +163,19 @@ void SimulationTransport::sendCommand(RobotId id, const RobotCommand& command)
     if (log_) log_->debug("Simulated command submitted: " + describe(command), id);
 }
 
+void SimulationTransport::requestEmergencyStop(RobotId id)
+{
+    auto& session = sessions_[id];
+    session.emergencyStopRequested = true;
+    session.pendingCommand.reset();
+    session.lastSentCommand.reset();
+    session.motionStartedAt.reset();
+    session.velocity = {};
+    session.status.state = SimulationRobotState::Idle;
+    session.statusChanged = true;
+    if (log_) log_->warning("Simulated emergency-stop latch requested", id);
+}
+
 void SimulationTransport::simulateDisconnect(RobotId id)
 {
     sessions_[id].pendingFailure = ConnectionState::Disconnected;
@@ -266,6 +279,9 @@ void SimulationTransport::advanceTo(Timestamp now)
                 error = TransportErrorCode::NotConnected;
             } else if (!isSupportedTransportModelVersion(command->metadata.modelVersion)) {
                 error = TransportErrorCode::UnsupportedVersion;
+            } else if (session.emergencyStopRequested
+                       && std::holds_alternative<VelocityCommand>(command->payload)) {
+                error = TransportErrorCode::InvalidCommand;
             } else if (!valid(*command, now, config_)) {
                 error = TransportErrorCode::InvalidCommand;
             } else {
@@ -325,7 +341,10 @@ void SimulationTransport::advanceTo(Timestamp now)
         if (auto sink = sink_.lock()) {
             sink->onTelemetry({id, now, config_.batteryVoltageVolts,
                 velocity.linearMetersPerSecond, velocity.angularRadiansPerSecond,
-                {currentTransportModelVersion, telemetrySequence}});
+                {currentTransportModelVersion, telemetrySequence},
+                session.emergencyStopRequested ? RobotOperatingState::EmergencyStop
+                    : (velocity.linearMetersPerSecond != 0 || velocity.angularRadiansPerSecond != 0)
+                        ? RobotOperatingState::Moving : RobotOperatingState::Idle});
         }
     }
 }

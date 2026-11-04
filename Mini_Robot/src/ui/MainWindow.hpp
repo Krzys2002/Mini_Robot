@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QString>
 
+class QVBoxLayout;
 class QComboBox;
 class QLabel;
 class QPushButton;
@@ -14,6 +15,7 @@ class VisionController;
 class VisionDebugDialog;
 class CalibrationWizard;
 class CalibrationController;
+class WorkspaceCalibrationController;
 class CameraSelectionController;
 class DesktopController;
 struct CameraChoiceItem;
@@ -28,6 +30,7 @@ public:
 
     // Opens the capture/review dialog for the injected calibration service.
     void bindCalibration(CalibrationController& calibration);
+    void bindWorkspaceCalibration(WorkspaceCalibrationController& workspace);
 
     // Shows the controller's choices and selection and forwards user choices.
     void bindCameraSelection(CameraSelectionController& selection);
@@ -36,8 +39,6 @@ signals:
     void cameraSelectionRequested(const QString& id);
     void cameraStartRequested();
     void cameraStopRequested();
-    void robotConnectRequested();
-    void robotDisconnectRequested();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -47,6 +48,7 @@ private:
     void showSelectedCamera(const QString& id, const QString& description);
 
     // Non-owning; the Qt parent owns the widgets.
+    QVBoxLayout* contentLayout_{};
     CalibrationWizard* calibrationWizard_{};
     VisionDebugDialog* visionDebug_{};
     QPushButton* visionAction_{};
