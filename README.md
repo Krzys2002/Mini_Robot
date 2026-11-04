@@ -61,6 +61,28 @@ as a standalone project.
 
 ## Build and test from the repository root
 
+For the desktop window only (without the test dependency), use:
+
+```sh
+cmake --preset desktop
+cmake --build --preset desktop --parallel
+```
+
+In CLion, enable the **desktop** preset and select **micro_robot_desktop** to
+run/debug. CTest dashboard targets such as `Continuous` are not the application.
+This preset deliberately disables tests; use a host preset below for validation.
+
+When PlatformIO Core (`pio` or `platformio`) is on the configure environment's
+PATH, the same root project also exposes the **firmware_ble_lifecycle** build
+target. It delegates to the independent firmware project and never uploads:
+
+```sh
+cmake --build build/desktop --target firmware_ble_lifecycle
+```
+
+See [CLion desktop and firmware workflow](Mini_Robot/docs/development/clion-workspace.md)
+for nested PlatformIO plugin loading, PATH setup, and the same-window workflow.
+
 Choose the preset for your host (`macos` below):
 
 ```sh
@@ -116,6 +138,7 @@ disables all optional adapters/tools. Disabling only the desktop leaves replay O
 
 ## Documentation and contribution
 
+- [Optional local Graphify navigation](Mini_Robot/docs/development/graphify.md)
 - [Mini_Robot documentation index](Mini_Robot/docs/README.md)
 - [Architecture](Mini_Robot/docs/overview/architecture.md) and [source map](Mini_Robot/docs/overview/source-map.md)
 - [Build setup](Mini_Robot/docs/development/build.md), [Ubuntu setup](Mini_Robot/docs/development/linux-setup.md), and [testing](Mini_Robot/docs/development/testing.md)

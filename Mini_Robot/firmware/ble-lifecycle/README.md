@@ -1,5 +1,10 @@
 # CodeCell ESP32-C6 BLE connection fixture
 
+For CLion, use this folder's `platformio.ini` as the native PlatformIO entry
+point. The repository-root CMake project also exposes the build-only
+`firmware_ble_lifecycle` target when PlatformIO Core is available. See the
+[same-window desktop/firmware workflow](../../docs/development/clion-workspace.md).
+
 Bench firmware for [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
 Follow the [physical test instructions](../../docs/testing/ble-connection-187.md)
 for flashing, provisioning, fault profiles and evidence collection.

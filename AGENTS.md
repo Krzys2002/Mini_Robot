@@ -20,6 +20,9 @@ and `core arhiteture.md` do not establish implemented functionality.
   Preserve standalone configuration from that directory and existing CI commands.
 - Root `CMakePresets.json` includes `Mini_Robot/CMakePresets.json`; edit shared
   presets there rather than duplicating configurations.
+- The shared `desktop` preset builds the GUI without tests. Use host/core presets
+  for validation. Optional `firmware_*` targets delegate build-only work to nested
+  PlatformIO manifests; never make them desktop/default-build dependencies.
 - Keep project-relative paths valid for both entry points. Within Mini_Robot,
   use `PROJECT_SOURCE_DIR` or `CMAKE_CURRENT_SOURCE_DIR` as appropriate rather
   than assuming `CMAKE_SOURCE_DIR` is the application directory.
@@ -55,3 +58,32 @@ checkout with `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` for offline builds.
 Report commands actually run and distinguish build/test results from GUI or
 hardware validation. Do not claim a completed perception-to-motion loop or
 production motor safety based on component tests or the BLE connection fixture.
+
+## Optional code graph
+
+Graphify is a derived navigation aid. Applicable instructions and assigned issues
+define scope; source and tests establish implementation; live GitHub data
+establishes project state; recorded execution establishes validation. Use
+`Mini_Robot/docs/overview/capabilities.md` for current integration limits, not
+planning catalogs, archives, or the historical `core arhiteture.md` sketch.
+
+- Read applicable instructions and the assigned issue/dependencies first.
+- For structural exploration, check `python3 tools/graphify/project_graph.py status`
+  from the Git worktree root. A missing/stale graph must not block work: use `rg`
+  and source inspection, or explicitly build/update the graph when worthwhile.
+- Use scoped query/path/explain/affected commands to locate relevant code/tests.
+  Exact strings and errors can use `rg` directly. Verify source before editing;
+  an absent edge does not prove independence. Pass this guidance to exploring
+  subagents; they share this worktree's graph and must not refresh concurrently.
+- After coherent edits, refresh with `update`; use `build` for first use,
+  recovery, or changed extraction policy. Every worktree owns its ignored
+  `graphify-out/`. Never reuse another checkout's output or commit generated graphs.
+- Keep backend `none` and code-only extraction. Semantic indexing, hosted upload,
+  saved-answer ingestion, hooks, and global agent changes are outside this setup.
+- Do not infer issue completion, calibrated closed-loop operation, physical
+  stopping, or firmware safety from graph results. Read live GitHub blockers;
+  graph impact suggestions do not replace required build/test suites.
+
+Commands, coverage limits, and recovery: [Graphify guide](Mini_Robot/docs/development/graphify.md).
+For the reusable structural-exploration procedure, use the repository skill
+[mini-robot-graph](.agents/skills/mini-robot-graph/SKILL.md).

@@ -11,3 +11,8 @@ T1-ESP-C6/.idea/doNotAskNotifications.xml
 /out/
 /CMakeUserPresets.json
 /.idea/
+
+# Optional local Graphify tooling, independent in every worktree.
+graphify-out/
+/tools/graphify/.venv/
+__pycache__/

@@ -1,5 +1,9 @@
 # Development guides
 
+- [CLion desktop and firmware workflow](clion-workspace.md): root desktop preset, nested PlatformIO build targets and native plugin loading.
+
+- [Optional Graphify navigation](graphify.md): locked local tools, worktree freshness, pilot results, limitations, and recovery.
+
 - [Build setup](build.md): dependencies, platform/compiler configuration, CMake presets, platform recipes, and troubleshooting.
 - [Ubuntu setup](linux-setup.md): clean Ubuntu 24.04 LTS quick start, compilers, Qt 6, OpenCV, GoogleTest, camera access, BlueZ, build/test commands, troubleshooting, and the Linux builds executed so far.
 - [Windows deployment](windows-deployment.md): Qt/OpenCV runtime packaging with `windeployqt`, deploy script usage, and hardware-check reporting limits.

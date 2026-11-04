@@ -1,6 +1,9 @@
 #pragma once
 
+#ifndef Q_MOC_RUN
+// Qt 6.4 moc cannot parse GCC 13's C++20 comparison headers.
 #include <compare>
+#endif
 #include <cstdint>
 #include <functional>
 
