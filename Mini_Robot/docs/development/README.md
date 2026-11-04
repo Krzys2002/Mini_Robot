@@ -1,5 +1,7 @@
 # Development guides
 
+- [CLion desktop and firmware workflow](clion-workspace.md): root desktop preset, nested PlatformIO build targets and native plugin loading.
+
 - [Optional Graphify navigation](graphify.md): locked local tools, worktree freshness, pilot results, limitations, and recovery.
 
 - [Build setup](build.md): dependencies, platform/compiler configuration, CMake presets, platform recipes, and troubleshooting.

@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(MicroRobotPlatform)
 include(MicroRobotBoundaries)
+include(MicroRobotFirmwareTools)
 
 option(MICRO_ROBOT_BUILD_DESKTOP "Build the Qt desktop application and UI tests" ON)
 option(MICRO_ROBOT_BUILD_BLE "Build the opt-in Qt Bluetooth transport and hardware-free lifecycle tests" OFF)
