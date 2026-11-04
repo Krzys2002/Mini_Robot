@@ -538,7 +538,21 @@ void DesktopController::emergencyStop()
 void DesktopController::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds)
 {
     if (shuttingDown_) return;
+    workspaceCalibrationDescription_ = QStringLiteral("camera-to-world calibration not established");
     world_.setWorkspaceBounds(bounds);
+    if (initialized_) publishWorld();
+}
+
+void DesktopController::setWorkspaceCalibration(const std::optional<WorkspaceCalibrationProfile>& profile)
+{
+    if (shuttingDown_) return;
+    if (!profile || !profile->homography || !validateWorkspaceCalibrationProfile(*profile).empty()) {
+        setWorkspaceBounds({});
+        return;
+    }
+    workspaceCalibrationDescription_ = QStringLiteral("transform available for %1 · robot observations not transformed")
+        .arg(QString::fromStdString(profile->workspaceId));
+    world_.setWorkspaceBounds(profile->bounds);
     if (initialized_) publishWorld();
 }
 
@@ -546,8 +560,9 @@ void DesktopController::publishWorld()
 {
     const auto workspace = world_.workspaceBounds();
     emit workspaceDescriptionChanged(workspace
-        ? QStringLiteral("Workspace: %1 m × %2 m · camera-to-world calibration not established")
+        ? QStringLiteral("Workspace: %1 m × %2 m · %3")
             .arg(workspace->width().value, 0, 'g', 6).arg(workspace->height().value, 0, 'g', 6)
+            .arg(workspaceCalibrationDescription_)
         : QStringLiteral("Workspace dimensions not configured · camera-to-world calibration not established"));
     const auto state = world_.robot(robotId_);
     if (!state) {

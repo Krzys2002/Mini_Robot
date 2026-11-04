@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/RobotManager.hpp"
+#include "calibration/WorkspaceCalibration.hpp"
 #include "camera/ICameraSource.hpp"
 #include "infrastructure/configuration/ApplicationConfig.hpp"
 #include "infrastructure/logging/Logger.hpp"
@@ -43,6 +44,9 @@ public:
     [[nodiscard]] PoseUpdateResult applyPose(RobotId id, const Pose2D& pose, Timestamp at);
     // Measured table dimensions only; this never implies a calibrated camera.
     void setWorkspaceBounds(std::optional<WorkspaceBounds> bounds);
+    // Presentation/metric-bounds activation from the workspace calibration service.
+    // No robot observation conversion here. Missing/invalid transforms deactivate.
+    void setWorkspaceCalibration(const std::optional<WorkspaceCalibrationProfile>& profile);
 
     // Replaces the active camera; nullptr clears it. A running source is asked to
     // stop first and is replaced once it reports Stopped, Disconnected, or Fault,
@@ -137,6 +141,7 @@ private:
     QTimer frameExpiry_;
     Timestamp startedAt_{};
     std::uint64_t cameraPublicationGeneration_{};
+    QString workspaceCalibrationDescription_{QStringLiteral("camera-to-world calibration not established")};
     bool initialized_{};
     bool shuttingDown_{};
     bool robotSessionsStoppedEmitted_{};

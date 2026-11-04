@@ -42,7 +42,7 @@ endif()
 
 add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp
     calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp
-    calibration/WorkspaceCalibrationTest.cpp)
+    calibration/WorkspaceCalibrationTest.cpp calibration/TabletopHomographyTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
 gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST)
@@ -53,6 +53,7 @@ set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp
+        calibration/OpenCvWorkspaceHomographyTest.cpp
         calibration/OpenCvIntrinsicCalibrationSolverTest.cpp calibration/OpenCvCalibrationUndistorterTest.cpp)
     target_link_libraries(micro_robot_calibration_detector_tests PRIVATE
         micro_robot_calibration_opencv GTest::gtest_main ${OpenCV_LIBS})
@@ -84,8 +85,10 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_executable(micro_robot_tests
         main.cpp
         calibration/QtCalibrationProfileStoreTest.cpp
+        calibration/QtWorkspaceProfileStoreTest.cpp
         ui/VisionControllerTest.cpp
         ui/VisionDebugViewTest.cpp
+        ui/WorkspaceCalibrationTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
         ui/RobotControlPanelTest.cpp

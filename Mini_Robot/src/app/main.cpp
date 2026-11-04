@@ -1,6 +1,9 @@
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
 #include "app/CalibrationController.hpp"
+#include "app/WorkspaceCalibrationController.hpp"
+#include "calibration/OpenCvWorkspaceHomographySolver.hpp"
+#include "calibration/QtWorkspaceProfileStore.hpp"
 #include "app/VisionController.hpp"
 #include "vision/OpenCvAprilTagDetector.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
@@ -167,6 +170,17 @@ int main(int argc, char* argv[])
                      &calibration, &CalibrationController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
                      &calibration, &CalibrationController::receiveFrame);
+    WorkspaceCalibrationController workspace{std::make_unique<OpenCvWorkspaceHomographySolver>(),
+        std::make_unique<OpenCvCalibrationUndistorter>(), std::make_unique<QtWorkspaceProfileStore>(
+            QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)).filePath(QStringLiteral("workspace"))),
+        logger.channel("workspace")};
+    QObject::connect(&workspace, &WorkspaceCalibrationController::profileChanged, &controller, [&] {
+        controller.setWorkspaceCalibration(workspace.profile());
+    });
+    QObject::connect(&calibration, &CalibrationController::changed, &workspace, [&] {
+        workspace.setInput(calibration.profile(), calibration.persistentIdentity());
+    });
+    QObject::connect(&controller, &DesktopController::frameAvailable, &workspace, &WorkspaceCalibrationController::receiveFrame);
     VisionController vision{std::make_unique<OpenCvAprilTagDetector>(), logger.channel("vision")};
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &vision, &VisionController::setInput);
@@ -201,6 +215,7 @@ int main(int argc, char* argv[])
     window.bindVision(vision);
     if (arguments.isSet(bleOption)) window.setWindowTitle(QStringLiteral("Micro Robot — BLE connections"));
     window.bindCalibration(calibration);
+    window.bindWorkspaceCalibration(workspace);
     window.bindCameraSelection(cameraSelection);
     QTimer simulationTimer;
     simulationTimer.setInterval(config.simulation.updateInterval);
@@ -210,7 +225,7 @@ int main(int argc, char* argv[])
     bool cameraActive = false;
     bool transportActive = false;
     const auto finishShutdown = [&] {
-        if (closing && !cameraActive && !transportActive && robots.isStopped() && calibration.isStopped() && vision.isStopped()) application.quit();
+        if (closing && !cameraActive && !transportActive && robots.isStopped() && calibration.isStopped() && workspace.isStopped() && vision.isStopped()) application.quit();
     };
     QObject::connect(&controller, &DesktopController::cameraStatusChanged, &window,
                      [&](const QString&, bool active) {
@@ -226,11 +241,13 @@ int main(int argc, char* argv[])
         closing = true;
         vision.shutdown();
         calibration.shutdown();
+        workspace.shutdown();
         controller.shutdown();
         finishShutdown();
     });
     QObject::connect(&controller, &DesktopController::robotSessionsStopped, &window, finishShutdown);
     QObject::connect(&calibration, &CalibrationController::stopped, &window, finishShutdown);
+    QObject::connect(&workspace, &WorkspaceCalibrationController::stopped, &window, finishShutdown);
     QObject::connect(&vision, &VisionController::stopped, &window, finishShutdown);
     bool robotConnected = false;
     QObject::connect(&controller, &DesktopController::connectionStatusChanged, &window,
@@ -250,6 +267,7 @@ int main(int argc, char* argv[])
         simulationTimer.stop();
         vision.shutdown();
         calibration.shutdown();
+        workspace.shutdown();
         controller.shutdown();
         const auto now = MonotonicClock::now();
         if (simulation) simulation->advanceTo(now);
