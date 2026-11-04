@@ -1,5 +1,19 @@
 # Micro-Robot Swarm Desktop Control System — Agent Instructions
 
+## Optional structural navigation
+
+Read the parent [repository instructions](../AGENTS.md), including the optional
+Graphify policy. The [Graphify guide](docs/development/graphify.md) documents the
+root-level wrapper, freshness, and recovery. From this directory use
+`python3 ../tools/graphify/project_graph.py status`. Useful exploration targets
+include ICameraSource, IRobotTransport, RobotManager, WorldModel, and their tests;
+ambiguous class/constructor names need full node IDs. Check actual CMake target
+ownership, interfaces, thread/lifetime contracts, and test bodies before editing.
+Qt signal/slot paths and conditional builds are not completely modeled. No graph
+result establishes fresh tracked poses, a completed perception-to-motion chain,
+or physical motor/watchdog/E-stop acceptance. Preserve all architecture and safety
+rules below. The ignored local engineering skill is not the team policy source.
+
 ## 1. Project purpose
 
 Build a cross-platform desktop application for supervising a swarm of ESP32-C6 differential-drive micro-robots using external visual feedback.
