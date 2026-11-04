@@ -50,35 +50,87 @@ order. Sources unregister on destruction and must not outlive the factory.
 
 ## Simulated transport
 
-`SimulationTransportConfig` defaults to a zero telemetry interval and a 3.7 V
-battery. A negative interval, or a non-finite or non-positive voltage, throws
-`std::invalid_argument` at construction. The desktop composition sets the interval
-from `simulation.telemetry_interval_ms` (see [configuration](configuration.md)).
+`SimulationTransportConfig` defaults to a zero telemetry interval, 3.7 V battery,
+maximum linear/angular speeds of 32.767 m/s and rad/s (the v1 representable range),
+and a 500 ms maximum command validity. Set lower simulated actuator limits when
+modelling a particular robot. Invalid/non-finite limits, limits above the v1 range,
+validity outside 1–65535 ms, negative cadence, or non-positive/non-finite battery
+voltage throw `std::invalid_argument`. The desktop sets telemetry cadence from
+`simulation.telemetry_interval_ms` (see [configuration](configuration.md)).
 
 Robots are processed in ascending RobotId order. Connect/disconnect requests
-coalesce, with direct Disconnected/Connected transitions at advancement.
-Each robot has one pending command: the most recent submission wins. Disconnect
-cancels pending commands and clears accepted state when an active session ends.
-New sessions created in callbacks wait until the next advancement.
+coalesce, with direct Disconnected/Connected transitions at advancement. Each
+robot has one pending command: latest wins, except a queued Stop takes precedence
+over later motion, matching BLE. Disconnect cancels pending commands and clears
+active motion/session state. New sessions created in callbacks wait until the next
+advancement. Connect explicitly recovers a quiescent Fault.
 
-A command is accepted only when connected and desired-connected, with finite
-velocity components, supported domain model version, positive validity, `issuedAt <= now`, and
-`now - issuedAt < validFor`. Equal-to-deadline and future-issued commands are
-invalid. Disconnected submissions report NotConnected; invalid timing/setpoints
-report InvalidCommand. Unsupported domain versions report UnsupportedVersion
-without replacing the accepted command. Optional sequence metadata is copied
-without allocation, ordering, or deduplication. `lastSentCommand(id)` is an optional copied record of the
-last accepted command; it may still exist after expiry and is not proof of
-current actuation.
+Both current `RobotCommand` alternatives (Stop and Velocity) use the same
+`IRobotTransport` / [RobotManager](robot-manager.md) boundary as BLE. Desktop
+composition already selects simulation or BLE; no command conversion is required
+in UI/control consumers. Emergency stop uses the separate transport operation: it
+latches, clears pending and active motion, reports zero velocity and emergency-stop
+state, and rejects later velocity commands even after reconnect. No clear operation
+is currently exposed.
 
-Telemetry is emitted at most once per distinct timestamp per connected robot: on
-the first advancement of a session, then whenever at least `telemetryInterval`
-has elapsed since that robot's previous sample (zero means every new timestamp).
-It reports the configured battery voltage and echoes fresh accepted velocity
-intent; Stop or expired intent reports zero velocity. Telemetry uses the current domain model version and an unassigned
-sequence; it does not acknowledge the command's sequence. Disconnect requested in a callback suppresses that session's
-telemetry. There is no movement integration, protocol encoding, radio latency,
-command acknowledgement, local actuator limit, or real robot watchdog.
+Commands require a connected, desired-connected destination, supported domain
+version, positive validity, `issuedAt <= now`, and at least one whole millisecond
+of remaining validity at dispatch, matching the current BLE encoder. Velocity
+components must be finite and within configured limits, with no silent clamping.
+They are rounded to mm/s and mrad/s as a v1 device would receive. Disconnected
+submissions report NotConnected; invalid timing/setpoints report InvalidCommand;
+unsupported versions report UnsupportedVersion. Rejections preserve the existing
+setpoint and never refresh its watchdog. Stop is freshness-checked on the desktop
+side, but its accepted zero setpoint never expires on the simulated device.
+
+The simulated watchdog uses `min(floor(remaining validity / 1 ms), configured
+maximum validity)` from dispatch time. At or after its deadline, it clears motion,
+sets the diagnostic `commandExpired` flag, and reports zero velocity. The next
+accepted Stop or Velocity clears the flag. Advance virtual time to exercise this
+without sleeps. A large time jump emits the resulting current state at the supplied
+timestamp, rather than backfilling missed samples.
+
+Caller command metadata is retained without ordering/deduplication, as required
+by the domain contract. Independently, the adapter allocates a wrapping 16-bit
+command sequence per accepted dispatch. `robotStatus(id)` exposes simulated
+Idle/Moving state, command-expired flag, and last accepted adapter sequence to test
+harnesses. It returns empty outside Connected. This is diagnostic device state,
+not a pose registry or new UI/domain status API. `lastSentCommand(id)` remains a
+copied historical record and may exist after expiry; it is not proof of actuation.
+
+Telemetry publishes configured battery and simulated setpoint velocities through
+the existing domain fields. It carries an independent monotonically increasing
+sequence, starting at zero per session, rather than echoing caller metadata or
+acknowledging a command. Periodic samples obey `telemetryInterval` and are emitted
+at most once per distinct timestamp; Idle/Moving transitions and watchdog expiry
+bypass cadence, including at an already sampled timestamp. Disconnect requested
+in a callback suppresses telemetry for that session.
+
+### Reproducing failures without hardware
+
+`simulateDisconnect(id)` and `simulateFault(id)` queue respectively Disconnected
+and Fault plus a BackendFailure/Disconnect error at the next advancement. They
+clear pending and accepted motion, watchdogs and session counters, suppress that
+robot's telemetry, and leave other robots unaffected. Repeated pending injections
+coalesce. Recovery requires explicit `connect(id)`; it starts stopped with no
+accepted command. There is no automatic reconnect or replay of previous motion.
+
+```cpp
+transport.sendCommand(id, {VelocityCommand{0.1, 0.0}, Timestamp{1s}, 100ms});
+transport.advanceTo(Timestamp{1s});
+transport.advanceTo(Timestamp{1100ms}); // watchdog: Idle, expired, zero velocity
+transport.simulateFault(id);           // deferred, no inline callbacks
+transport.advanceTo(Timestamp{1101ms}); // Fault + diagnostic error
+transport.connect(id);
+transport.advanceTo(Timestamp{1102ms}); // Connected, stopped, new session
+```
+
+There is no movement integration, motor dynamics, radio delay/loss, wire encoding,
+or physical acknowledgement. `robotStatus` describes simulated device acceptance
+only. The simulator does not validate physical stopping or BLE delivery. Manual
+motion UI (#69), supervisory safety policy (#70), and hardware acceptance remain
+owned by their respective issues. Linux/Windows runtime and physical hardware
+checks must be reported separately from deterministic macOS tests.
 
 ### Communication log
 
