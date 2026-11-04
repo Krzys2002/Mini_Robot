@@ -1,0 +1,4 @@
+# Arduino/test .h files in this repository use C++ declarations.
+language.h=cpp
+query_budget=2000
+query_depth=2

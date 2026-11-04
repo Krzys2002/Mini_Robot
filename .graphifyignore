@@ -1,0 +1,20 @@
+# Generated and machine-local files at any level.
+**/build/
+**/cmake-build-*/
+**/out/
+**/_deps/
+**/.pio/
+**/.idea/
+**/.venv/
+**/__pycache__/
+**/graphify-out/
+.codex/
+Mini_Robot/.codex/
+# The initial graph is code-only; semantic indexing is intentionally deferred.
+*.md
+**/*.md
+*.txt
+**/*.txt
+report/
+Pres/
+Mini_Robot/output/

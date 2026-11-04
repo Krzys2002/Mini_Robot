@@ -4,3 +4,8 @@ T1-ESP-C6/.idea/doNotAskNotifications.xml
 .codex/config.toml
 /Mini_Robot/.codex
 /Mini_Robot/.idea
+
+# Optional local Graphify tooling, independent in every worktree.
+graphify-out/
+/tools/graphify/.venv/
+__pycache__/
