@@ -17,6 +17,7 @@ public:
     virtual void onTelemetry(const RobotTelemetry& telemetry) = 0;
     // Diagnostic only; an error does not implicitly change connection state.
     virtual void onTransportError(const TransportError& error) = 0;
+
 };
 
 // Calls and callbacks are serialized on the backend's owning thread. Requests
@@ -61,12 +62,17 @@ public:
     // to adapters; callers need not assign a sequence to submit a domain command.
     virtual void sendCommand(RobotId id, const RobotCommand& command) = 0;
 
+    // Cancel unsent Velocity when safety is inhibited. Cannot recall a command
+    // already handed to a native backend or prove robot-side stopping.
+    virtual void cancelPendingMotion(RobotId) {}
+
     // Optional dedicated latch primitive, separate from ordinary Stop. Called on
     // the owning thread; latches intent before return and dispatches asynchronously.
     // No clear operation: #70 owns recovery/confirmation policy. Unsupported
     // transports must advertise false; callers must not label Stop as E-stop.
     [[nodiscard]] virtual bool supportsEmergencyStop() const noexcept { return false; }
     virtual void requestEmergencyStop(RobotId) {}
+
 
 };
 

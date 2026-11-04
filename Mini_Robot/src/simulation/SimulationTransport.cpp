@@ -163,6 +163,14 @@ void SimulationTransport::sendCommand(RobotId id, const RobotCommand& command)
     if (log_) log_->debug("Simulated command submitted: " + describe(command), id);
 }
 
+void SimulationTransport::cancelPendingMotion(RobotId id)
+{
+    const auto found = sessions_.find(id);
+    if (found != sessions_.end() && found->second.pendingCommand
+        && std::holds_alternative<VelocityCommand>(found->second.pendingCommand->payload))
+        found->second.pendingCommand.reset();
+}
+
 void SimulationTransport::requestEmergencyStop(RobotId id)
 {
     auto& session = sessions_[id];
@@ -234,7 +242,7 @@ void SimulationTransport::advanceTo(Timestamp now)
         };
         auto resetSession = [&] {
             session.lastSentCommand.reset();
-            session.lastTelemetryAt.reset();
+                    session.lastTelemetryAt.reset();
             session.motionStartedAt.reset();
             session.velocity = {};
             session.status = {};

@@ -7,8 +7,10 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 namespace micro_robot {
+enum class DesktopSafetyState { Disconnected, Ready, LostConnection, EmergencyStop, Fault };
 struct RobotSession {
     RobotId robotId;
     ConnectionState connection{ConnectionState::Disconnected};
@@ -18,8 +20,12 @@ struct RobotSession {
     bool connectRequested{};
     bool removing{};
     bool emergencyStopRequested{};
+    bool emergencyRequestedByOperator{};
+    bool everConnected{};
+    bool safetyFault{};
+    DesktopSafetyState safety{DesktopSafetyState::Disconnected};
 };
-enum class CommandSubmission { Submitted, UnknownRobot, NotConnected, ShuttingDown, EmergencyStopped };
+enum class CommandSubmission { Submitted, UnknownRobot, NotConnected, ShuttingDown, EmergencyStopped, SafetyFault, StaleSession };
 
 // Application service, owning-thread only; no Qt, radio handles or pose estimates.
 // Exclusively coordinates one injected transport's sessions/event subscription.
@@ -75,6 +81,7 @@ private:
     WorldModel& world_;
     std::optional<LogChannel> log_;
     std::map<RobotId, RobotSession> sessions_;
+    std::set<RobotId> emergencyLatched_;
     std::shared_ptr<Events> events_;
     std::weak_ptr<IRobotTransportEvents> sink_;
     bool shuttingDown_{};

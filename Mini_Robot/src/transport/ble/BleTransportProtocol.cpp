@@ -109,6 +109,13 @@ void BleTransport::rememberSent(RobotId id, std::uint16_t sequence, std::uint8_t
         + " type=" + std::to_string(type) + " steady_us=" + std::to_string(steadyMicroseconds(at))
         + " domain_sequence=" + (domainSequence ? std::to_string(*domainSequence) : "unassigned"), id);
 }
+void BleTransport::cancelPendingMotion(RobotId id)
+{
+    const auto found = sessions_.find(id);
+    if (found != sessions_.end() && found->second.pending
+        && std::holds_alternative<VelocityCommand>(found->second.pending->payload))
+        found->second.pending.reset();
+}
 void BleTransport::requestEmergencyStop(RobotId id)
 {
     auto& session = sessions_[id];

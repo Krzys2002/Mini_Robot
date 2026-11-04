@@ -720,3 +720,24 @@ TEST(BleTransportTest, ManualServiceBoundsMotionStopsAndUsesDedicatedEmergencyEn
 }
 #endif
 } // namespace
+
+TEST(BleTransportSafetyTest, CancelsQueuedVelocityButPreservesQueuedStop)
+{
+    Fixture f;
+    f.ready();
+    f.backend->completeWrites = false;
+    const RobotCommand stop{StopCommand{}, MonotonicClock::now(), 1s};
+    f.transport->sendCommand(robot, stop); drain();
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    f.transport->sendCommand(robot, freshVelocity());
+    f.transport->cancelPendingMotion(robot);
+    emit f.backend->written(f.backend->links.at(robot), 0); drain();
+    EXPECT_EQ(f.backend->writes.size(), 1U);
+    f.transport->sendCommand(robot, stop); drain();
+    ASSERT_EQ(f.backend->writes.size(), 2U);
+    f.transport->sendCommand(robot, stop);
+    f.transport->cancelPendingMotion(robot);
+    emit f.backend->written(f.backend->links.at(robot), 1); drain();
+    ASSERT_EQ(f.backend->writes.size(), 3U);
+    EXPECT_EQ(f.backend->writes.back().frame.bytes[1], 1);
+}

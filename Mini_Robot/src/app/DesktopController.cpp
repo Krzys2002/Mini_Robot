@@ -370,7 +370,7 @@ void DesktopController::receiveTelemetry(const RobotTelemetry& telemetry)
         manualFault_ = true;
         if (manualVelocity_) cancelManualDrive();
         publishRobotActions();
-        if (!robots_.session(robotId_)->emergencyStopRequested)
+        if (!robots_.session(robotId_)->emergencyRequestedByOperator)
             emit manualStatusChanged(QStringLiteral("Robot fault/E-stop reported — drive disabled; physical stop unconfirmed"));
     }
     const auto battery = telemetry.batteryVoltageVolts

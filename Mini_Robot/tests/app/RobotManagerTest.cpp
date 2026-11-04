@@ -337,7 +337,7 @@ TEST(RobotManagerTest, UnsupportedEmergencyStopIsExplicitAndNeverSubstitutesOrdi
     Fixture f; f.connected(one);
     EXPECT_FALSE(f.robots.supportsEmergencyStop());
     EXPECT_FALSE(f.robots.requestEmergencyStop(one));
-    EXPECT_FALSE(f.robots.session(one)->emergencyStopRequested);
+    EXPECT_TRUE(f.robots.session(one)->emergencyStopRequested); // Inhibit locally even without adapter support.
     EXPECT_TRUE(f.transport.commands.empty());
 }
 TEST(RobotManagerTest, EmergencyLatchPreemptsPendingMotionPersistsAcrossReconnectAndIsolatesRobots)
@@ -369,3 +369,54 @@ TEST(RobotManagerTest, EmergencyLatchPreemptsPendingMotionPersistsAcrossReconnec
     EXPECT_FALSE(robots.requestEmergencyStop(one));
 }
 } // namespace
+
+TEST(DesktopSafetyTest, SessionLossRejectsOldMotionAndIndependentFaultsRemainInhibited)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.connected(one); f.connected(two);
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Ready);
+    f.transport.state(one, ConnectionState::Disconnected, Timestamp{2s});
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::LostConnection);
+    EXPECT_EQ(f.robots.session(two)->safety, DesktopSafetyState::Ready);
+    ASSERT_TRUE(f.robots.connect(one));
+    f.transport.state(one, ConnectionState::Connected, Timestamp{3s});
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{2s}, 5s}), CommandSubmission::StaleSession);
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{3s}, 1s}), CommandSubmission::Submitted);
+    f.transport.error({one, TransportOperation::SendCommand, TransportErrorCode::BackendFailure, "failed", Timestamp{4s}});
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Fault);
+    f.transport.state(one, ConnectionState::Connected, Timestamp{5s}); // Duplicate notification cannot clear fault.
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{5s}, 1s}), CommandSubmission::SafetyFault);
+    EXPECT_EQ(f.robots.stop(one, Timestamp{5s}, 1s), CommandSubmission::Submitted);
+}
+
+TEST(DesktopSafetyTest, EmergencyStopInhibitsEvenWithoutTransportSupport)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.connected(one);
+    EXPECT_FALSE(f.robots.requestEmergencyStop(one));
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::EmergencyStop);
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{1s}, 1s}), CommandSubmission::EmergencyStopped);
+    f.transport.state(one, ConnectionState::Disconnected, Timestamp{2s});
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::EmergencyStop);
+}
+
+TEST(DesktopSafetyTest, EmergencyStopCancelsUnsentMotionAndLatchSurvivesRemoval)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    SimulationTransport transport; WorldModel world; RobotManager robots{transport, world};
+    ASSERT_TRUE(robots.addRobot(one, Timestamp{}));
+    ASSERT_TRUE(robots.connect(one));
+    transport.advanceTo(Timestamp{1s});
+    ASSERT_EQ(robots.sendCommand(one, {VelocityCommand{.2, 0}, Timestamp{1s}, 1s}), CommandSubmission::Submitted);
+    ASSERT_TRUE(robots.requestEmergencyStop(one));
+    transport.advanceTo(Timestamp{1001ms});
+    EXPECT_FALSE(transport.lastSentCommand(one));
+    ASSERT_TRUE(robots.disconnect(one));
+    transport.advanceTo(Timestamp{1002ms});
+    ASSERT_TRUE(robots.removeRobot(one));
+    ASSERT_TRUE(robots.addRobot(one, Timestamp{1003ms}));
+    EXPECT_TRUE(robots.session(one)->emergencyStopRequested);
+}

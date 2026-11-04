@@ -143,3 +143,20 @@ Windows execution are not established by these deterministic tests. Manual-motio
 UI and the dedicated E-stop handoff are described in
 [manual robot control](manual-robot-control.md). Broader safety/recovery policy,
 automatic reconnect and measurements remain #70–#72; no M7 coordination is implemented here.
+
+## Desktop safety state (partial #70 implementation)
+
+Each session exposes a desktop safety state for initial disconnection, readiness,
+connection loss, fault or latched E-stop. The manager inhibits new velocity on a
+reported E-stop or communication/telemetry fault, and rejects velocity issued
+before the current connection session. E-stop intent is retained across session
+removal and reconnect during the lifetime of the manager, including when the
+transport does not support sending E-stop. A failed or unsupported request does
+not prove a robot stopped. Stop remains separate and available when connected.
+
+The simulation and BLE adapters can cancel an unsent queued Velocity after a
+safety event. They cannot recall a command already handed to a native backend;
+independent robot-side expiry and E-stop enforcement remain essential (#162).
+Explicit acknowledged E-stop clear and recovery are not implemented by this
+change. Do not treat process restart, reconnection or this state as proof that a
+physical robot is stopped or cleared. Physical integration remains #228.

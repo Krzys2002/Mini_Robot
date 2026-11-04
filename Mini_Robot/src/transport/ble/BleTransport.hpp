@@ -27,6 +27,7 @@ public:
     void connect(RobotId id) override;
     void disconnect(RobotId id) override;
     void sendCommand(RobotId id, const RobotCommand& command) override;
+    void cancelPendingMotion(RobotId id) override;
     // Adapter-level wire primitive for protocol bring-up/future safety binding
     // (#70 owns the domain safety interface). Latches intent, rejects Velocity,
     // retries on the dedicated characteristic and reasserts before reconnect is

@@ -47,6 +47,7 @@ public:
     void connect(RobotId id) override;
     void disconnect(RobotId id) override;
     void sendCommand(RobotId id, const RobotCommand& command) override;
+    void cancelPendingMotion(RobotId id) override;
     [[nodiscard]] bool supportsEmergencyStop() const noexcept override { return true; }
     void requestEmergencyStop(RobotId id) override;
 
