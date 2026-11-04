@@ -3,9 +3,20 @@
 [![Daily master build and test](https://github.com/Krzys2002/Mini_Robot/actions/workflows/daily-build-test.yml/badge.svg?branch=master)](https://github.com/Krzys2002/Mini_Robot/actions/workflows/daily-build-test.yml?query=branch%3Amaster)
 
 C++20 / Qt 6 desktop application for the micro-robot swarm project.
-The current M1 foundation supports physical camera streaming and simulated robot
-transport. It can launch and run tests without hardware; streaming needs an
-available camera and camera access. M1 is not yet complete.
+This is the main application in the repository. Open the repository root
+folder directly in CLion using the [root CMake entry point](../CMakeLists.txt);
+see the [repository README](../README.md) for root build commands and layout.
+Standalone builds from this directory remain supported.
+
+Implemented components include physical camera streaming (Qt and Linux V4L2),
+recorded-video replay, intrinsic calibration and profiles, AprilTag pixel
+observations and debug overlays, a metric WorldModel, RobotManager sessions,
+simulated transport, optional Qt BLE transport, configuration, and logging.
+The complete calibrated perception-to-motion loop is still unfinished: measured
+observations do not yet feed tracked WorldModel poses and closed-loop control.
+Displayed poses remain demo data. See [current capabilities and integration
+limits](docs/overview/capabilities.md) for the authoritative status and hardware
+verification limits.
 The system camera list refreshes on device changes and lets the operator select,
 start, and stop a camera. See [camera selection](docs/overview/camera-selection.md)
 and [streaming](docs/overview/camera-streaming.md).
@@ -19,8 +30,11 @@ For platform setup and troubleshooting, see [build setup](docs/development/build
 - CMake 3.24 or newer.
 - Ninja for the commands below.
 - Qt 6 with the Widgets and Multimedia components for the desktop build.
-- OpenCV core, imgproc, and videoio for recorded-video replay (omit with
-  `-DMICRO_ROBOT_BUILD_REPLAY=OFF`).
+- OpenCV core/imgproc, calibration, and AprilTag components for the desktop;
+  videoio for recorded-video replay and the Linux V4L2 backend. See the
+  [version-specific dependency list](docs/development/build.md#required-dependencies).
+- Qt 6.2+ Core/Bluetooth when enabling `MICRO_ROBOT_BUILD_BLE` (default OFF).
+- Qt Test for desktop tests when `BUILD_TESTING=ON`.
 
 GoogleTest is used for testing. CMake uses an installed GoogleTest package when
 available; otherwise it downloads GoogleTest 1.17.0 during configuration, which
@@ -56,13 +70,13 @@ redistributable bundle.
 
 ## Core-only build
 
-Build and test the domain types, interfaces, simulation, WorldModel, and logging without Qt:
+Build and test the domain types, interfaces, simulation, WorldModel, and logging
+without Qt or OpenCV:
 
 ```sh
-cmake -S . -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-  -DMICRO_ROBOT_BUILD_DESKTOP=OFF -DBUILD_TESTING=ON
-cmake --build build/core --parallel
-ctest --test-dir build/core --output-on-failure --no-tests=error
+cmake --preset core
+cmake --build --preset core --parallel
+ctest --preset core
 ```
 
 For selecting suites, running an individual test executable, and adding tests,
@@ -79,3 +93,19 @@ For architectural details, see [the architecture overview](docs/overview/archite
 
 See the [documentation index](docs/README.md) for project overviews, planning,
 development guides, and archived historical records.
+
+## Source layout
+
+| Path | Responsibility |
+| --- | --- |
+| `src/app/`, `src/ui/` | Application composition/controllers and Qt presentation |
+| `src/common/`, `src/world/`, `src/control/` | Domain types, world/workspace state, differential-drive math |
+| `src/camera/`, `src/calibration/`, `src/vision/` | Camera interfaces/adapters, calibration, marker detection and observations |
+| `src/transport/`, `src/simulation/` | Transport contracts, BLE adapter, deterministic fake backends |
+| `src/infrastructure/` | Configuration and logging |
+| `cmake/`, `tests/` | Platform/build rules, boundary checks, hardware-free and separately labelled hardware tests |
+| `config/`, `tools/markers/` | Example runtime settings and optional marker tools |
+| `firmware/ble-lifecycle/` | Independent PlatformIO connection fixture; no motor control or command acceptance |
+| `docs/` | Current module guides, planning, and explicitly archived history |
+
+Follow [AGENTS.md](AGENTS.md) for architecture and contribution rules.

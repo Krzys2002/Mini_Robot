@@ -75,7 +75,9 @@
       "inherits": "base",
       "cacheVariables": {
         "MICRO_ROBOT_BUILD_DESKTOP": "OFF",
+        "MICRO_ROBOT_BUILD_BLE": "OFF",
         "MICRO_ROBOT_BUILD_REPLAY": "OFF",
+        "MICRO_ROBOT_BUILD_VISION": "OFF",
         "MICRO_ROBOT_BUILD_CALIBRATION": "OFF",
         "MICRO_ROBOT_BUILD_MARKER_TOOLS": "OFF"
       }

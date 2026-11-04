@@ -1,5 +1,28 @@
 # Micro-Robot Swarm Desktop Control System — Agent Instructions
 
+## Repository entry points and current implementation
+
+Read the parent `../AGENTS.md` for repository-wide build ownership and maintenance
+rules. The parent `../README.md` describes opening the whole repository in CLion.
+The root CMake project adds this directory; standalone configuration here remains
+supported and is used by existing CI. Shared presets live in this directory and
+are included by the root preset file. Keep both entry points working, including
+CTest discovery from the repository root. Do not assume `CMAKE_SOURCE_DIR` points
+to `Mini_Robot`; use project/current-directory paths for application resources.
+
+Use `docs/overview/capabilities.md` and `docs/overview/source-map.md` for current
+implementation status. Camera adapters, intrinsic calibration/profiles, AprilTag
+pixel observations/debugging, WorldModel, RobotManager, simulated transport, and
+optional Qt BLE transport exist. Metric observation/tracking integration and the
+complete closed-loop motion chain remain unfinished. The BLE fixture is a separate
+connection-only PlatformIO build, not production motor/safety firmware.
+
+From either entry point, `cmake --preset core`, `cmake --build --preset core`,
+and `ctest --preset core` exercise hardware-free core suites without Qt/OpenCV.
+Use the host desktop preset for GUI/adapter changes. A root build's desktop
+artifact is under `build/<preset>/Mini_Robot/src/`; a standalone build's is under
+`build/<preset>/src/`. Document actual verification, including unrun hardware checks.
+
 ## 1. Project purpose
 
 Build a cross-platform desktop application for supervising a swarm of ESP32-C6 differential-drive micro-robots using external visual feedback.

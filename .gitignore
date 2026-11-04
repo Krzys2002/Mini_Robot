@@ -4,3 +4,10 @@ T1-ESP-C6/.idea/doNotAskNotifications.xml
 .codex/config.toml
 /Mini_Robot/.codex
 /Mini_Robot/.idea
+
+# Repository-root CMake/CLion builds and machine-local settings.
+/build/
+/cmake-build-*/
+/out/
+/CMakeUserPresets.json
+/.idea/
