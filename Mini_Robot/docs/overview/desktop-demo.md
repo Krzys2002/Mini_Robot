@@ -16,7 +16,7 @@ and logging options.
 The optional [BLE connection mode](ble-connection.md) uses `--ble` in a build
 configured with `MICRO_ROBOT_BUILD_BLE=ON`. Connect/disconnect use the same
 controller and buttons; setup phases are logged. This mode does not supply
-simulated telemetry or demo poses; validated real battery/velocity telemetry
+simulated telemetry; validated real battery/velocity telemetry
 reaches the controller through the [BLE message adapter](ble-messages.md). No
 manual motion controls are added. The behavior below describes default simulation.
 
@@ -43,7 +43,7 @@ for identifiers, replacement rules, logging, and manual checks.
    Selecting another camera stops a running source first; the new one starts
    stopped. Removing the selected device clears the selection.
 5. Connect robot establishes a simulated session and displays 3.7 V telemetry.
-   The composition supplies a static world pose of (0.25 m, 0.15 m, 0 rad).
+   A robot pose remains unknown until a calibrated marker measurement is available.
 6. Disconnect robot ends telemetry; the last stored pose remains visible. A real
    pending connection can be cancelled through the same disconnect button.
 7. Closing the last window requests backend shutdown and keeps the event loop
@@ -60,10 +60,9 @@ for automated startup checks; the `DesktopStartup.StartsAndShutsDownCleanly`
 [regression test](../development/testing.md#regression-suite) runs it offscreen
 with a private `--config` file.
 
-The 100 ms timer advances the simulated transport independently of camera start/stop. Pose
-updates occur while connected, including when the camera is stopped. They are
-explicit demo observations, not measurements derived from the image or telemetry.
-The UI offers no velocity command, path execution, robot selection, or E-stop.
+The simulation timer advances the simulated transport independently of camera start/stop.
+Calibrated marker observations feed the [tracker](robot-tracking.md); connecting a
+simulated robot does not fabricate a pose.
 
 ## Ownership and threading
 
@@ -110,9 +109,8 @@ The composition also connects camera input/frame events to the independent
 [vision worker](../vision/apriltag-detection.md). The main window displays the
 last processed frame's tag count and detector milliseconds. The debug dialog
 also shows boundaries, IDs, front arrows and diagnostic timing/quality on its
-matching raw image. Structured marker
-observations are available from `VisionController`; they do not alter the static
-demo WorldModel pose or issue robot commands. Shutdown drains this worker along
+matching raw image. Metric observations from `VisionController` feed the tracker and WorldModel;
+they do not issue robot commands. Shutdown drains this worker along
 with the calibration worker before application exit. Printed-tag live/recorded
 acceptance remains unverified.
 
@@ -122,5 +120,4 @@ The composition root now owns one [RobotManager](robot-manager.md), injecting th
 selected simulation/BLE transport, WorldModel and logging channel. DesktopController
 receives that service for connect/disconnect and selected-robot events. Its shutdown
 request cancels every managed connection; a non-selected robot's terminal event also
-participates in draining the application. Camera ownership and explicit demo pose
-updates remain unchanged. Communication telemetry never becomes a camera pose.
+participates in draining the application. Camera ownership remains unchanged. Communication telemetry never becomes a camera pose.

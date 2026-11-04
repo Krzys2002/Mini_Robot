@@ -5,6 +5,7 @@
 #include "calibration/OpenCvWorkspaceHomographySolver.hpp"
 #include "calibration/QtWorkspaceProfileStore.hpp"
 #include "app/VisionController.hpp"
+#include "tracking/MetricTracking.hpp"
 #include "vision/OpenCvMetricObservation.hpp"
 #include "vision/OpenCvAprilTagDetector.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
@@ -187,6 +188,13 @@ int main(int argc, char* argv[])
     QObject::connect(&workspace, &WorkspaceCalibrationController::profileChanged, &vision, [&] {
         vision.setWorkspaceCalibration(workspace.profile());
     });
+    RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter}};
+    QObject::connect(&vision, &VisionController::metricObservationsAvailable, &controller,
+        [&tracker, &controller](const QString&, MetricObservationBatchPtr batch) {
+            const auto now = MonotonicClock::now();
+            ingestMetricBatch(tracker, batch, now);
+            controller.refreshWorld();
+        });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &vision, &VisionController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
@@ -222,6 +230,9 @@ int main(int argc, char* argv[])
     window.bindCalibration(calibration);
     window.bindWorkspaceCalibration(workspace);
     window.bindCameraSelection(cameraSelection);
+    QTimer trackingDisplayTimer;
+    trackingDisplayTimer.setInterval(100);
+    QObject::connect(&trackingDisplayTimer, &QTimer::timeout, &controller, &DesktopController::refreshWorld);
     QTimer simulationTimer;
     simulationTimer.setInterval(config.simulation.updateInterval);
 
@@ -254,22 +265,14 @@ int main(int argc, char* argv[])
     QObject::connect(&calibration, &CalibrationController::stopped, &window, finishShutdown);
     QObject::connect(&workspace, &WorkspaceCalibrationController::stopped, &window, finishShutdown);
     QObject::connect(&vision, &VisionController::stopped, &window, finishShutdown);
-    bool robotConnected = false;
-    QObject::connect(&controller, &DesktopController::connectionStatusChanged, &window,
-                     [&robotConnected](const QString&, bool connected) { robotConnected = connected; });
     QObject::connect(&simulationTimer, &QTimer::timeout, &window, [&] {
         const auto now = MonotonicClock::now();
         if (simulation) simulation->advanceTo(now);
-        if (simulation && robotConnected) {
-            // Explicit demo observation, independent of camera frames or telemetry.
-            // No tracking, filtering, physics, or closed-loop control is performed.
-            (void)controller.applyPose(robotId,
-                {Meters{0.25}, Meters{0.15}, Radians{0.0}}, now);
-        }
     });
     QObject::connect(&application, &QCoreApplication::aboutToQuit, &window, [&] {
         appLog.info("Application shutting down");
         simulationTimer.stop();
+        trackingDisplayTimer.stop();
         vision.shutdown();
         calibration.shutdown();
         workspace.shutdown();
@@ -282,6 +285,7 @@ int main(int argc, char* argv[])
     cameraSelection.initialize();
     if (simulation) controller.scanRobots();
     window.show();
+    trackingDisplayTimer.start();
     if (simulation) simulationTimer.start();
     appLog.info("Application started");
     if (arguments.isSet(exitAfterStartupOption)) {

@@ -1,4 +1,5 @@
 #include "tracking/RobotTracker.hpp"
+#include "tracking/MetricTracking.hpp"
 #include <gtest/gtest.h>
 #include <limits>
 #include <stdexcept>
@@ -57,4 +58,26 @@ TEST(RobotTrackerTest, RejectsInvalidThresholds)
     EXPECT_THROW((RobotTracker{world, {0ms, 1s}}), std::invalid_argument);
     EXPECT_THROW((RobotTracker{world, {1s, 1s}}), std::invalid_argument);
 }
+}
+
+TEST(MetricTrackingTest, ValidMeasurementsAgeAndInputInvalidationStopsTracking)
+{
+    WorldModel world;
+    RobotTracker tracker(world, thresholds);
+    auto batch = std::make_shared<MetricObservationBatch>();
+    batch->status = MetricObservationStatus::Valid;
+    batch->measurements.push_back({RobotId{1}, pose, at(1s), 1, 10, {}});
+    ingestMetricBatch(tracker, batch, at(1s));
+    EXPECT_EQ(world.tracking(RobotId{1}, at(1s)).status, TrackingStatus::Fresh);
+    batch->measurements.clear();
+    ingestMetricBatch(tracker, batch, at(1200ms));
+    EXPECT_EQ(world.tracking(RobotId{1}, at(1200ms)).status, TrackingStatus::Stale);
+    ingestMetricBatch(tracker, {}, at(1300ms));
+    EXPECT_EQ(world.tracking(RobotId{1}, at(1300ms)).status, TrackingStatus::Lost);
+    batch->measurements.push_back({RobotId{1}, pose, at(1250ms), 2, 10, {}});
+    ingestMetricBatch(tracker, batch, at(1350ms));
+    EXPECT_EQ(world.tracking(RobotId{1}, at(1350ms)).status, TrackingStatus::Lost);
+    batch->measurements[0].capturedAt = at(1400ms);
+    ingestMetricBatch(tracker, batch, at(1400ms));
+    EXPECT_EQ(world.tracking(RobotId{1}, at(1400ms)).status, TrackingStatus::Fresh);
 }

@@ -176,6 +176,20 @@ const std::array settings{
             return resolution ? std::to_string(resolution->width) + "x" + std::to_string(resolution->height)
                               : std::string{"auto"};
         }},
+    Setting{"tracking.stale_after_ms", "an integer from 1 to 10000",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto duration = parseMilliseconds(value, minInterval, maxInterval);
+            if (duration) config.tracking.staleAfter = *duration;
+            return duration.has_value();
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.tracking.staleAfter.count()); }},
+    Setting{"tracking.lost_after_ms", "an integer from 1 to 10000",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto duration = parseMilliseconds(value, minInterval, maxInterval);
+            if (duration) config.tracking.lostAfter = *duration;
+            return duration.has_value();
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.tracking.lostAfter.count()); }},
     Setting{"simulation.update_interval_ms", "an integer from 1 to 10000",
         [](std::string_view value, ApplicationConfig& config) {
             const auto interval = parseMilliseconds(value, minInterval, maxInterval);
@@ -233,6 +247,10 @@ public:
             const auto end = text.find('\n');
             parseLine(trim(text.substr(0, end)));
             text.remove_prefix(end == std::string_view::npos ? text.size() : end + 1);
+        }
+        if (result_.config.tracking.staleAfter >= result_.config.tracking.lostAfter) {
+            warn("tracking stale_after_ms must be less than lost_after_ms; using both defaults");
+            result_.config.tracking = TrackingConfig{};
         }
         return std::move(result_);
     }
