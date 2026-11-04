@@ -32,3 +32,5 @@ planning catalogs, archives, or the historical `core arhiteture.md` sketch.
   graph impact suggestions do not replace required build/test suites.
 
 Commands, coverage limits, and recovery: [Graphify guide](Mini_Robot/docs/development/graphify.md).
+For the reusable structural-exploration procedure, use the repository skill
+[mini-robot-graph](.agents/skills/mini-robot-graph/SKILL.md).

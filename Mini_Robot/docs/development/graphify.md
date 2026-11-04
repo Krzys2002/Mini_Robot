@@ -7,6 +7,15 @@ scope and progress. Graph impact does not replace the required test suites.
 
 ## Setup and commands
 
+The repository includes the `mini-robot-graph` skill under
+`.agents/skills/mini-robot-graph/SKILL.md`. In a new Codex session opened in this
+worktree, invoke it with `$mini-robot-graph`, for example:
+"Use $mini-robot-graph to find WorldModel consumers and candidate regression
+tests." Its description also allows automatic selection for structural queries.
+If the client does not discover repository skills, ask it to read that file
+explicitly. The skill uses the wrapper below; no upstream skill installation,
+global configuration, or model key is required.
+
 Use Python 3.12 and uv (the local pilot used uv 0.10.11). From the Git worktree
 root, install the isolated, locked environment and build the graph:
 
@@ -63,8 +72,9 @@ Source can still change after a freshness check; verify cited lines before use.
 The scan root is the whole Git worktree. `.graphifyignore` and existing Git ignore
 rules exclude builds, dependencies, environments, IDE state, local agent files,
 generated output, Markdown/text, thesis reports and presentations. The code-only
-flag skips remaining media. The graph includes first-party desktop/firmware code,
-tests, maintained tools and GitHub automation. A `.h=cpp` override handles Arduino
+flag skips remaining media. `T1-ESP-C6/` and `T1-ESP-S3/` are excluded entirely.
+The graph includes desktop code, the separate `Mini_Robot/firmware/ble-lifecycle/`
+fixture, tests, maintained tools and GitHub automation. A `.h=cpp` override handles Arduino
 and fake headers. Do not bypass Git ignores to index local credentials/config.
 
 The first compatibility pilot on master `8800ec0` plus the initial wrapper indexed
