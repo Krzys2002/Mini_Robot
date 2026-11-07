@@ -565,3 +565,16 @@ TEST(TrackingFilterConfigTest, ParsesAndRejectsInvalidAlpha)
         EXPECT_DOUBLE_EQ(result.config.tracking.positionAlpha, 1);
     }
 }
+
+TEST(TrackingFilterConfigTest, SelectsKalmanAndValidatesNoise)
+{
+    const auto result = micro_robot::parseConfig("[tracking]\nfilter=kalman\nposition_process=0\nheading_process=.1\nposition_measurement=.002\nheading_measurement=.004\n", "test.ini");
+    EXPECT_TRUE(result.diagnostics.empty());
+    EXPECT_TRUE(result.config.tracking.kalmanEnabled);
+    EXPECT_DOUBLE_EQ(result.config.tracking.positionProcess, 0);
+    EXPECT_DOUBLE_EQ(result.config.tracking.positionMeasurement, .002);
+    for (const auto* bad : {"filter=unknown", "position_process=-1", "heading_process=nan", "position_measurement=0", "heading_measurement=-1"}) {
+        const auto invalid = micro_robot::parseConfig(std::string{"[tracking]\n"} + bad + "\n", "test.ini");
+        EXPECT_FALSE(invalid.diagnostics.empty());
+    }
+}

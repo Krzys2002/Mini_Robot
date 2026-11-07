@@ -186,6 +186,45 @@ const std::array settings{
             return resolution ? std::to_string(resolution->width) + "x" + std::to_string(resolution->height)
                               : std::string{"auto"};
         }},
+    Setting{"tracking.filter", "exponential or kalman",
+        [](std::string_view value, ApplicationConfig& config) {
+            if (value != "exponential" && value != "kalman") return false;
+            config.tracking.kalmanEnabled = value == "kalman";
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::string{config.tracking.kalmanEnabled ? "kalman" : "exponential"}; }},
+    Setting{"tracking.position_process", "finite variance at least zero",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto number = parseDouble(value);
+            if (!number || *number < 0) return false;
+            config.tracking.positionProcess = *number;
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.tracking.positionProcess); }},
+    Setting{"tracking.heading_process", "finite variance at least zero",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto number = parseDouble(value);
+            if (!number || *number < 0) return false;
+            config.tracking.headingProcess = *number;
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.tracking.headingProcess); }},
+    Setting{"tracking.position_measurement", "finite variance greater than zero",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto number = parseDouble(value);
+            if (!number || *number <= 0) return false;
+            config.tracking.positionMeasurement = *number;
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.tracking.positionMeasurement); }},
+    Setting{"tracking.heading_measurement", "finite variance greater than zero",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto number = parseDouble(value);
+            if (!number || *number <= 0) return false;
+            config.tracking.headingMeasurement = *number;
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.tracking.headingMeasurement); }},
     Setting{"tracking.position_alpha", "a finite number in (0,1]",
         [](std::string_view value, ApplicationConfig& config) {
             const auto alpha = parseDouble(value);

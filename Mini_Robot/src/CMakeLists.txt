@@ -146,7 +146,8 @@ micro_robot_target_defaults(micro_robot_world)
 micro_robot_platform_boundary(micro_robot_world)
 
 add_library(micro_robot_tracking STATIC tracking/RobotTracker.hpp tracking/RobotTracker.cpp
-    tracking/MetricTracking.hpp tracking/MetricTracking.cpp)
+    tracking/MetricTracking.hpp tracking/MetricTracking.cpp
+    tracking/KalmanPoseFilter.hpp tracking/KalmanPoseFilter.cpp)
 target_link_libraries(micro_robot_tracking PUBLIC micro_robot_world micro_robot_vision_observation)
 micro_robot_target_defaults(micro_robot_tracking)
 micro_robot_platform_boundary(micro_robot_tracking)

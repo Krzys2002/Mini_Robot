@@ -129,3 +129,7 @@ and experiment and verify physical behavior before relying on them.
 
 Tracking smoothing: `position_alpha` and `heading_alpha` in `[tracking]` accept
 finite values in (0,1], defaulting to 1. See [tracker behavior](robot-tracking.md#pose-smoothing).
+
+`[tracking] filter` accepts `exponential` (default) or `kalman`. Noise keys
+`position_process`, `heading_process`, `position_measurement`, `heading_measurement`
+use the units/defaults documented in [optional Kalman filtering](robot-tracking.md#optional-kalman-filter).

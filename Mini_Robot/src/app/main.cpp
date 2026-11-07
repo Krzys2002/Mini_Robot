@@ -190,7 +190,10 @@ int main(int argc, char* argv[])
         vision.setWorkspaceCalibration(workspace.profile());
     });
     RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter},
-                         {config.tracking.positionAlpha, config.tracking.headingAlpha}};
+                         {config.tracking.positionAlpha, config.tracking.headingAlpha,
+                          config.tracking.kalmanEnabled ? PoseFilterKind::Kalman : PoseFilterKind::Exponential,
+                          {config.tracking.positionProcess, config.tracking.headingProcess,
+                           config.tracking.positionMeasurement, config.tracking.headingMeasurement}}};
     connectVisionTracking(vision, tracker, controller, [&controller] { controller.refreshWorld(); });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &vision, &VisionController::setInput);

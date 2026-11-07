@@ -83,3 +83,32 @@ calibrated probability or a controller safety authorization. The GUI shows age,
 reliability and motion; consumers must still gate on fresh tracking at current time.
 Synthetic stationary, constant-motion, wrap and dt tests run without hardware.
 Physical velocity accuracy and confidence calibration remain unverified.
+
+## Optional Kalman filter
+
+Set `[tracking] filter=kalman` to select the optional estimator; `exponential`
+remains the default. Both live and replay metric batches use the same tracker.
+The Kalman state is x/y/heading and their velocities, measured by metric
+x/y/heading. Three independent constant-velocity axes assume no cross-axis
+covariance. Each accepted observation predicts using capture-time dt and then
+corrects using its measurement. Heading innovations follow the shortest arc.
+There is no background extrapolation that could refresh observation age.
+Existing raw finite-difference velocity diagnostics remain independent of filter
+selection; internal Kalman velocities are estimator state, not motor commands.
+
+`position_process` and `heading_process` are nonnegative white acceleration noise
+spectral densities (m²/s³, rad²/s³). `position_measurement` and
+`heading_measurement` are positive measurement variances (m², rad²). Defaults are
+0.05, 0.2, 0.0001 and 0.0004 respectively. The process covariance per axis is
+`q * [[dt³/3, dt²/2], [dt²/2, dt]]`; measurement is position only. Initial position
+covariance equals measurement variance, initial velocity is zero with variance
+1 m²/s² (or rad²/s²). Joseph correction preserves covariance symmetry.
+Updates with invalid values or numerical overflow are rejected without advancing
+estimator state. New/reset tracks initialize from the first sample. The derived
+Kalman cache commits only after the WorldModel accepts the pose; timestamp and
+invalidation gates remain unchanged. Standalone estimator updates accept dt up
+to 10 seconds; tracker loss thresholds normally reset well before that.
+
+The [recorded comparison](../measurements/kalman/README.md) finds less moving lag
+but more stationary jitter than exponential smoothing with the evaluated settings.
+Use that tool and measured ground truth before choosing settings for an experiment.

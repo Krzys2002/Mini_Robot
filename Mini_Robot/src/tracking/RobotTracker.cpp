@@ -7,6 +7,7 @@ namespace micro_robot {
 RobotTracker::RobotTracker(WorldModel& world, TrackingThresholds thresholds, PoseFilterConfig filter)
     : world_(world), thresholds_(thresholds), filter_(filter)
 {
+    (void)KalmanPoseFilter{filter.noise}; // validate even when currently using exponential
     if (!std::isfinite(filter.positionAlpha) || filter.positionAlpha <= 0 || filter.positionAlpha > 1
         || !std::isfinite(filter.headingAlpha) || filter.headingAlpha <= 0 || filter.headingAlpha > 1)
         throw std::invalid_argument("Filter alpha must be finite in (0,1]");
@@ -30,8 +31,9 @@ TrackerUpdate RobotTracker::observe(RobotId id, const Pose2D& pose, Timestamp ca
     std::optional<PlanarVelocity> velocity;
     if (previous && previous->poseUpdatedAt && capturedAt <= *previous->poseUpdatedAt)
         return TrackerUpdate::RejectedByWorld;
-    if (previous && previous->pose && previous->tracking && previous->tracking->rawPose
-        && world_.tracking(id, capturedAt).status != TrackingStatus::Lost) {
+    const bool continuing = previous && previous->pose && previous->tracking && previous->tracking->rawPose
+        && world_.tracking(id, capturedAt).status != TrackingStatus::Lost;
+    if (continuing) {
         heading = previous->tracking->continuousHeading + normalizeAngle(Radians{
             normalizeAngle(pose.heading).value - normalizeAngle(previous->tracking->rawPose->heading).value}).value;
         // Raw finite differences avoid alpha-dependent velocity bias. Tiny dt
@@ -50,8 +52,20 @@ TrackerUpdate RobotTracker::observe(RobotId id, const Pose2D& pose, Timestamp ca
         filtered.heading = normalizeAngle(Radians{previous->pose->heading.value + filter_.headingAlpha
             * normalizeAngle(Radians{normalizeAngle(pose.heading).value - normalizeAngle(previous->pose->heading).value}).value});
     }
+    std::optional<KalmanPoseFilter> candidate;
+    if (filter_.kind == PoseFilterKind::Kalman) {
+        candidate.emplace(filter_.noise);
+        const auto cached = kalman_.find(id);
+        if (continuing && cached != kalman_.end() && cached->second.updatedAt == previous->poseUpdatedAt)
+            candidate = cached->second.filter;
+        const double dt = continuing
+            ? std::chrono::duration<double>(capturedAt - *previous->poseUpdatedAt).count() : 0;
+        if (!candidate->update(pose, dt)) return TrackerUpdate::InvalidMeasurement;
+        filtered = *candidate->pose();
+    }
     if (world_.updateTrackedPose(id, filtered, capturedAt, thresholds_, pose, heading, velocity, quality) != PoseUpdateResult::Applied)
         return TrackerUpdate::RejectedByWorld;
+    if (candidate) kalman_.insert_or_assign(id, KalmanTrack{*candidate, capturedAt});
     observed_.insert(id);
     return TrackerUpdate::Applied;
 }
@@ -59,5 +73,6 @@ void RobotTracker::invalidate(Timestamp now)
 {
     if (!invalidatedAt_ || now > *invalidatedAt_) invalidatedAt_ = now;
     for (auto id : observed_) world_.invalidateTracking(id);
+    kalman_.clear();
 }
 } // namespace micro_robot
