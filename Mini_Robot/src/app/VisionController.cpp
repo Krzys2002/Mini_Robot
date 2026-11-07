@@ -133,6 +133,17 @@ void VisionController::dispatch()
                     ? QStringLiteral("AprilTag frame %1: %2 tags, %3 ms").arg(result->frameSequence).arg(result->markers.size())
                         .arg(std::chrono::duration<double, std::milli>(result->processingTime).count(), 0, 'f', 2)
                     : QString::fromStdString(result->error));
+                if (metric && generation == generation_ && !shuttingDown_) {
+                    if (metric->status != MetricObservationStatus::Valid)
+                        describe(description_ + QStringLiteral(" · metric unavailable: %1")
+                            .arg(metric->error.empty() ? QStringLiteral("calibration required") : QString::fromStdString(metric->error)));
+                    else {
+                        const auto& r = metric->rejected;
+                        describe(description_ + QStringLiteral(" · metric %1 · rejected: outside %2, geometry %3, duplicate %4, unassigned %5, family %6")
+                            .arg(metric->measurements.size()).arg(r.outsideWorkspace).arg(r.invalidGeometry)
+                            .arg(r.duplicateRobot).arg(r.unassignedId).arg(r.unsupportedFamily));
+                    }
+                }
                 if (preview && generation == generation_ && !shuttingDown_) {
                     preview->inputGeneration = generation;
                     preview->outputFramesPerSecond = outputRate_.record(MonotonicClock::now());

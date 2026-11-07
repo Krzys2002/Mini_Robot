@@ -28,10 +28,15 @@ struct MetricObservationResult {
 [[nodiscard]] MetricObservationResult metricObservation(
     const RobotObservation& observation, const std::array<MarkerCorner, 4>& undistortedCorners,
     const std::optional<WorkspaceCalibrationProfile>& calibration);
+// Fixed-size per-frame counters; no marker identities or unbounded diagnostics retained.
+struct MetricRejections {
+    std::size_t unsupportedFamily{}, unassignedId{}, duplicateRobot{}, invalidGeometry{}, outsideWorkspace{};
+};
 struct MetricObservationBatch {
     MetricObservationStatus status{MetricObservationStatus::Uncalibrated};
     std::vector<MetricPoseMeasurement> measurements;
     std::string error;
+    MetricRejections rejected{};
 };
 using MetricObservationBatchPtr = std::shared_ptr<const MetricObservationBatch>;
 class IMetricObservationConverter {

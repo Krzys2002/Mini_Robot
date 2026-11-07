@@ -20,6 +20,14 @@ MetricObservationBatch OpenCvMetricObservationConverter::convert(const MarkerDet
         return {MetricObservationStatus::InvalidGeometry, {}, detections.error};
     MetricObservationBatch batch{MetricObservationStatus::Valid, {}, {}};
     const auto observations = observeRobots(detections, map);
+    for (const auto& rejected : observations.rejected) {
+        switch (rejected.reason) {
+        case MarkerRejection::UnsupportedFamily: ++batch.rejected.unsupportedFamily; break;
+        case MarkerRejection::UnassignedId: ++batch.rejected.unassignedId; break;
+        case MarkerRejection::DuplicateRobot: ++batch.rejected.duplicateRobot; break;
+        case MarkerRejection::InvalidGeometry: ++batch.rejected.invalidGeometry; break;
+        }
+    }
     try {
         const auto& intrinsics = profile->intrinsics;
         const cv::Mat k(3, 3, CV_64F, const_cast<double*>(intrinsics.cameraMatrix.data()));
@@ -28,11 +36,13 @@ MetricObservationBatch OpenCvMetricObservationConverter::convert(const MarkerDet
             std::vector<cv::Point2d> input, output;
             for (const auto& p : observation.corners) input.emplace_back(p.u, p.v);
             cv::undistortPoints(input, output, k, d, cv::noArray(), k);
-            if (output.size() != 4) continue;
+            if (output.size() != 4) { ++batch.rejected.invalidGeometry; continue; }
             std::array<MarkerCorner, 4> corners;
             for (std::size_t i = 0; i < 4; ++i) corners[i] = {output[i].x, output[i].y};
             auto result = metricObservation(observation, corners, profile);
             if (result.measurement) batch.measurements.push_back(*result.measurement);
+            else if (result.status == MetricObservationStatus::OutsideWorkspace) ++batch.rejected.outsideWorkspace;
+            else ++batch.rejected.invalidGeometry;
         }
     } catch (const std::exception& error) {
         return {MetricObservationStatus::InvalidGeometry, {}, error.what()};

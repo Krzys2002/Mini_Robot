@@ -1,3 +1,4 @@
+#include <cmath>
 #include "vision/MetricObservation.hpp"
 #include "../calibration/HomographyFixtures.hpp"
 #include <gtest/gtest.h>
@@ -61,5 +62,50 @@ TEST(MetricObservationTest, RejectsOutsideWorkspaceAndHorizonCrossing)
     std::array<MarkerCorner, 4> corners{{{0, 300}, {200, 300}, {200, 500}, {0, 500}}};
     EXPECT_EQ(metricObservation({}, corners, profile).status, MetricObservationStatus::OutsideWorkspace);
     profile.homography = WorkspaceHomography{{1, 0, 0, 0, 1, 0, 1, 0, -100}};
+    EXPECT_EQ(metricObservation({}, corners, profile).status, MetricObservationStatus::InvalidGeometry);
+}
+
+TEST(MetricObservationTest, PerspectiveObliqueOffCenterPosesMatchIndependentWorldConstruction)
+{
+    auto profile = homographyInput().profile;
+    // Inverse of independently specified world-to-image pinhole plane mapping below.
+    profile.homography = WorkspaceHomography{{.0013379310344827585, .00012413793103448277, -.2206896551724138,
+        -.00012413793103448277, -.0010758620689655172, .7655172413793103,
+        -.0002551724137931034, .00008275862068965517, 1}};
+    for (const auto center : {std::array<double, 2>{.18, .15}, std::array<double, 2>{.78, .44}}) {
+        for (double heading : {.37, -2.4, 3.13}) {
+            std::array<MarkerCorner, 4> corners;
+            const double fx = std::cos(heading), fy = std::sin(heading);
+            const double rx = fy, ry = -fx;
+            const double front[]{1, 1, -1, -1}, right[]{-1, 1, 1, -1};
+            for (int i = 0; i < 4; ++i) {
+                const double x = center[0] + .03 * (front[i]*fx + right[i]*rx);
+                const double y = center[1] + .03 * (front[i]*fy + right[i]*ry);
+                const double w = 1 + .2*x + .1*y;
+                corners[i] = {(100 + 800*x + 100*y)/w, (700 + 50*x - 900*y)/w};
+            }
+            const auto result = metricObservation({}, corners, profile);
+            ASSERT_TRUE(result.measurement);
+            const auto& pose = result.measurement->pose;
+            EXPECT_NEAR(std::hypot(pose.x.value-center[0], pose.y.value-center[1]), 0, 1e-12);
+            EXPECT_NEAR(std::remainder(pose.heading.value-heading, 2*std::numbers::pi), 0, 1e-12);
+            EXPECT_TRUE(std::isfinite(pose.heading.value));
+        }
+    }
+}
+TEST(MetricObservationTest, NearHorizonFiniteMappingAndSingularRejection)
+{
+    auto profile = homographyInput().profile;
+    profile.bounds = WorkspaceBounds{Meters{1e9}, Meters{1e9}};
+    profile.homography = WorkspaceHomography{{1,0,0, 0,1,0, 0, -.001, 1}};
+    std::array<MarkerCorner,4> corners{{{20,998}, {22,998}, {22,999}, {20,999}}};
+    auto result = metricObservation({}, corners, profile);
+    ASSERT_TRUE(result.measurement);
+    EXPECT_NEAR(result.measurement->pose.x.value, 14000, 1e-6);
+    EXPECT_NEAR(result.measurement->pose.y.value, 998.5/.0015, 1e-5);
+    EXPECT_NEAR(result.measurement->pose.heading.value, std::atan2(-250000., -5250.), 1e-10);
+    corners[2].v = corners[3].v = 1000;
+    EXPECT_EQ(metricObservation({}, corners, profile).status, MetricObservationStatus::InvalidGeometry);
+    corners[2].v = corners[3].v = 1001;
     EXPECT_EQ(metricObservation({}, corners, profile).status, MetricObservationStatus::InvalidGeometry);
 }

@@ -109,3 +109,12 @@ batches on its owner thread. A null batch invalidates earlier output; calibratio
 or camera changes invalidate in-flight results. This is a measurement boundary,
 not a tracker or an automatic WorldModel update. Physical tag mounting, height,
 calibration accuracy and physical acceptance remain to be evaluated in #224.
+
+Metric batches retain fixed-size rejection counters for outside-workspace,
+invalid geometry, duplicate robot identity, unassigned ID and unsupported family.
+Counters describe the current frame only, and the vision status presents them
+alongside the number of metric measurements. A successfully processed empty or
+all-rejected frame remains `Valid` and lets tracks age normally. Missing or
+incompatible calibration, detector/converter failure, and null invalidation
+remain input invalidation and make prior tracks lost immediately. An all-rejected
+frame does not convert measurement rejections into a global input failure.
