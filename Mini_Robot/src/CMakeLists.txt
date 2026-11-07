@@ -134,6 +134,7 @@ micro_robot_platform_boundary(micro_robot_control)
 
 add_library(micro_robot_world STATIC
     world/RobotState.hpp
+    world/TrackingState.hpp
     world/WorldSnapshot.hpp
     world/WorldModel.hpp
     world/WorldModel.cpp
@@ -143,6 +144,12 @@ add_library(micro_robot_world STATIC
 target_link_libraries(micro_robot_world PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_world)
 micro_robot_platform_boundary(micro_robot_world)
+
+add_library(micro_robot_tracking STATIC tracking/RobotTracker.hpp tracking/RobotTracker.cpp
+    tracking/MetricTracking.hpp tracking/MetricTracking.cpp)
+target_link_libraries(micro_robot_tracking PUBLIC micro_robot_world micro_robot_vision_observation)
+micro_robot_target_defaults(micro_robot_tracking)
+micro_robot_platform_boundary(micro_robot_tracking)
 
 add_library(micro_robot_logging STATIC
     infrastructure/logging/LogRecord.hpp
@@ -260,7 +267,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
         micro_robot_camera_api micro_robot_camera_selection micro_robot_transport_api
         micro_robot_world micro_robot_logging micro_robot_calibration micro_robot_vision_api
-        micro_robot_vision_observation micro_robot_robot_manager Qt6::Core
+        micro_robot_vision_observation micro_robot_robot_manager micro_robot_tracking Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
     # Application adapters use Qt Core only; device backends stay in adapter targets.

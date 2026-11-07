@@ -139,8 +139,8 @@ The [current-capability summary](capabilities.md) owns implemented behavior and
 remaining integration/acceptance. The source map describes target ownership; a
 source/target entry is not physical verification. Intrinsic profile storage and
 undistorted preview, BLE command/telemetry handling and the matched-frame debug
-overlay are implemented; metric localization/tracking/control and structured
-experiment recording remain separate.
+overlay and metric tracking are implemented; closed-loop control and structured
+experiment recording remain separate. Physical localization is unverified.
 
 ## Documentation maintenance
 

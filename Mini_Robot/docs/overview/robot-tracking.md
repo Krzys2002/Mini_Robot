@@ -1,0 +1,55 @@
+# Robot tracking and observation age
+
+`RobotTracker` accepts metric world-frame poses and steady-clock capture times on
+its owner thread. `WorldModel` remains the pose authority; its tracking metadata
+and `tracking(id, now)` expose status and observation age without reading a hidden
+clock. Unknown means no tracked measurement. Fresh means age below `staleAfter`,
+stale means age at least `staleAfter` and below `lostAfter`, and lost means age
+at least `lostAfter` or explicit input invalidation. If the supplied time precedes
+capture, status is conservatively lost and age is unavailable.
+
+The tracker rejects non-finite, future, expired, duplicate and out-of-order
+measurements. A new valid observation registers an unknown ID; a newer observation
+can restore a lost track. An invalidated input marks tracks lost immediately and
+rejects measurements captured at or before invalidation. An empty successful
+frame lets previous observations age normally. Camera, calibration or converter
+invalidation reaches the tracker through the metric batch boundary. A direct
+non-tracker pose update clears tracking metadata, so it cannot masquerade as a
+fresh observation. Snapshots preserve metadata, but consumers must evaluate age
+at their current monotonic time; a copied status cannot age by itself.
+
+Defaults are 250 ms stale and 1000 ms lost, configurable through
+[application settings](configuration.md#tracking-age). They are provisional,
+not physical safety thresholds. Historical poses remain stored after loss; use
+tracking status and age to decide whether a pose is usable. This issue does not
+implement filtering, velocity, robot motion or an operational safety state machine.
+Physical camera/tag localization remains unverified (see #224).
+
+## Source ownership and future control gate
+
+The production `connectVisionTracking` bridge has one exclusive VisionController
+owner per RobotTracker/WorldModel tracking set. That controller owns the selected
+camera, discards obsolete generations and invalidates all its tracks on source,
+resolution, calibration, stop and shutdown changes. The signal's sourceId is
+currently diagnostic, not a fusion key. Connecting multiple camera controllers to
+this bridge is unsupported: one source's invalidation would erase another's
+tracks. Multiple cameras require source-specific provenance, clocks/calibration,
+per-source invalidation and a defined arbitration/fusion authority first.
+
+Before autonomous pose-based commands are enabled, their supervisor must evaluate
+`world.tracking(robotId, now)` at every submission and control tick, using current
+steady-clock time. Only Fresh permits new autonomous Velocity. Unknown, Stale,
+Lost, missing calibration or source invalidation must inhibit new Velocity,
+cancel unsent autonomous motion and request ordinary Stop on the transition.
+Invalidation takes effect immediately, without waiting for an age timer. A fresh
+measurement alone must not restart a stopped task: explicit task rearming and
+fresh command intent are required. E-stop/Fault retain their stronger independent
+latches and acknowledged recovery requirements. Commands already handed to the
+radio require robot-local expiry/watchdog enforcement; a desktop Stop is not proof
+of physical stopping. The existing thresholds are provisional and require measured
+latency/accuracy and stopping-budget acceptance before autonomous use.
+
+This is the required policy for the future autonomous command boundary (#77),
+not a claim that a pose-based command supervisor is implemented. Current manual
+control does not consume tracked poses and remains governed by desktop/robot
+safety independently. No autonomous controller is enabled by these changes.

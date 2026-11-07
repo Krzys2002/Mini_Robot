@@ -281,6 +281,8 @@ PoseUpdateResult DesktopController::applyPose(RobotId id, const Pose2D& pose, Ti
     return result;
 }
 
+void DesktopController::refreshWorld() { if (initialized_) publishWorld(); }
+
 double DesktopController::elapsedSeconds(Timestamp at) const
 {
     return std::chrono::duration<double>(at - startedAt_).count();
@@ -575,7 +577,11 @@ void DesktopController::publishWorld()
         emit worldDescriptionChanged(prefix + QStringLiteral("\nPose unknown"));
         return;
     }
-    emit worldDescriptionChanged(prefix + QStringLiteral("\nx %1 m · y %2 m · heading %3 rad"
+    const auto tracking = world_.tracking(robotId_, MonotonicClock::now());
+    const auto status = tracking.status == TrackingStatus::Fresh ? QStringLiteral("Fresh")
+        : tracking.status == TrackingStatus::Stale ? QStringLiteral("Stale")
+        : tracking.status == TrackingStatus::Lost ? QStringLiteral("Lost") : QStringLiteral("Unknown");
+    emit worldDescriptionChanged(prefix + QStringLiteral("\nTracking: ") + status + QStringLiteral("\nx %1 m · y %2 m · heading %3 rad"
         "\nPose updated +%4 s")
         .arg(state->pose->x.value, 0, 'f', 2).arg(state->pose->y.value, 0, 'f', 2)
         .arg(state->pose->heading.value, 0, 'f', 2)

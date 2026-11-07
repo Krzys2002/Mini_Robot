@@ -540,3 +540,15 @@ TEST(ConfigLoaderTest, ManualSpeedLimitsAreConfigurableAndRejectInvalidValues)
         EXPECT_FALSE(invalid.diagnostics.empty());
     }
 }
+
+TEST(ConfigLoaderTrackingTest, ThresholdsAreConfigurableAndInvalidOrderingFallsBack)
+{
+    const auto valid = micro_robot::parseConfig("[tracking]\nstale_after_ms=150\nlost_after_ms=750\n", "test");
+    EXPECT_EQ(valid.config.tracking.staleAfter, std::chrono::milliseconds{150});
+    EXPECT_EQ(valid.config.tracking.lostAfter, std::chrono::milliseconds{750});
+    EXPECT_TRUE(valid.diagnostics.empty());
+    const auto invalid = micro_robot::parseConfig("[tracking]\nstale_after_ms=1000\nlost_after_ms=100\n", "test");
+    EXPECT_EQ(invalid.config.tracking.staleAfter, std::chrono::milliseconds{250});
+    EXPECT_EQ(invalid.config.tracking.lostAfter, std::chrono::milliseconds{1000});
+    EXPECT_FALSE(invalid.diagnostics.empty());
+}

@@ -57,8 +57,8 @@ int main()
 }
 ```
 
-A stored timestamp does not establish fresh tracking. Consumers must eventually
-apply explicit freshness/safety rules. [Workspace bounds](workspace.md) are optional
+Tracked measurements expose status and age through `tracking(id, now)`; see
+[robot tracking](robot-tracking.md). Consumers must apply explicit safety rules. [Workspace bounds](workspace.md) are optional
 authoritative state; they do not establish calibrated localization. Obstacle, task storage, velocity,
 quality, filtering, and connection state are not yet WorldModel features. Future
 issue-scoped domain storage can extend private state and the detached snapshot.

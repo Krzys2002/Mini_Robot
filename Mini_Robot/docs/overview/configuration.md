@@ -118,3 +118,11 @@ the fake camera or recorded video.
 With native camera streaming (#31), `simulation.camera_frame_interval_ms` remains
 a fake-camera setting for alternate compositions/tests; it does not change a
 physical device’s capture rate.
+
+### Tracking age
+
+`[tracking] stale_after_ms` and `lost_after_ms` default to 250 and 1000 ms.
+Both accept 1–10000 ms and the stale threshold must be strictly below the lost
+threshold; an invalid ordering resets both to defaults with a warning. These are
+initial software settings, not measured safety limits. Tune them to the camera
+and experiment and verify physical behavior before relying on them.

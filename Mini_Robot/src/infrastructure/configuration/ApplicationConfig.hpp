@@ -49,10 +49,17 @@ struct ManualControlConfig {
     std::chrono::milliseconds commandValidity{250};
 };
 
+struct TrackingConfig {
+    // Initial software thresholds; tune for camera cadence and experiment conditions.
+    std::chrono::milliseconds staleAfter{250};
+    std::chrono::milliseconds lostAfter{1000};
+};
+
 struct ApplicationConfig {
     LoggingConfig logging;
     RobotConfig robot;
     ManualControlConfig manual;
+    TrackingConfig tracking;
     CameraConfig camera;
     SimulationConfig simulation;
 };
