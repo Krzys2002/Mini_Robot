@@ -67,3 +67,34 @@ contract are specified in [robot tracking](../overview/robot-tracking.md).
 Implement and test that command gate before a pose-based autonomous controller is
 enabled. Provisional age thresholds and component tests establish neither physical
 accuracy nor safe stopping.
+
+## Recorded software validation (2026-11-07)
+
+Commands used the existing local GoogleTest checkout at
+`/Users/krzysztofsawicki/Documents/Put/sem6/Term_Design/build/macos/_deps/googletest-src`
+via `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=...`, and desktop configurations used
+`-DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt`.
+
+| Tree | Commands actually run | Result |
+| --- | --- | --- |
+| Corrected metric head `74eac6f` | `cmake --preset macos`; `cmake --build --preset macos --parallel 6`; `ctest --preset macos --output-on-failure -j 6` | 432/432 passed |
+| Combined source tree `6a4f6f3` | Root `cmake --preset macos -DMICRO_ROBOT_BUILD_BLE=ON`; matching build and CTest commands above | 491/491 passed |
+| Same combined source tree | Root `cmake --preset core`; `cmake --build --preset core --parallel 6`; `ctest --preset core --output-on-failure -j 6` | 280/280 passed |
+| Same combined source tree | From `Mini_Robot/`: macos configure with BLE ON, matching build and CTest commands above | 491/491 passed |
+| Refreshed tracking head `f9703ab` | Root macos configure with BLE ON, matching build and CTest commands above | 475/475 passed |
+
+PR #225 merged as `4555664`; GitHub retargeted #227 to master and refreshed its
+head, then the production boundary tests/policy were applied as `f9703ab`.
+Reconciliation of that history into the combined branch (`33f1c4f`) retained the
+same file tree as `6a4f6f3`. Subsequent acceptance-record edits are documentation only.
+
+Manual platform dispatch was added to existing reusable Linux/Windows workflows;
+Windows installs Qt Connectivity and enables BLE for the desktop test build.
+Both current combined-head dispatches completed with `startup_failure` and **zero
+jobs**: [Linux run](https://github.com/Krzys2002/Mini_Robot/actions/runs/42374638270)
+and [Windows run](https://github.com/Krzys2002/Mini_Robot/actions/runs/42374640170).
+They ran against full SHA `6a4f6f3c1f119fef65e836e0b5647d669b4782ff`.
+No check-run diagnostics were returned. The root cause is not established by
+these records; no Linux/Windows compilation or test success is claimed. Platform
+acceptance remains blocked until Actions can start jobs or equivalent hosts are
+available. Native GUI interaction and all physical acceptance remain NOT RUN.
