@@ -1,3 +1,4 @@
+#include "app/VisionTracking.hpp"
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
 #include "app/CalibrationController.hpp"
@@ -189,12 +190,7 @@ int main(int argc, char* argv[])
         vision.setWorkspaceCalibration(workspace.profile());
     });
     RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter}};
-    QObject::connect(&vision, &VisionController::metricObservationsAvailable, &controller,
-        [&tracker, &controller](const QString&, MetricObservationBatchPtr batch) {
-            const auto now = MonotonicClock::now();
-            ingestMetricBatch(tracker, batch, now);
-            controller.refreshWorld();
-        });
+    connectVisionTracking(vision, tracker, controller, [&controller] { controller.refreshWorld(); });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &vision, &VisionController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,

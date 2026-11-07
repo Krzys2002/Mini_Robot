@@ -281,3 +281,118 @@ TEST(VisionControllerMetricTest, CalibrationChangeDiscardsInFlightMeasurement)
     ASSERT_TRUE(visionUntil([&] { return batches == 1; }));
 }
 }
+
+#include "app/VisionTracking.hpp"
+namespace {
+using namespace std::chrono_literals;
+class TrackingConverter final : public IMetricObservationConverter {
+public:
+    MetricObservationBatch convert(const MarkerDetections& input, const std::string&, const RobotMarkerMap&,
+        const std::optional<WorkspaceCalibrationProfile>&) override
+    {
+        MetricObservationBatch batch{MetricObservationStatus::Valid, {}, {}};
+        if (input.frameSequence != 3)
+            for (auto id : {RobotId{1}, RobotId{2}})
+                batch.measurements.push_back({id, {Meters{.2},Meters{.3},Radians{.4}},
+                    input.capturedAt,input.frameSequence,20,{}});
+        return batch;
+    }
+};
+FramePtr trackingFrame(std::uint64_t sequence, Timestamp captured)
+{
+    auto frame=std::make_shared<Frame>(*visionFrame(sequence)); frame->capturedAt=captured; return frame;
+}
+TEST(VisionTrackingIntegrationTest, DelayedCaptureMultipleRobotsEmptyFramesAndShutdown)
+{
+    VisionFixture f;
+    WorldModel world; RobotTracker tracker{world,{200ms,1s}};
+    Timestamp now=Timestamp{}+10s;
+    int delivered=0;
+    QObject trackingContext;
+    connectVisionTracking(*f.vision,tracker,trackingContext,[&]{++delivered;},[&]{return now;});
+    f.vision->setMetricConverter(std::make_unique<TrackingConverter>());
+    f.vision->receiveFrame(trackingFrame(1,Timestamp{}+11s));
+    ASSERT_TRUE(visionUntil([&]{return f.detector->calls==1;}));
+    now=Timestamp{}+11400ms; f.unblock();
+    ASSERT_TRUE(visionUntil([&]{return world.robot(RobotId{1}).has_value();}));
+    for (auto id:{RobotId{1},RobotId{2}}) {
+        EXPECT_EQ(world.tracking(id,now).status,TrackingStatus::Stale);
+        EXPECT_EQ(world.tracking(id,now).age,400ms);
+    }
+    int previous=delivered;
+    now=Timestamp{}+11600ms;
+    f.vision->receiveFrame(trackingFrame(3,now));
+    ASSERT_TRUE(visionUntil([&]{return delivered>previous;}));
+    EXPECT_EQ(world.tracking(RobotId{1},now).age,600ms);
+    EXPECT_EQ(world.tracking(RobotId{2},Timestamp{}+12s).status,TrackingStatus::Lost);
+    f.vision->shutdown();
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+}
+TEST(VisionTrackingIntegrationTest, CalibrationReplacementAndCameraRestartFenceObsoleteResults)
+{
+    VisionFixture f;
+    WorldModel world; RobotTracker tracker{world,{200ms,1s}};
+    Timestamp now=Timestamp{}+10s;
+    int delivered=0;
+    QObject trackingContext;
+    connectVisionTracking(*f.vision,tracker,trackingContext,[&]{++delivered;},[&]{return now;});
+    f.vision->setMetricConverter(std::make_unique<TrackingConverter>());
+    ASSERT_EQ(tracker.observe(RobotId{1},{Meters{.2},Meters{.3},Radians{0}},now+1s,now+1s),TrackerUpdate::Applied);
+    f.vision->receiveFrame(trackingFrame(50,now+1100ms));
+    ASSERT_TRUE(visionUntil([&]{return f.detector->calls==1;}));
+    now+=1200ms; f.vision->setWorkspaceCalibration({});
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    const auto invalidations=delivered;
+    f.unblock(); ASSERT_TRUE(visionUntil([&]{return !f.vision->busy();}));
+    EXPECT_EQ(delivered,invalidations);
+    now+=100ms;
+    f.vision->receiveFrame(trackingFrame(51,now));
+    ASSERT_TRUE(visionUntil([&]{return delivered>invalidations;}));
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Fresh);
+    f.vision->setInput("camera-a",false);
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    f.vision->setInput("camera-b",true); now+=100ms;
+    auto before=delivered;
+    f.vision->receiveFrame(trackingFrame(1,now));
+    ASSERT_TRUE(visionUntil([&]{return delivered>before;}));
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Fresh);
+    EXPECT_EQ(world.robot(RobotId{1})->poseUpdatedAt,now);
+    f.vision->shutdown();
+    EXPECT_EQ(world.tracking(RobotId{2},now).status,TrackingStatus::Lost);
+}
+}
+
+TEST(VisionTrackingIntegrationTest, ExpiredDelayedDetectionCannotCreateTrack)
+{
+    VisionFixture f;
+    WorldModel world; RobotTracker tracker{world,{200ms,1s}};
+    Timestamp now=Timestamp{}+10s;
+    int delivered=0;
+    QObject trackingContext;
+    connectVisionTracking(*f.vision,tracker,trackingContext,[&]{++delivered;},[&]{return now;});
+    f.vision->setMetricConverter(std::make_unique<TrackingConverter>());
+    auto before=delivered;
+    f.vision->receiveFrame(trackingFrame(1,now+1s));
+    ASSERT_TRUE(visionUntil([&]{return f.detector->calls==1;}));
+    now+=2s; f.unblock();
+    ASSERT_TRUE(visionUntil([&]{return delivered>before;}));
+    EXPECT_FALSE(world.robot(RobotId{1})); EXPECT_FALSE(world.robot(RobotId{2}));
+}
+TEST(VisionTrackingIntegrationTest, ShutdownInvalidatesImmediatelyWhileDetectionIsBlocked)
+{
+    VisionFixture f;
+    WorldModel world; RobotTracker tracker{world,{200ms,1s}};
+    Timestamp now=Timestamp{}+10s;
+    QObject trackingContext;
+    connectVisionTracking(*f.vision,tracker,trackingContext,[]{},[&]{return now;});
+    f.vision->setMetricConverter(std::make_unique<TrackingConverter>());
+    now+=1s;
+    ASSERT_EQ(tracker.observe(RobotId{1},{Meters{.2},Meters{.3},Radians{0}},now,now),TrackerUpdate::Applied);
+    f.vision->receiveFrame(trackingFrame(1,now));
+    ASSERT_TRUE(visionUntil([&]{return f.detector->calls==1;}));
+    f.vision->shutdown();
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    f.unblock(); ASSERT_TRUE(visionUntil([&]{return !f.vision->busy();}));
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    EXPECT_FALSE(world.robot(RobotId{2}));
+}
