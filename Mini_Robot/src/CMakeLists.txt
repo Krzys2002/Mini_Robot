@@ -63,8 +63,10 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
         calibration/OpenCvIntrinsicCalibrationSolver.cpp
         calibration/OpenCvCalibrationUndistorter.hpp
         calibration/OpenCvCalibrationUndistorter.cpp
+        vision/OpenCvMetricObservation.hpp
+        vision/OpenCvMetricObservation.cpp
     )
-    target_link_libraries(micro_robot_calibration_opencv PUBLIC micro_robot_calibration
+    target_link_libraries(micro_robot_calibration_opencv PUBLIC micro_robot_calibration micro_robot_vision_observation
         PRIVATE ${OpenCV_LIBS})
     target_include_directories(micro_robot_calibration_opencv SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
     micro_robot_target_defaults(micro_robot_calibration_opencv)
@@ -78,8 +80,9 @@ micro_robot_platform_boundary(micro_robot_vision_api)
 # Robot identity and pixel measurements from raw markers; no detector backend.
 add_library(micro_robot_vision_observation STATIC
     vision/RobotObservation.hpp vision/RobotObservation.cpp
+    vision/MetricObservation.hpp vision/MetricObservation.cpp
     vision/VisionDebugFrame.hpp vision/VisionDebugFrame.cpp)
-target_link_libraries(micro_robot_vision_observation PUBLIC micro_robot_vision_api)
+target_link_libraries(micro_robot_vision_observation PUBLIC micro_robot_vision_api micro_robot_calibration)
 micro_robot_target_defaults(micro_robot_vision_observation)
 micro_robot_platform_boundary(micro_robot_vision_observation)
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)

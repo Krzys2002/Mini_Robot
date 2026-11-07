@@ -5,6 +5,7 @@
 #include "calibration/OpenCvWorkspaceHomographySolver.hpp"
 #include "calibration/QtWorkspaceProfileStore.hpp"
 #include "app/VisionController.hpp"
+#include "vision/OpenCvMetricObservation.hpp"
 #include "vision/OpenCvAprilTagDetector.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
 #include "calibration/OpenCvIntrinsicCalibrationSolver.hpp"
@@ -182,6 +183,10 @@ int main(int argc, char* argv[])
     });
     QObject::connect(&controller, &DesktopController::frameAvailable, &workspace, &WorkspaceCalibrationController::receiveFrame);
     VisionController vision{std::make_unique<OpenCvAprilTagDetector>(), logger.channel("vision")};
+    vision.setMetricConverter(std::make_unique<OpenCvMetricObservationConverter>());
+    QObject::connect(&workspace, &WorkspaceCalibrationController::profileChanged, &vision, [&] {
+        vision.setWorkspaceCalibration(workspace.profile());
+    });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &vision, &VisionController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,

@@ -9,7 +9,7 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | --- | --- | --- |
 | Camera | Native Qt and Linux V4L2 discovery, selection, bounded capture; deterministic replay adapter | Normal replay selection workflow, broader physical-device/recovery acceptance |
 | Intrinsics | Capture, solving, exact camera/resolution profile save/load and undistorted preview; physical-identity gate for Linux persistence; remove solved views and recalculate | Optical/measurement accuracy for each camera/lens; missing/ambiguous identity stays session-only |
-| Vision | AprilTag detection, RobotId association, pixel centers/headings and matched-frame debug overlays | Camera-to-world homography solving, metric observations and tracker/freshness integration |
+| Vision | AprilTag detection, RobotId association, pixel observations, calibrated metric measurement boundary and matched-frame debug overlays | Tracker/freshness integration and physical metric-pose acceptance (#224) |
 | World | One authoritative robot registry, monotonic pose updates, metric table bounds and versioned workspace-profile model | Automatic measured pose updates, obstacles and tracking-driven world state |
 | Communication | Native BLE command/telemetry adapter, RobotManager sessions and deterministic simulation with shared pending Stop priority | Production command/safety interoperability, over-air measurements and remaining multi-link hardware checks |
 | Robot firmware | Legacy HTTP prototype; independent actuator expiry and generation gate, clear-to-idle semantics and ordered browser intent | Production BLE runtime/protocol, hardware-safe boot/disable, bounded deceleration and measured watchdog/E-stop acceptance (#158/#162) |
@@ -17,8 +17,8 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | Recording | Human-readable application logs | Structured experiment records and validated end-to-end latency/error measurements |
 
 The running desktop routes frames to calibration/detection/debug presentation.
-Observations do not yet become calibrated tracked WorldModel poses or controller
-commands. The displayed pose is explicit demo data injected by composition.
+Calibrated observations are published as metric measurements; they do not yet become
+tracked WorldModel poses or controller commands. The displayed pose is explicit demo data injected by composition.
 The complete observations → metric pose → tracker → WorldModel → controller → robot
 chain is still roadmap work, not a capability claimed by this audit correction.
 Camera receipt-time estimates and synchronous log writes/flushes are not a
