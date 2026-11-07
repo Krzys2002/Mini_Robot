@@ -69,7 +69,9 @@ When implementing work, follow this order:
 1. the current user request;
 2. the assigned GitHub issue and its acceptance criteria;
 3. this `AGENTS.md`;
-4. the installed `micro-robot-swarm-desktop` skill and its references;
+4. the local `micro-robot-swarm-desktop` skill at
+   [`.codex/skills/micro-robot-swarm/SKILL.md`](.codex/skills/micro-robot-swarm/SKILL.md)
+   and its references;
 5. existing repository conventions and code.
 
 If two requirements conflict, do not silently choose one. Preserve safety and architecture rules, explain the conflict, and make the smallest justified change.
