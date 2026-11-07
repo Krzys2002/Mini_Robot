@@ -355,7 +355,7 @@ The adapter owns this mapping. No domain type contains a wire field.
 | `linearMetersPerSecond`, `angularRadiansPerSecond` | `measured* / 1000`, empty for `0x8000` |
 | `RobotTelemetry::metadata.sequence` | Robot sequence unwrapped to 64 bits within the session; restarts per session and is not an acknowledgement |
 | Robot `state`, `flags`, `uptimeMs`, `lastAcceptedSequence` | No domain field yet. Adapter logs them; later issues may add domain safety state. |
-| EmergencyStop, ClearEmergencyStop | No domain command yet. The BLE adapter has an E-stop primitive; [#70](https://github.com/Krzys2002/Mini_Robot/issues/70) defines the domain request and explicit clear. |
+| EmergencyStop, ClearEmergencyStop | Explicit transport safety capabilities. E-stop is latched; clear requires a matching accepted Idle result in the same session. ATT confirmation alone cannot clear desktop inhibition. |
 
 | CommandResult `result` | Domain `TransportErrorCode` for `SendCommand` |
 | --- | --- |

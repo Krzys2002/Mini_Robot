@@ -12,6 +12,7 @@ struct BleWriteRequest {
     std::uint16_t sequence{};
     bool emergencyStop{};
     RobotCommand command; // Owned intent; re-encode remaining validity at native dispatch.
+    bool emergencyClear{};
 };
 struct BleWriteOutcome {
     bool dispatched{};

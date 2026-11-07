@@ -27,12 +27,13 @@ public:
     void connect(RobotId id) override;
     void disconnect(RobotId id) override;
     void sendCommand(RobotId id, const RobotCommand& command) override;
-    // Adapter-level wire primitive for protocol bring-up/future safety binding
-    // (#70 owns the domain safety interface). Latches intent, rejects Velocity,
-    // retries on the dedicated characteristic and reasserts before reconnect is
-    // published Connected. Clearing the latch is deliberately not exposed here.
+    void cancelPendingMotion(RobotId id) override;
+    // Latched dedicated E-stop retries and reasserts before reconnect. Explicit
+    // clear requires a correlated accepted Idle result; ATT handoff is insufficient.
     [[nodiscard]] bool supportsEmergencyStop() const noexcept override { return true; }
     void requestEmergencyStop(RobotId id) override;
+    [[nodiscard]] bool supportsEmergencyClear() const noexcept override { return true; }
+    bool requestEmergencyClear(RobotId id, std::uint64_t request) override;
     void startDiscovery();
     void cancelDiscovery(); // Cancels robots still awaiting this scan, not active links.
     [[nodiscard]] bool discovering() const noexcept { return scanning_; }
@@ -52,12 +53,13 @@ private:
         BleReceiveSequence receiveSequence;
         std::uint16_t transmitSequence{};
         std::optional<RobotCommand> pending;
-        std::optional<std::uint16_t> writing, emergencyWriting;
+        std::optional<std::uint16_t> writing, emergencyWriting, clearSequence;
+        std::optional<std::uint64_t> clearRequest;
         std::optional<Timestamp> lastVelocityAt;
         bool pumpScheduled{}, nativeReady{}, emergencyRequested{}, emergencyConfirmed{};
         BleRobotState robotState{BleRobotState::Idle};
         std::size_t invalidNotifications{};
-        std::unique_ptr<QTimer> pumpTimer, emergencyTimer, emergencyWriteTimer;
+        std::unique_ptr<QTimer> pumpTimer, emergencyTimer, emergencyWriteTimer, clearResultTimer;
         struct Sent { std::uint16_t sequence{}; std::uint8_t type{}; Timestamp at{}; };
         std::deque<Sent> sent;
     };

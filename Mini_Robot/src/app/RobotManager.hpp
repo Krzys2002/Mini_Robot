@@ -7,8 +7,10 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 namespace micro_robot {
+enum class DesktopSafetyState { Disconnected, Ready, LostConnection, EmergencyStop, Fault };
 struct RobotSession {
     RobotId robotId;
     ConnectionState connection{ConnectionState::Disconnected};
@@ -18,8 +20,15 @@ struct RobotSession {
     bool connectRequested{};
     bool removing{};
     bool emergencyStopRequested{};
+    std::optional<std::uint64_t> clearRequest{};
+    std::optional<Timestamp> motionAllowedAfter{};
+    bool strictMotionBarrier{};
+    bool emergencyRequestedByOperator{};
+    bool everConnected{};
+    bool safetyFault{};
+    DesktopSafetyState safety{DesktopSafetyState::Disconnected};
 };
-enum class CommandSubmission { Submitted, UnknownRobot, NotConnected, ShuttingDown, EmergencyStopped };
+enum class CommandSubmission { Submitted, UnknownRobot, NotConnected, ShuttingDown, EmergencyStopped, SafetyFault, StaleSession };
 
 // Application service, owning-thread only; no Qt, radio handles or pose estimates.
 // Exclusively coordinates one injected transport's sessions/event subscription.
@@ -58,6 +67,8 @@ public:
     // rejected once requested. Stop remains available. No UI recovery in #69.
     [[nodiscard]] bool supportsEmergencyStop() const noexcept;
     [[nodiscard]] bool requestEmergencyStop(RobotId id);
+    [[nodiscard]] bool supportsEmergencyClear() const noexcept;
+    [[nodiscard]] bool requestEmergencyClear(RobotId id);
     // Teardown only: does not submit Stop or await its physical execution. Robot
     // stop-on-disconnect/watchdog remains required; callers needing an orderly
     // motion stop must do so before shutdown using their command/ack policy.
@@ -70,13 +81,16 @@ private:
     class Events;
     void receiveState(RobotId id, ConnectionState state, Timestamp at);
     void receiveTelemetry(const RobotTelemetry& sample);
+    void receiveEmergencyClearResult(RobotId id, std::uint64_t request, bool accepted, Timestamp at);
     void receiveError(const TransportError& error);
     IRobotTransport& transport_;
     WorldModel& world_;
     std::optional<LogChannel> log_;
     std::map<RobotId, RobotSession> sessions_;
+    std::set<RobotId> emergencyLatched_;
     std::shared_ptr<Events> events_;
     std::weak_ptr<IRobotTransportEvents> sink_;
+    std::uint64_t nextClearRequest_{1};
     bool shuttingDown_{};
 };
 } // namespace micro_robot

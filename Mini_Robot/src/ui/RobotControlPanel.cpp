@@ -63,9 +63,11 @@ RobotControlPanel::RobotControlPanel(DesktopController& controller, QWidget* par
     auto* right = button("manualRight", QStringLiteral("Turn CW"));
     auto* stop = button("manualStop", QStringLiteral("Stop"));
     auto* emergency = button("emergencyStop", QStringLiteral("E-STOP ALL ROBOTS"));
+    auto* clearEmergency = button("clearEmergencyStop", QStringLiteral("Clear E-stop"));
+    clearEmergency->setToolTip(QStringLiteral("Explicitly request clear for the selected robot. Motion remains inhibited until the robot accepts; physical output is unconfirmed."));
     emergency->setFocusPolicy(Qt::ClickFocus);
     emergency->setStyleSheet(QStringLiteral("QPushButton { font-weight: bold; padding: 8px; } QPushButton:enabled { background: #a40000; color: white; } QPushButton:disabled { background: #dedede; color: #666666; }"));
-    emergency->setToolTip(QStringLiteral("Requests a latched emergency stop for every registered robot. Restart the app and clear the robot-side latch before recovery. Physical execution is unconfirmed."));
+    emergency->setToolTip(QStringLiteral("Requests a latched emergency stop for every registered robot. Use explicit clear only after resolving the cause and confirming conditions are safe. Physical execution is unconfirmed."));
     layout->addWidget(selector, 0, 0, 1, 3);
     layout->addWidget(scan, 0, 3);
     layout->addWidget(connectRobot, 0, 4);
@@ -79,7 +81,8 @@ RobotControlPanel::RobotControlPanel(DesktopController& controller, QWidget* par
     layout->addWidget(left, 2, 4);
     layout->addWidget(right, 2, 5);
     layout->addWidget(stop, 3, 0, 1, 2);
-    layout->addWidget(emergency, 3, 2, 1, 4);
+    layout->addWidget(emergency, 3, 2, 1, 3);
+    layout->addWidget(clearEmergency, 3, 5);
     layout->addWidget(status, 4, 0, 1, 6);
     connect(selector, &QComboBox::activated, this, [&controller, selector](int index) {
         controller.selectRobot(selector->itemData(index).toUInt());
@@ -109,6 +112,8 @@ RobotControlPanel::RobotControlPanel(DesktopController& controller, QWidget* par
     connect(disconnectRobot, &QPushButton::clicked, &controller, &DesktopController::disconnectRobot);
     connect(stop, &QPushButton::clicked, &controller, &DesktopController::stopManualDrive);
     connect(emergency, &QPushButton::clicked, &controller, &DesktopController::emergencyStop);
+    connect(clearEmergency, &QPushButton::clicked, &controller, &DesktopController::clearEmergencyStop);
+    connect(&controller, &DesktopController::emergencyClearAvailable, clearEmergency, &QPushButton::setEnabled);
     for (auto* direction : {forward, backward, left, right}) {
         direction->setAutoRepeat(false);
         connect(direction, &QPushButton::pressed, this, [&controller, direction, forward, backward, left, linear, angular] {

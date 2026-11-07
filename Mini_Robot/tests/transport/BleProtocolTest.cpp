@@ -147,6 +147,8 @@ TEST(BleProtocolTest, RejectsMalformedFramesVersionsTypesChannelsAndReservedEnum
         EXPECT_TRUE(decodeBleNotification(BleEndpoint::CommandResult, bytes).frame);
         EXPECT_STREQ(bleResultName(code), names[code]);
         EXPECT_EQ(bleRejectionCode(code), code == 1 ? TransportErrorCode::UnsupportedVersion
+            : code == 7 ? TransportErrorCode::EmergencyStopLatched
+            : code == 8 ? TransportErrorCode::RobotFault
             : code >= 4 ? TransportErrorCode::InvalidCommand : TransportErrorCode::BackendFailure);
     }
 }
@@ -167,3 +169,11 @@ TEST(BleProtocolTest, SharedReceiveCounterHandlesGapsDuplicatesWrapAndHalfRange)
     EXPECT_EQ(counter.accept(0)->unwrapped, 0U);
 }
 } // namespace
+
+TEST(BleProtocolSafetyTest, EmergencyClearUsesCommandCharacteristicWithResponse)
+{
+    const auto frame = micro_robot::encodeBleEmergencyClear(0x1234);
+    EXPECT_EQ(frame.bytes, (std::vector<std::uint8_t>{1, 4, 0x34, 0x12}));
+    EXPECT_EQ(frame.endpoint, micro_robot::BleEndpoint::Command);
+    EXPECT_TRUE(frame.withResponse);
+}

@@ -70,6 +70,10 @@ EncodedBleCommand encodeBleEmergencyStop(std::uint16_t sequence)
 {
     return {header(3, sequence), BleEndpoint::EmergencyStop, true};
 }
+EncodedBleCommand encodeBleEmergencyClear(std::uint16_t sequence)
+{
+    return {header(4, sequence), BleEndpoint::Command, true};
+}
 BleDecodeResult decodeBleNotification(BleEndpoint endpoint, std::span<const std::uint8_t> b)
 {
     const auto invalid = [](const char* message) { return BleDecodeResult{{}, TransportErrorCode::BackendFailure, message}; };
@@ -104,7 +108,9 @@ BleDecodeResult decodeBleNotification(BleEndpoint endpoint, std::span<const std:
 TransportErrorCode bleRejectionCode(std::uint8_t result) noexcept
 {
     if (result == 1) return TransportErrorCode::UnsupportedVersion;
-    if (result >= 4 && result <= 8) return TransportErrorCode::InvalidCommand;
+    if (result == 7) return TransportErrorCode::EmergencyStopLatched;
+    if (result == 8) return TransportErrorCode::RobotFault;
+    if (result >= 4 && result <= 6) return TransportErrorCode::InvalidCommand;
     return TransportErrorCode::BackendFailure;
 }
 const char* bleResultName(std::uint8_t result) noexcept

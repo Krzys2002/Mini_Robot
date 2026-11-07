@@ -48,8 +48,9 @@ faults and releases the session.
 The intent survives disconnect/fault. On reconnect, the adapter reasserts it
 before publishing Connected. Velocity remains blocked while intent is latched,
 or validated robot state is EmergencyStop/Fault. There is no implicit clear.
-The domain safety request/explicit clear and operator controls remain #70/#69;
-this issue adds no motion buttons or autonomous command source.
+Explicit clear is available after confirmed E-stop on a connected session. A
+matching accepted Idle CommandResult is required; timeout, rejection, disconnect
+or a newer E-stop retains inhibition. This does not prove physical output state.
 
 ## Notifications and domain delivery
 
@@ -127,3 +128,10 @@ versions, Robot Info limits and debug logs:
 Real radio timing/backpressure and Linux BlueZ/Windows runtime are unverified.
 Connection-specific physical checks from #65 remain in
 [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
+
+Safety states in both telemetry and CommandResult notifications inhibit motion.
+An E-stop report (including an EmergencyStopLatched rejection) persists through
+later Idle telemetry until explicit acknowledged clear. RobotFault rejection and
+Fault state reports cancel pending clear and inhibit the manager even if a late
+accepted Idle clear result arrives. These use structured transport error codes;
+ordinary command-validation errors do not establish a robot safety fault.

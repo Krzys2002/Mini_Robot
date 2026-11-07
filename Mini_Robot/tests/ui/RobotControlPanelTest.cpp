@@ -236,7 +236,7 @@ TEST(RobotControlPanelTest, SimulationUsesSameServiceAndEmergencyStopLatchesAllS
     ASSERT_TRUE(estop->isEnabled()); estop->click();
     auto* status = window.findChild<QLabel*>("manualStatus");
     const auto recoveryMessage = status->text();
-    EXPECT_TRUE(recoveryMessage.contains("restart app"));
+    EXPECT_TRUE(recoveryMessage.contains("explicit clear"));
     transport.advanceTo(MonotonicClock::now());
     EXPECT_EQ(status->text(), recoveryMessage);
     EXPECT_TRUE(robots.session(one)->emergencyStopRequested);
@@ -245,6 +245,14 @@ TEST(RobotControlPanelTest, SimulationUsesSameServiceAndEmergencyStopLatchesAllS
     EXPECT_DOUBLE_EQ(*robots.session(one)->telemetry->linearMetersPerSecond, 0);
     EXPECT_FALSE(window.findChild<QPushButton*>("manualForward")->isEnabled());
     EXPECT_TRUE(window.findChild<QPushButton*>("manualStop")->isEnabled());
+    auto* clear = window.findChild<QPushButton*>("clearEmergencyStop");
+    ASSERT_TRUE(clear->isEnabled()); clear->click();
+    EXPECT_TRUE(robots.session(one)->emergencyStopRequested);
+    transport.advanceTo(MonotonicClock::now());
+    EXPECT_FALSE(robots.session(one)->emergencyStopRequested);
+    EXPECT_TRUE(robots.session(two)->emergencyStopRequested); // Selected robot only.
+    EXPECT_TRUE(window.findChild<QPushButton*>("manualForward")->isEnabled());
+    controller.emergencyStop(); transport.advanceTo(MonotonicClock::now());
     controller.disconnectRobot(); transport.advanceTo(MonotonicClock::now());
     EXPECT_TRUE(estop->isEnabled()); // Remains available while disconnected/faulted.
     controller.connectRobot(); transport.advanceTo(MonotonicClock::now());
