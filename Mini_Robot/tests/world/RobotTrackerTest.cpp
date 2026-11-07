@@ -2,6 +2,8 @@
 #include "tracking/MetricTracking.hpp"
 #include <gtest/gtest.h>
 #include <limits>
+#include <numbers>
+#include <cmath>
 #include <stdexcept>
 using namespace micro_robot;
 using namespace std::chrono_literals;
@@ -80,4 +82,46 @@ TEST(MetricTrackingTest, ValidMeasurementsAgeAndInputInvalidationStopsTracking)
     batch->measurements[0].capturedAt = at(1400ms);
     ingestMetricBatch(tracker, batch, at(1400ms));
     EXPECT_EQ(world.tracking(RobotId{1}, at(1400ms)).status, TrackingStatus::Fresh);
+}
+
+TEST(PoseSmoothingTest, WrapSafeAndRawDiagnostics)
+{
+    WorldModel world;
+    RobotTracker tracker(world, thresholds, {.25, .5});
+    auto sample = pose; sample.heading = Radians{179 * std::numbers::pi / 180};
+    ASSERT_EQ(tracker.observe(RobotId{1}, sample, at(1s), at(1s)), TrackerUpdate::Applied);
+    sample.x = Meters{1}; sample.heading = Radians{-179 * std::numbers::pi / 180};
+    ASSERT_EQ(tracker.observe(RobotId{1}, sample, at(1100ms), at(1100ms)), TrackerUpdate::Applied);
+    const auto state = world.robot(RobotId{1});
+    EXPECT_NEAR(state->pose->x.value, .4, 1e-12);
+    EXPECT_NEAR(state->pose->heading.value, std::numbers::pi, 1e-12);
+    EXPECT_DOUBLE_EQ(state->tracking->rawPose->x.value, 1);
+    EXPECT_NEAR(state->tracking->continuousHeading, 181 * std::numbers::pi / 180, 1e-12);
+}
+TEST(PoseSmoothingTest, LostAndInvalidatedTracksInitializeWithoutTransient)
+{
+    WorldModel world;
+    RobotTracker tracker(world, thresholds, {.1, .1});
+    ASSERT_EQ(tracker.observe(RobotId{1}, pose, at(1s), at(1s)), TrackerUpdate::Applied);
+    auto sample = pose; sample.x = Meters{2};
+    ASSERT_EQ(tracker.observe(RobotId{1}, sample, at(2s), at(2s)), TrackerUpdate::Applied);
+    EXPECT_DOUBLE_EQ(world.robot(RobotId{1})->pose->x.value, 2);
+    tracker.invalidate(at(2100ms)); sample.x = Meters{3};
+    ASSERT_EQ(tracker.observe(RobotId{1}, sample, at(2200ms), at(2200ms)), TrackerUpdate::Applied);
+    EXPECT_DOUBLE_EQ(world.robot(RobotId{1})->pose->x.value, 3);
+    EXPECT_THROW((RobotTracker{world, thresholds, {0, 1}}), std::invalid_argument);
+}
+TEST(PoseSmoothingTest, StationaryNoiseIsReducedAndRepeatedSamplesStayFixed)
+{
+    WorldModel world;
+    RobotTracker tracker(world, thresholds, {.2, .2});
+    double rawEnergy = 0, filteredEnergy = 0;
+    for (int i = 0; i < 200; ++i) {
+        Pose2D sample{Meters{i == 0 ? 0.0 : (i % 2 ? .01 : -.01)}, Meters{}, Radians{}};
+        const auto t = at(1s + i * 10ms);
+        ASSERT_EQ(tracker.observe(RobotId{1}, sample, t, t), TrackerUpdate::Applied);
+        rawEnergy += sample.x.value * sample.x.value;
+        filteredEnergy += std::pow(world.robot(RobotId{1})->pose->x.value, 2);
+    }
+    EXPECT_LT(filteredEnergy, rawEnergy / 4);
 }

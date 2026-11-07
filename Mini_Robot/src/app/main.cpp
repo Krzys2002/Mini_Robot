@@ -189,7 +189,8 @@ int main(int argc, char* argv[])
     QObject::connect(&workspace, &WorkspaceCalibrationController::profileChanged, &vision, [&] {
         vision.setWorkspaceCalibration(workspace.profile());
     });
-    RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter}};
+    RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter},
+                         {config.tracking.positionAlpha, config.tracking.headingAlpha}};
     connectVisionTracking(vision, tracker, controller, [&controller] { controller.refreshWorld(); });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &vision, &VisionController::setInput);

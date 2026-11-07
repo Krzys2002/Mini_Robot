@@ -33,12 +33,13 @@ PoseUpdateResult WorldModel::updatePose(RobotId id, const Pose2D& pose, Timestam
 }
 
 PoseUpdateResult WorldModel::updateTrackedPose(RobotId id, const Pose2D& pose,
-                                             Timestamp capturedAt, TrackingThresholds thresholds)
+                                             Timestamp capturedAt, TrackingThresholds thresholds,
+                                             std::optional<Pose2D> rawPose, double continuousHeading)
 {
     if (thresholds.staleAfter <= Duration::zero() || thresholds.lostAfter <= thresholds.staleAfter)
         return PoseUpdateResult::InvalidPose;
     const auto result = updatePose(id, pose, capturedAt);
-    if (result == PoseUpdateResult::Applied) robots_.at(id).tracking = TrackingMetadata{thresholds, false};
+    if (result == PoseUpdateResult::Applied) robots_.at(id).tracking = TrackingMetadata{thresholds, false, rawPose, continuousHeading};
     return result;
 }
 void WorldModel::invalidateTracking(RobotId id)

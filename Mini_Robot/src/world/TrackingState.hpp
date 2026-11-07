@@ -1,5 +1,6 @@
 #pragma once
 #include "common/Time.hpp"
+#include "common/Pose2D.hpp"
 #include <optional>
 
 namespace micro_robot {
@@ -17,5 +18,7 @@ struct TrackingInfo {
 struct TrackingMetadata {
     TrackingThresholds thresholds;
     bool invalidated{};
+    std::optional<Pose2D> rawPose;
+    double continuousHeading{}; // unfiltered, unwrapped radians for diagnostics
 };
 } // namespace micro_robot

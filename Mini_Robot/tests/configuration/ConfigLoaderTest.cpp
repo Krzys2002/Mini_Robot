@@ -552,3 +552,16 @@ TEST(ConfigLoaderTrackingTest, ThresholdsAreConfigurableAndInvalidOrderingFallsB
     EXPECT_EQ(invalid.config.tracking.lostAfter, std::chrono::milliseconds{1000});
     EXPECT_FALSE(invalid.diagnostics.empty());
 }
+
+TEST(TrackingFilterConfigTest, ParsesAndRejectsInvalidAlpha)
+{
+    const auto valid = micro_robot::parseConfig("[tracking]\nposition_alpha=.2\nheading_alpha=.5\n", "test.ini");
+    EXPECT_TRUE(valid.diagnostics.empty());
+    EXPECT_DOUBLE_EQ(valid.config.tracking.positionAlpha, .2);
+    EXPECT_DOUBLE_EQ(valid.config.tracking.headingAlpha, .5);
+    for (const auto* bad : {"0", "-1", "1.1", "nan", "inf", "junk"}) {
+        const auto result = micro_robot::parseConfig(std::string{"[tracking]\nposition_alpha="} + bad + "\n", "test.ini");
+        EXPECT_FALSE(result.diagnostics.empty());
+        EXPECT_DOUBLE_EQ(result.config.tracking.positionAlpha, 1);
+    }
+}

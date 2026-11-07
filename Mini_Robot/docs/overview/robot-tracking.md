@@ -21,8 +21,7 @@ at their current monotonic time; a copied status cannot age by itself.
 Defaults are 250 ms stale and 1000 ms lost, configurable through
 [application settings](configuration.md#tracking-age). They are provisional,
 not physical safety thresholds. Historical poses remain stored after loss; use
-tracking status and age to decide whether a pose is usable. This issue does not
-implement filtering, velocity, robot motion or an operational safety state machine.
+tracking status and age to decide whether a pose is usable. Tracking does not enable robot motion or an operational safety state machine.
 Physical camera/tag localization remains unverified (see #224).
 
 ## Source ownership and future control gate
@@ -53,3 +52,16 @@ This is the required policy for the future autonomous command boundary (#77),
 not a claim that a pose-based command supervisor is implemented. Current manual
 control does not consume tracked poses and remains governed by desktop/robot
 safety independently. No autonomous controller is enabled by these changes.
+
+## Pose smoothing
+
+The tracker accepts `PoseFilterConfig` with position and heading alpha in (0,1].
+`[tracking] position_alpha` and `heading_alpha` configure the desktop; defaults
+are 1 (raw behavior). Smaller values suppress jitter with additional lag.
+Position uses exponential interpolation; heading uses the shortest angular arc.
+Raw pose and continuous unwrapped heading are retained in tracking metadata in
+WorldModel snapshots. Consecutive rotation must be less than pi for unwrapping.
+New, lost, invalidated and externally replaced tracks initialize from the next
+accepted sample. Rejected measurements do not advance filter state.
+Synthetic tests cover wrap crossing, reset and stationary jitter. Physical camera
+noise and lag tuning remain unverified.

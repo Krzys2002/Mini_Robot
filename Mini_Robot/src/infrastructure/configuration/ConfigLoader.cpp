@@ -46,6 +46,16 @@ std::optional<Integer> parseInteger(std::string_view text)
     return value;
 }
 
+std::optional<double> parseDouble(std::string_view text)
+{
+    double value{};
+    std::istringstream stream{std::string{text}};
+    stream.imbue(std::locale::classic());
+    stream >> std::noskipws >> value;
+    if (!stream || !stream.eof() || !std::isfinite(value)) return std::nullopt;
+    return value;
+}
+
 std::optional<milliseconds> parseMilliseconds(std::string_view text, milliseconds min, milliseconds max)
 {
     const auto value = parseInteger<std::int64_t>(text);
@@ -176,6 +186,22 @@ const std::array settings{
             return resolution ? std::to_string(resolution->width) + "x" + std::to_string(resolution->height)
                               : std::string{"auto"};
         }},
+    Setting{"tracking.position_alpha", "a finite number in (0,1]",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto alpha = parseDouble(value);
+            if (!alpha || *alpha <= 0 || *alpha > 1) return false;
+            config.tracking.positionAlpha = *alpha;
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.tracking.positionAlpha); }},
+    Setting{"tracking.heading_alpha", "a finite number in (0,1]",
+        [](std::string_view value, ApplicationConfig& config) {
+            const auto alpha = parseDouble(value);
+            if (!alpha || *alpha <= 0 || *alpha > 1) return false;
+            config.tracking.headingAlpha = *alpha;
+            return true;
+        },
+        [](const ApplicationConfig& config) { return std::to_string(config.tracking.headingAlpha); }},
     Setting{"tracking.stale_after_ms", "an integer from 1 to 10000",
         [](std::string_view value, ApplicationConfig& config) {
             const auto duration = parseMilliseconds(value, minInterval, maxInterval);
