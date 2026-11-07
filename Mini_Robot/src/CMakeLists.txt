@@ -311,3 +311,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     )
     micro_robot_target_defaults(micro_robot_desktop)
 endif()
+
+# Qt-free offline comparison of the same tracker used by live metric batches.
+add_executable(micro_robot_filter_comparison ../tools/tracking/compare_pose_filters.cpp)
+target_link_libraries(micro_robot_filter_comparison PRIVATE micro_robot_tracking)
+micro_robot_target_defaults(micro_robot_filter_comparison)

@@ -1,0 +1,7 @@
+scenario,filter,samples,position_rmse_m,heading_rmse_rad,position_lag_s
+stationary,exponential,600,0.002917807125,0.00221432425,0
+stationary,kalman,600,0.004860402816,0.003282004094,0
+constant-motion,exponential,600,0.008512143574,0.02410719965,0.08
+constant-motion,kalman,600,0.004860403166,0.003281978166,0
+turning,exponential,600,0.01569776171,0.02181270247,0.08
+turning,kalman,600,0.005145693389,0.003629644109,0

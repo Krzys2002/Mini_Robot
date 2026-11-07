@@ -1,0 +1,4 @@
+exponential alpha_position=0.2 alpha_heading=0.2
+kalman q_position=0.05 q_heading=0.2 r_position=0.0001 r_heading=0.0004
+warmup_samples=25 lag_search_samples=0..20 thresholds_stale_s=0.25 lost_s=1
+synthetic_dt_s=0.02 synthetic_samples=600 deterministic_sinusoidal_noise; lag is best delayed-reference position fit

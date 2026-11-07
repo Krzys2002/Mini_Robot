@@ -256,3 +256,9 @@ target_include_directories(micro_robot_firmware_safety_tests PRIVATE firmware/fa
 target_link_libraries(micro_robot_firmware_safety_tests PRIVATE GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_firmware_safety_tests)
 gtest_discover_tests(micro_robot_firmware_safety_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
+add_test(NAME FilterComparison.DeterministicCsvReplay
+    COMMAND ${CMAKE_COMMAND} -DTOOL=$<TARGET_FILE:micro_robot_filter_comparison>
+        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/filter-comparison
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/world/FilterComparisonTest.cmake)
+set_tests_properties(FilterComparison.DeterministicCsvReplay PROPERTIES LABELS core)

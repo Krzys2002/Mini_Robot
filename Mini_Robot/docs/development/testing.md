@@ -379,3 +379,8 @@ ctest --test-dir build -R '^(AprilTag|VisionControllerTest)' --output-on-failure
 Physical printed-tag detection is not established by generated images or videos;
 record the [commissioning checks](../vision/apriltag-detection.md#physical-acceptance-not-run)
 separately. Linux/Windows runtime and legacy OpenCV execution were not run locally.
+
+Pose estimator tests are in `micro_robot_world_tests` (`KalmanPoseFilterTest`,
+`PoseSmoothingTest`, `MotionEstimateTest`). `FilterComparison.DeterministicCsvReplay`
+checks generated metric-pose replay against the production tracker and malformed
+input rejection. See [comparison results and reproduction](../measurements/kalman/README.md).
