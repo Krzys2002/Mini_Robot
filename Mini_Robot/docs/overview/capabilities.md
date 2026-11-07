@@ -12,7 +12,7 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | Vision | AprilTag detection, RobotId association, pixel observations, calibrated metric measurement boundary and matched-frame debug overlays | Physical metric-pose acceptance (#224) |
 | World | One authoritative robot registry, metric workspace, tracked pose measurements and explicit observation age | Physical tracking acceptance, filtering, obstacles and planning state |
 | Communication | Native BLE command/telemetry adapter, RobotManager sessions and deterministic simulation with shared pending Stop priority | Production command/safety interoperability, over-air measurements and remaining multi-link hardware checks |
-| Robot firmware | Legacy HTTP prototype; independent actuator expiry and generation gate, clear-to-idle semantics and ordered browser intent | Production BLE runtime/protocol, hardware-safe boot/disable, bounded deceleration and measured watchdog/E-stop acceptance (#158/#162) |
+| Robot firmware | Fresh C6 build skeleton, pinned toolchain and portable clock host tests; separate BLE connection fixture | Production BLE runtime/protocol, actuation and measured safety acceptance (#158–#166, #238) |
 | Control/planning | Pure differential-drive math and transport-level safety primitives | Domain operational safety, manual commands UI, closed-loop controller, paths, trajectories and coordination |
 | Recording | Human-readable application logs | Structured experiment records and validated end-to-end latency/error measurements |
 
@@ -37,8 +37,8 @@ constitute transport-independent operational safety.
   acceptance. PR [#213](https://github.com/Krzys2002/Mini_Robot/pull/213) retains
   reported physical connection evidence and the full-discovery correction; this
   connection-only fixture does not establish motors, watchdog or E-stop behavior.
-- [Legacy firmware](../../../T1-ESP-C6/README.md) owns prototype safety corrections;
-  physical stopping for this audit patch is NOT RUN.
+- [Firmware](../../firmware/codecell-c6/README.md) owns the fresh build skeleton;
+  retired T1 prototype results do not validate this new runtime. Physical checks remain #238.
 - [Test/CI recipes](../development/testing.md) distinguish the affordable PR job,
   daily platform matrix, local tests and hardware checks. Billing/spending limits
   are GitHub account settings and cannot be repaired by repository code.
