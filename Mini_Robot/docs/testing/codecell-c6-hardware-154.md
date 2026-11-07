@@ -3,7 +3,8 @@
 Purpose: record verified hardware facts, unresolved blockers, and safe bench
 steps for [#154](https://github.com/Krzys2002/Mini_Robot/issues/154) without
 inventing limits. This document is the versioned profile baseline for the
-current T1-ESP-C6 firmware at repository revision time.
+source/hardware investigation. The T1 prototypes were retired during #155;
+current firmware work lives in `Mini_Robot/firmware/codecell-c6/`.
 
 Status: **source-backed profile with explicit unresolved physical assumptions**.
 At the maintainer's request, #154 owns this investigation and software handoff;
@@ -15,7 +16,7 @@ applicable supply/output/measurement evidence below is accepted.
 ## Version and scope
 
 - Profile version: `codecell-c6-v3` (2026-11-07)
-- Firmware scope: `T1-ESP-C6/`
+- Firmware scope: `Mini_Robot/firmware/codecell-c6/`; prototype source observations below are historical
 - Build target scope: `platformio.ini` environment `esp32-c6-devkitc-1`
 - Out of scope: ESP32-S3 video extension (tracked separately by #110)
 
@@ -27,8 +28,8 @@ applicable supply/output/measurement evidence below is accepted.
 | MCU package | ESP32-C6-MINI-1-H8, single-core RISC-V | Vendor product page | High |
 | Memory | 8 MB flash, 512 KB SRAM | Vendor product page | High |
 | Wireless capabilities | Wi-Fi 6, BLE 5, Zigbee | Vendor product page | High |
-| Firmware build board in PlatformIO | `board = esp32-c6-devkitc-1` | `T1-ESP-C6/platformio.ini` | High |
-| Reconciliation statement | DevKitC board setting is used as a PlatformIO Arduino build target and does **not** by itself prove the physical board is a DevKitC. Robot IO is performed through the CodeCell library API (`CodeCell.h`) and must be validated on the actual CodeCell C6 hardware. | `T1-ESP-C6/platformio.ini`, `T1-ESP-C6/src/Main.cpp` | High |
+| Firmware build board in PlatformIO | `board = esp32-c6-devkitc-1` | `Mini_Robot/firmware/codecell-c6/platformio.ini` | High |
+| Reconciliation statement | DevKitC board setting is used as a PlatformIO Arduino build target and does **not** by itself prove the physical board is a DevKitC. Future motor adapters must be validated on the actual CodeCell C6 hardware; the fresh skeleton initializes no drives. | `Mini_Robot/firmware/codecell-c6/platformio.ini`, `Mini_Robot/firmware/codecell-c6/src/main.cpp` | High |
 | Reset/boot pin mapping for this deployed board revision | **UNRESOLVED** (not documented in repository evidence) | No board-revision photo/schematic pinned in repository | Low |
 | Deployed board revision identifier (silkscreen) | **UNRESOLVED** | Physical inspection not yet attached | Low |
 
@@ -99,6 +100,10 @@ These cache versions are observations, not production dependency pins (#155).
 
 ## 3. Feedback availability and classification
 
+The code references in this table describe the retired prototype at revision
+`7c04e3b7246cb45326e08a7d3763e1c93aedda20`; the fresh skeleton implements no
+sensor or motor feedback. Hardware capability still requires actual validation.
+
 | Feedback channel | Current status | Evidence | Classification |
 | --- | --- | --- | --- |
 | IMU yaw/rotation | Used by firmware (`Motion_RotationRead`) for heading control | `T1-ESP-C6/src/controller.cpp` | **Available: IMU heading feedback** |
@@ -113,10 +118,11 @@ Resulting control classification for #154 acceptance:
 - Current control mode is open-loop differential drive with IMU-assisted heading
   correction and optional IMU-distance estimate.
 
-## 4. Initialization and zero-output behavior audit (code-level)
+## 4. Historical prototype source audit (not current firmware)
 
-Code audit refreshed against the merged #214 safety correction; these are source
-observations, not electrical verification:
+These historical observations describe the retired prototype at revision
+`7c04e3b7246cb45326e08a7d3763e1c93aedda20`, including #214. They are not
+features of the fresh firmware skeleton and are not electrical verification:
 
 - Setup explicitly writes zero to both drives before starting tasks. Mutex/task
   initialization failures latch a controller fault; no startup motion command is
@@ -127,7 +133,7 @@ observations, not electrical verification:
   nominal 20 ms cycle; contention produces zero rather than waiting for control.
 - Clear invalidates pending command/computed output and requires new post-clear
   intent. A stale computation cannot restore the old generation.
-- This remains the [legacy HTTP prototype](../../../T1-ESP-C6/README.md), not a
+- This remains the [legacy HTTP prototype](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/README.md), not a
   production BLE endpoint or a measured immediate electrical-disable guarantee.
   The nominal 300 ms validity plus scheduler/driver behavior requires physical
   measurement; it does not satisfy the supply/output gates below.
@@ -180,7 +186,7 @@ have evidence attached to #154. This document does not establish numerical limit
   approved motor-disconnected measurement setup under the verified supply limit.
   Neither measurement setup nor firmware enforcement is provided by this profile.
 
-The current firmware does not provide a verified low-output bench mode.
+Neither the retired prototype nor the fresh skeleton provides a verified low-output bench mode. The following source analysis describes the retired prototype:
 `controlTask()` applies `applyStartRamp()` after motor mixing and heading
 correction: a mixed wheel target of 10 becomes 70 at movement start and 67 at
 100 ms (driver command units). Heading correction can also change each wheel
@@ -231,6 +237,10 @@ Blocking rule:
   exist; merging the software investigation does not complete physical acceptance.
 
 ## 6. Legacy behavior matrix (keep/adapt/disable)
+
+Historical investigation proposals only. The maintainer selected a fresh skeleton
+for #155: no HTTP controller or IMU-distance behavior is ported automatically.
+#158 onward must review any future adapter/control implementation independently.
 
 | Legacy element | Decision | Reason |
 | --- | --- | --- |

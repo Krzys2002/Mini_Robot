@@ -247,12 +247,6 @@ target_link_libraries(micro_robot_camera_identity_tests PRIVATE micro_robot_came
 micro_robot_target_defaults(micro_robot_camera_identity_tests)
 gtest_discover_tests(micro_robot_camera_identity_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
-# Compile the real legacy controller against deterministic Arduino/CodeCell fakes.
-# This complements firmware compilation; it does not establish physical stop time.
-add_executable(micro_robot_firmware_safety_tests firmware/ActuatorSafetyTest.cpp
-    "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/src/controller.cpp")
-target_include_directories(micro_robot_firmware_safety_tests PRIVATE firmware/fakes
-    "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/include" "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/src")
-target_link_libraries(micro_robot_firmware_safety_tests PRIVATE GTest::gtest_main)
-micro_robot_target_defaults(micro_robot_firmware_safety_tests)
-gtest_discover_tests(micro_robot_firmware_safety_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+# Pure firmware host tests only; no embedded production source in desktop targets.
+add_subdirectory("${PROJECT_SOURCE_DIR}/firmware/codecell-c6/tests"
+    "${CMAKE_CURRENT_BINARY_DIR}/firmware-host")

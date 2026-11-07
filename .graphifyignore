@@ -11,8 +11,7 @@
 .codex/
 Mini_Robot/.codex/
 # Legacy standalone firmware is outside the desktop navigation corpus.
-T1-ESP-C6/
-T1-ESP-S3/
+Mini_Robot/firmware/
 # The initial graph is code-only; semantic indexing is intentionally deferred.
 *.md
 **/*.md

@@ -129,9 +129,11 @@ in [platform boundaries](platform-boundaries.md).
 - [V4L2 physical identity](../../src/camera/V4l2Identity.hpp),
   [implementation](../../src/camera/V4l2Identity.cpp): filesystem-only adapter helper
   used by Linux capture; [profile behavior](calibration-profiles.md#physical-camera-identity-and-review-corrections).
-- [Prototype actuator gate](../../../T1-ESP-C6/include/ActuatorSafety.hpp): owned by
-  the legacy firmware, with the actual controller compiled against host fakes in
-  its separate CMake test target; [firmware guide](../../../T1-ESP-C6/README.md).
+- [Firmware clock contract](../../firmware/codecell-c6/include/FirmwareClock.hpp):
+  fresh firmware build skeleton with independent host tests; embedded production
+  sources are not linked into desktop targets. See the
+  [firmware guide](../../firmware/codecell-c6/README.md).
+
 
 ## Implementation limits
 

@@ -72,7 +72,7 @@ Source can still change after a freshness check; verify cited lines before use.
 The scan root is the whole Git worktree. `.graphifyignore` and existing Git ignore
 rules exclude builds, dependencies, environments, IDE state, local agent files,
 generated output, Markdown/text, thesis reports and presentations. The code-only
-flag skips remaining media. `T1-ESP-C6/` and `T1-ESP-S3/` are excluded entirely.
+flag skips remaining media. `Mini_Robot/firmware/` is excluded from the desktop graph.
 The graph includes desktop code, the separate `Mini_Robot/firmware/ble-lifecycle/`
 fixture, tests, maintained tools and GitHub automation. A `.h=cpp` override handles Arduino
 and fake headers. Do not bypass Git ignores to index local credentials/config.

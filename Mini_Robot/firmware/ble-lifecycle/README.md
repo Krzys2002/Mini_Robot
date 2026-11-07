@@ -9,8 +9,7 @@ Bench firmware for [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
 Follow the [physical test instructions](../../docs/testing/ble-connection-187.md)
 for flashing, provisioning, fault profiles and evidence collection.
 
-This is an Arduino/PlatformIO project based on the supplied T1-ESP-C6
-configuration: `esp32-c6-devkitc-1`, USB CDC, USB mode 1, 115200 baud and
+This is an independent Arduino/PlatformIO connection fixture using `esp32-c6-devkitc-1`, USB CDC, USB mode 1, 115200 baud and
 `default.csv`. The pioarduino platform is pinned to 55.03.37 and
 [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino/releases/tag/2.3.6)
 to 2.3.6 for reproducible builds. The DevKitC board definition is the same

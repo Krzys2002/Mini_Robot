@@ -10,8 +10,7 @@ the desktop application and its host tests directly from this folder in CLion.
 | --- | --- |
 | [`Mini_Robot/`](Mini_Robot/README.md) | Main C++20 / Qt 6 desktop project, CMake modules, configuration, tests, and documentation |
 | [`Mini_Robot/firmware/ble-lifecycle/`](Mini_Robot/firmware/ble-lifecycle/README.md) | Separate ESP32-C6 BLE connection fixture; does not drive motors or implement command safety |
-| [`T1-ESP-C6/`](T1-ESP-C6/README.md) | Legacy CodeCell C6 Drive HTTP/browser control prototype, built with PlatformIO |
-| `T1-ESP-S3/` | Separate XIAO ESP32-S3 Arduino/PlatformIO prototype |
+| [`Mini_Robot/firmware/codecell-c6/`](Mini_Robot/firmware/codecell-c6/README.md) | Fresh C6 firmware build skeleton, pinned PlatformIO and independent host tests |
 | `3D Printing/` | Mechanical/printing assets |
 | `Pres/`, `report/` | LaTeX presentation and report sources and generated documents |
 | `.github/workflows/` | PR verification and platform build/test workflows |
