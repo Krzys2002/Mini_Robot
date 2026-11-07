@@ -63,7 +63,7 @@ interoperability separately. All of these results remain NOT RUN here.
 ## Control gate
 
 The required future autonomous tracking-loss gate and single-camera ownership
-contract are specified in [robot tracking](../overview/robot-tracking.md).
+contract are specified in the robot-tracking guide in [tracking PR #227](https://github.com/Krzys2002/Mini_Robot/pull/227).
 Implement and test that command gate before a pose-based autonomous controller is
 enabled. Provisional age thresholds and component tests establish neither physical
 accuracy nor safe stopping.
@@ -98,3 +98,13 @@ No check-run diagnostics were returned. The root cause is not established by
 these records; no Linux/Windows compilation or test success is claimed. Platform
 acceptance remains blocked until Actions can start jobs or equivalent hosts are
 available. Native GUI interaction and all physical acceptance remain NOT RUN.
+
+
+## Delivery ownership
+
+The metric corrections are included in merged PR #225. The production tracking
+bridge tests and source/control policy are in PR #227. Safety notification and
+clear-recovery corrections are delivered through PR #229. This CI/documentation
+PR is based directly on master and includes no application implementation from
+those open PRs. The combined `fix/review-safety-corrections` branch is retained as
+an integration evidence reference and does not need a competing implementation PR.
