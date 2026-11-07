@@ -1,6 +1,7 @@
 name: Windows build and test
 
 on:
+  workflow_dispatch:
   workflow_call:
 
 permissions:
@@ -12,7 +13,7 @@ concurrency:
 
 jobs:
   desktop-build-test:
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     name: Windows Server 2022 / MSVC / Desktop + tests
     runs-on: windows-2022
     timeout-minutes: 45
@@ -34,7 +35,7 @@ jobs:
           choco install ninja --yes --no-progress
           choco install opencv --yes --no-progress
           python -m pip install --disable-pip-version-check --quiet aqtinstall==3.2.1
-          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtmultimedia -O C:\Qt
+          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtmultimedia qtconnectivity -O C:\Qt
 
       - name: Resolve OpenCV and Qt prefixes
         run: |
@@ -73,7 +74,7 @@ jobs:
 
       - name: Configure
         run: >-
-          cmake --preset windows-msvc
+          cmake --preset windows-msvc -DMICRO_ROBOT_BUILD_BLE=ON
           -DMICRO_ROBOT_BUILD_DESKTOP=ON
           -DMICRO_ROBOT_BUILD_REPLAY=ON
           -DCMAKE_PREFIX_PATH="$env:QT_PREFIX;$env:OpenCV_DIR"
@@ -85,7 +86,7 @@ jobs:
         run: ctest --preset windows-msvc
 
   core-build-test:
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     name: Windows Server 2022 / MSVC / Core without Qt and OpenCV
     runs-on: windows-2022
     timeout-minutes: 25
