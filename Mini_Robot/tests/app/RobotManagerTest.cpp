@@ -515,3 +515,10 @@ TEST(DesktopSafetyTest, ReconnectFencesOldClearResults)
     f.transport.clearResult(one, current, true, Timestamp{7s});
     EXPECT_FALSE(f.robots.session(one)->emergencyStopRequested);
 }
+
+TEST(ReviewRegression, RobotFaultRejectionMustLatchManagerFault) {
+ Fixture f; f.connected(one);
+ f.transport.error({one, TransportOperation::SendCommand, TransportErrorCode::RobotFault, "Robot rejected command", Timestamp{2s}});
+ EXPECT_TRUE(f.robots.session(one)->safetyFault);
+ EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{3s}, 1s}), CommandSubmission::SafetyFault);
+}

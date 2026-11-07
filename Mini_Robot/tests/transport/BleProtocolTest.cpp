@@ -147,6 +147,8 @@ TEST(BleProtocolTest, RejectsMalformedFramesVersionsTypesChannelsAndReservedEnum
         EXPECT_TRUE(decodeBleNotification(BleEndpoint::CommandResult, bytes).frame);
         EXPECT_STREQ(bleResultName(code), names[code]);
         EXPECT_EQ(bleRejectionCode(code), code == 1 ? TransportErrorCode::UnsupportedVersion
+            : code == 7 ? TransportErrorCode::EmergencyStopLatched
+            : code == 8 ? TransportErrorCode::RobotFault
             : code >= 4 ? TransportErrorCode::InvalidCommand : TransportErrorCode::BackendFailure);
     }
 }

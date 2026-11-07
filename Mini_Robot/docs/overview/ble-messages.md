@@ -128,3 +128,10 @@ versions, Robot Info limits and debug logs:
 Real radio timing/backpressure and Linux BlueZ/Windows runtime are unverified.
 Connection-specific physical checks from #65 remain in
 [#187](https://github.com/Krzys2002/Mini_Robot/issues/187).
+
+Safety states in both telemetry and CommandResult notifications inhibit motion.
+An E-stop report (including an EmergencyStopLatched rejection) persists through
+later Idle telemetry until explicit acknowledged clear. RobotFault rejection and
+Fault state reports cancel pending clear and inhibit the manager even if a late
+accepted Idle clear result arrives. These use structured transport error codes;
+ordinary command-validation errors do not establish a robot safety fault.

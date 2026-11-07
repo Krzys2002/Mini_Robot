@@ -804,3 +804,85 @@ TEST(BleTransportSafetyTest, RejectedOrTimedOutClearStaysLatched)
     ASSERT_FALSE(timeout.events->errors.empty());
     EXPECT_EQ(timeout.events->errors.back().code, TransportErrorCode::InvalidCommand);
 }
+
+TEST(ReviewRegression, ResultOnlyEmergencyStopMustRemainLatched) {
+ Fixture f; f.ready();
+ const auto token=f.backend->links.at(robot);
+ f.transport->sendCommand(robot, freshVelocity()); drain();
+ ASSERT_EQ(f.backend->writes.size(), 1U);
+ emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(0, 0, 7, 2, 2), MonotonicClock::now()); drain();
+ emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(1, 0), MonotonicClock::now()); drain();
+ const auto before=f.backend->writes.size();
+ f.transport->sendCommand(robot, freshVelocity()); drain();
+ EXPECT_TRUE(std::none_of(f.backend->writes.begin() + before, f.backend->writes.end(),
+     [](const auto& write) { return !write.request.emergencyStop
+         && std::holds_alternative<VelocityCommand>(write.request.command.payload); }));
+}
+TEST(ReviewRegression, CommandResultFaultDuringClearMustPreventRecovery) {
+ Fixture f; f.ready(); const auto token=f.backend->links.at(robot);
+ f.transport->sendCommand(robot, {StopCommand{}, MonotonicClock::now(), 1s}); drain();
+ const auto stop=f.backend->writes.back().request.sequence;
+ f.transport->requestEmergencyStop(robot); drain();
+ emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0, 2), MonotonicClock::now()); drain();
+ ASSERT_TRUE(f.transport->requestEmergencyClear(robot, 1)); drain();
+ const auto clear=f.backend->writes.back().request.sequence;
+ emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(1, stop, 0, 1, 3), MonotonicClock::now()); drain();
+ emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(2, clear, 0, 4, 0), MonotonicClock::now()); drain();
+ ASSERT_FALSE(f.events->clears.empty());
+ EXPECT_FALSE(f.events->clears.back().second);
+}
+
+TEST(BleTransportSafetyTest, ManagerFaultResultCancelsClearAndRejectsLateSuccess)
+{
+    Fixture f;
+    WorldModel world;
+    RobotManager robots{*f.transport, world};
+    ASSERT_TRUE(robots.addRobot(robot, MonotonicClock::now()));
+    ASSERT_TRUE(robots.connect(robot)); drain();
+    f.backend->found(); f.backend->finish(); drain();
+    const auto token = f.backend->links.at(robot);
+    f.backend->ready(token); drain();
+    ASSERT_EQ(robots.sendCommand(robot, {StopCommand{}, MonotonicClock::now(), 1s}), CommandSubmission::Submitted);
+    drain();
+    const auto stop = f.backend->writes.back().request.sequence;
+    ASSERT_TRUE(robots.requestEmergencyStop(robot)); drain();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0, 2), MonotonicClock::now()); drain();
+    ASSERT_TRUE(robots.requestEmergencyClear(robot)); drain();
+    const auto clear = f.backend->writes.back().request.sequence;
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(1, stop, 0, 1, 3), MonotonicClock::now()); drain();
+    EXPECT_TRUE(robots.session(robot)->safetyFault);
+    EXPECT_FALSE(robots.session(robot)->clearRequest);
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(2, clear, 0, 4, 0), MonotonicClock::now()); drain();
+    EXPECT_TRUE(robots.session(robot)->safetyFault);
+    EXPECT_TRUE(robots.session(robot)->emergencyStopRequested);
+    EXPECT_NE(robots.sendCommand(robot, freshVelocity()), CommandSubmission::Submitted);
+}
+
+#if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
+TEST(BleTransportSafetyTest, ClearThenRepeatedEmergencyRefreshesControlsWithoutIdleTelemetry)
+{
+    Fixture f;
+    WorldModel world;
+    RobotManager robots{*f.transport, world};
+    DesktopController controller{robots, world, robot, f.logger.channel("manual")};
+    bool drive = false, clearAvailable = false;
+    QObject::connect(&controller, &DesktopController::robotActionsChanged, [&](bool, bool, bool value, bool, bool) { drive = value; });
+    QObject::connect(&controller, &DesktopController::emergencyClearAvailable, [&](bool value) { clearAvailable = value; });
+    controller.initialize(MonotonicClock::now());
+    controller.connectRobot(); drain();
+    f.backend->found(); f.backend->finish(); drain();
+    const auto token = f.backend->links.at(robot);
+    f.backend->ready(token); drain();
+    controller.emergencyStop(); drain();
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0, 2), MonotonicClock::now()); drain();
+    ASSERT_TRUE(clearAvailable);
+    controller.clearEmergencyStop(); drain();
+    const auto clear = f.backend->writes.back().request.sequence;
+    emit f.backend->notification(token, BleEndpoint::CommandResult, resultBytes(1, clear, 0, 4, 0), MonotonicClock::now()); drain();
+    EXPECT_TRUE(drive);
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(2, 2), MonotonicClock::now()); drain();
+    EXPECT_FALSE(drive);
+    EXPECT_TRUE(clearAvailable);
+    controller.shutdown(); drain();
+}
+#endif

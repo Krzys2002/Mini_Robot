@@ -283,10 +283,17 @@ void RobotManager::receiveError(const TransportError& error)
     const auto found = sessions_.find(error.robotId);
     if (found == sessions_.end()) return;
     if (found->second.connectionChangedAt && error.occurredAt < *found->second.connectionChangedAt) return;
+    if (error.code == TransportErrorCode::EmergencyStopLatched) {
+        emergencyLatched_.insert(error.robotId);
+        found->second.emergencyStopRequested = true;
+        found->second.safety = DesktopSafetyState::EmergencyStop;
+        transport_.cancelPendingMotion(error.robotId);
+    }
     // A rejected malformed command does not establish a transport failure.
     // Connection/receive failures are conservative motion-inhibition events.
-    if (error.operation != TransportOperation::SendCommand
-        || (error.code != TransportErrorCode::InvalidCommand && error.code != TransportErrorCode::UnsupportedVersion)) {
+    if (error.code != TransportErrorCode::EmergencyStopLatched
+        && (error.operation != TransportOperation::SendCommand
+        || (error.code != TransportErrorCode::InvalidCommand && error.code != TransportErrorCode::UnsupportedVersion))) {
         if (found->second.clearRequest) {
             found->second.clearRequest.reset();
             transport_.requestEmergencyStop(error.robotId);

@@ -78,6 +78,8 @@ std::string_view toString(TransportErrorCode code)
     case TransportErrorCode::BackendFailure: return "BackendFailure";
     case TransportErrorCode::UnsupportedVersion: return "UnsupportedVersion";
     case TransportErrorCode::InvalidTelemetry: return "InvalidTelemetry";
+    case TransportErrorCode::RobotFault: return "RobotFault";
+    case TransportErrorCode::EmergencyStopLatched: return "EmergencyStopLatched";
     }
     return "Unknown";
 }

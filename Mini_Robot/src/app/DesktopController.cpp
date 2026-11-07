@@ -73,7 +73,11 @@ public:
     void onEmergencyClearResult(RobotId id, std::uint64_t, bool accepted, Timestamp) override
     {
         if (id != owner_.robotId_) return;
-        if (accepted) owner_.manualFault_ = false;
+        if (accepted) {
+            owner_.manualFault_ = false;
+            owner_.reportedOperatingState_.reset();
+        }
+        owner_.publishRobotChoices();
         owner_.publishRobotActions();
         emit owner_.manualStatusChanged(accepted
             ? QStringLiteral("E-stop clear accepted — idle; physical output unconfirmed, new input required")

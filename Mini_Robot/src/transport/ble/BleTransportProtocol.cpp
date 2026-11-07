@@ -234,13 +234,26 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
     if (log_) log_->debug("BLE rx token=" + std::to_string(token) + " wire_sequence=" + std::to_string(decoded.frame->sequence)
         + " unwrapped_sequence=" + std::to_string(accepted->unwrapped) + " gap=" + std::to_string(accepted->gap)
         + " steady_us=" + std::to_string(steadyMicroseconds(at)), *id);
-    if (const auto* telemetry = std::get_if<BleTelemetryFrame>(&decoded.frame->payload)) {
-        session.robotState = telemetry->state;
-        if (telemetry->state == BleRobotState::EmergencyStop) {
+    // Both notification forms carry authoritative robot safety state.
+    const auto applySafetyState = [&](BleRobotState state) {
+        session.robotState = state;
+        if (state == BleRobotState::EmergencyStop || state == BleRobotState::Fault) {
             session.emergencyRequested = true;
-            confirmEmergencyStop(*id);
+            if (session.pending && std::holds_alternative<VelocityCommand>(session.pending->payload))
+                session.pending.reset();
+            if (state == BleRobotState::EmergencyStop) confirmEmergencyStop(*id);
+            if (state == BleRobotState::Fault && session.clearRequest) {
+                const auto request = *session.clearRequest;
+                session.clearRequest.reset();
+                session.clearSequence.reset();
+                if (session.clearResultTimer) session.clearResultTimer->stop();
+                if (auto sink = sink_.lock()) sink->onEmergencyClearResult(*id, request, false, at);
+            }
         }
-        else if (session.emergencyRequested && !session.clearRequest) {
+    };
+    if (const auto* telemetry = std::get_if<BleTelemetryFrame>(&decoded.frame->payload)) {
+        applySafetyState(telemetry->state);
+        if (telemetry->state != BleRobotState::EmergencyStop && session.emergencyRequested && !session.clearRequest) {
             session.emergencyConfirmed = false;
             sendEmergencyStop(*id);
         }
@@ -260,7 +273,12 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
             operatingState(telemetry->state)});
     } else {
         const auto& result = std::get<BleCommandResultFrame>(decoded.frame->payload);
-        session.robotState = result.state;
+        applySafetyState(result.result == 8 || result.state == BleRobotState::Fault ? BleRobotState::Fault
+            : result.result == 7 ? BleRobotState::EmergencyStop : result.state);
+        if (result.state == BleRobotState::Fault || result.result == 8)
+            error(*id, TransportOperation::SendCommand, TransportErrorCode::RobotFault, "Robot reports fault");
+        else if (result.state == BleRobotState::EmergencyStop || result.result == 7)
+            error(*id, TransportOperation::SendCommand, TransportErrorCode::EmergencyStopLatched, "Robot reports E-stop");
         const auto sent = std::find_if(session.sent.begin(), session.sent.end(), [&](const auto& entry) {
             return entry.sequence == result.commandSequence && entry.type == result.commandType;
         });
@@ -295,7 +313,7 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
             sendEmergencyStop(*id);
             if (canceled) if (auto sink = sink_.lock()) sink->onEmergencyClearResult(*id, *canceled, false, at);
         }
-        if (result.result != 0) error(*id, TransportOperation::SendCommand, bleRejectionCode(result.result),
+        if (result.result != 0 && result.result != 7 && result.result != 8) error(*id, TransportOperation::SendCommand, bleRejectionCode(result.result),
             std::string{"Robot rejected command wire_sequence="} + std::to_string(result.commandSequence) + ": " + bleResultName(result.result));
     }
 }
