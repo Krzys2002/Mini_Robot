@@ -125,3 +125,39 @@ TEST(PoseSmoothingTest, StationaryNoiseIsReducedAndRepeatedSamplesStayFixed)
     }
     EXPECT_LT(filteredEnergy, rawEnergy / 4);
 }
+
+TEST(MotionEstimateTest, KnownMotionAcrossWrapAndAgeConfidence)
+{
+    WorldModel world;
+    RobotTracker tracker(world, thresholds);
+    auto sample = pose; sample.heading = Radians{3.13};
+    ASSERT_EQ(tracker.observe(RobotId{1}, sample, at(1s), at(1s), .8), TrackerUpdate::Applied);
+    EXPECT_FALSE(world.robot(RobotId{1})->tracking->velocity);
+    sample.x.value += .1; sample.y.value -= .2; sample.heading = Radians{-3.13};
+    ASSERT_EQ(tracker.observe(RobotId{1}, sample, at(1100ms), at(1100ms), .8), TrackerUpdate::Applied);
+    const auto v = world.robot(RobotId{1})->tracking->velocity;
+    ASSERT_TRUE(v);
+    EXPECT_NEAR(v->xMetersPerSecond, 1, 1e-12);
+    EXPECT_NEAR(v->yMetersPerSecond, -2, 1e-12);
+    EXPECT_NEAR(v->radiansPerSecond, (2 * std::numbers::pi - 6.26) / .1, 1e-12);
+    EXPECT_NEAR(*world.tracking(RobotId{1}, at(1600ms)).confidence, .4, 1e-12);
+    EXPECT_EQ(world.tracking(RobotId{1}, at(2100ms)).confidence, 0);
+}
+TEST(MotionEstimateTest, StationaryTinyDtGapAndInvalidQuality)
+{
+    WorldModel world;
+    RobotTracker tracker(world, thresholds);
+    ASSERT_EQ(tracker.observe(RobotId{1}, pose, at(1s), at(1s)), TrackerUpdate::Applied);
+    ASSERT_EQ(tracker.observe(RobotId{1}, pose, at(1100ms), at(1100ms)), TrackerUpdate::Applied);
+    ASSERT_TRUE(world.robot(RobotId{1})->tracking->velocity);
+    EXPECT_DOUBLE_EQ(world.robot(RobotId{1})->tracking->velocity->xMetersPerSecond, 0);
+    EXPECT_DOUBLE_EQ(world.robot(RobotId{1})->tracking->velocity->radiansPerSecond, 0);
+    ASSERT_EQ(tracker.observe(RobotId{1}, pose, at(1100ms + 1ns), at(1100ms + 1ns)), TrackerUpdate::Applied);
+    EXPECT_FALSE(world.robot(RobotId{1})->tracking->velocity);
+    ASSERT_EQ(tracker.observe(RobotId{1}, pose, at(3s), at(3s)), TrackerUpdate::Applied);
+    EXPECT_FALSE(world.robot(RobotId{1})->tracking->velocity);
+    EXPECT_EQ(tracker.observe(RobotId{1}, pose, at(3100ms), at(3100ms), 2), TrackerUpdate::InvalidMeasurement);
+    EXPECT_EQ(world.robot(RobotId{1})->poseUpdatedAt, at(3s));
+    tracker.invalidate(at(3200ms));
+    EXPECT_EQ(world.tracking(RobotId{1}, at(3200ms)).confidence, 0);
+}
