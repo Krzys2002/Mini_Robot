@@ -5,13 +5,16 @@ steps for [#154](https://github.com/Krzys2002/Mini_Robot/issues/154) without
 inventing limits. This document is the versioned profile baseline for the
 current T1-ESP-C6 firmware at repository revision time.
 
-Status: **partial hardware profile completed, physical polarity/zero-output
-measurements pending bench execution**. Motion tuning and powered acceptance for
-follow-up issues remain blocked until the unresolved rows below are measured.
+Status: **source-backed profile with explicit unresolved physical assumptions**.
+At the maintainer's request, #154 owns this investigation and software handoff;
+[#238](https://github.com/Krzys2002/Mini_Robot/issues/238) owns physical acceptance.
+Hardware-free implementation can use the profile while physical gates remain
+unresolved. Powered tests and motion acceptance remain blocked until the
+applicable supply/output/measurement evidence below is accepted.
 
 ## Version and scope
 
-- Profile version: `codecell-c6-v2` (2026-10-27)
+- Profile version: `codecell-c6-v3` (2026-11-07)
 - Firmware scope: `T1-ESP-C6/`
 - Build target scope: `platformio.ini` environment `esp32-c6-devkitc-1`
 - Out of scope: ESP32-S3 video extension (tracked separately by #110)
@@ -36,31 +39,20 @@ References:
 
 ## 2. Actuation, geometry, and power facts
 
-### 2.1 Verified motors and wheel geometry
+### 2.1 Motor identity and wheel geometry
 
-The motor details below are translated to English from the provided source:
+The maintainer corrected the installed gear ratio to **150:1** on 2026-11-07.
+The earlier N20-BT41 100:1 / 150 rpm / 6 V listing does not identify this motor
+and its electrical/mechanical ratings must not be used as current-robot limits.
+Gear ratio does not establish output RPM, current, torque or rated voltage.
 
-Motor model and listing:
-
-- Model: **N20-BT41 micro geared motor, 100:1, 150 RPM, 6 V**
-- Product link: <https://botland.com.pl/silniki-micro-n20-seria-mp-medium-power/12603-silnik-n20-bt41-micro-1001-150rpm-6v-5904422306700.html#product_tab_faq>
-
-Translated mechanical/electrical listing values:
-
-| Field | Value |
+| Field | Current evidence |
 | --- | --- |
-| Motor diameter | 12.0 mm |
-| Motor body length | 24 mm |
-| Supply voltage range | 1.0 V to 6.0 V |
-| Current consumption (listing) | 40 mA |
-| Gear ratio | 100:1 |
-| Nominal speed | 150 rpm |
-| Torque (listing) | 0.3 kg*cm |
-| Motor mass | 10 g |
-| Shaft diameter | 3.0 mm |
-| Wheel diameter | 17 mm |
-| Wheel width | 6 mm |
-| Track width (wheel-center distance) | **UNRESOLVED / not chosen yet** |
+| Gear ratio | 150:1, maintainer-reported; physical identification pending |
+| Exact motor model and applicable datasheet | UNRESOLVED |
+| Rated voltage, normal/startup current, speed and torque | UNRESOLVED for the installed motor |
+| Wheel diameter / width | Previously reported 17 mm / 6 mm; assembly measurement pending |
+| Track width (wheel-center distance) | UNRESOLVED; measure the assembled chassis |
 
 ### 2.2 Driver and power system
 
@@ -71,7 +63,39 @@ Translated mechanical/electrical listing values:
 | Power source in current robot | LiPo battery, 170 mAh, 20C | User-provided hardware data |
 | Charging current (board) | Approximately 90 mA | Vendor product page |
 | Advertised module supply capability (not a verified enforced bench limit) | 1500 mA from battery or 450 mA from USB | Vendor product page |
-| Battery protection board details (cell UVLO/OCP/short protection IC) | **UNRESOLVED** | Not yet evidenced in repository/user artifacts |
+| Battery protection on actual installed pack | **UNRESOLVED**; manufacturer reference is available but pack identity/applicability needs confirmation | See manufacturer research below |
+
+### 2.3 Manufacturer research and remaining physical unknowns
+
+Checked 2026-11-07. The [manufacturer product page](https://microbots.io/products/codecell-c6-drive)
+confirms the ESP32-C6-MINI-1-H8, BNO085 IMU, dual H-bridges, an optional
+3.7 V 170 mAh 20C battery and approximate 90 mA charging. Its advertised
+1.5 A battery / 450 mA USB module capabilities are source ratings, not verified
+bench limits or motor limits. The page documents SCL-to-GND recovery; applicability
+to the deployed revision remains unconfirmed. Do not execute recovery with an
+unreviewed powered motor setup.
+
+The linked [battery specification](https://cdn.shopify.com/s/files/1/0766/9855/0605/files/581720_3.7V170mAh_datasheet.pdf?v=1723810658)
+(CU068 revision 1.00, visually checked pages 4, 5, 13, 14) describes GEB851720,
+170 mAh minimum capacity, and an S-8261 protection design. Its filename says
+581720, the drawing says 250 mAh, and its protection schematic/BOM also differ
+in transistor identification. These inconsistencies require matching the actual
+pack or manufacturer clarification. Protection circuitry is not an independently
+verified bench current limiter. No battery abuse procedure is part of this work.
+
+[Manufacturer library documentation](https://github.com/microbotsio/CodeCell#readme)
+identifies `BatteryVoltageRead()` in millivolts and `BatteryLevelRead()` values
+101/102 as charging/USB status, not percentages. Source units are documented;
+accuracy on the physical pack and correct presentation of status values remain
+unverified. Firmware telemetry must preserve unknown measurement availability.
+
+Local CodeCell 2.0.4 source inspected at commit
+`795616b3fc6fa14c0e23fbdac8aed697d897d303` converts rotation to degrees and
+returns battery voltage using `analogReadMilliVolts`. Cached DriveCell 1.1.3
+`Drive(direction, power_percent)` scales percent to PWM and writes zero duty
+on both pins when power is zero. This proves API behavior in the inspected
+source, not physical braking, current limitation or safe boot electrical levels.
+These cache versions are observations, not production dependency pins (#155).
 
 ## 3. Feedback availability and classification
 
@@ -202,9 +226,9 @@ Blocking rule:
 
 - Missing supply/limiter/output evidence blocks every powered step above.
 - If polarity, zero-output behavior, or watchdog stop behavior is not confirmed,
-  powered motion acceptance for #154 remains blocked. Issue #154 must remain
+  powered motion acceptance for #154 remains blocked. Physical issue #238 must remain
   open until required board, polarity, zero-output and feedback measurements
-  exist; merging this partial profile does not complete physical acceptance.
+  exist; merging the software investigation does not complete physical acceptance.
 
 ## 6. Legacy behavior matrix (keep/adapt/disable)
 
@@ -227,7 +251,14 @@ Blocking rule:
 | Track width | Not selected yet | Measure wheel-center distance in mm after chassis selection and update profile |
 | Battery API accuracy/error bounds | No multimeter cross-check evidence captured | Record paired API vs multimeter samples at rest and under low load |
 | IMU forward-axis mounting confirmation | Assumed in code comments only | Run axis-orientation check and update `readForwardLinearAccelerationMps2` mapping if needed |
-| Battery protection IC capabilities | Not yet documented from battery datasheet/PCM board | Add battery datasheet/protection board data and limits |
+| Installed battery protection applicability | Linked vendor PDF has inconsistent identification; installed pack/PCM not verified | Match actual pack and resolve specification inconsistencies; do not infer a bench limiter |
+
+## Evidence recording
+
+Use the [hardware evidence record](codecell-c6-hardware-154-record.md) to collect
+board identity, unpowered observations, gate approvals and physical measurements
+without treating missing values as accepted limits. It is an unfilled template,
+not additional verification or permission to execute powered steps.
 
 ## 8. Contributor note
 
