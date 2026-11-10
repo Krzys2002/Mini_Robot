@@ -68,8 +68,8 @@ void CalibrationController::emitPreview(FramePtr frame, const std::vector<ImageC
     // Arm before notifying observers so a reentrant user action can cancel it.
     if (reviewFrame_ && !reviewDeadline_ && !live_ && frame
         && frame->sequence == reviewFrame_->sequence && frame->capturedAt == reviewFrame_->capturedAt) {
-        reviewDeadline_ = clock_() + std::chrono::seconds{5};
-        reviewTimer_.start(std::chrono::seconds{5});
+        reviewDeadline_ = clock_() + CaptureReviewDuration;
+        reviewTimer_.start(CaptureReviewDuration);
     }
     emit previewChanged(std::move(frame), corners, accepted, approximate);
 }
@@ -182,7 +182,7 @@ void CalibrationController::capture()
     if (!canCapture()) return;
     const auto frame = livePreviewActive_ && selectedFrame_ ? selectedFrame_ : latest_;
     const auto age = MonotonicClock::now() - frame->capturedAt;
-    if (age < Duration::zero() || age > std::chrono::seconds{2}) {
+    if (age < Duration::zero() || age > MaximumLiveFrameAge) {
         publish(QStringLiteral("Latest frame is stale. Wait for a fresh camera frame."));
         return;
     }
@@ -254,7 +254,7 @@ void CalibrationController::sampleLive()
     if (!livePreviewActive_ || !live_ || liveDetectionBusy_ || busy_ || profileIoBusy_
         || shuttingDown_ || !streaming_ || !latest_ || now < nextLiveSample_)
         return;
-    if (now < latest_->capturedAt || now - latest_->capturedAt > std::chrono::seconds{2}) return;
+    if (now < latest_->capturedAt || now - latest_->capturedAt > MaximumLiveFrameAge) return;
     // Maximum 5 starts/s, further limited by detector duration. No pending
     // live jobs: receiveFrame retains just the newest acquisition for the next try.
     nextLiveSample_ = now + std::chrono::milliseconds{200};
@@ -437,7 +437,7 @@ void CalibrationController::showLive()
     ++previewEpoch_;
     const auto now = clock_();
     if (!streaming_ || !latest_ || latest_->capturedAt > now
-        || now - latest_->capturedAt > std::chrono::seconds{2}) {
+        || now - latest_->capturedAt > MaximumLiveFrameAge) {
         presentPreview({}, {}, false);
         publish(QStringLiteral("No current camera frame. Start or reconnect the camera and wait for a fresh frame."));
     } else {

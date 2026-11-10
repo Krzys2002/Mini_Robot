@@ -52,8 +52,10 @@ detection on its selected frame unless that exact frame already has a full resul
 All existing quality checks remain. Neither holding nor tracking the overlay
 adds observations.
 Every completed capture (accepted, rejected or detector failure) shows its result
-for five seconds, then resumes live preview automatically. The interval begins at
-presentation, including completion of corrected-preview processing; no sleep blocks
+for five seconds, then resumes live preview automatically. Its duration is defined
+by `CalibrationController::CaptureReviewDuration` in `src/app/CalibrationController.hpp`.
+The interval begins at presentation, after any asynchronous corrected-preview
+processing finishes; no sleep blocks
 the GUI. Accepted observations remain stored. The last capture reason stays in a
 separate non-modal feedback line through the transition, including redundant-view
 rejections. `captureFeedbackAvailable(reason, accepted)` is the reusable event for

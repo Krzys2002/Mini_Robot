@@ -9,6 +9,7 @@
 #include <QTimer>
 #include <QString>
 
+#include <chrono>
 #include <functional>
 #include <memory>
 
@@ -23,6 +24,9 @@ enum class CalibrationLivePreviewMode { Hold = 0, Track = 1, Matched = 2 };
 class CalibrationController final : public QObject {
     Q_OBJECT
 public:
+    static constexpr auto CaptureReviewDuration = std::chrono::seconds{5};
+    static constexpr auto MaximumLiveFrameAge = std::chrono::seconds{2};
+
     // Optional review clock is called on the GUI thread and must be monotonic.
     CalibrationController(std::unique_ptr<ICalibrationDetector> detector,
                           std::unique_ptr<IIntrinsicCalibrationSolver> solver, LogChannel log,
