@@ -198,7 +198,7 @@ gtest_discover_tests(micro_robot_vision_observation_tests DISCOVERY_MODE PRE_TES
 set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/vision/RobotObservationLabels.cmake")
 
-add_executable(micro_robot_world_tests world/WorldModelTest.cpp world/WorkspaceTest.cpp world/RobotTrackerTest.cpp)
+add_executable(micro_robot_world_tests world/WorldModelTest.cpp world/WorkspaceTest.cpp world/RobotTrackerTest.cpp world/KalmanPoseFilterTest.cpp)
 target_link_libraries(micro_robot_world_tests PRIVATE micro_robot_world micro_robot_tracking GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_world_tests)
 gtest_discover_tests(micro_robot_world_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
@@ -256,3 +256,9 @@ target_include_directories(micro_robot_firmware_safety_tests PRIVATE firmware/fa
 target_link_libraries(micro_robot_firmware_safety_tests PRIVATE GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_firmware_safety_tests)
 gtest_discover_tests(micro_robot_firmware_safety_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
+add_test(NAME FilterComparison.DeterministicCsvReplay
+    COMMAND ${CMAKE_COMMAND} -DTOOL=$<TARGET_FILE:micro_robot_filter_comparison>
+        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/filter-comparison
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/world/FilterComparisonTest.cmake)
+set_tests_properties(FilterComparison.DeterministicCsvReplay PROPERTIES LABELS core)

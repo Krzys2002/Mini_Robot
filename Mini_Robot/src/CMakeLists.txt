@@ -146,7 +146,8 @@ micro_robot_target_defaults(micro_robot_world)
 micro_robot_platform_boundary(micro_robot_world)
 
 add_library(micro_robot_tracking STATIC tracking/RobotTracker.hpp tracking/RobotTracker.cpp
-    tracking/MetricTracking.hpp tracking/MetricTracking.cpp)
+    tracking/MetricTracking.hpp tracking/MetricTracking.cpp
+    tracking/KalmanPoseFilter.hpp tracking/KalmanPoseFilter.cpp)
 target_link_libraries(micro_robot_tracking PUBLIC micro_robot_world micro_robot_vision_observation)
 micro_robot_target_defaults(micro_robot_tracking)
 micro_robot_platform_boundary(micro_robot_tracking)
@@ -310,3 +311,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     )
     micro_robot_target_defaults(micro_robot_desktop)
 endif()
+
+# Qt-free offline comparison of the same tracker used by live metric batches.
+add_executable(micro_robot_filter_comparison ../tools/tracking/compare_pose_filters.cpp)
+target_link_libraries(micro_robot_filter_comparison PRIVATE micro_robot_tracking)
+micro_robot_target_defaults(micro_robot_filter_comparison)

@@ -50,6 +50,10 @@ struct ManualControlConfig {
 };
 
 struct TrackingConfig {
+    // Kept as configuration values; domain filter selection is wired in main.
+    bool kalmanEnabled{false};
+    double positionProcess{.05}, headingProcess{.2};
+    double positionMeasurement{.0001}, headingMeasurement{.0004};
     double positionAlpha{1.0};
     double headingAlpha{1.0};
     // Initial software thresholds; tune for camera cadence and experiment conditions.
