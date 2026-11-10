@@ -25,6 +25,7 @@ if(MICRO_ROBOT_BUILD_REPLAY OR MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CA
         list(APPEND _opencv_components videoio)
     endif()
     if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
+        list(APPEND _opencv_components video) # Sparse corner optical flow.
         # Chessboard detection moved from calib3d to objdetect in OpenCV 5.
         if(OpenCV_VERSION VERSION_GREATER_EQUAL 5)
             list(APPEND _opencv_components objdetect calib geometry)

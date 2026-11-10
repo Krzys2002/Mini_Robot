@@ -54,7 +54,7 @@ set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp
         calibration/OpenCvWorkspaceHomographyTest.cpp calibration/OpenCvMetricObservationTest.cpp
-        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp calibration/OpenCvCalibrationUndistorterTest.cpp)
+        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp calibration/OpenCvCalibrationUndistorterTest.cpp calibration/OpenCvCalibrationCornerTrackerTest.cpp)
     target_link_libraries(micro_robot_calibration_detector_tests PRIVATE
         micro_robot_calibration_opencv GTest::gtest_main ${OpenCV_LIBS})
     target_include_directories(micro_robot_calibration_detector_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
