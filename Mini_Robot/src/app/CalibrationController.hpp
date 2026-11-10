@@ -1,6 +1,7 @@
 #pragma once
 
 #include "calibration/CalibrationProfile.hpp"
+#include "calibration/CalibrationCornerTracker.hpp"
 #include "infrastructure/logging/Logger.hpp"
 
 #include <QObject>
@@ -11,10 +12,10 @@
 
 namespace micro_robot {
 
-// GUI-thread adapter. Detection/solving/store I/O use one worker; preview remaps
-// use another. Camera-rate video holds the last detected corners until the next
-// result, so the live overlay may lag board motion. Capture uses a full detection
-// from its exact raw frame. Call shutdown() and await stopped() before destruction.
+// GUI-thread adapter. Detection/solving/store I/O use one worker; optical flow
+// and remapping share another. Camera-rate video can hold detected corners or
+// track them between detections. Capture uses only a full detection of its exact
+// raw frame. Call shutdown() and await stopped() before destruction.
 class CalibrationController final : public QObject {
     Q_OBJECT
 public:
@@ -23,6 +24,11 @@ public:
                           CalibrationCaptureConfig config = {},
                           IntrinsicCalibrationConfig intrinsicConfig = {}, QObject* parent = nullptr);
     ~CalibrationController() override;
+    // Inject once before input; used exclusively on the preview worker.
+    void setLiveTracker(std::unique_ptr<ICalibrationCornerTracker> tracker);
+    [[nodiscard]] bool canTrackLiveOverlay() const { return tracker_ && !shuttingDown_; }
+    [[nodiscard]] bool liveOverlayTracking() const noexcept { return trackOverlay_; }
+    [[nodiscard]] bool liveTrackingBusy() const noexcept { return trackingBusy_; }
     // Inject once before camera input. Store I/O uses the capture worker;
     // undistortion uses the preview worker.
     void setProfileServices(std::unique_ptr<ICalibrationProfileStore> store,
@@ -59,6 +65,7 @@ public slots:
     void showLive();
     // Wizard visibility controls background work; hidden dialogs never sample.
     void setLivePreviewActive(bool active);
+    void setLiveOverlayTracking(bool enabled);
     void finish();
     void cancel();
     void shutdown();
@@ -66,16 +73,18 @@ public slots:
 signals:
     void changed();
     // Same-thread presentation signals. Frame storage remains owned/immutable.
-    void previewChanged(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool held = false);
+    void previewChanged(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate = false);
     void stopped();
 
 private:
     void publish(const QString& message);
     void invalidate();
-    void presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool held = false);
+    void presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate = false);
     void processPreview();
     void sampleLive();
     void resetLiveOverlay();
+    void trackLive();
+    void resetTracking();
     void acceptCapture(FramePtr frame, CalibrationDetection detection);
     CalibrationCapture session_;
     LogChannel log_;
@@ -84,8 +93,15 @@ private:
     FramePtr latest_;
     QThread worker_;
     bool stoppedEmitted_{};
-    QThread liveWorker_; // Preview remap; never capture/solve.
+    QThread liveWorker_; // Optical flow and preview remap; never capture/solve.
     QObject* liveContext_{};
+    std::shared_ptr<ICalibrationCornerTracker> tracker_;
+    bool trackOverlay_{}; // Hold corners is the default.
+    bool trackingBusy_{};
+    std::uint64_t trackingRevision_{};
+    FramePtr trackingFrame_;
+    std::vector<ImageCorner> trackingCorners_;
+    Timestamp lastFullDetection_{};
     std::vector<ImageCorner> liveCorners_;
     bool liveAccepted_{};
     QObject* workerContext_{}; // Deleted on worker completion.
@@ -121,6 +137,6 @@ private:
     FramePtr selectedFrame_; // Raw source of the last actually emitted presentation.
     std::vector<ImageCorner> previewCorners_;
     bool previewAccepted_{};
-    bool previewHeld_{};
+    bool previewApproximate_{};
 };
 } // namespace micro_robot

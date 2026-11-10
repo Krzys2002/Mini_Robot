@@ -3,6 +3,8 @@
 #include <QMetaObject>
 
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 #include <exception>
 #include <stdexcept>
 #include <utility>
@@ -97,9 +99,14 @@ void CalibrationController::receiveFrame(FramePtr frame)
     latest_ = std::move(frame);
     if (persistentIdentity_ && profileStore_ && !profileLookupRequested_) reloadProfile();
     if (live_) {
-        // Keep the last full detection fixed while camera pixels advance.
-        presentPreview(latest_, liveCorners_, liveAccepted_,
-            detectedFrame_ && latest_ != detectedFrame_ && !liveCorners_.empty());
+        if (trackOverlay_) {
+            // Track before corrected remapping to avoid remapping each frame twice.
+            trackLive();
+            presentPreview(latest_, {}, false);
+        } else {
+            presentPreview(latest_, liveCorners_, liveAccepted_,
+                detectedFrame_ && latest_ != detectedFrame_ && !liveCorners_.empty());
+        }
         sampleLive();
     }
     emit changed();
@@ -227,8 +234,19 @@ void CalibrationController::sampleLive()
             const auto decision = probe.add(frame, detection);
             liveCorners_ = detection.error.empty() ? detection.corners : std::vector<ImageCorner>{};
             liveAccepted_ = decision.accepted;
-            // Update points over the newest pixels without rewinding video.
-            presentPreview(latest_, liveCorners_, liveAccepted_, latest_ != frame && !liveCorners_.empty());
+            resetTracking();
+            if (trackOverlay_) {
+                if (detection.error.empty() && detection.corners.size() == calibrationObjectPoints(session_.config().target).size()) {
+                    trackingFrame_ = frame;
+                    trackingCorners_ = detection.corners;
+                    lastFullDetection_ = frame->capturedAt;
+                }
+                if (frame == latest_) presentPreview(frame, liveCorners_, liveAccepted_);
+                trackLive();
+            } else {
+                // Held mode intentionally paints last detection coordinates over new pixels.
+                presentPreview(latest_, liveCorners_, liveAccepted_, latest_ != frame && !liveCorners_.empty());
+            }
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);
 }
@@ -236,6 +254,90 @@ void CalibrationController::resetLiveOverlay()
 {
     liveCorners_.clear();
     liveAccepted_ = false;
+    resetTracking();
+}
+void CalibrationController::setLiveTracker(std::unique_ptr<ICalibrationCornerTracker> tracker)
+{
+    if (!tracker || tracker_ || streaming_ || shuttingDown_)
+        throw std::logic_error("Inject a live corner tracker once before camera input.");
+    tracker_ = std::move(tracker);
+}
+void CalibrationController::resetTracking()
+{
+    ++trackingRevision_;
+    trackingFrame_.reset();
+    trackingCorners_.clear();
+}
+void CalibrationController::trackLive()
+{
+    if (!trackOverlay_ || !tracker_ || trackingBusy_ || previewBusy_ || busy_ || shuttingDown_
+        || !live_ || !livePreviewActive_ || !latest_ || !trackingFrame_
+        || latest_ == trackingFrame_) return;
+    if (latest_->capturedAt < lastFullDetection_
+        || latest_->capturedAt-lastFullDetection_ > std::chrono::milliseconds{500}) {
+        resetTracking();
+        return;
+    }
+    trackingBusy_ = true;
+    const auto frame = latest_;
+    const auto previous = trackingFrame_;
+    const auto corners = trackingCorners_;
+    const auto revision = trackingRevision_;
+    const auto epoch = liveEpoch_;
+    const auto tracker = tracker_;
+    QMetaObject::invokeMethod(liveContext_, [this, frame, previous, corners, revision, epoch, tracker] {
+        const auto start = MonotonicClock::now();
+        std::vector<ImageCorner> tracked;
+        try { tracked = tracker->track(*previous, *frame, corners); }
+        catch (...) { tracked.clear(); }
+        const auto elapsed = MonotonicClock::now()-start;
+        QMetaObject::invokeMethod(this, [this, frame, revision, epoch, elapsed, expected = corners.size(),
+                                        tracked = std::move(tracked)]() mutable {
+            trackingBusy_ = false;
+            if (shuttingDown_) return;
+            if (epoch == liveEpoch_ && revision == trackingRevision_ && live_ && livePreviewActive_) {
+                log_.debug("Calibration flow frame=" + std::to_string(frame->sequence)
+                    + " tracking_ms=" + std::to_string(std::chrono::duration<double,std::milli>(elapsed).count()));
+                if (tracked.size() != expected || !std::all_of(tracked.begin(), tracked.end(),
+                    [&](const ImageCorner& p) { return std::isfinite(p.u) && std::isfinite(p.v)
+                        && p.u >= 0 && p.v >= 0 && p.u < frame->width && p.v < frame->height; })) resetTracking();
+                else {
+                    trackingFrame_ = frame;
+                    trackingCorners_ = tracked;
+                    if (frame == latest_) presentPreview(frame, tracked, false, true);
+                }
+            }
+            // One newest frame is retained, never an accumulating flow queue.
+            trackLive();
+            processPreview();
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+}
+void CalibrationController::setLiveOverlayTracking(bool enabled)
+{
+    if (shuttingDown_ || trackOverlay_ == enabled || (enabled && !tracker_)) return;
+    trackOverlay_ = enabled;
+    ++liveEpoch_; // Discard both old-mode detection and tracking completions.
+    ++previewEpoch_;
+    resetTracking();
+    if (live_) {
+        if (enabled) {
+            if (detectedFrame_ && liveDetection_ && liveDetection_->error.empty()) {
+                trackingFrame_ = detectedFrame_;
+                trackingCorners_ = liveDetection_->corners;
+                lastFullDetection_ = detectedFrame_->capturedAt;
+            }
+            presentPreview(latest_, {}, false);
+            trackLive();
+        } else {
+            presentPreview(latest_, liveCorners_, liveAccepted_,
+                detectedFrame_ && latest_ != detectedFrame_ && !liveCorners_.empty());
+        }
+    } else {
+        // A mode preference never changes a paused review or captured dataset.
+        processPreview();
+    }
+    emit changed();
 }
 void CalibrationController::removeView(int index)
 {

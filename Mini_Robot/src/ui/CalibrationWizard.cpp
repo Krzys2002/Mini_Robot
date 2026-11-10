@@ -19,12 +19,12 @@ namespace micro_robot {
 class CalibrationPreview final : public QWidget {
 public:
     using QWidget::QWidget;
-    void present(FramePtr frame, std::vector<ImageCorner> corners, bool accepted, bool held)
+    void present(FramePtr frame, std::vector<ImageCorner> corners, bool accepted, bool approximate)
     {
         frame_ = std::move(frame);
         corners_ = std::move(corners);
         accepted_ = accepted;
-        held_ = held;
+        approximate_ = approximate;
         // QWidget coalesces updates. It holds one newest preview, never a frame queue.
         update();
     }
@@ -47,7 +47,7 @@ protected:
         const QSize fitted = image.size().scaled(size(), Qt::KeepAspectRatio);
         const QRect bounds{QPoint{(width() - fitted.width()) / 2, (height() - fitted.height()) / 2}, fitted};
         painter.drawImage(bounds, image);
-        painter.setPen(QPen(held_ ? Qt::cyan : accepted_ ? Qt::green : Qt::red, 2));
+        painter.setPen(QPen(approximate_ ? Qt::cyan : accepted_ ? Qt::green : Qt::red, 2));
         const auto map = [&](const ImageCorner& p) {
             return QPointF{bounds.x() + (p.u + 0.5) * bounds.width() / frame_->width,
                            bounds.y() + (p.v + 0.5) * bounds.height() / frame_->height};
@@ -63,7 +63,7 @@ private:
     FramePtr frame_;
     std::vector<ImageCorner> corners_;
     bool accepted_{};
-    bool held_{};
+    bool approximate_{};
 };
 
 CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget* parent)
@@ -76,7 +76,7 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     auto* instructions = new QLabel(QStringLiteral(
         "Chessboard: %1 × %2 inner corners (%3 × %4 squares), %5 mm per square.\n"
         "Use a flat board with a white border. Capture different positions, distances and rotations.\n"
-        "Camera-rate video; detection up to 5 Hz, cyan = last detection held in place.\n"
+        "Camera-rate video; detection up to 5 Hz, cyan = held or tracked corners.\n"
         "Green = usable, red = rejected, yellow ring = first corner. Inspect every accepted view.")
         .arg(target.columns).arg(target.rows).arg(target.columns + 1).arg(target.rows + 1)
         .arg(target.squareSizeMeters * 1000), this);
@@ -120,6 +120,17 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     connect(saveProfile_, &QPushButton::clicked, &controller_, &CalibrationController::saveProfile);
     connect(reloadProfile_, &QPushButton::clicked, &controller_, &CalibrationController::reloadProfile);
     connect(undistorted_, &QCheckBox::toggled, &controller_, &CalibrationController::setUndistortedPreview);
+    auto* overlayOptions = new QHBoxLayout;
+    overlayOptions->addWidget(new QLabel(QStringLiteral("Live overlay:"), this));
+    overlayMode_ = new QComboBox(this);
+    overlayMode_->setObjectName(QStringLiteral("calibrationOverlayMode"));
+    overlayMode_->addItem(QStringLiteral("Hold until next detection"));
+    overlayMode_->addItem(QStringLiteral("Track between detections"));
+    overlayMode_->setToolTip(QStringLiteral("Hold keeps corners fixed and can lag a moving board. Track follows motion and hides uncertain corners. Detection runs at up to 5 Hz in both modes. Capture validates its selected frame."));
+    overlayOptions->addWidget(overlayMode_, 1);
+    layout->addLayout(overlayOptions);
+    connect(overlayMode_, &QComboBox::currentIndexChanged, this,
+        [this](int index) { controller_.setLiveOverlayTracking(index == 1); });
     auto* review = new QHBoxLayout;
     views_ = new QComboBox(this);
     views_->setObjectName(QStringLiteral("calibrationViews"));
@@ -153,8 +164,8 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     connect(close, &QPushButton::clicked, this, &CalibrationWizard::reject);
     connect(&controller_, &CalibrationController::changed, this, &CalibrationWizard::refresh);
     connect(&controller_, &CalibrationController::previewChanged, this,
-        [this](FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool held) {
-            preview_->present(std::move(frame), corners, accepted, held);
+        [this](FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate) {
+            preview_->present(std::move(frame), corners, accepted, approximate);
         });
     refresh();
 }
@@ -164,6 +175,9 @@ void CalibrationWizard::refresh()
     const auto progress = session.progress();
     const auto& config = session.config();
     message_->setText(controller_.message());
+    const QSignalBlocker overlayBlocker(overlayMode_);
+    overlayMode_->setCurrentIndex(controller_.liveOverlayTracking() ? 1 : 0);
+    overlayMode_->setEnabled(controller_.canTrackLiveOverlay() && !controller_.busy());
     QString profileText = controller_.profileMessage();
     if (const auto& profile = controller_.profile()) {
         profileText += QStringLiteral("\nCamera %1 · %2 × %3 px · RMS %4 px")

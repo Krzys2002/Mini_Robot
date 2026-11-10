@@ -2,6 +2,7 @@
 #include "app/CalibrationController.hpp"
 #include "app/VisionController.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
+#include "calibration/OpenCvCalibrationCornerTracker.hpp"
 #include "calibration/OpenCvCalibrationUndistorter.hpp"
 #include "IntrinsicFixtures.hpp"
 #include "calibration/OpenCvIntrinsicCalibrationSolver.hpp"
@@ -42,6 +43,15 @@ public:
         auto result = detector.detect(f,t); timing.add(start); return result;
     }
 };
+class Flow final : public ICalibrationCornerTracker {
+public:
+    Timing timing;
+    OpenCvCalibrationCornerTracker tracker;
+    std::vector<ImageCorner> track(const Frame& from, const Frame& to, const std::vector<ImageCorner>& corners) override {
+        const auto start=MonotonicClock::now();
+        auto result=tracker.track(from,to,corners); timing.add(start); return result;
+    }
+};
 class Tags final : public IMarkerDetector {
 public:
     Timing timing;
@@ -57,6 +67,7 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
     Logger logger;
     for (auto [width, height] : {std::pair{640,480}, {1280,720}, {1920,1080}}) {
+        for (bool tracking : {false, true}) {
         for (int mode : {0, 1, 2}) {
             const bool visible=mode!=0, corrected=mode==2;
             auto chess = std::make_unique<Chess>(); auto* c = chess.get();
@@ -64,6 +75,9 @@ int main(int argc, char** argv)
             CalibrationController calibration(std::move(chess),
                 std::make_unique<OpenCvIntrinsicCalibrationSolver>(), logger.channel("audit"));
             VisionController vision(std::move(tags), logger.channel("tags"));
+            auto flow=std::make_unique<Flow>(); auto* f=flow.get();
+            calibration.setLiveTracker(std::move(flow));
+            calibration.setLiveOverlayTracking(tracking);
             if (corrected) calibration.setProfileServices(std::make_unique<AuditStore>(),
                 std::make_unique<OpenCvCalibrationUndistorter>());
             CalibrationWizard wizard(calibration);
@@ -118,7 +132,7 @@ int main(int argc, char** argv)
             wizard.hide();
             calibration.shutdown(); vision.shutdown();
             while (!calibration.isStopped() || !vision.isStopped()) QApplication::processEvents();
-            std::cout << width << 'x' << height << " visible=" << visible << " corrected=" << corrected << " inputs=" << sequence
+            std::cout << width << 'x' << height << " tracking=" << tracking << " visible=" << visible << " corrected=" << corrected << " inputs=" << sequence
                       << " chess_calls=" << c->timing.count << " chess_mean_ms="
                       << (c->timing.count ? c->timing.totalMs/c->timing.count : 0)
                       << " chess_max_ms=" << c->timing.maximumMs << " tag_calls=" << t->timing.count
@@ -126,7 +140,10 @@ int main(int argc, char** argv)
                       << " tag_max_ms=" << t->timing.maximumMs
                       << " video_frames=" << videoFrames << " overlay_frames=" << overlayFrames
                       << " held_updates=" << heldFrames << " unique_held=" << uniqueHeld << " rewinds=" << rewinds
+                      << " flow_calls=" << f->timing.count << " flow_mean_ms="
+                      << (f->timing.count ? f->timing.totalMs/f->timing.count : 0)
                       << " heartbeat_max_gap_ms=" << maximumGapMs << '\n';
+        }
         }
     }
 }

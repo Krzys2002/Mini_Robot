@@ -17,25 +17,34 @@ Use the [printable chessboard](../calibration/chessboard-9x6-25mm.svg):
   curved or glossy target. The chosen workflow is chessboard, not ChArUco.
 
 Select and start a camera in the main window, then click **Camera calibration…**.
-This experimental branch advances raw video on every incoming camera frame while
-full chessboard detection runs at up to 5 Hz. The last detected corner positions
-stay fixed until the next detection result. They can lag or misalign if the board
-moves; this is the requested held-overlay display mode, not a current-frame
-measurement or motion-tracked estimate. A result without corners clears the grid.
+This branch advances raw video on every incoming camera frame while full
+chessboard detection runs at up to 5 Hz. Select **Live overlay**:
+
+- **Hold until next detection** (default): keep the last detected corner positions
+  fixed until the next result. They can misalign if the board moves. A result
+  without corners clears the grid.
+- **Track between detections**: estimate corner positions on intervening frames
+  using optical flow. Hide uncertain/expired grids and skip obsolete results
+  rather than drawing an old estimate on a newer frame.
+
+The selection lasts for this application session, including dialog close/reopen;
+it is not written into calibration profiles. Both modes keep raw video advancing
+and preserve the captured dataset when switched. Mode changes invalidate pending
+old-mode work; a paused captured-view review stays paused.
 Click **Start / restart capture** and **Capture view** while holding the board
 still and in focus. Each usable, distinct view is accepted automatically.
 
 Green dots show usable live samples or accepted captured inner corners. Red dots
 show rejected detections when corners are available. Live evaluation uses the same
-quality/diversity rules without adding an observation. **Cyan dots are held from an earlier
-detection**, without a fresh assessment of the current image. The yellow ring identifies the
+quality/diversity rules without adding an observation. **Cyan dots are held or tracked
+corners**, without a fresh assessment of the current image. The yellow ring identifies the
 first corner. Visually
 check alignment with the printed intersections. Use the accepted-view selector
 to inspect any stored view. **Capture view** selects the displayed sample (raw
 source pixels even in corrected mode), reusing a full detection only when it
 belongs to that exact frame. Held corners are never saved for a newer image: Capture runs a full-resolution
 detection on its selected frame unless that exact frame already has a full result.
-All existing quality checks remain. Holding the overlay adds no observations.
+All existing quality checks remain. Neither holding nor tracking the overlay adds observations.
 After capture/review, click **Live view** before selecting another view. A sample
 older than two seconds is rejected; wait for a fresh sample. Integer image
 coordinates denote pixel centres; presentation adds half a pixel before scaling
@@ -93,8 +102,8 @@ These coordinates describe the target plane, not the future tabletop world frame
   `findChessboardCornersSB`. OpenCV 4 uses calib3d; OpenCV 5 moved detection to
   objdetect. Frame pixels are read-only and Gray8/RGB/RGBA padded rows are supported.
 - `CalibrationController`: GUI-thread application adapter with an injected
-  detector, solver and profile store on one worker; a separate worker handles
-  preview remapping. Acquisition retains the newest frame, full
+  detector, solver and profile store on one worker; a separate worker serializes
+  optional optical flow and preview remapping. Acquisition retains the newest frame, full
   detection retains its exact reusable frame/result and the held overlay. Each path
   has at most one in-flight job and replaceable newest input.
   Full live detection pauses during capture/solving/profile I/O. Preview remapping
@@ -102,7 +111,9 @@ These coordinates describe the target plane, not the future tabletop world frame
   enabled during full live detection and may wait behind that one OpenCV call;
   no additional full live calls can get ahead of it. Corrected previews remap the
   current image and held raw coordinates using the
-  same compatible profile. Their positions remain fixed until the next result.
+  same compatible profile. Held positions remain fixed until the next result;
+  tracked positions follow the current frame only after successful flow. Tracked
+  previews run flow before remapping to avoid remapping a frame twice.
   Cancellation/shutdown invalidate results immediately without GUI waits. OpenCV
   itself is synchronous and cannot be interrupted mid-call. Frames/corners are
   plain domain values; widget code does not perform detection.
@@ -254,7 +265,8 @@ No optical accuracy, bounded physical stopping or complete motion loop is claime
 
 ## Camera-rate tracking experiment for #242
 
-Historical optical-flow experiment, superseded by the held-overlay change below.
+Historical measurements for the first optical-flow experiment. Tracking is now
+available alongside Hold through the selector; see the current mode notes below.
 It was requested on branch `feat/242-camera-rate-tracked-preview`, based on working commit `c0b4031` on
 `feat/242-live-calibration-overlays`. The working branch is preserved. The earlier
 5 Hz paired-sample audit above records that baseline; this branch replaces its
@@ -340,7 +352,7 @@ ctest --test-dir build/standalone-core --parallel 3 --output-on-failure
 
 ## Held-overlay revision
 
-At the maintainer's request, this branch now keeps the last full detection's
+This historical revision (commit `3a5705d`) kept the last full detection's
 corner positions fixed until the next detection completes. Optical flow and its
 extra OpenCV `video` dependency have been removed. The preceding optical-flow
 section is historical evidence for commit `2547c66`, not current behavior.
@@ -375,3 +387,36 @@ above. Four held-overlay UI tests cover fixed coordinates while video advances,
 replacement by a delayed result, clearing on missing detection/source change,
 exact-frame capture instead of cached points, and both-worker shutdown.
 Physical camera/native display, Linux/Windows and OpenCV 4 remain **NOT RUN**.
+
+## Selectable overlay modes
+
+The current branch combines the held and optical-flow versions. **Live overlay**
+in the calibration wizard selects **Hold until next detection** (default) or
+**Track between detections**. Both use camera-rate raw video, bounded work and
+full detection at up to 5 Hz. Hold intentionally allows older corner positions
+on newer images; Track uses the guarded optical-flow policy recorded above and
+hides obsolete/uncertain estimates. Cyan denotes held or tracked points. Capture
+continues to require a full detection and quality assessment of its selected raw
+frame in either mode. Switching does not change stored observations or resume a
+paused review. The preference survives dialog close/reopen in this application
+session, but is not saved into profiles or application settings.
+
+Mode changes invalidate old-mode full-detection, tracking and remap completions.
+The production composition injects the tracker; the selector is disabled for
+injected configurations without tracking support. OpenCV's `video` dependency is
+again enabled for calibration/desktop builds; core remains Qt/OpenCV-free.
+
+Root core passed 280 tests. Root and standalone macOS builds/tests each passed
+473 tests with one opt-in detector-audit skip (474 discovered). Tests cover both
+modes, switching through the UI, switching while flow is gated, preserving the
+captured dataset/paused review and retaining the selection across dialog reopen.
+The expanded offscreen audit completed 18 moving-board scenarios: both overlay
+modes, hidden/raw/corrected display, VGA/720p/1080p and concurrent AprilTag work.
+Every visible scenario ran nine full detections in about two seconds. Hold ran
+zero optical-flow calls; Track ran flow only while visible. There were no sequence
+rewinds. At 1080p, Hold raw video delivered 61/61 frames and Track raw 60/60;
+corrected mode delivered 60/61 in each case. Track flow averaged 1.14–2.76 ms in
+visible scenarios. These timings are synthetic, not physical/native-display
+acceptance. Physical camera, native macOS display, Linux/Windows and OpenCV 4
+checks remain NOT RUN. Validation commands are the same as those recorded above;
+original working branch `feat/242-live-calibration-overlays` remains at `c0b4031`.

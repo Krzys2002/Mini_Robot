@@ -99,7 +99,9 @@ disabled. The domain core has no Qt, filesystem-location or OpenCV dependency.
 
 `OpenCvCalibrationUndistorter` operates behind `ICalibrationUndistorter` on the
 live-preview worker, separate from detection/solving and profile storage, with
-newest-frame replacement. In the experimental held-overlay mode, the last detected
+newest-frame replacement. Optional optical flow shares this serialized worker.
+The Live overlay selector switches between holding and tracking without changing
+saved profiles or captured observations. In held-overlay mode, the last detected
 raw coordinates are remapped with the current image until the next detection;
 they can lag a moving board. It supports padded Gray8/RGB8/RGBA8,
 produces independent immutable storage and preserves capture timestamp, sequence,

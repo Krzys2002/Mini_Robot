@@ -31,6 +31,7 @@ private:
     CalibrationController& controller_;
     CalibrationPreview* preview_{};
     QComboBox* views_{};
+    QComboBox* overlayMode_{};
     QLabel* message_{};
     QLabel* progress_{};
     QLabel* quality_{};
