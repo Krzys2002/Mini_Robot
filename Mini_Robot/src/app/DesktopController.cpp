@@ -609,7 +609,17 @@ void DesktopController::publishWorld()
     const auto status = tracking.status == TrackingStatus::Fresh ? QStringLiteral("Fresh")
         : tracking.status == TrackingStatus::Stale ? QStringLiteral("Stale")
         : tracking.status == TrackingStatus::Lost ? QStringLiteral("Lost") : QStringLiteral("Unknown");
-    emit worldDescriptionChanged(prefix + QStringLiteral("\nTracking: ") + status + QStringLiteral("\nx %1 m · y %2 m · heading %3 rad"
+    QString diagnostics;
+    if (tracking.age) diagnostics += QStringLiteral("\nObservation age %1 ms").arg(
+        std::chrono::duration<double, std::milli>(*tracking.age).count(), 0, 'f', 0);
+    if (tracking.confidence) diagnostics += QStringLiteral(" · reliability %1").arg(*tracking.confidence, 0, 'f', 2);
+    if (state->tracking && state->tracking->velocity) {
+        const auto& v = *state->tracking->velocity;
+        diagnostics += QStringLiteral("\nvx %1 m/s · vy %2 m/s · omega %3 rad/s")
+            .arg(v.xMetersPerSecond, 0, 'f', 3).arg(v.yMetersPerSecond, 0, 'f', 3)
+            .arg(v.radiansPerSecond, 0, 'f', 3);
+    } else diagnostics += QStringLiteral("\nVelocity unavailable");
+    emit worldDescriptionChanged(prefix + diagnostics + QStringLiteral("\nTracking: ") + status + QStringLiteral("\nx %1 m · y %2 m · heading %3 rad"
         "\nPose updated +%4 s")
         .arg(state->pose->x.value, 0, 'f', 2).arg(state->pose->y.value, 0, 'f', 2)
         .arg(state->pose->heading.value, 0, 'f', 2)

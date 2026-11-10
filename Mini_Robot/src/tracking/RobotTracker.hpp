@@ -13,7 +13,8 @@ enum class TrackerUpdate { Applied, InvalidMeasurement, FutureTimestamp, Expired
 class RobotTracker final {
 public:
     RobotTracker(WorldModel& world, TrackingThresholds thresholds, PoseFilterConfig filter = {});
-    [[nodiscard]] TrackerUpdate observe(RobotId id, const Pose2D& pose, Timestamp capturedAt, Timestamp now);
+    [[nodiscard]] TrackerUpdate observe(RobotId id, const Pose2D& pose, Timestamp capturedAt, Timestamp now,
+                                        std::optional<double> quality = {});
     // Input/calibration invalidation makes all poses from this tracker lost.
     void invalidate(Timestamp now);
 private:

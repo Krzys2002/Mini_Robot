@@ -65,3 +65,21 @@ New, lost, invalidated and externally replaced tracks initialize from the next
 accepted sample. Rejected measurements do not advance filter state.
 Synthetic tests cover wrap crossing, reset and stationary jitter. Physical camera
 noise and lag tuning remain unverified.
+
+## Motion and reliability
+
+Tracking metadata exposes optional world vx/vy (m/s) and omega (rad/s), computed
+from consecutive raw measurements and continuous heading. Using raw differences
+keeps motion independent of pose smoothing lag; camera noise can affect velocity.
+Intervals below 1 ms have no derivative; a gap at least `lostAfter`, invalidation,
+first observation or external replacement resets the estimate. Duplicate/older
+samples are rejected. Non-finite derivative results are unavailable.
+
+`world.tracking(id, now)` supplies current age and a reliability score:
+`quality * max(0, 1 - age/lostAfter)`, zero when lost/invalidated. Metric batches use
+`minimumEdgePixels/(minimumEdgePixels+10)` as a geometry heuristic. Unknown quality
+uses age alone; raw quality remains optional in the snapshot. This is not a
+calibrated probability or a controller safety authorization. The GUI shows age,
+reliability and motion; consumers must still gate on fresh tracking at current time.
+Synthetic stationary, constant-motion, wrap and dt tests run without hardware.
+Physical velocity accuracy and confidence calibration remain unverified.
