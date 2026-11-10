@@ -35,6 +35,14 @@ and `core arhiteture.md` do not establish implemented functionality.
 - Do not commit build trees, local CMake presets, secrets, or IDE state.
   Do not modify tracked IDE files just to make the project load on one machine.
 
+## C++ constants
+
+Do not use magic numbers for behavioral values such as durations, limits or
+thresholds. Define named `constexpr` constants (using `static constexpr` for class
+members) in the relevant header and reuse them instead of duplicating literals.
+Use explicit units for physical and timing values. UI placement and layout values
+are exempt from this rule.
+
 ## Validation
 
 Run from the repository root for root integration changes:
