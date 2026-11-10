@@ -101,8 +101,7 @@ disabled. The domain core has no Qt, filesystem-location or OpenCV dependency.
 live-preview worker, separate from detection/solving and profile storage, with
 newest-frame replacement. Optional optical flow shares this serialized worker.
 The Live preview selector switches between holding, tracking and matched-frame
-presentation without changing
-saved profiles or captured observations. In held-overlay mode, the last detected
+presentation without changing saved profiles or captured observations. In held-overlay mode, the last detected
 raw coordinates are remapped with the current image until the next detection;
 they can lag a moving board. It supports padded Gray8/RGB8/RGBA8,
 produces independent immutable storage and preserves capture timestamp, sequence,
@@ -179,7 +178,7 @@ configurations used the existing local GoogleTest source checkout (no download):
 Physical camera/lens acceptance, Linux native GUI/BlueZ-independent runtime,
 Windows runtime and OpenCV 4 execution were **NOT RUN**. Follow the physical
 procedure above; automated geometry/persistence results do not establish optical
-accuracy or native platform interaction. The issue branch remains local until
+accuracy or native platform interaction. At that verification stage the issue branch remained local pending
 maintainer push approval.
 
 ### CI compiler compatibility follow-up (2026-10-22)

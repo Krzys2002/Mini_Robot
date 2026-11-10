@@ -20,6 +20,9 @@ reports are scope/history, not evidence that future modules are present.
 | [src/calibration/OpenCvIntrinsicCalibrationSolver.cpp](../../src/calibration/OpenCvIntrinsicCalibrationSolver.cpp) | [Intrinsic solver](intrinsic-calibration.md) |
 | [src/calibration/OpenCvCalibrationDetector.hpp](../../src/calibration/OpenCvCalibrationDetector.hpp) | [Calibration capture](calibration-capture.md) |
 | [src/calibration/OpenCvCalibrationDetector.cpp](../../src/calibration/OpenCvCalibrationDetector.cpp) | [Calibration capture](calibration-capture.md) |
+| [src/calibration/CalibrationCornerTracker.hpp](../../src/calibration/CalibrationCornerTracker.hpp) | [Live preview modes](calibration-capture.md#live-preview-processing-policy) |
+| [src/calibration/OpenCvCalibrationCornerTracker.hpp](../../src/calibration/OpenCvCalibrationCornerTracker.hpp) | [Live preview modes](calibration-capture.md#live-preview-processing-policy) |
+| [src/calibration/OpenCvCalibrationCornerTracker.cpp](../../src/calibration/OpenCvCalibrationCornerTracker.cpp) | [Live preview modes](calibration-capture.md#live-preview-processing-policy) |
 | [src/ui/CalibrationWizard.hpp](../../src/ui/CalibrationWizard.hpp) | [Calibration capture](calibration-capture.md) |
 | [src/ui/CalibrationWizard.cpp](../../src/ui/CalibrationWizard.cpp) | [Calibration capture](calibration-capture.md) |
 | [src/app/main.cpp](../../src/app/main.cpp) | [app](desktop-demo.md) |
