@@ -98,8 +98,10 @@ disabled. The domain core has no Qt, filesystem-location or OpenCV dependency.
 ## Preview and lifecycle
 
 `OpenCvCalibrationUndistorter` operates behind `ICalibrationUndistorter` on the
-live-preview worker, separate from detection/solving and profile storage. Optical
-flow and remapping are serialized there, with newest-frame replacement. It supports padded Gray8/RGB8/RGBA8,
+live-preview worker, separate from detection/solving and profile storage, with
+newest-frame replacement. In the experimental held-overlay mode, the last detected
+raw coordinates are remapped with the current image until the next detection;
+they can lag a moving board. It supports padded Gray8/RGB8/RGBA8,
 produces independent immutable storage and preserves capture timestamp, sequence,
 resolution and pixel format. It keeps the original camera matrix and full image
 extent. Black borders and interpolation are expected; there is no automatic crop

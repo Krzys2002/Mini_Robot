@@ -37,7 +37,6 @@ micro_robot_platform_boundary(micro_robot_camera_selection)
 # Capture policy/state remains independent of widgets, hardware and OpenCV.
 add_library(micro_robot_calibration STATIC
     calibration/CalibrationCapture.hpp
-    calibration/CalibrationCornerTracker.hpp
     calibration/CalibrationCapture.cpp
     calibration/IntrinsicCalibration.hpp
     calibration/IntrinsicCalibration.cpp
@@ -60,8 +59,6 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
         calibration/OpenCvWorkspaceHomographySolver.hpp
         calibration/OpenCvCalibrationDetector.hpp
         calibration/OpenCvCalibrationDetector.cpp
-        calibration/OpenCvCalibrationCornerTracker.hpp
-        calibration/OpenCvCalibrationCornerTracker.cpp
         calibration/OpenCvIntrinsicCalibrationSolver.hpp
         calibration/OpenCvIntrinsicCalibrationSolver.cpp
         calibration/OpenCvCalibrationUndistorter.hpp

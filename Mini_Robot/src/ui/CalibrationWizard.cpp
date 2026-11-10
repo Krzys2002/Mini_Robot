@@ -19,12 +19,12 @@ namespace micro_robot {
 class CalibrationPreview final : public QWidget {
 public:
     using QWidget::QWidget;
-    void present(FramePtr frame, std::vector<ImageCorner> corners, bool accepted, bool tracked)
+    void present(FramePtr frame, std::vector<ImageCorner> corners, bool accepted, bool held)
     {
         frame_ = std::move(frame);
         corners_ = std::move(corners);
         accepted_ = accepted;
-        tracked_ = tracked;
+        held_ = held;
         // QWidget coalesces updates. It holds one newest preview, never a frame queue.
         update();
     }
@@ -47,7 +47,7 @@ protected:
         const QSize fitted = image.size().scaled(size(), Qt::KeepAspectRatio);
         const QRect bounds{QPoint{(width() - fitted.width()) / 2, (height() - fitted.height()) / 2}, fitted};
         painter.drawImage(bounds, image);
-        painter.setPen(QPen(tracked_ ? Qt::cyan : accepted_ ? Qt::green : Qt::red, 2));
+        painter.setPen(QPen(held_ ? Qt::cyan : accepted_ ? Qt::green : Qt::red, 2));
         const auto map = [&](const ImageCorner& p) {
             return QPointF{bounds.x() + (p.u + 0.5) * bounds.width() / frame_->width,
                            bounds.y() + (p.v + 0.5) * bounds.height() / frame_->height};
@@ -63,7 +63,7 @@ private:
     FramePtr frame_;
     std::vector<ImageCorner> corners_;
     bool accepted_{};
-    bool tracked_{};
+    bool held_{};
 };
 
 CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget* parent)
@@ -76,7 +76,7 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     auto* instructions = new QLabel(QStringLiteral(
         "Chessboard: %1 × %2 inner corners (%3 × %4 squares), %5 mm per square.\n"
         "Use a flat board with a white border. Capture different positions, distances and rotations.\n"
-        "Camera-rate video; detection up to 5 Hz, cyan = tracked estimate.\n"
+        "Camera-rate video; detection up to 5 Hz, cyan = last detection held in place.\n"
         "Green = usable, red = rejected, yellow ring = first corner. Inspect every accepted view.")
         .arg(target.columns).arg(target.rows).arg(target.columns + 1).arg(target.rows + 1)
         .arg(target.squareSizeMeters * 1000), this);
@@ -153,8 +153,8 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     connect(close, &QPushButton::clicked, this, &CalibrationWizard::reject);
     connect(&controller_, &CalibrationController::changed, this, &CalibrationWizard::refresh);
     connect(&controller_, &CalibrationController::previewChanged, this,
-        [this](FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool tracked) {
-            preview_->present(std::move(frame), corners, accepted, tracked);
+        [this](FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool held) {
+            preview_->present(std::move(frame), corners, accepted, held);
         });
     refresh();
 }

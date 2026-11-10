@@ -18,24 +18,24 @@ Use the [printable chessboard](../calibration/chessboard-9x6-25mm.svg):
 
 Select and start a camera in the main window, then click **Camera calibration…**.
 This experimental branch advances raw video on every incoming camera frame while
-full chessboard detection runs at up to 5 Hz. Optical flow estimates the corners
-on intervening frames. Raw video does not wait for either worker; overlays appear
-only when their exact frame is still current. Slow work skips obsolete overlays
-rather than freezing video or painting old coordinates over newer pixels.
+full chessboard detection runs at up to 5 Hz. The last detected corner positions
+stay fixed until the next detection result. They can lag or misalign if the board
+moves; this is the requested held-overlay display mode, not a current-frame
+measurement or motion-tracked estimate. A result without corners clears the grid.
 Click **Start / restart capture** and **Capture view** while holding the board
 still and in focus. Each usable, distinct view is accepted automatically.
 
 Green dots show usable live samples or accepted captured inner corners. Red dots
 show rejected detections when corners are available. Live evaluation uses the same
-quality/diversity rules without adding an observation. **Cyan dots are tracked
-estimates**, without a fresh quality assessment. The yellow ring identifies the
+quality/diversity rules without adding an observation. **Cyan dots are held from an earlier
+detection**, without a fresh assessment of the current image. The yellow ring identifies the
 first corner. Visually
 check alignment with the printed intersections. Use the accepted-view selector
 to inspect any stored view. **Capture view** selects the displayed sample (raw
 source pixels even in corrected mode), reusing a full detection only when it
-belongs to that exact frame. Estimated corners are never saved: capturing a
-tracked frame runs a fresh full-resolution detection and all existing quality
-checks. Tracking adds no views and does not change the solver input.
+belongs to that exact frame. Held corners are never saved for a newer image: Capture runs a full-resolution
+detection on its selected frame unless that exact frame already has a full result.
+All existing quality checks remain. Holding the overlay adds no observations.
 After capture/review, click **Live view** before selecting another view. A sample
 older than two seconds is rejected; wait for a fresh sample. Integer image
 coordinates denote pixel centres; presentation adds half a pixel before scaling
@@ -93,15 +93,16 @@ These coordinates describe the target plane, not the future tabletop world frame
   `findChessboardCornersSB`. OpenCV 4 uses calib3d; OpenCV 5 moved detection to
   objdetect. Frame pixels are read-only and Gray8/RGB/RGBA padded rows are supported.
 - `CalibrationController`: GUI-thread application adapter with an injected
-  detector, solver and profile store on one worker; a separate worker serializes
-  optical flow and preview remapping. Acquisition retains the newest frame, full
-  detection retains its exact reusable frame/result, and tracking retains one
-  anchor. Each path has at most one in-flight job and replaceable newest input.
-  Full live detection pauses during capture/solving/profile I/O. Flow can run
-  alongside detection; it cannot delay capture on the other worker. Capture stays
+  detector, solver and profile store on one worker; a separate worker handles
+  preview remapping. Acquisition retains the newest frame, full
+  detection retains its exact reusable frame/result and the held overlay. Each path
+  has at most one in-flight job and replaceable newest input.
+  Full live detection pauses during capture/solving/profile I/O. Preview remapping
+  can run alongside detection on the other worker. Capture stays
   enabled during full live detection and may wait behind that one OpenCV call;
-  no additional full live calls can get ahead of it. Corrected previews track first
-  and remap once with matched points, rather than remapping the same frame twice.
+  no additional full live calls can get ahead of it. Corrected previews remap the
+  current image and held raw coordinates using the
+  same compatible profile. Their positions remain fixed until the next result.
   Cancellation/shutdown invalidate results immediately without GUI waits. OpenCV
   itself is synchronous and cannot be interrupted mid-call. Frames/corners are
   plain domain values; widget code does not perform detection.
@@ -253,8 +254,8 @@ No optical accuracy, bounded physical stopping or complete motion loop is claime
 
 ## Camera-rate tracking experiment for #242
 
-Requested as a separate experiment on branch
-`feat/242-camera-rate-tracked-preview`, based on working commit `c0b4031` on
+Historical optical-flow experiment, superseded by the held-overlay change below.
+It was requested on branch `feat/242-camera-rate-tracked-preview`, based on working commit `c0b4031` on
 `feat/242-live-calibration-overlays`. The working branch is preserved. The earlier
 5 Hz paired-sample audit above records that baseline; this branch replaces its
 held-image behavior with camera-rate raw video and worker-side tracking.
@@ -336,3 +337,41 @@ cmake -S Mini_Robot -B build/standalone-core -G Ninja -DMICRO_ROBOT_BUILD_DESKTO
 cmake --build build/standalone-core --parallel 3
 ctest --test-dir build/standalone-core --parallel 3 --output-on-failure
 ```
+
+## Held-overlay revision
+
+At the maintainer's request, this branch now keeps the last full detection's
+corner positions fixed until the next detection completes. Optical flow and its
+extra OpenCV `video` dependency have been removed. The preceding optical-flow
+section is historical evidence for commit `2547c66`, not current behavior.
+
+Video continues on every incoming frame. A delayed detection replaces the overlay
+over the newest image without rewinding video. A failed/empty detection clears
+it. Camera/resolution changes, restart/cancel, review/live transitions and dialog
+hide/teardown also clear it. Cyan identifies an overlay held from an older frame.
+In undistorted mode, held raw coordinates are transformed using the same profile
+as the current image. Their positions stay fixed for a fixed profile and preview
+mode. This deliberately relaxes #242's current-frame preview requirement on this
+experimental branch: moving the board can make the displayed corners misalign
+until detection catches up. The original paired-frame branch at `c0b4031` remains
+unchanged. This display choice does not weaken capture: only a full detection of
+the selected raw frame can supply saved points and quality checks.
+
+The nine-scenario moving-board audit completed with zero sequence rewinds and
+nine full detections in each roughly two-second visible scenario. Raw video
+presented every input frame: VGA 59/59, 720p 61/61, 1080p 61/61. Corrected video
+presented 62/62, 61/61 and 60/61 respectively. The pending final corrected frame
+may be discarded when hiding/stopping. Largest GUI heartbeat gap: 12.49 ms.
+These synthetic measurements do not establish physical/native-display behavior.
+
+Root and standalone macOS builds/tests each passed 462 tests with one opt-in
+audit skipped (463 discovered). Root core passed 280 tests on the final rerun.
+An initial core run failed the unchanged camera-identity test
+`V4l2IdentityTest.RejectsMissingSerialAndDuplicatePhysicalIdentity`; the isolated
+four-test identity suite and subsequent full core run passed. Its transient cause
+was not established; no unrelated camera-identity source was changed.
+Validation used the same configure/build/CTest and explicit audit commands listed
+above. Four held-overlay UI tests cover fixed coordinates while video advances,
+replacement by a delayed result, clearing on missing detection/source change,
+exact-frame capture instead of cached points, and both-worker shutdown.
+Physical camera/native display, Linux/Windows and OpenCV 4 remain **NOT RUN**.
