@@ -17,8 +17,8 @@ Use the [printable chessboard](../calibration/chessboard-9x6-25mm.svg):
   curved or glossy target. The chosen workflow is chessboard, not ChArUco.
 
 Select and start a camera in the main window, then click **Camera calibration…**.
-This branch advances raw video on every incoming camera frame while full
-chessboard detection runs at up to 5 Hz. Select **Live overlay**:
+Full chessboard detection runs at up to 5 Hz. Select one of three **Live preview**
+modes:
 
 - **Hold until next detection** (default): keep the last detected corner positions
   fixed until the next result. They can misalign if the board moves. A result
@@ -26,10 +26,14 @@ chessboard detection runs at up to 5 Hz. Select **Live overlay**:
 - **Track between detections**: estimate corner positions on intervening frames
   using optical flow. Hide uncertain/expired grids and skip obsolete results
   rather than drawing an old estimate on a newer frame.
+- **Matched image and corners (up to 5 Hz)**: advance the preview image and its
+  detected corners together. Video follows the detection rate, retaining exact
+  frame alignment even when the board moves. Capture can reuse that sample.
 
 The selection lasts for this application session, including dialog close/reopen;
-it is not written into calibration profiles. Both modes keep raw video advancing
-and preserve the captured dataset when switched. Mode changes invalidate pending
+it is not written into calibration profiles. Hold and Track keep raw video
+advancing; Matched holds each detected sample. All three preserve the captured
+dataset when switched. Mode changes invalidate pending
 old-mode work; a paused captured-view review stays paused.
 Click **Start / restart capture** and **Capture view** while holding the board
 still and in focus. Each usable, distinct view is accepted automatically.
@@ -326,7 +330,7 @@ blocked, flow failure, source/restart/teardown invalidation and both-worker drai
 
 Physical camera/native display checks, fast real board movement, real focus/blur,
 Linux/Windows and OpenCV 4 execution remain **NOT RUN**. Existing #179 physical
-acceptance is not marked complete by this experiment. The experimental branch is
+acceptance is not marked complete by this experiment. At that stage, the experimental branch was
 not published or substituted for the working branch.
 
 Experiment validation: root core and standalone core configure/build/CTest each
@@ -390,7 +394,7 @@ Physical camera/native display, Linux/Windows and OpenCV 4 remain **NOT RUN**.
 
 ## Selectable overlay modes
 
-The current branch combines the held and optical-flow versions. **Live overlay**
+At commit `3f606b7`, the branch combined held and optical-flow versions. **Live overlay**
 in the calibration wizard selects **Hold until next detection** (default) or
 **Track between detections**. Both use camera-rate raw video, bounded work and
 full detection at up to 5 Hz. Hold intentionally allows older corner positions
@@ -420,3 +424,27 @@ visible scenarios. These timings are synthetic, not physical/native-display
 acceptance. Physical camera, native macOS display, Linux/Windows and OpenCV 4
 checks remain NOT RUN. Validation commands are the same as those recorded above;
 original working branch `feat/242-live-calibration-overlays` remains at `c0b4031`.
+
+## Three-mode integration into the main #242 branch
+
+The selector now includes the original **Matched image and corners (up to 5 Hz)**
+preview alongside Hold (default) and Track. Matched advances image and detected
+corners as a pair and reuses that exact full result for Capture. Its initial image
+also stays fixed while the first detection runs, preventing a delayed first result
+from rewinding video. Hold and Matched remain available when no optical-flow
+adapter is injected; only Track is disabled. Mode changes preserve paused review,
+captured observations and profiles, and invalidate old-mode worker completions.
+
+Before local integration, root macOS tests passed 475 cases with one opt-in audit
+skip (476 discovered); root core passed 280. New cases exercise Matched through the
+selector without a tracker, image/corner pairing while newer input arrives,
+exact-sample Capture reuse, and switching from gated flow into Matched without
+an obsolete estimate replacing the matched sample. The audit expanded to 27
+scenarios (three preview modes × hidden/raw/corrected × three resolutions), all
+completed with zero sequence rewinds. Visible Matched scenarios performed nine
+full detections in roughly two seconds and presented nine paired overlays; other
+modes retained camera-rate raw video. No optical-flow calls ran in Hold/Matched.
+The same audit/build commands recorded above apply. Local integration targets
+`feat/242-live-calibration-overlays`, not repository `master`; no GitHub merge or
+publication is implied. Physical/native-display and other-platform limitations
+remain NOT RUN as recorded above.

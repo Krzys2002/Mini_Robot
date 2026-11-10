@@ -10,6 +10,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QStandardItemModel>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -76,7 +77,7 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     auto* instructions = new QLabel(QStringLiteral(
         "Chessboard: %1 × %2 inner corners (%3 × %4 squares), %5 mm per square.\n"
         "Use a flat board with a white border. Capture different positions, distances and rotations.\n"
-        "Camera-rate video; detection up to 5 Hz, cyan = held or tracked corners.\n"
+        "Detection up to 5 Hz; choose a live preview mode below. Cyan = held or tracked corners.\n"
         "Green = usable, red = rejected, yellow ring = first corner. Inspect every accepted view.")
         .arg(target.columns).arg(target.rows).arg(target.columns + 1).arg(target.rows + 1)
         .arg(target.squareSizeMeters * 1000), this);
@@ -121,16 +122,17 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     connect(reloadProfile_, &QPushButton::clicked, &controller_, &CalibrationController::reloadProfile);
     connect(undistorted_, &QCheckBox::toggled, &controller_, &CalibrationController::setUndistortedPreview);
     auto* overlayOptions = new QHBoxLayout;
-    overlayOptions->addWidget(new QLabel(QStringLiteral("Live overlay:"), this));
+    overlayOptions->addWidget(new QLabel(QStringLiteral("Live preview:"), this));
     overlayMode_ = new QComboBox(this);
     overlayMode_->setObjectName(QStringLiteral("calibrationOverlayMode"));
     overlayMode_->addItem(QStringLiteral("Hold until next detection"));
     overlayMode_->addItem(QStringLiteral("Track between detections"));
-    overlayMode_->setToolTip(QStringLiteral("Hold keeps corners fixed and can lag a moving board. Track follows motion and hides uncertain corners. Detection runs at up to 5 Hz in both modes. Capture validates its selected frame."));
+    overlayMode_->addItem(QStringLiteral("Matched image and corners (up to 5 Hz)"));
+    overlayMode_->setToolTip(QStringLiteral("Hold keeps corners fixed and can lag a moving board. Track follows motion and hides uncertain corners. Matched advances image and corners together. Detection runs at up to 5 Hz in all modes. Capture validates its selected frame."));
     overlayOptions->addWidget(overlayMode_, 1);
     layout->addLayout(overlayOptions);
     connect(overlayMode_, &QComboBox::currentIndexChanged, this,
-        [this](int index) { controller_.setLiveOverlayTracking(index == 1); });
+        [this](int index) { controller_.setLivePreviewMode(static_cast<CalibrationLivePreviewMode>(index)); });
     auto* review = new QHBoxLayout;
     views_ = new QComboBox(this);
     views_->setObjectName(QStringLiteral("calibrationViews"));
@@ -176,8 +178,10 @@ void CalibrationWizard::refresh()
     const auto& config = session.config();
     message_->setText(controller_.message());
     const QSignalBlocker overlayBlocker(overlayMode_);
-    overlayMode_->setCurrentIndex(controller_.liveOverlayTracking() ? 1 : 0);
-    overlayMode_->setEnabled(controller_.canTrackLiveOverlay() && !controller_.busy());
+    overlayMode_->setCurrentIndex(static_cast<int>(controller_.livePreviewMode()));
+    overlayMode_->setEnabled(!controller_.busy());
+    if (auto* model = qobject_cast<QStandardItemModel*>(overlayMode_->model()))
+        model->item(1)->setEnabled(controller_.canTrackLiveOverlay());
     QString profileText = controller_.profileMessage();
     if (const auto& profile = controller_.profile()) {
         profileText += QStringLiteral("\nCamera %1 · %2 × %3 px · RMS %4 px")

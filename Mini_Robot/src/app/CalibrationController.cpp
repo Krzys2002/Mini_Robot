@@ -99,13 +99,17 @@ void CalibrationController::receiveFrame(FramePtr frame)
     latest_ = std::move(frame);
     if (persistentIdentity_ && profileStore_ && !profileLookupRequested_) reloadProfile();
     if (live_) {
-        if (trackOverlay_) {
+        if (previewMode_ == CalibrationLivePreviewMode::Track) {
             // Track before corrected remapping to avoid remapping each frame twice.
             trackLive();
             presentPreview(latest_, {}, false);
-        } else {
+        } else if (previewMode_ == CalibrationLivePreviewMode::Hold) {
             presentPreview(latest_, liveCorners_, liveAccepted_,
                 detectedFrame_ && latest_ != detectedFrame_ && !liveCorners_.empty());
+        } else if (!livePreviewActive_ || (!detectedFrame_ && !liveDetectionBusy_)) {
+            // Hold the initial sampled image while detection runs, then advance
+            // image and corners together. The first result cannot rewind video.
+            presentPreview(latest_, {}, false);
         }
         sampleLive();
     }
@@ -235,7 +239,7 @@ void CalibrationController::sampleLive()
             liveCorners_ = detection.error.empty() ? detection.corners : std::vector<ImageCorner>{};
             liveAccepted_ = decision.accepted;
             resetTracking();
-            if (trackOverlay_) {
+            if (previewMode_ == CalibrationLivePreviewMode::Track) {
                 if (detection.error.empty() && detection.corners.size() == calibrationObjectPoints(session_.config().target).size()) {
                     trackingFrame_ = frame;
                     trackingCorners_ = detection.corners;
@@ -243,6 +247,8 @@ void CalibrationController::sampleLive()
                 }
                 if (frame == latest_) presentPreview(frame, liveCorners_, liveAccepted_);
                 trackLive();
+            } else if (previewMode_ == CalibrationLivePreviewMode::Matched) {
+                presentPreview(frame, liveCorners_, liveAccepted_);
             } else {
                 // Held mode intentionally paints last detection coordinates over new pixels.
                 presentPreview(latest_, liveCorners_, liveAccepted_, latest_ != frame && !liveCorners_.empty());
@@ -270,7 +276,7 @@ void CalibrationController::resetTracking()
 }
 void CalibrationController::trackLive()
 {
-    if (!trackOverlay_ || !tracker_ || trackingBusy_ || previewBusy_ || busy_ || shuttingDown_
+    if (previewMode_ != CalibrationLivePreviewMode::Track || !tracker_ || trackingBusy_ || previewBusy_ || busy_ || shuttingDown_
         || !live_ || !livePreviewActive_ || !latest_ || !trackingFrame_
         || latest_ == trackingFrame_) return;
     if (latest_->capturedAt < lastFullDetection_
@@ -313,15 +319,18 @@ void CalibrationController::trackLive()
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);
 }
-void CalibrationController::setLiveOverlayTracking(bool enabled)
+void CalibrationController::setLivePreviewMode(CalibrationLivePreviewMode mode)
 {
-    if (shuttingDown_ || trackOverlay_ == enabled || (enabled && !tracker_)) return;
-    trackOverlay_ = enabled;
-    ++liveEpoch_; // Discard both old-mode detection and tracking completions.
+    if (shuttingDown_ || previewMode_ == mode
+        || (mode != CalibrationLivePreviewMode::Hold && mode != CalibrationLivePreviewMode::Track
+            && mode != CalibrationLivePreviewMode::Matched)
+        || (mode == CalibrationLivePreviewMode::Track && !tracker_)) return;
+    previewMode_ = mode;
+    ++liveEpoch_; // Discard old-mode detection and tracking completions.
     ++previewEpoch_;
     resetTracking();
     if (live_) {
-        if (enabled) {
+        if (mode == CalibrationLivePreviewMode::Track) {
             if (detectedFrame_ && liveDetection_ && liveDetection_->error.empty()) {
                 trackingFrame_ = detectedFrame_;
                 trackingCorners_ = liveDetection_->corners;
@@ -329,13 +338,14 @@ void CalibrationController::setLiveOverlayTracking(bool enabled)
             }
             presentPreview(latest_, {}, false);
             trackLive();
+        } else if (mode == CalibrationLivePreviewMode::Matched && detectedFrame_) {
+            presentPreview(detectedFrame_, liveCorners_, liveAccepted_);
         } else {
             presentPreview(latest_, liveCorners_, liveAccepted_,
                 detectedFrame_ && latest_ != detectedFrame_ && !liveCorners_.empty());
         }
     } else {
-        // A mode preference never changes a paused review or captured dataset.
-        processPreview();
+        processPreview(); // A preference change preserves paused review and captured data.
     }
     emit changed();
 }

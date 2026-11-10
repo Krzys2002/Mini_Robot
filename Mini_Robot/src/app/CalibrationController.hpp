@@ -11,10 +11,12 @@
 #include <memory>
 
 namespace micro_robot {
+enum class CalibrationLivePreviewMode { Hold = 0, Track = 1, Matched = 2 };
 
 // GUI-thread adapter. Detection/solving/store I/O use one worker; optical flow
-// and remapping share another. Camera-rate video can hold detected corners or
-// track them between detections. Capture uses only a full detection of its exact
+// and remapping share another. Preview can hold/track overlays on camera-rate
+// video or advance matched images/corners at detection rate. Capture uses only a
+// full detection of its exact
 // raw frame. Call shutdown() and await stopped() before destruction.
 class CalibrationController final : public QObject {
     Q_OBJECT
@@ -27,7 +29,7 @@ public:
     // Inject once before input; used exclusively on the preview worker.
     void setLiveTracker(std::unique_ptr<ICalibrationCornerTracker> tracker);
     [[nodiscard]] bool canTrackLiveOverlay() const { return tracker_ && !shuttingDown_; }
-    [[nodiscard]] bool liveOverlayTracking() const noexcept { return trackOverlay_; }
+    [[nodiscard]] CalibrationLivePreviewMode livePreviewMode() const noexcept { return previewMode_; }
     [[nodiscard]] bool liveTrackingBusy() const noexcept { return trackingBusy_; }
     // Inject once before camera input. Store I/O uses the capture worker;
     // undistortion uses the preview worker.
@@ -65,7 +67,7 @@ public slots:
     void showLive();
     // Wizard visibility controls background work; hidden dialogs never sample.
     void setLivePreviewActive(bool active);
-    void setLiveOverlayTracking(bool enabled);
+    void setLivePreviewMode(CalibrationLivePreviewMode mode);
     void finish();
     void cancel();
     void shutdown();
@@ -96,7 +98,7 @@ private:
     QThread liveWorker_; // Optical flow and preview remap; never capture/solve.
     QObject* liveContext_{};
     std::shared_ptr<ICalibrationCornerTracker> tracker_;
-    bool trackOverlay_{}; // Hold corners is the default.
+    CalibrationLivePreviewMode previewMode_{CalibrationLivePreviewMode::Hold};
     bool trackingBusy_{};
     std::uint64_t trackingRevision_{};
     FramePtr trackingFrame_;

@@ -67,7 +67,8 @@ int main(int argc, char** argv)
     QApplication app(argc, argv);
     Logger logger;
     for (auto [width, height] : {std::pair{640,480}, {1280,720}, {1920,1080}}) {
-        for (bool tracking : {false, true}) {
+        for (const auto overlay : {CalibrationLivePreviewMode::Hold, CalibrationLivePreviewMode::Track, CalibrationLivePreviewMode::Matched}) {
+        const bool tracking = overlay == CalibrationLivePreviewMode::Track;
         for (int mode : {0, 1, 2}) {
             const bool visible=mode!=0, corrected=mode==2;
             auto chess = std::make_unique<Chess>(); auto* c = chess.get();
@@ -77,7 +78,7 @@ int main(int argc, char** argv)
             VisionController vision(std::move(tags), logger.channel("tags"));
             auto flow=std::make_unique<Flow>(); auto* f=flow.get();
             calibration.setLiveTracker(std::move(flow));
-            calibration.setLiveOverlayTracking(tracking);
+            calibration.setLivePreviewMode(overlay);
             if (corrected) calibration.setProfileServices(std::make_unique<AuditStore>(),
                 std::make_unique<OpenCvCalibrationUndistorter>());
             CalibrationWizard wizard(calibration);
@@ -132,7 +133,7 @@ int main(int argc, char** argv)
             wizard.hide();
             calibration.shutdown(); vision.shutdown();
             while (!calibration.isStopped() || !vision.isStopped()) QApplication::processEvents();
-            std::cout << width << 'x' << height << " tracking=" << tracking << " visible=" << visible << " corrected=" << corrected << " inputs=" << sequence
+            std::cout << width << 'x' << height << " overlay=" << static_cast<int>(overlay) << " tracking=" << tracking << " visible=" << visible << " corrected=" << corrected << " inputs=" << sequence
                       << " chess_calls=" << c->timing.count << " chess_mean_ms="
                       << (c->timing.count ? c->timing.totalMs/c->timing.count : 0)
                       << " chess_max_ms=" << c->timing.maximumMs << " tag_calls=" << t->timing.count
