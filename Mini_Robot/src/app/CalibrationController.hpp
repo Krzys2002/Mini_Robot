@@ -12,7 +12,8 @@
 namespace micro_robot {
 
 // GUI-thread application adapter. One worker job at a time; only the latest
-// camera frame is retained between capture requests. Injected detector and solver
+// camera frame is retained alongside the displayed sample/result. Live sampling
+// is visibility-gated and has no pending job queue. Injected detector and solver
 // are used exclusively on the worker. Call shutdown() and await stopped() before
 // destruction in production, so joining the worker never blocks the GUI.
 class CalibrationController final : public QObject {
@@ -56,6 +57,8 @@ public slots:
     void removeView(int index);
     void reviewView(int index);
     void showLive();
+    // Wizard visibility controls background work; hidden dialogs never sample.
+    void setLivePreviewActive(bool active);
     void finish();
     void cancel();
     void shutdown();
@@ -71,6 +74,8 @@ private:
     void invalidate();
     void presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted);
     void processPreview();
+    void sampleLive();
+    void acceptCapture(FramePtr frame, CalibrationDetection detection);
     CalibrationCapture session_;
     LogChannel log_;
     QString sourceId_;
@@ -87,6 +92,12 @@ private:
     bool persistentIdentity_{};
     bool busy_{};
     bool live_{true};
+    bool livePreviewActive_{};
+    bool liveDetectionBusy_{};
+    std::uint64_t liveEpoch_{};
+    Timestamp nextLiveSample_{};
+    FramePtr detectedFrame_;
+    std::optional<CalibrationDetection> liveDetection_;
     bool shuttingDown_{};
     std::shared_ptr<ICalibrationProfileStore> profileStore_;
     std::shared_ptr<ICalibrationUndistorter> undistorter_;
@@ -100,6 +111,7 @@ private:
     bool previewBusy_{};
     std::uint64_t previewEpoch_{};
     FramePtr previewFrame_;
+    FramePtr selectedFrame_; // Raw source of the last actually emitted presentation.
     std::vector<ImageCorner> previewCorners_;
     bool previewAccepted_{};
 };

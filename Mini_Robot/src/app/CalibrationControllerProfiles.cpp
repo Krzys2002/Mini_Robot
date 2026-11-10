@@ -99,7 +99,7 @@ void CalibrationController::setUndistortedPreview(bool enabled)
     undistortedPreview_ = enabled && canUndistort();
     ++previewEpoch_;
     if (undistortedPreview_) processPreview();
-    else emit previewChanged(previewFrame_, previewCorners_, previewAccepted_);
+    else { selectedFrame_ = previewFrame_; emit previewChanged(previewFrame_, previewCorners_, previewAccepted_); }
     emit changed();
 }
 void CalibrationController::presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted)
@@ -108,7 +108,7 @@ void CalibrationController::presentPreview(FramePtr frame, const std::vector<Ima
     previewCorners_ = corners;
     previewAccepted_ = accepted;
     if (undistortedPreview_ && previewFrame_ && profile_) processPreview();
-    else emit previewChanged(previewFrame_, previewCorners_, previewAccepted_);
+    else { selectedFrame_ = previewFrame_; emit previewChanged(previewFrame_, previewCorners_, previewAccepted_); }
 }
 void CalibrationController::processPreview()
 {
@@ -117,24 +117,30 @@ void CalibrationController::processPreview()
     const auto frame = previewFrame_;
     const auto profile = *profile_;
     const auto epoch = previewEpoch_;
+    const auto corners = previewCorners_;
+    const auto accepted = previewAccepted_;
     const auto undistorter = undistorter_;
-    QMetaObject::invokeMethod(workerContext_, [this, frame, profile, epoch, undistorter] {
+    QMetaObject::invokeMethod(workerContext_, [this, frame, profile, epoch, undistorter, corners, accepted] {
         UndistortedPreviewOutcome outcome;
-        try { outcome = undistorter->undistort(*frame, profile); }
+        try { outcome = undistorter->undistortWithCorners(*frame, profile, corners); }
         catch (const std::exception& error) { outcome.error = error.what(); }
         catch (...) { outcome.error = "Unknown preview failure."; }
         if (outcome.frame && (!isValidFrame(*outcome.frame) || outcome.frame->width != frame->width
             || outcome.frame->height != frame->height || outcome.frame->sequence != frame->sequence
             || outcome.frame->capturedAt != frame->capturedAt || outcome.frame->pixelFormat != frame->pixelFormat))
             outcome.error = "Undistorted preview returned incompatible frame metadata.";
-        QMetaObject::invokeMethod(this, [this, frame, epoch, outcome = std::move(outcome)] {
+        QMetaObject::invokeMethod(this, [this, frame, epoch, accepted, outcome = std::move(outcome)] {
             previewBusy_ = false;
             if (shuttingDown_) return;
             if (epoch == previewEpoch_ && undistortedPreview_) {
-                if (outcome.frame && outcome.error.empty()) emit previewChanged(outcome.frame, {}, false);
+                if (outcome.frame && outcome.error.empty()) {
+                    selectedFrame_ = frame;
+                    emit previewChanged(outcome.frame, outcome.corners, accepted);
+                }
                 else {
                     undistortedPreview_ = false;
                     profileMessage_ = QStringLiteral("Undistorted preview failed: %1").arg(QString::fromStdString(outcome.error));
+                    selectedFrame_ = previewFrame_;
                     emit previewChanged(previewFrame_, previewCorners_, previewAccepted_);
                     emit changed();
                 }

@@ -102,8 +102,11 @@ same calibration worker as detection/solving. It supports padded Gray8/RGB8/RGBA
 produces independent immutable storage and preserves capture timestamp, sequence,
 resolution and pixel format. It keeps the original camera matrix and full image
 extent. Black borders and interpolation are expected; there is no automatic crop
-or new camera model. Raw corner overlays are hidden in corrected mode because
-they use the original image coordinates.
+or new camera model. Corner overlays are transformed with `undistortPoints`
+using the same original camera matrix as the image remap. Each presentation keeps
+its source frame, transformed corners and acceptance colour together. Adapters
+without point remapping suppress the overlay instead of painting raw coordinates
+on corrected pixels.
 
 Only presentation is corrected. Calibration observations retain original pixels;
 this issue does not alter detection, robot state, world coordinates or control.
@@ -135,7 +138,7 @@ Physical camera/lens verification is **NOT RUN**. With a real calibrated camera,
 compare straight board/table edges in raw/corrected mode, stop/restart the
 application and confirm the same profile reloads, then change camera or resolution
 and confirm correction becomes unavailable until an exact profile is present.
-Inspect black borders and review raw corner overlays separately. Record OS, Qt,
+Inspect black borders and check corner alignment in both raw and corrected modes. Record OS, Qt,
 OpenCV, device ID, negotiated resolution and model/RMS. Linux X11/Wayland, Windows
 runtime and physical optical accuracy require their own manual verification;
 synthetic tests do not establish those results.

@@ -2,12 +2,14 @@
 #include <opencv2/core/version.hpp>
 #if CV_VERSION_MAJOR >= 5
 #include <opencv2/calib.hpp>
+#include <opencv2/geometry.hpp>
 #else
 #include <opencv2/calib3d.hpp>
 #endif
 #include <opencv2/imgproc.hpp>
 
 #include <cstring>
+#include <cmath>
 #include <exception>
 
 namespace micro_robot {
@@ -37,5 +39,24 @@ UndistortedPreviewOutcome OpenCvCalibrationUndistorter::undistort(const Frame& f
         result->pixels = std::move(pixels);
         return {std::move(result), {}};
     } catch (const std::exception& error) { return {{}, std::string{"Undistortion failed: "} + error.what()}; }
+}
+UndistortedPreviewOutcome OpenCvCalibrationUndistorter::undistortWithCorners(const Frame& frame,
+    const IntrinsicCalibration& c, const std::vector<ImageCorner>& corners)
+{
+    auto result = undistort(frame, c);
+    if (!result.frame || !result.error.empty() || corners.empty()) return result;
+    try {
+        std::vector<cv::Point2d> input, output;
+        for (const auto& point : corners) input.emplace_back(point.u, point.v);
+        const cv::Mat k(3, 3, CV_64F, const_cast<double*>(c.cameraMatrix.data()));
+        const cv::Mat d(1, 5, CV_64F, const_cast<double*>(c.distortion.data()));
+        cv::undistortPoints(input, output, k, d, cv::noArray(), k);
+        for (const auto& point : output) {
+            if (!std::isfinite(point.x) || !std::isfinite(point.y))
+                return {{}, "Non-finite undistorted corner."};
+            result.corners.push_back({point.x, point.y});
+        }
+    } catch (const std::exception& error) { return {{}, error.what()}; }
+    return result;
 }
 } // namespace micro_robot

@@ -17,15 +17,22 @@ Use the [printable chessboard](../calibration/chessboard-9x6-25mm.svg):
   curved or glossy target. The chosen workflow is chessboard, not ChArUco.
 
 Select and start a camera in the main window, then click **Camera calibration…**.
-The dialog previews the current camera. Click **Start / restart capture** and
-**Capture view** while holding the entire board still and in focus. Detection
-runs asynchronously. Each usable, distinct view is accepted automatically.
+The visible dialog samples the current camera at up to 5 Hz, with one live
+detection in flight and no queued live jobs. It holds each completed sample until
+the next result is ready, keeping pixels and corners together. Click **Start /
+restart capture** and **Capture view** while holding the board still and in focus.
+Each usable, distinct view is accepted automatically.
 
-Green dots show accepted inner corners. Red dots show rejected detections when
-corners are available. The yellow ring identifies the first corner. Visually
+Green dots show usable live samples or accepted captured inner corners. Red dots
+show rejected detections when corners are available. Live evaluation uses the same
+quality/diversity rules without adding an observation. The yellow ring identifies the first corner. Visually
 check alignment with the printed intersections. Use the accepted-view selector
-to inspect any stored view. **Live view** returns to the current camera image;
-**Capture view** always uses the latest camera frame, even during review.
+to inspect any stored view. **Capture view** selects the displayed sample (raw
+source pixels even in corrected mode), reusing its detection when available.
+After capture/review, click **Live view** before selecting another view. A sample
+older than two seconds is rejected; wait for a fresh sample. Integer image
+coordinates denote pixel centres; presentation adds half a pixel before scaling
+and uses the image's aspect-preserving bounds, including letterboxing.
 
 Move the board around the image, change its distance, rotate it in the image,
 and tilt it out of plane. Keep its full outer border visible. The progress text
@@ -79,8 +86,14 @@ These coordinates describe the target plane, not the future tabletop world frame
   `findChessboardCornersSB`. OpenCV 4 uses calib3d; OpenCV 5 moved detection to
   objdetect. Frame pixels are read-only and Gray8/RGB/RGBA padded rows are supported.
 - `CalibrationController`: GUI-thread application adapter with an injected
-  detector and a single detection worker. A capture snapshots the newest frame.
-  No further jobs queue while it is busy. Frames/corners are plain domain values.
+  detector and a single detection worker. Acquisition retains only the newest
+  frame; a separate paired sample/result supports live presentation and capture.
+  No live work is dispatched while detection, solving, profile I/O or remapping
+  is active. Capture stays enabled during live detection and may wait behind the
+  one already running OpenCV call; no additional live calls can get ahead of it.
+  Cancellation/shutdown invalidate results immediately without GUI waits. OpenCV
+  itself is synchronous and cannot be interrupted mid-call. Frames/corners are
+  plain domain values; widget code does not perform detection.
 - `CalibrationWizard`: Qt presentation, corner overlays, review and action routing.
   It contains no detection or acceptance algorithm.
 
@@ -88,7 +101,10 @@ DesktopController forwards immutable frames and source/stream availability witho
 changing camera ownership or bypassing `ICameraSource`. Stop requests, source
 changes and disconnect/fault events clear the session. Resolution changes clear
 it on the next frame. Generation tokens discard any result already in flight.
-Restart/cancel can invalidate a job without blocking the GUI. Shutdown asks the
+Restart/cancel, review/live transitions and wizard hide/destruction invalidate
+in-flight live results. The target is immutable for a controller's lifetime; a
+new controller is required for another target. Restart/cancel can invalidate a
+job without blocking the GUI. Shutdown asks the
 worker to quit, and the main event loop drains both capture and detector workers
 before destruction. Normal destruction therefore does not wait on detection.
 
@@ -152,3 +168,74 @@ Physical target/camera capture, Linux X11/Wayland GUI checks, Windows runtime,
 and an OpenCV 4 build were not run. The source/CMake compatibility branch for
 OpenCV 4 remains for Linux CI to validate. Intrinsics, distortion and reprojection
 error calculation remain #54; profile persistence remains #55.
+
+## Live overlay audit for #242 (2026-11-10)
+
+Baseline `11f73a2` calls `ICalibrationDetector::detect` only from Capture, once per
+explicit request; `receiveFrame` does no chessboard detection. The separate
+`VisionController` continuously runs AprilTag detection on its own worker, with
+one active job and one replaceable newest pending frame. These results cannot
+be reused as chessboard corners. No continuous chessboard bottleneck existed.
+
+Synthetic measurements on macOS 26.7.2 arm64, AppleClang 21, Qt 6.12.0 and OpenCV
+5.1.0 (Debug) support a provisional 200 ms minimum live start interval. A run of
+four detections per image, including the cold first call, measured:
+
+| Image | Complete board duration (ms) | Blank duration (ms) |
+| --- | --- | --- |
+| 640 × 480 | 8.95–13.32 | 6.21–6.63 |
+| 1280 × 720 | 22.07–24.50 | 19.80–21.55 |
+| 1920 × 1080 | 49.94–53.48 | 46.34–48.02 |
+
+An offscreen wizard audit then drove synthetic board frames at a requested 33 ms
+interval while the real AprilTag worker remained active. Each scenario lasted
+roughly two seconds. The visible wizard painted actual paired samples; a GUI
+heartbeat requested every 5 ms measured event-loop scheduling gaps:
+
+| Image / wizard | Input frames | Chessboard calls / mean / max ms | AprilTag calls / mean / max ms | Max GUI gap ms |
+| --- | --- | --- | --- | --- |
+| 640 × 480 hidden | 65 | 0 / — / — | 65 / 3.90 / 6.78 | 6.72 |
+| 640 × 480 visible | 60 | 9 / 20.70 / 30.34 | 60 / 3.86 / 12.47 | 7.46 |
+| 1280 × 720 hidden | 62 | 0 / — / — | 62 / 4.71 / 8.74 | 7.83 |
+| 1280 × 720 visible | 61 | 9 / 36.45 / 41.45 | 61 / 3.62 / 12.80 | 6.48 |
+| 1920 × 1080 hidden | 61 | 0 / — / — | 61 / 5.84 / 7.92 | 7.65 |
+| 1920 × 1080 visible | 61 | 9 / 65.90 / 73.98 | 61 / 5.15 / 12.75 | 6.35 |
+
+There was no observed GUI stall in this short workload. Detection cost grows with
+resolution, so running it for every incoming frame would waste processing time.
+The cap bounds demand without changing full-resolution capture/quality logic.
+Live work has zero pending jobs; a gated-worker regression feeds 100 frames and
+verifies only one detection starts. Another test queues one capture behind that
+job and verifies exactly two total calls and the selected frame. Solving/profile
+I/O/remapping inhibit new live dispatch. Slower OpenCV calls reduce sampling rate;
+the cap is not a hard detector deadline or a promise of native input latency.
+
+Reproduce from the repository root after configuring `macos`:
+
+```sh
+cmake --build build/macos --target micro_robot_calibration_audit --parallel 3
+QT_QPA_PLATFORM=offscreen build/macos/Mini_Robot/tests/micro_robot_calibration_audit
+MICRO_ROBOT_CALIBRATION_AUDIT=1 build/macos/Mini_Robot/tests/micro_robot_calibration_detector_tests --gtest_filter=CalibrationDetectorTest.PerformanceAudit
+```
+
+The audit executable is excluded from the default build. The timed detector test
+is opt-in and skipped by normal CTest; it has correctness assertions and no
+machine-dependent timing threshold. Runtime debug logs record live frame sequence,
+detection duration and `queued_live=0`. AprilTag logs independently record frame
+sequence and processing duration.
+
+Validation on the implementation branch: root core configure/build/CTest passed
+280/280; root macOS configure/build/CTest had 458 passes, zero failures and one
+opt-in audit skip (459 discovered); standalone Mini_Robot core configure/build/
+CTest passed 280/280. Deterministic tests cover sample/result reuse, exact selected
+capture while a worker is occupied, camera/resolution/restart invalidation,
+hidden/destructed dialogs, GUI event processing during gated detection, shutdown,
+and analytical Brown–Conrady corner remapping. This extends the earlier software
+record without replacing its physical evidence.
+
+Physical-camera live alignment/performance: **NOT RUN**. Native macOS display,
+Linux X11/Wayland, Windows and OpenCV 4 execution: **NOT RUN**. Synthetic board and
+blank images do not represent every real negative scene, blur, focus or lens.
+Real capture/live evidence belongs to [#179](https://github.com/Krzys2002/Mini_Robot/issues/179),
+including setup, revision, raw/corrected mode, GUI responsiveness and shutdown.
+No optical accuracy, bounded physical stopping or complete motion loop is claimed.

@@ -48,8 +48,8 @@ protected:
         painter.drawImage(bounds, image);
         painter.setPen(QPen(accepted_ ? Qt::green : Qt::red, 2));
         const auto map = [&](const ImageCorner& p) {
-            return QPointF{bounds.x() + p.u * bounds.width() / frame_->width,
-                           bounds.y() + p.v * bounds.height() / frame_->height};
+            return QPointF{bounds.x() + (p.u + 0.5) * bounds.width() / frame_->width,
+                           bounds.y() + (p.v + 0.5) * bounds.height() / frame_->height};
         };
         for (const auto& p : corners_) painter.drawEllipse(map(p), 3, 3);
         if (!corners_.empty()) {
@@ -74,7 +74,8 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     auto* instructions = new QLabel(QStringLiteral(
         "Chessboard: %1 × %2 inner corners (%3 × %4 squares), %5 mm per square.\n"
         "Use a flat board with a white border. Capture different positions, distances and rotations.\n"
-        "Green corners = accepted, red = rejected, yellow ring = first corner. Inspect every accepted view.")
+        "Live samples update at up to 5 Hz. Capture selects the displayed sample.\n"
+        "Green = usable, red = rejected, yellow ring = first corner. Inspect every accepted view.")
         .arg(target.columns).arg(target.rows).arg(target.columns + 1).arg(target.rows + 1)
         .arg(target.squareSizeMeters * 1000), this);
     instructions->setWordWrap(true);
@@ -111,7 +112,7 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     profiles->addWidget(reloadProfile_);
     undistorted_ = new QCheckBox(QStringLiteral("Undistorted preview"), this);
     undistorted_->setObjectName(QStringLiteral("calibrationUndistorted"));
-    undistorted_->setToolTip(QStringLiteral("Verification only; captures use original pixels. Black borders are expected. Corner overlays appear in raw view."));
+    undistorted_->setToolTip(QStringLiteral("Verification only; captures use original pixels. Black borders are expected. Corner overlays follow the selected pixel mode."));
     profiles->addWidget(undistorted_);
     layout->addLayout(profiles);
     connect(saveProfile_, &QPushButton::clicked, &controller_, &CalibrationController::saveProfile);
@@ -230,6 +231,20 @@ void CalibrationWizard::bindWorkspaceCalibration(WorkspaceCalibrationController&
     workspace_ = new WorkspaceCalibrationDialog(controller, this);
     workspace_->setAttribute(Qt::WA_QuitOnClose, false);
     connect(action, &QPushButton::clicked, workspace_, [dialog = workspace_] { dialog->show(); dialog->raise(); });
+}
+CalibrationWizard::~CalibrationWizard()
+{
+    controller_.setLivePreviewActive(false);
+}
+void CalibrationWizard::showEvent(QShowEvent* event)
+{
+    QDialog::showEvent(event);
+    controller_.setLivePreviewActive(true);
+}
+void CalibrationWizard::hideEvent(QHideEvent* event)
+{
+    controller_.setLivePreviewActive(false);
+    QDialog::hideEvent(event);
 }
 void CalibrationWizard::reject()
 {

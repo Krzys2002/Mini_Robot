@@ -38,6 +38,9 @@ void CalibrationController::publish(const QString& message)
 void CalibrationController::invalidate()
 {
     ++generation_;
+    ++liveEpoch_;
+    detectedFrame_.reset();
+    liveDetection_.reset();
     ++profileGeneration_;
     ++previewEpoch_;
     undistortedPreview_ = false;
@@ -82,7 +85,12 @@ void CalibrationController::receiveFrame(FramePtr frame)
     if (latest_ && (frame->sequence <= latest_->sequence || frame->capturedAt <= latest_->capturedAt)) return;
     latest_ = std::move(frame);
     if (persistentIdentity_ && profileStore_ && !profileLookupRequested_) reloadProfile();
-    if (live_) presentPreview(latest_, {}, false);
+    if (live_) {
+        // Hold the completed sample while the next is processed. Corners and pixels
+        // always advance together; latest_ still follows acquisition independently.
+        if (!livePreviewActive_ || !detectedFrame_) presentPreview(latest_, {}, false);
+        sampleLive();
+    }
     emit changed();
 }
 bool CalibrationController::canCapture() const
@@ -94,6 +102,10 @@ void CalibrationController::restart()
 {
     if (shuttingDown_ || !streaming_ || sourceId_.isEmpty()) return;
     ++generation_;
+    ++liveEpoch_;
+    detectedFrame_.reset();
+    liveDetection_.reset();
+    nextLiveSample_ = {};
     ++previewEpoch_;
     session_.restart(sourceId_.toStdString());
     result_.reset();
@@ -104,14 +116,20 @@ void CalibrationController::restart()
 void CalibrationController::capture()
 {
     if (!canCapture()) return;
-    const auto age = MonotonicClock::now() - latest_->capturedAt;
+    const auto frame = livePreviewActive_ && selectedFrame_ ? selectedFrame_ : latest_;
+    const auto age = MonotonicClock::now() - frame->capturedAt;
     if (age < Duration::zero() || age > std::chrono::seconds{2}) {
         publish(QStringLiteral("Latest frame is stale. Wait for a fresh camera frame."));
         return;
     }
+    ++liveEpoch_; // A running live job cannot replace the selected capture.
+    live_ = false;
+    if (frame == detectedFrame_ && liveDetection_) {
+        acceptCapture(frame, *liveDetection_);
+        return;
+    }
     busy_ = true;
     const auto generation = generation_;
-    const auto frame = latest_;
     const auto target = session_.config().target;
     const auto detector = detector_;
     publish(QStringLiteral("Detecting chessboard corners…"));
@@ -127,12 +145,75 @@ void CalibrationController::capture()
         QMetaObject::invokeMethod(this, [this, frame, generation, result = std::move(result)]() mutable {
             busy_ = false;
             if (generation != generation_ || shuttingDown_) { emit changed(); return; }
-            const auto corners = result.corners;
-            const auto decision = session_.add(frame, std::move(result));
-            live_ = false;
+            acceptCapture(frame, std::move(result));
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+}
+void CalibrationController::acceptCapture(FramePtr frame, CalibrationDetection detection)
+{
+    const auto corners = detection.corners;
+    const auto decision = session_.add(frame, std::move(detection));
+    live_ = false;
+    ++previewEpoch_;
+    presentPreview(frame, corners, decision.accepted);
+    publish(QString::fromStdString(decision.message));
+}
+void CalibrationController::setLivePreviewActive(bool active)
+{
+    if (shuttingDown_ || livePreviewActive_ == active) return;
+    livePreviewActive_ = active;
+    ++previewEpoch_;
+    if (!active) undistortedPreview_ = false;
+    ++liveEpoch_;
+    detectedFrame_.reset();
+    liveDetection_.reset();
+    nextLiveSample_ = {};
+    if (active && live_) {
+        presentPreview(latest_, {}, false);
+        sampleLive();
+    }
+}
+void CalibrationController::sampleLive()
+{
+    const auto now = MonotonicClock::now();
+    if (!livePreviewActive_ || !live_ || liveDetectionBusy_ || busy_ || profileIoBusy_
+        || previewBusy_ || shuttingDown_ || !streaming_ || !latest_ || now < nextLiveSample_)
+        return;
+    if (now < latest_->capturedAt || now - latest_->capturedAt > std::chrono::seconds{2}) return;
+    // Maximum 5 starts/s, further limited by detector/remap duration. No pending
+    // live jobs: receiveFrame retains just the newest acquisition for the next try.
+    nextLiveSample_ = now + std::chrono::milliseconds{200};
+    liveDetectionBusy_ = true;
+    const auto epoch = liveEpoch_;
+    const auto generation = generation_;
+    const auto frame = latest_;
+    const auto target = session_.config().target;
+    const auto detector = detector_;
+    QMetaObject::invokeMethod(workerContext_, [this, detector, frame, target, epoch, generation] {
+        const auto start = MonotonicClock::now();
+        CalibrationDetection detection;
+        try { detection = detector->detect(*frame, target); }
+        catch (const std::exception& e) { detection.error = e.what(); }
+        catch (...) { detection.error = "Unknown live detection failure."; }
+        const auto elapsed = MonotonicClock::now() - start;
+        QMetaObject::invokeMethod(this, [this, frame, epoch, generation, elapsed,
+                                        detection = std::move(detection)]() mutable {
+            liveDetectionBusy_ = false;
+            if (shuttingDown_ || generation != generation_ || epoch != liveEpoch_
+                || !livePreviewActive_ || !live_) return;
+            log_.debug("Live calibration frame=" + std::to_string(frame->sequence)
+                + " detection_ms=" + std::to_string(std::chrono::duration<double, std::milli>(elapsed).count())
+                + " queued_live=0");
+            detectedFrame_ = frame;
+            liveDetection_ = detection;
+            // Evaluate existing quality/diversity rules on a disposable copy;
+            // live feedback must never add an observation to the real session.
+            auto probe = session_;
+            if (probe.state() != CalibrationCaptureState::Collecting) probe.restart(sourceId_.toStdString());
+            const auto decision = probe.add(frame, detection);
             ++previewEpoch_;
-            presentPreview(frame, corners, decision.accepted);
-            publish(QString::fromStdString(decision.message));
+            presentPreview(frame, detection.error.empty() ? detection.corners : std::vector<ImageCorner>{},
+                           decision.accepted);
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);
 }
@@ -154,15 +235,22 @@ void CalibrationController::reviewView(int index)
 {
     if (index < 0 || static_cast<std::size_t>(index) >= session_.views().size()) return;
     live_ = false;
+    ++liveEpoch_;
     const auto& view = session_.views()[static_cast<std::size_t>(index)];
     ++previewEpoch_;
     presentPreview(view.frame, view.detection.corners, true);
 }
 void CalibrationController::showLive()
 {
+    if (shuttingDown_) return;
+    ++liveEpoch_;
+    detectedFrame_.reset();
+    liveDetection_.reset();
+    nextLiveSample_ = {};
     live_ = true;
     ++previewEpoch_;
     presentPreview(latest_, {}, false);
+    sampleLive();
 }
 void CalibrationController::finish()
 {

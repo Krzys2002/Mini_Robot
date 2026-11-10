@@ -19,6 +19,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QThread>
+#include <QTimer>
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -171,6 +172,7 @@ struct CaptureFixture {
     void capture(std::uint64_t sequence)
     {
         frame(sequence);
+        controller->showLive();
         ASSERT_TRUE(processUntil([&] { return !controller->profileBusy(); }));
         button("calibrationCapture")->click();
         ASSERT_TRUE(processUntil([&] { return !controller->busy(); }));
@@ -681,5 +683,124 @@ TEST(CalibrationProfileUiTest, RejectsIncompatibleOrThrowingStoresAndReportsSave
     ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
     EXPECT_TRUE(fixture.controller->profileMessage().contains(QStringLiteral("save failed")));
     EXPECT_TRUE(fixture.controller->profile());
+}
+} // namespace
+
+namespace {
+TEST(CalibrationLiveTest, HiddenWizardDoesNotDetectAndCaptureReusesDisplayedSample)
+{
+    CaptureFixture f;
+    f.controller->restart();
+    f.frame(1);
+    QApplication::processEvents();
+    EXPECT_EQ(f.detector->calls, 0);
+    FramePtr displayed;
+    std::vector<ImageCorner> points;
+    QObject observer;
+    QObject::connect(f.controller.get(), &CalibrationController::previewChanged, &observer,
+        [&](FramePtr frame, const std::vector<ImageCorner>& corners, bool) {
+            displayed = frame; points = corners;
+        });
+    f.wizard->show();
+    ASSERT_TRUE(processUntil([&] { return !points.empty(); }));
+    ASSERT_TRUE(displayed);
+    const auto selected = displayed;
+    EXPECT_EQ(selected->sequence, 1U);
+    EXPECT_TRUE(f.controller->session().views().empty());
+    f.frame(2); // New acquisition must not change the selected sample's pixels.
+    EXPECT_EQ(displayed, selected);
+    f.controller->capture();
+    ASSERT_EQ(f.controller->session().views().size(), 1U);
+    EXPECT_EQ(f.controller->session().views().front().frame, selected);
+    EXPECT_EQ(f.detector->calls, 1);
+    f.wizard->hide();
+    f.frame(3);
+    QApplication::processEvents();
+    EXPECT_EQ(f.detector->calls, 1);
+}
+TEST(CalibrationLiveTest, SlowLiveWorkIsBoundedAndCancelDiscardsItWithoutBlockingGui)
+{
+    CaptureFixture f;
+    std::promise<void> release;
+    f.detector->gate = release.get_future().share();
+    f.controller->restart();
+    f.frame(1);
+    f.wizard->show();
+    // Always release even if a test assertion fails, so teardown cannot hang.
+    EXPECT_TRUE(processUntil([&] { return f.detector->calls.load() == 1; }));
+    int overlays = 0;
+    QObject observer;
+    QObject::connect(f.controller.get(), &CalibrationController::previewChanged, &observer,
+        [&](FramePtr, const std::vector<ImageCorner>& corners, bool) { if (!corners.empty()) ++overlays; });
+    for (int i = 2; i < 102; ++i) f.frame(i);
+    bool guiRan = false;
+    QTimer::singleShot(0, [&] { guiRan = true; });
+    EXPECT_TRUE(processUntil([&] { return guiRan; }));
+    EXPECT_EQ(f.detector->calls, 1);
+    f.controller->cancel();
+    f.wizard->hide();
+    release.set_value();
+    f.controller->shutdown();
+    EXPECT_TRUE(processUntil([&] { return f.controller->isStopped(); }));
+    EXPECT_EQ(overlays, 0);
+    EXPECT_TRUE(f.controller->session().views().empty());
+}
+TEST(CalibrationLiveTest, CameraChangeRejectsInFlightLiveResult)
+{
+    CaptureFixture f;
+    std::promise<void> release;
+    f.detector->gate = release.get_future().share();
+    f.frame(1);
+    f.wizard->show();
+    EXPECT_TRUE(processUntil([&] { return f.detector->calls.load() == 1; }));
+    int overlays = 0;
+    QObject observer;
+    QObject::connect(f.controller.get(), &CalibrationController::previewChanged, &observer,
+        [&](FramePtr, const std::vector<ImageCorner>& corners, bool) { if (!corners.empty()) ++overlays; });
+    f.controller->setInput(QStringLiteral("camera-b"), true);
+    release.set_value();
+    f.controller->shutdown();
+    EXPECT_TRUE(processUntil([&] { return f.controller->isStopped(); }));
+    EXPECT_EQ(overlays, 0);
+}
+TEST(CalibrationLiveTest, CaptureDuringLiveJobRetainsSelectedFrameAndNoLiveQueue)
+{
+    CaptureFixture f;
+    std::promise<void> release;
+    f.detector->gate = release.get_future().share();
+    f.controller->restart();
+    f.frame(1);
+    f.wizard->show();
+    EXPECT_TRUE(processUntil([&] { return f.detector->calls.load() == 1; }));
+    // Before the first result, raw preview still follows acquisition.
+    f.frame(2);
+    f.controller->capture();
+    EXPECT_TRUE(f.controller->busy());
+    for (int i = 3; i < 50; ++i) f.frame(i);
+    release.set_value();
+    EXPECT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    ASSERT_EQ(f.controller->session().views().size(), 1U);
+    EXPECT_EQ(f.controller->session().views().front().frame->sequence, 2U);
+    EXPECT_EQ(f.detector->calls, 2); // One running live + one explicit capture only.
+}
+TEST(CalibrationLiveTest, ResolutionRestartAndDialogDestructionDiscardInFlightResult)
+{
+    CaptureFixture f;
+    std::promise<void> release;
+    f.detector->gate = release.get_future().share();
+    f.frame(1);
+    f.wizard->show();
+    EXPECT_TRUE(processUntil([&] { return f.detector->calls.load() == 1; }));
+    int overlays = 0;
+    QObject observer;
+    QObject::connect(f.controller.get(), &CalibrationController::previewChanged, &observer,
+        [&](FramePtr, const std::vector<ImageCorner>& corners, bool) { if (!corners.empty()) ++overlays; });
+    f.frame(2, 900);
+    f.controller->restart();
+    f.wizard.reset();
+    release.set_value();
+    f.controller->shutdown();
+    EXPECT_TRUE(processUntil([&] { return f.controller->isStopped(); }));
+    EXPECT_EQ(overlays, 0);
 }
 } // namespace
