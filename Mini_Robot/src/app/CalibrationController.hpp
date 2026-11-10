@@ -1,6 +1,7 @@
 #pragma once
 
 #include "calibration/CalibrationProfile.hpp"
+#include "calibration/CalibrationCornerTracker.hpp"
 #include "infrastructure/logging/Logger.hpp"
 
 #include <QObject>
@@ -11,11 +12,11 @@
 
 namespace micro_robot {
 
-// GUI-thread application adapter. One worker job at a time; only the latest
-// camera frame is retained alongside the displayed sample/result. Live sampling
-// is visibility-gated and has no pending job queue. Injected detector and solver
-// are used exclusively on the worker. Call shutdown() and await stopped() before
-// destruction in production, so joining the worker never blocks the GUI.
+// GUI-thread adapter. Full detection/solving/store I/O use one worker; optical
+// flow and preview remapping share a second serialized worker. Each live path
+// retains only the newest useful frame, with no accumulating job queue. Raw video
+// never waits for detection. Call shutdown() and await stopped() (both workers)
+// before destruction in production, so joining never blocks the GUI.
 class CalibrationController final : public QObject {
     Q_OBJECT
 public:
@@ -24,7 +25,10 @@ public:
                           CalibrationCaptureConfig config = {},
                           IntrinsicCalibrationConfig intrinsicConfig = {}, QObject* parent = nullptr);
     ~CalibrationController() override;
-    // Inject once at composition before camera input. Services run on the existing worker.
+    // Inject once before camera input. Used exclusively on the live worker.
+    void setLiveTracker(std::unique_ptr<ICalibrationCornerTracker> tracker);
+    // Inject once before camera input. Store I/O uses the capture worker;
+    // undistortion uses the live worker and is serialized with optical flow.
     void setProfileServices(std::unique_ptr<ICalibrationProfileStore> store,
                             std::unique_ptr<ICalibrationUndistorter> undistorter);
     [[nodiscard]] const std::optional<IntrinsicCalibration>& profile() const noexcept { return profile_; }
@@ -41,12 +45,13 @@ public:
     [[nodiscard]] const CalibrationCapture& session() const noexcept { return session_; }
     [[nodiscard]] const QString& message() const noexcept { return message_; }
     [[nodiscard]] bool busy() const noexcept { return busy_; }
+    [[nodiscard]] bool liveTrackingBusy() const noexcept { return trackingBusy_; }
     [[nodiscard]] bool canCapture() const;
     // GUI-thread access; copy the validated value before use on another worker.
     // Cleared on restart, cancellation, source/resolution change or source loss.
     [[nodiscard]] const std::optional<IntrinsicCalibration>& result() const noexcept { return result_; }
     [[nodiscard]] const IntrinsicCalibrationConfig& intrinsicConfig() const noexcept { return intrinsicConfig_; }
-    [[nodiscard]] bool isStopped() const { return worker_.isFinished(); }
+    [[nodiscard]] bool isStopped() const { return worker_.isFinished() && liveWorker_.isFinished(); }
 
 public slots:
     void saveProfile();
@@ -66,15 +71,17 @@ public slots:
 signals:
     void changed();
     // Same-thread presentation signals. Frame storage remains owned/immutable.
-    void previewChanged(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted);
+    void previewChanged(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool tracked = false);
     void stopped();
 
 private:
     void publish(const QString& message);
     void invalidate();
-    void presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted);
+    void presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool tracked = false);
     void processPreview();
     void sampleLive();
+    void trackLive();
+    void resetTracking();
     void acceptCapture(FramePtr frame, CalibrationDetection detection);
     CalibrationCapture session_;
     LogChannel log_;
@@ -82,6 +89,15 @@ private:
     QString message_{QStringLiteral("Select and start a camera, then start capture.")};
     FramePtr latest_;
     QThread worker_;
+    bool stoppedEmitted_{};
+    QThread liveWorker_; // Optical flow and preview remap; never capture/solve.
+    QObject* liveContext_{};
+    std::shared_ptr<ICalibrationCornerTracker> tracker_;
+    bool trackingBusy_{};
+    std::uint64_t trackingRevision_{};
+    FramePtr trackingFrame_;
+    std::vector<ImageCorner> trackingCorners_;
+    Timestamp lastFullDetection_{};
     QObject* workerContext_{}; // Deleted on worker completion.
     std::shared_ptr<ICalibrationDetector> detector_;
     std::shared_ptr<IIntrinsicCalibrationSolver> solver_;
@@ -110,9 +126,11 @@ private:
     bool undistortedPreview_{};
     bool previewBusy_{};
     std::uint64_t previewEpoch_{};
+    std::uint64_t previewRevision_{};
     FramePtr previewFrame_;
     FramePtr selectedFrame_; // Raw source of the last actually emitted presentation.
     std::vector<ImageCorner> previewCorners_;
     bool previewAccepted_{};
+    bool previewTracked_{};
 };
 } // namespace micro_robot

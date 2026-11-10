@@ -99,28 +99,32 @@ void CalibrationController::setUndistortedPreview(bool enabled)
     undistortedPreview_ = enabled && canUndistort();
     ++previewEpoch_;
     if (undistortedPreview_) processPreview();
-    else { selectedFrame_ = previewFrame_; emit previewChanged(previewFrame_, previewCorners_, previewAccepted_); }
+    else { selectedFrame_ = previewFrame_; emit previewChanged(previewFrame_, previewCorners_, previewAccepted_, previewTracked_); }
     emit changed();
 }
-void CalibrationController::presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted)
+void CalibrationController::presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool tracked)
 {
+    ++previewRevision_;
     previewFrame_ = std::move(frame);
     previewCorners_ = corners;
     previewAccepted_ = accepted;
+    previewTracked_ = tracked;
     if (undistortedPreview_ && previewFrame_ && profile_) processPreview();
-    else { selectedFrame_ = previewFrame_; emit previewChanged(previewFrame_, previewCorners_, previewAccepted_); }
+    else { selectedFrame_ = previewFrame_; emit previewChanged(previewFrame_, previewCorners_, previewAccepted_, previewTracked_); }
 }
 void CalibrationController::processPreview()
 {
-    if (previewBusy_ || shuttingDown_ || !undistortedPreview_ || !previewFrame_ || !profile_) return;
+    if (previewBusy_ || trackingBusy_ || shuttingDown_ || !undistortedPreview_ || !previewFrame_ || !profile_) return;
     previewBusy_ = true;
     const auto frame = previewFrame_;
     const auto profile = *profile_;
     const auto epoch = previewEpoch_;
+    const auto revision = previewRevision_;
     const auto corners = previewCorners_;
     const auto accepted = previewAccepted_;
+    const auto tracked = previewTracked_;
     const auto undistorter = undistorter_;
-    QMetaObject::invokeMethod(workerContext_, [this, frame, profile, epoch, undistorter, corners, accepted] {
+    QMetaObject::invokeMethod(liveContext_, [this, frame, profile, epoch, undistorter, corners, accepted, tracked, revision] {
         UndistortedPreviewOutcome outcome;
         try { outcome = undistorter->undistortWithCorners(*frame, profile, corners); }
         catch (const std::exception& error) { outcome.error = error.what(); }
@@ -129,24 +133,25 @@ void CalibrationController::processPreview()
             || outcome.frame->height != frame->height || outcome.frame->sequence != frame->sequence
             || outcome.frame->capturedAt != frame->capturedAt || outcome.frame->pixelFormat != frame->pixelFormat))
             outcome.error = "Undistorted preview returned incompatible frame metadata.";
-        QMetaObject::invokeMethod(this, [this, frame, epoch, accepted, outcome = std::move(outcome)] {
+        QMetaObject::invokeMethod(this, [this, frame, epoch, accepted, tracked, revision, outcome = std::move(outcome)] {
             previewBusy_ = false;
             if (shuttingDown_) return;
             if (epoch == previewEpoch_ && undistortedPreview_) {
                 if (outcome.frame && outcome.error.empty()) {
                     selectedFrame_ = frame;
-                    emit previewChanged(outcome.frame, outcome.corners, accepted);
+                    emit previewChanged(outcome.frame, outcome.corners, accepted, tracked);
                 }
                 else {
                     undistortedPreview_ = false;
                     profileMessage_ = QStringLiteral("Undistorted preview failed: %1").arg(QString::fromStdString(outcome.error));
                     selectedFrame_ = previewFrame_;
-                    emit previewChanged(previewFrame_, previewCorners_, previewAccepted_);
+                    emit previewChanged(previewFrame_, previewCorners_, previewAccepted_, previewTracked_);
                     emit changed();
                 }
             }
             // At most one active remap and one newest raw frame; never a frame queue.
-            if (epoch != previewEpoch_ || frame != previewFrame_) processPreview();
+            trackLive();
+            if (epoch != previewEpoch_ || revision != previewRevision_) processPreview();
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);
 }

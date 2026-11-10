@@ -3,6 +3,8 @@
 #include <QMetaObject>
 
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 #include <exception>
 #include <stdexcept>
 #include <utility>
@@ -20,14 +22,24 @@ CalibrationController::CalibrationController(std::unique_ptr<ICalibrationDetecto
     workerContext_ = new QObject;
     workerContext_->moveToThread(&worker_);
     connect(&worker_, &QThread::finished, workerContext_, &QObject::deleteLater);
-    connect(&worker_, &QThread::finished, this, &CalibrationController::stopped);
+    liveContext_ = new QObject;
+    liveContext_->moveToThread(&liveWorker_);
+    connect(&liveWorker_, &QThread::finished, liveContext_, &QObject::deleteLater);
+    const auto drained = [this] {
+        if (isStopped() && !stoppedEmitted_) { stoppedEmitted_ = true; emit stopped(); }
+    };
+    connect(&worker_, &QThread::finished, this, drained);
+    connect(&liveWorker_, &QThread::finished, this, drained);
     worker_.start();
+    liveWorker_.start();
 }
 CalibrationController::~CalibrationController()
 {
     // Production shutdown keeps the GUI event loop alive until stopped().
     worker_.quit();
+    liveWorker_.quit();
     worker_.wait();
+    liveWorker_.wait();
 }
 void CalibrationController::publish(const QString& message)
 {
@@ -39,6 +51,7 @@ void CalibrationController::invalidate()
 {
     ++generation_;
     ++liveEpoch_;
+    resetTracking();
     detectedFrame_.reset();
     liveDetection_.reset();
     ++profileGeneration_;
@@ -86,9 +99,12 @@ void CalibrationController::receiveFrame(FramePtr frame)
     latest_ = std::move(frame);
     if (persistentIdentity_ && profileStore_ && !profileLookupRequested_) reloadProfile();
     if (live_) {
-        // Hold the completed sample while the next is processed. Corners and pixels
-        // always advance together; latest_ still follows acquisition independently.
-        if (!livePreviewActive_ || !detectedFrame_) presentPreview(latest_, {}, false);
+        // Camera-rate pixels never wait for full chessboard detection. An overlay
+        // is emitted only for this exact frame after worker-side tracking.
+        // In corrected mode, flow gets the frame before remapping so we remap
+        // once with its matched points instead of remapping raw and overlay twice.
+        trackLive();
+        presentPreview(latest_, {}, false);
         sampleLive();
     }
     emit changed();
@@ -103,6 +119,7 @@ void CalibrationController::restart()
     if (shuttingDown_ || !streaming_ || sourceId_.isEmpty()) return;
     ++generation_;
     ++liveEpoch_;
+    resetTracking();
     detectedFrame_.reset();
     liveDetection_.reset();
     nextLiveSample_ = {};
@@ -122,7 +139,8 @@ void CalibrationController::capture()
         publish(QStringLiteral("Latest frame is stale. Wait for a fresh camera frame."));
         return;
     }
-    ++liveEpoch_; // A running live job cannot replace the selected capture.
+    ++liveEpoch_;
+    resetTracking(); // A running live job cannot replace the selected capture.
     live_ = false;
     if (frame == detectedFrame_ && liveDetection_) {
         acceptCapture(frame, *liveDetection_);
@@ -165,6 +183,7 @@ void CalibrationController::setLivePreviewActive(bool active)
     ++previewEpoch_;
     if (!active) undistortedPreview_ = false;
     ++liveEpoch_;
+    resetTracking();
     detectedFrame_.reset();
     liveDetection_.reset();
     nextLiveSample_ = {};
@@ -177,10 +196,10 @@ void CalibrationController::sampleLive()
 {
     const auto now = MonotonicClock::now();
     if (!livePreviewActive_ || !live_ || liveDetectionBusy_ || busy_ || profileIoBusy_
-        || previewBusy_ || shuttingDown_ || !streaming_ || !latest_ || now < nextLiveSample_)
+        || shuttingDown_ || !streaming_ || !latest_ || now < nextLiveSample_)
         return;
     if (now < latest_->capturedAt || now - latest_->capturedAt > std::chrono::seconds{2}) return;
-    // Maximum 5 starts/s, further limited by detector/remap duration. No pending
+    // Maximum 5 starts/s, further limited by detector duration. No pending
     // live jobs: receiveFrame retains just the newest acquisition for the next try.
     nextLiveSample_ = now + std::chrono::milliseconds{200};
     liveDetectionBusy_ = true;
@@ -211,9 +230,73 @@ void CalibrationController::sampleLive()
             auto probe = session_;
             if (probe.state() != CalibrationCaptureState::Collecting) probe.restart(sourceId_.toStdString());
             const auto decision = probe.add(frame, detection);
-            ++previewEpoch_;
-            presentPreview(frame, detection.error.empty() ? detection.corners : std::vector<ImageCorner>{},
-                           decision.accepted);
+            resetTracking();
+            if (detection.error.empty() && detection.corners.size() == calibrationObjectPoints(session_.config().target).size()) {
+                trackingFrame_ = frame;
+                trackingCorners_ = detection.corners;
+                lastFullDetection_ = frame->capturedAt;
+            }
+            // A delayed detection seeds optical flow, never rewinds live video.
+            if (frame == latest_) presentPreview(frame,
+                detection.error.empty() ? detection.corners : std::vector<ImageCorner>{}, decision.accepted);
+            trackLive();
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+}
+void CalibrationController::setLiveTracker(std::unique_ptr<ICalibrationCornerTracker> tracker)
+{
+    if (!tracker || tracker_ || streaming_ || shuttingDown_)
+        throw std::logic_error("Inject a live corner tracker once before camera input.");
+    tracker_ = std::move(tracker);
+}
+void CalibrationController::resetTracking()
+{
+    ++trackingRevision_;
+    trackingFrame_.reset();
+    trackingCorners_.clear();
+}
+void CalibrationController::trackLive()
+{
+    if (!tracker_ || trackingBusy_ || previewBusy_ || busy_ || shuttingDown_
+        || !live_ || !livePreviewActive_ || !latest_ || !trackingFrame_
+        || latest_ == trackingFrame_) return;
+    if (latest_->capturedAt < lastFullDetection_
+        || latest_->capturedAt-lastFullDetection_ > std::chrono::milliseconds{500}) {
+        resetTracking();
+        return;
+    }
+    trackingBusy_ = true;
+    const auto frame = latest_;
+    const auto previous = trackingFrame_;
+    const auto corners = trackingCorners_;
+    const auto revision = trackingRevision_;
+    const auto epoch = liveEpoch_;
+    const auto tracker = tracker_;
+    QMetaObject::invokeMethod(liveContext_, [this, frame, previous, corners, revision, epoch, tracker] {
+        const auto start = MonotonicClock::now();
+        std::vector<ImageCorner> tracked;
+        try { tracked = tracker->track(*previous, *frame, corners); }
+        catch (...) { tracked.clear(); }
+        const auto elapsed = MonotonicClock::now()-start;
+        QMetaObject::invokeMethod(this, [this, frame, revision, epoch, elapsed, expected = corners.size(),
+                                        tracked = std::move(tracked)]() mutable {
+            trackingBusy_ = false;
+            if (shuttingDown_) return;
+            if (epoch == liveEpoch_ && revision == trackingRevision_ && live_ && livePreviewActive_) {
+                log_.debug("Calibration flow frame=" + std::to_string(frame->sequence)
+                    + " tracking_ms=" + std::to_string(std::chrono::duration<double,std::milli>(elapsed).count()));
+                if (tracked.size() != expected || !std::all_of(tracked.begin(), tracked.end(),
+                    [&](const ImageCorner& p) { return std::isfinite(p.u) && std::isfinite(p.v)
+                        && p.u >= 0 && p.v >= 0 && p.u < frame->width && p.v < frame->height; })) resetTracking();
+                else {
+                    trackingFrame_ = frame;
+                    trackingCorners_ = tracked;
+                    if (frame == latest_) presentPreview(frame, tracked, false, true);
+                }
+            }
+            // One newest frame is retained, never an accumulating flow queue.
+            trackLive();
+            processPreview();
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);
 }
@@ -236,6 +319,7 @@ void CalibrationController::reviewView(int index)
     if (index < 0 || static_cast<std::size_t>(index) >= session_.views().size()) return;
     live_ = false;
     ++liveEpoch_;
+    resetTracking();
     const auto& view = session_.views()[static_cast<std::size_t>(index)];
     ++previewEpoch_;
     presentPreview(view.frame, view.detection.corners, true);
@@ -244,6 +328,7 @@ void CalibrationController::showLive()
 {
     if (shuttingDown_) return;
     ++liveEpoch_;
+    resetTracking();
     detectedFrame_.reset();
     liveDetection_.reset();
     nextLiveSample_ = {};
@@ -326,7 +411,8 @@ void CalibrationController::shutdown()
     if (shuttingDown_) return;
     shuttingDown_ = true;
     invalidate();
-    worker_.quit(); // In-flight detection finishes without blocking the GUI.
+    worker_.quit(); // In-flight work finishes without blocking the GUI.
+    liveWorker_.quit();
     emit changed();
 }
 } // namespace micro_robot
