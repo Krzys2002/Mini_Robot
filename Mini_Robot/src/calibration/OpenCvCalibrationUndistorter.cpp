@@ -18,8 +18,7 @@ UndistortedPreviewOutcome OpenCvCalibrationUndistorter::undistort(const Frame& f
 {
     if (const auto error = validateIntrinsicCalibration(c); !error.empty()) return {{}, error};
     if (!isValidFrame(frame) || frame.width != c.width || frame.height != c.height
-        || frame.width > 4096 || frame.height > 4096
-        || static_cast<std::uint64_t>(frame.width) * frame.height > 4'000'000)
+        || !supportedCalibrationResolution(frame.width, frame.height))
         return {{}, "Invalid, oversized or incompatible preview frame."};
     try {
         const int channels = frame.pixelFormat == PixelFormat::Gray8 ? 1 : frame.pixelFormat == PixelFormat::Rgb8 ? 3 : 4;

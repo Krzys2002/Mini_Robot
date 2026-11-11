@@ -27,12 +27,14 @@ public:
     static constexpr auto CaptureReviewDuration = std::chrono::seconds{5};
     static constexpr auto MaximumLiveFrameAge = std::chrono::seconds{2};
 
-    // Optional review clock is called on the GUI thread and must be monotonic.
+    // Optional review clock is GUI-thread/monotonic. Review preparation runs on
+    // the capture worker and returns packed Gray8 at the original geometry.
     CalibrationController(std::unique_ptr<ICalibrationDetector> detector,
                           std::unique_ptr<IIntrinsicCalibrationSolver> solver, LogChannel log,
                           CalibrationCaptureConfig config = {},
                           IntrinsicCalibrationConfig intrinsicConfig = {}, QObject* parent = nullptr,
-                          std::function<Timestamp()> clock = [] { return MonotonicClock::now(); });
+                          std::function<Timestamp()> clock = [] { return MonotonicClock::now(); },
+                          CalibrationReviewFrameFactory reviewFrameFactory = prepareCalibrationReviewFrame);
     ~CalibrationController() override;
     // Inject once before input; used exclusively on the preview worker.
     void setLiveTracker(std::unique_ptr<ICalibrationCornerTracker> tracker);
@@ -108,6 +110,7 @@ private:
     void trackLive();
     void resetTracking();
     void acceptCapture(FramePtr frame, CalibrationDetection detection, std::uint64_t reviewRevision);
+    CalibrationReviewFrameFactory reviewFrameFactory_; // Capture worker only.
     CalibrationCapture session_;
     LogChannel log_;
     QString sourceId_;
@@ -142,6 +145,11 @@ private:
     Timestamp nextLiveSample_{};
     FramePtr detectedFrame_;
     std::optional<CalibrationDetection> liveDetection_;
+    // Original measurements paired with previewFrame_ during paused review.
+    // Never redetect lossy grayscale review pixels; no original image is retained.
+    std::optional<CalibrationDetection> reviewDetection_;
+    // Last actually presented review; distinct while a newer remap is pending.
+    std::optional<CalibrationDetection> selectedReviewDetection_;
     bool shuttingDown_{};
     std::shared_ptr<ICalibrationProfileStore> profileStore_;
     std::shared_ptr<ICalibrationUndistorter> undistorter_;

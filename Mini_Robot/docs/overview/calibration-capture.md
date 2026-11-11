@@ -50,7 +50,12 @@ belongs to that exact frame. Held corners are never saved for a newer image:
 Capture runs a full-resolution
 detection on its selected frame unless that exact frame already has a full result.
 All existing quality checks remain. Neither holding nor tracking the overlay
-adds observations.
+adds observations. After detection on the original selected pixels, accepted review
+images are stored as full-resolution packed grayscale; colour and row padding are
+not retained. Corner coordinates, timestamp, sequence and delivered resolution
+are unchanged. Even a cached detection completes storage preparation on the
+capture worker before its result is shown. Retrying a paused review reuses its
+original detection measurements; it never re-detects a lossy review image.
 Every completed capture (accepted, rejected or detector failure) shows its result
 for five seconds, then resumes live preview automatically. Its duration is defined
 by `CalibrationController::CaptureReviewDuration` in `src/app/CalibrationController.hpp`.
@@ -205,7 +210,7 @@ including reversed ordering; it does not infer a measured 3D orientation.
 | Sharpness | Grayscale Laplacian variance in target bounding rectangle ≥ 40 |
 | Redundancy | RMS corner displacement / image diagonal ≥ 0.025 against every accepted view |
 | Completion | At least 10 views, 3 distinct centre cells in a 3 × 3 grid, scale spread ≥ 0.08, rotation spread ≥ 0.20 rad |
-| Storage | At most 24 accepted views and 128 MiB of retained frame storage |
+| Storage | At most 24 accepted views and 128 MiB of retained review-pixel capacity; full-resolution packed Gray8 |
 | Input size | At most 4 megapixels, neither dimension above 4096 |
 | Input freshness | Selected raw frame no more than 2 s old at capture request |
 
@@ -222,6 +227,52 @@ The fixed target in this version uses row-major metric object points with the
 first inner corner at (0, 0, 0), x along columns, y along rows and z = 0.
 These coordinates describe the target plane, not the future tabletop world frame.
 
+## Bounded review storage and memory feedback
+
+`CalibrationCaptureConfig::maximumStoredBytes` defaults to 128 MiB; the wizard
+shows **Review pixels: used / budget MiB**. This budget covers accepted review
+pixel-vector capacity, charged per view. It is not a limit on total process RSS,
+OpenCV working buffers, current live frames or GUI rendering. Shared compact
+buffers are conservatively charged per view. Smaller injected budgets can still
+fill before the view limit; the rejection reports required/stored/budget bytes.
+
+`prepareCalibrationReviewFrame()` preserves full delivered dimensions and pixel
+centres and produces packed Gray8 review pixels, stripping colour, row padding,
+trailing bytes and excess vector capacity. An already tightly packed Gray8 frame
+with exactly-sized storage is shared without a copy. Colour conversion is a
+review-only integer luma approximation; detections/quality measurements use the
+original selected pixels. Solver inputs remain corner-only at the original
+camera resolution; no resize, coordinate rescaling or profile-schema change
+occurs. Raw live colour preview remains available.
+
+At the supported maximum of 4,000,000 pixels, 24 Gray8 views use 96,000,000 bytes
+(about 91.6 MiB), below the unchanged 128 MiB default budget. Capture configuration
+now enforces the same maximum of 24 views already supported by solving and profile
+persistence; configurations above that previously allowed unsolvable datasets.
+Dimensions remain at most 4096 per axis and area at most four megapixels, shared
+across capture, detector, tracker, solve, profile validation and undistorted preview.
+A 4K UHD frame exceeds this area bound and still requires a lower delivered mode.
+
+Quality/diversity `assess()` retains no pixels and live evaluation no longer
+copies the captured dataset or builds a review image. Complete candidate grids
+are prepared on the existing capture worker; missing/error detections skip this
+allocation. At most one capture preparation is active. Retained live-detection
+image caches are cleared for capture and explicit stored-view review. Small
+measurement-only caches remain paired with the pending/actually presented review
+so a retry reuses original observations, including while a newer corrected remap
+is pending. These caches retain no original image. Bulk conversion never runs on
+the GUI thread in the desktop path.
+
+`add()` commits the byte counter only after preparation and observation insertion
+succeed. Remove subtracts stored capacity; restart/cancel/source or resolution
+change/teardown clear captures and invalidate pending results. Current live input
+and an in-flight worker can intentionally retain their own bounded references
+until replaced/drained. Allocation/length failures reject the attempt with an
+actionable message and preserve earlier captures for review/removal/retry. A
+failed attempt may show its original image rather than allocate a grayscale one.
+An OS allocator may keep released pages resident: zero captured bytes and released
+references do not imply an immediate RSS decrease or physical-memory guarantee.
+
 ## Architecture and lifecycle
 
 - `micro_robot_calibration`: Qt/OpenCV-free target geometry, quality/diversity
@@ -231,7 +282,7 @@ These coordinates describe the target plane, not the future tabletop world frame
   `findChessboardCornersSB`. OpenCV 4 uses calib3d; OpenCV 5 moved detection to
   objdetect. Frame pixels are read-only and Gray8/RGB/RGBA padded rows are supported.
 - `CalibrationController`: GUI-thread application adapter with an injected
-  detector, solver and profile store on one worker; a separate worker serializes
+  detector, review-image preparation, solver and profile store on one worker; a separate worker serializes
   optional optical flow and preview remapping. Acquisition retains the newest frame, full
   detection retains its exact reusable frame/result and the held overlay. Each path
   has at most one in-flight job and replaceable newest input.
@@ -502,3 +553,79 @@ OpenCV 4 execution: **NOT RUN**. The placement/rotation guidance follow-up in
 [#179](https://github.com/Krzys2002/Mini_Robot/issues/179) owns setup and per-scenario
 physical evidence, separate from the software acceptance above. Earlier #179
 results do not establish acceptance of this revision's guidance.
+
+## Memory diagnosis and verification (#245, 2026-11-11)
+
+The reported failure was reproduced on the approved #255 head `4888b4b` using
+synthetic valid-frame metadata and distinct complete grids. The original report
+provided no exact physical-camera format/resolution/count; these measurements
+establish reproducible byte-budget failures, not a reconstruction of that unknown
+setup. Original storage was already dynamic (`std::vector` plus shared ownership).
+The failing supported-size cases exhausted bytes before 24 views; the independent
+view-count and oversized-input guards were identified separately. No natural
+allocation/overflow crash was reproduced; allocation failures were injected in
+regression tests.
+
+The hardware-free [storage audit](../../../tools/calibration_storage_audit.py)
+compiles the baseline and working-tree capture implementations at `-O2`, then
+records resolution, format, stride, buffer size, accepted count, limits, retained
+capacity, process RSS and release checkpoints. RSS uses `ps` when available;
+process-restricted environments may report null RSS and must be distinguished from
+an executed measurement. Ten capture/cancel cycles per case were run outside the
+process-restricted sandbox on macOS arm64 / AppleClang 21:
+
+| Input | Stride / buffer bytes | Before: accepted / retained bytes | After: accepted / retained bytes | Before / after filled-stage RSS range (MiB) |
+| --- | --- | --- | --- | --- |
+| 1920 × 1080 Gray8 | 1920 / 2,073,600 | 24 / 49,766,400 | 24 / 49,766,400 | 51.31–51.44 / 51.31–51.47 |
+| 1920 × 1080 RGB8 | 5760 / 6,220,800 | 21 / 130,636,800 | 24 / 49,766,400 | 132.45–132.61 / 55.31–55.44 |
+| 1920 × 1080 RGBA8 | 7680 / 8,294,400 | 16 / 132,710,400 | 24 / 49,766,400 | 136.42–136.56 / 57.30–63.41 |
+| 1920 × 1080 padded RGBA8 | 11776 / 12,718,080 | 10 / 127,180,800 | 24 / 49,766,400 | 135.19–135.33 / 61.53–61.62 |
+| 2000 × 2000 RGBA8 | 8000 / 16,000,000 | 8 / 128,000,000 | 24 / 96,000,000 | 139.00–139.09 / 109.08–109.20 |
+
+All cases used a 134,217,728-byte budget and 24-view maximum. The duplicate-distance
+threshold was set to 0.00001 to isolate storage with small deterministic board
+motions; this audit does not claim a diverse/solvable calibration or physical
+conditioning. Before the fix,
+colour cases stopped on the byte budget; Gray8 stopped on the view cap. After the
+fix, every case reached the view cap. Every cancel released all review-frame
+references and left zero views. Immediate post-cancel RSS stayed close to each
+filled-stage reading because allocator residency was retained; this is not proof
+of an ownership leak. Repeated-cycle RGB/RGBA RSS can vary with allocator state.
+These are capture-only process snapshots, not a peak-memory or whole-desktop
+bound. The input settings and acceptance counts were stable across all ten cycles.
+
+Reproduce from the repository root (write the JSON to a local/ignored path):
+
+```sh
+python3 tools/calibration_storage_audit.py --baseline 4888b4b --compiler clang++ \
+  --cycles 10 --output /tmp/calibration-storage-audit.json
+```
+
+Software verification on macOS arm64, AppleClang 21, Qt 6.12.0, OpenCV 5.1.0,
+using an existing GoogleTest checkout:
+
+- Root `cmake --preset core`, `cmake --build --preset core --parallel 3`,
+  `ctest --preset core --parallel 3`: **292 passed**, without Qt/OpenCV.
+- Root `cmake --preset macos`, `cmake --build --preset macos --parallel 3`,
+  `ctest --preset macos --parallel 3`: **506 passed, 1 opt-in performance audit
+  skipped**, zero failures (507 discovered).
+- Seven new pure storage tests cover padded/large frames, exact budget boundaries,
+  malformed/overflow metadata, failures, repeated cleanup and unchanged solver
+  coordinates/binding. Seven new UI tests cover worker-side preparation/failure,
+  raw-cache and stored-review release, lifecycle invalidation, responsive event
+  handling during a gated worker, no allocation for a missing board, remap-held
+  review release after draining, and original-measurement reuse on review retries.
+- Guidance/storage UI tests at `QT_SCALE_FACTOR=1.5` and `=2`, offscreen:
+  **10/10 passed at each scale**. The rendered wizard budget/controls were also
+  visually inspected. Two older live-mode tests were updated to await
+  worker preparation; initial immediate-completion assertions failed before that
+  correction. Final full runs passed.
+- Relative documentation links and `git diff --check`: passed. No build integration
+  changed; standalone execution was not repeated. The task graph was absent;
+  source/tests were inspected directly.
+
+Physical camera/native display, Linux/Windows and OpenCV 4 execution: **NOT RUN**.
+The memory/storage regression follow-up in [#179](https://github.com/Krzys2002/Mini_Robot/issues/179)
+owns the tested-revision/setup, long capture/review/cleanup and physical evidence.
+No optical accuracy, production motor safety or original-camera reproduction is
+claimed by these synthetic checks.

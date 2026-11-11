@@ -54,10 +54,13 @@ public:
         if (gate.valid()) gate.wait();
         if (throws) throw std::runtime_error("Synthetic detector failure");
         if (missing) return {};
-        return captureDetection(250 + (frame.sequence % 3) * 250, 400, 40,
+        auto result = captureDetection(250 + (frame.sequence % 3) * 250, 400, 40,
             distinctFourth && frame.sequence == 4 ? 0.4 : 0.0);
+        if (blurry) result.sharpness = 0;
+        return result;
     }
     bool throws{};
+    bool blurry{};
     bool distinctFourth{};
     bool missing{};
     std::shared_future<void> gate;
@@ -148,7 +151,8 @@ struct CaptureFixture {
     explicit CaptureFixture(IntrinsicCalibrationConfig intrinsicConfig = {}, QString profileDirectory = {},
                             std::unique_ptr<ICalibrationProfileStore> storeOverride = {},
                             std::unique_ptr<ICalibrationCornerTracker> trackerOverride = {},
-                            std::function<Timestamp()> clock = [] { return MonotonicClock::now(); })
+                            std::function<Timestamp()> clock = [] { return MonotonicClock::now(); },
+                            CalibrationReviewFrameFactory prepare = prepareCalibrationReviewFrame)
     {
         auto implementation = std::make_unique<DeterministicDetector>();
         detector = implementation.get();
@@ -156,7 +160,7 @@ struct CaptureFixture {
         solver = solverImplementation.get();
         controller = std::make_unique<CalibrationController>(std::move(implementation),
             std::move(solverImplementation),
-            logger.channel("calibration"), uiConfig(), intrinsicConfig, nullptr, std::move(clock));
+            logger.channel("calibration"), uiConfig(), intrinsicConfig, nullptr, std::move(clock), std::move(prepare));
         if (!profileDirectory.isEmpty() || storeOverride) {
             auto remapper = std::make_unique<DeterministicUndistorter>();
             undistorter = remapper.get();
@@ -534,7 +538,7 @@ TEST(CalibrationProfileUiTest, SavesCalculatedProfileAndReloadsAfterControllerRe
     ASSERT_TRUE(processUntil([&] { return !restarted.controller->profileBusy(); }));
     EXPECT_FALSE(restarted.controller->profile()); // No automatic scaling/reuse.
 }
-TEST(CalibrationProfileUiTest, ToggleRemapsOnlyPreviewAndPreservesRawCapturePixels)
+TEST(CalibrationProfileUiTest, ToggleRemapsOnlyPreviewAndKeepsReviewInOriginalPixelGeometry)
 {
     QTemporaryDir directory;
     QtCalibrationProfileStore store{directory.path()};
@@ -718,6 +722,7 @@ TEST(CalibrationLiveTest, HiddenWizardDoesNotDetectAndCaptureReusesDisplayedSamp
     EXPECT_EQ(selected->sequence, 1U);
     EXPECT_TRUE(f.controller->session().views().empty());
     f.controller->capture();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
     ASSERT_EQ(f.controller->session().views().size(), 1U);
     EXPECT_EQ(f.controller->session().views().front().frame, selected);
     EXPECT_EQ(f.detector->calls, 1);
@@ -1179,6 +1184,7 @@ TEST(CalibrationOverlayModeTest, MatchedModeHoldsImageAndCornersAndCaptureReuses
     EXPECT_EQ(points.front().u, firstU);
     EXPECT_FALSE(approximate);
     f.controller->capture();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
     ASSERT_EQ(f.controller->session().views().size(), 1U);
     EXPECT_EQ(f.controller->session().views().front().frame, sample);
     EXPECT_EQ(f.detector->calls, 1);
@@ -1420,6 +1426,7 @@ TEST(CalibrationReviewTest, CachedLiveDetectionAlsoStartsReviewAndEmitsNonModalF
     const bool ready = processUntil([&] { return cornersVisible; });
     const auto calls = f.detector->calls.load();
     if (ready) f.controller->capture();
+    EXPECT_TRUE(processUntil([&] { return !f.controller->busy(); }));
     auto* timer = f.controller->findChild<QTimer*>("calibrationReviewTimer");
     EXPECT_TRUE(ready);
     EXPECT_TRUE(timer->isActive());
@@ -1504,5 +1511,191 @@ TEST(CalibrationGuidanceUiTest, SmallWindowKeepsWrappedHelpAndControlsAccessible
         QApplication::processEvents();
         EXPECT_TRUE(f.wizard->grab().save(path));
     }
+}
+} // namespace
+
+namespace {
+FramePtr colourStorageFrame(std::uint64_t sequence, std::uint32_t width = 1000)
+{
+    auto frame = std::make_shared<Frame>(*captureFrame(sequence, width));
+    frame->capturedAt = MonotonicClock::now();
+    frame->pixelFormat = PixelFormat::Rgba8;
+    frame->strideBytes = width * 4 + 4096;
+    frame->pixels = std::make_shared<const std::vector<std::byte>>(frame->strideBytes * frame->height,
+                                                               std::byte{127});
+    return frame;
+}
+TEST(CalibrationStorageUiTest, ColourPaddingIsNotRetainedByStoredOrReviewedViews)
+{
+    bool detected = false;
+    CaptureFixture f;
+    QObject observer;
+    QObject::connect(f.controller.get(), &CalibrationController::previewChanged, &observer,
+        [&](FramePtr, const auto& corners, bool, bool) { if (!corners.empty()) detected = true; });
+    f.controller->restart();
+    f.wizard->show();
+    auto raw = colourStorageFrame(1);
+    std::weak_ptr<const Frame> original = raw;
+    f.controller->receiveFrame(raw);
+    ASSERT_TRUE(processUntil([&] { return detected; }));
+    f.controller->capture();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    ASSERT_EQ(f.controller->session().views().size(), 1u);
+    const auto& view = f.controller->session().views().front();
+    EXPECT_EQ(view.frame->pixelFormat, PixelFormat::Gray8);
+    EXPECT_EQ(view.frame->strideBytes, view.frame->width);
+    EXPECT_EQ(view.frame->width, raw->width);
+    EXPECT_EQ(view.frame->capturedAt, raw->capturedAt);
+    EXPECT_EQ(f.controller->session().storedPixelBytes(), 800000u);
+    raw.reset();
+    f.frame(2); // Replace the intentional newest-live raw reference.
+    QApplication::processEvents();
+    EXPECT_TRUE(original.expired());
+    f.controller->reviewView(0);
+    std::weak_ptr<const Frame> review = view.frame;
+    f.controller->removeView(0);
+    EXPECT_EQ(f.controller->session().storedPixelBytes(), 0u);
+    EXPECT_TRUE(review.expired());
+}
+TEST(CalibrationStorageUiTest, AllocationFailureStaysOnWorkerAndExistingViewsRemainUsable)
+{
+    std::atomic<bool> fail{}, onWorker{};
+    CaptureFixture f{{}, {}, {}, {}, [] { return MonotonicClock::now(); },
+        [&](FramePtr frame) {
+            onWorker = QThread::currentThread() != QApplication::instance()->thread();
+            if (fail) throw std::bad_alloc{};
+            return prepareCalibrationReviewFrame(std::move(frame));
+        }};
+    f.controller->restart();
+    f.capture(1);
+    ASSERT_EQ(f.controller->session().views().size(), 1u);
+    const auto bytes = f.controller->session().storedPixelBytes();
+    fail = true;
+    f.capture(2);
+    EXPECT_TRUE(onWorker);
+    EXPECT_FALSE(f.controller->busy());
+    EXPECT_EQ(f.controller->session().views().size(), 1u);
+    EXPECT_EQ(f.controller->session().storedPixelBytes(), bytes);
+    EXPECT_TRUE(f.controller->captureFeedback().contains("allocation failed"));
+    f.controller->reviewView(0);
+    fail = false;
+    f.capture(3);
+    EXPECT_EQ(f.controller->session().views().size(), 2u);
+    EXPECT_TRUE(f.wizard->findChild<QLabel*>("calibrationProgress")->text().contains("128.0 MiB"));
+}
+TEST(CalibrationStorageUiTest, CancelSourceResolutionRestartAndShutdownReleaseCompactReview)
+{
+    for (int action = 0; action < 5; ++action) {
+        CaptureFixture f;
+        f.controller->restart();
+        f.controller->receiveFrame(colourStorageFrame(1));
+        f.controller->capture();
+        ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+        ASSERT_EQ(f.controller->session().views().size(), 1u);
+        std::weak_ptr<const Frame> frame = f.controller->session().views().front().frame;
+        switch (action) {
+        case 0: f.controller->cancel(); break;
+        case 1: f.controller->setInput("another", true); break;
+        case 2: f.controller->receiveFrame(colourStorageFrame(2, 900)); break;
+        case 3: f.controller->restart(); break;
+        case 4: f.controller->shutdown(); break;
+        }
+        EXPECT_EQ(f.controller->session().storedPixelBytes(), 0u) << action;
+        EXPECT_TRUE(frame.expired()) << action;
+    }
+}
+TEST(CalibrationStorageUiTest, GatedPreparationDoesNotBlockGuiAndInvalidationDiscardsResult)
+{
+    std::promise<void> release;
+    const auto gate = release.get_future().share();
+    std::atomic<bool> entered{};
+    bool heartbeat = false;
+    CaptureFixture f{{}, {}, {}, {}, [] { return MonotonicClock::now(); },
+        [&](FramePtr frame) {
+            entered = true;
+            gate.wait();
+            return prepareCalibrationReviewFrame(std::move(frame));
+        }};
+    f.controller->restart();
+    f.controller->receiveFrame(colourStorageFrame(1));
+    f.controller->capture();
+    const bool running = processUntil([&] { return entered.load(); });
+    QTimer::singleShot(0, f.wizard.get(), [&] { heartbeat = true; });
+    const bool responsive = processUntil([&] { return heartbeat; });
+    f.controller->cancel();
+    release.set_value(); // Release even if expectations fail.
+    EXPECT_TRUE(running); EXPECT_TRUE(responsive);
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    EXPECT_TRUE(f.controller->session().views().empty());
+    EXPECT_EQ(f.controller->session().storedPixelBytes(), 0u);
+}
+} // namespace
+
+namespace {
+TEST(CalibrationStorageUiTest, MissingBoardDoesNotAllocateAReviewImageOrHideTheReason)
+{
+    std::atomic<bool> prepared{};
+    CaptureFixture f{{}, {}, {}, {}, [] { return MonotonicClock::now(); },
+        [&](FramePtr frame) { prepared = true; return prepareCalibrationReviewFrame(std::move(frame)); }};
+    f.detector->missing = true;
+    f.controller->restart();
+    f.controller->receiveFrame(colourStorageFrame(1));
+    f.controller->capture();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    EXPECT_FALSE(prepared);
+    EXPECT_TRUE(f.controller->session().views().empty());
+    EXPECT_TRUE(f.controller->captureFeedback().contains("not found"));
+}
+} // namespace
+
+namespace {
+TEST(CalibrationStorageUiTest, RemovedReviewHeldByRemapIsReleasedWhenTheWorkerDrains)
+{
+    std::promise<void> release;
+    CaptureFixture f{{}, {}, std::make_unique<ControlledProfileStore>()};
+    f.controller->receiveFrame(colourStorageFrame(1));
+    ASSERT_TRUE(processUntil([&] { return !f.controller->profileBusy(); }));
+    f.controller->restart();
+    f.controller->capture();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    ASSERT_EQ(f.controller->session().views().size(), 1u);
+    std::weak_ptr<const Frame> review = f.controller->session().views().front().frame;
+    f.undistorter->gate = release.get_future().share();
+    f.controller->setUndistortedPreview(true);
+    const bool remapping = processUntil([&] { return f.undistorter->calls > 0; });
+    f.controller->removeView(0);
+    EXPECT_EQ(f.controller->session().storedPixelBytes(), 0u);
+    EXPECT_FALSE(review.expired()); // Only the in-flight worker may still own it.
+    release.set_value();
+    EXPECT_TRUE(remapping);
+    EXPECT_TRUE(processUntil([&] { return review.expired(); }));
+    EXPECT_TRUE(f.controller->session().views().empty());
+    EXPECT_FALSE(f.controller->undistortedPreview());
+}
+} // namespace
+
+namespace {
+TEST(CalibrationStorageUiTest, RetryingARejectedReviewReusesOriginalDetectionWithoutRawImageRetention)
+{
+    bool detected = false;
+    CaptureFixture f;
+    QObject observer;
+    QObject::connect(f.controller.get(), &CalibrationController::previewChanged, &observer,
+        [&](FramePtr, const auto& corners, bool, bool) { if (!corners.empty()) detected = true; });
+    f.detector->blurry = true;
+    f.controller->restart();
+    f.wizard->show();
+    f.controller->receiveFrame(colourStorageFrame(1));
+    ASSERT_TRUE(processUntil([&] { return detected; }));
+    f.controller->capture();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    ASSERT_TRUE(f.controller->captureFeedback().contains("blurry"));
+    const auto calls = f.detector->calls.load();
+    f.detector->blurry = false; // A fresh detection would now accept the converted review.
+    f.controller->capture();
+    ASSERT_TRUE(processUntil([&] { return !f.controller->busy(); }));
+    EXPECT_EQ(f.detector->calls, calls);
+    EXPECT_TRUE(f.controller->captureFeedback().contains("blurry"));
+    EXPECT_TRUE(f.controller->session().views().empty());
 }
 } // namespace

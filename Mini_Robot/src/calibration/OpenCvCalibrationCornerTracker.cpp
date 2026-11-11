@@ -38,8 +38,7 @@ std::vector<ImageCorner> OpenCvCalibrationCornerTracker::track(const Frame& prev
 {
     if (!isValidFrame(previous) || !isValidFrame(current) || previous.width != current.width
         || previous.height != current.height || previous.pixelFormat != current.pixelFormat
-        || current.width > 4096 || current.height > 4096
-        || static_cast<std::uint64_t>(current.width)*current.height > 4'000'000
+        || !supportedCalibrationResolution(current.width, current.height)
         || current.sequence <= previous.sequence || current.capturedAt <= previous.capturedAt
         || current.capturedAt-previous.capturedAt > config_.maximumStep
         || corners.size() < 4 || corners.size() > 1024) return {};

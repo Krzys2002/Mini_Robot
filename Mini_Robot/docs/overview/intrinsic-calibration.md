@@ -30,7 +30,9 @@ preview. Workspace mapping remains separate.
 
 - `IntrinsicCalibrationInput`: camera identity, resolution, target and corner-only
   observations, without retained image buffers. `intrinsicCalibrationInput()`
-  snapshots a completed `CalibrationCapture`.
+  snapshots a completed `CalibrationCapture`. Full-resolution grayscale review
+  storage does not resize or transform these measured coordinates; camera identity
+  and original delivered dimensions remain attached to the solver input.
 - `IIntrinsicCalibrationSolver`: synchronous worker-only solver interface.
 - `IntrinsicCalibration`: row-major 3 × 3 matrix
   `[fx,0,cx; 0,fy,cy; 0,0,1]`, five dimensionless distortion coefficients in

@@ -13,10 +13,11 @@ namespace micro_robot {
 CalibrationController::CalibrationController(std::unique_ptr<ICalibrationDetector> detector,
     std::unique_ptr<IIntrinsicCalibrationSolver> solver, LogChannel log,
     CalibrationCaptureConfig config, IntrinsicCalibrationConfig intrinsicConfig, QObject* parent,
-    std::function<Timestamp()> clock)
-    : QObject(parent), clock_(std::move(clock)), session_(config), log_(std::move(log)), detector_(std::move(detector)),
+    std::function<Timestamp()> clock, CalibrationReviewFrameFactory reviewFrameFactory)
+    : QObject(parent), clock_(std::move(clock)), reviewFrameFactory_(std::move(reviewFrameFactory)), session_(config), log_(std::move(log)), detector_(std::move(detector)),
       solver_(std::move(solver)), intrinsicConfig_(intrinsicConfig)
 {
+    if (!reviewFrameFactory_) throw std::invalid_argument("Calibration review storage is required");
     if (!clock_) throw std::invalid_argument("Calibration clock is required");
     reviewTimer_.setParent(this);
     reviewTimer_.setObjectName(QStringLiteral("calibrationReviewTimer"));
@@ -64,6 +65,8 @@ void CalibrationController::cancelReview()
 void CalibrationController::emitPreview(FramePtr frame, const std::vector<ImageCorner>& corners,
                                         bool accepted, bool approximate)
 {
+    if (!live_ && selectedFrame_ == previewFrame_) selectedReviewDetection_ = reviewDetection_;
+    else selectedReviewDetection_.reset();
     // This is the GUI presentation boundary, including asynchronous correction.
     // Arm before notifying observers so a reentrant user action can cancel it.
     if (reviewFrame_ && !reviewDeadline_ && !live_ && frame
@@ -88,6 +91,8 @@ void CalibrationController::invalidate()
 {
     cancelReview();
     captureFeedback_.clear();
+    reviewDetection_.reset();
+    selectedReviewDetection_.reset();
     ++generation_;
     ++liveEpoch_;
     resetLiveOverlay();
@@ -124,10 +129,9 @@ void CalibrationController::setInput(const QString& sourceId, bool streaming, bo
 void CalibrationController::receiveFrame(FramePtr frame)
 {
     if (!streaming_ || shuttingDown_ || !frame || !isValidFrame(*frame)) return;
-    if (frame->width > 4096 || frame->height > 4096
-        || static_cast<std::uint64_t>(frame->width) * frame->height > 4'000'000) {
+    if (!supportedCalibrationResolution(frame->width, frame->height)) {
         invalidate();
-        publish(QStringLiteral("Camera resolution exceeds 4 megapixels. Lower it before capture."));
+        publish(QStringLiteral("Camera resolution exceeds calibration limits: at most 4 megapixels and 4096 per dimension. Lower it before capture."));
         return;
     }
     if (latest_ && (latest_->width != frame->width || latest_->height != frame->height)) {
@@ -164,6 +168,8 @@ void CalibrationController::restart()
     if (shuttingDown_ || !streaming_ || sourceId_.isEmpty()) return;
     cancelReview();
     captureFeedback_.clear();
+    reviewDetection_.reset();
+    selectedReviewDetection_.reset();
     ++generation_;
     ++liveEpoch_;
     resetLiveOverlay();
@@ -191,25 +197,46 @@ void CalibrationController::capture()
     ++liveEpoch_;
     resetLiveOverlay(); // A running live job cannot replace the selected capture.
     live_ = false;
-    if (frame == detectedFrame_ && liveDetection_) {
-        acceptCapture(frame, *liveDetection_, reviewRevision);
-        return;
-    }
+    std::optional<CalibrationDetection> cached;
+    if (frame == detectedFrame_ && liveDetection_) cached = *liveDetection_;
+    else if (frame == selectedFrame_ && selectedReviewDetection_) cached = *selectedReviewDetection_;
+    detectedFrame_.reset();
+    liveDetection_.reset();
     busy_ = true;
     const auto generation = generation_;
     const auto target = session_.config().target;
     const auto detector = detector_;
-    publish(QStringLiteral("Detecting chessboard corners…"));
-    QMetaObject::invokeMethod(workerContext_, [this, detector, frame, target, generation, reviewRevision] {
+    const auto prepare = reviewFrameFactory_;
+    publish(QStringLiteral("Detecting corners and preparing bounded review storage…"));
+    QMetaObject::invokeMethod(workerContext_, [this, detector, frame, target, generation, reviewRevision,
+                                               prepare, cached = std::move(cached)]() mutable {
         CalibrationDetection result;
+        FramePtr review = frame;
         try {
-            result = detector->detect(*frame, target);
+            result = cached ? std::move(*cached) : detector->detect(*frame, target);
+            if (result.error.empty() && result.corners.size()
+                == static_cast<std::size_t>(target.columns * target.rows)) {
+                review = prepare(frame);
+                if (!review || !isValidFrame(*review) || review->width != frame->width
+                    || review->height != frame->height || review->sequence != frame->sequence
+                    || review->capturedAt != frame->capturedAt || review->pixelFormat != PixelFormat::Gray8
+                    || review->strideBytes != frame->width
+                    || review->pixels->size() != static_cast<std::size_t>(frame->width) * frame->height
+                    || review->pixels->capacity() != review->pixels->size()) {
+                    review = frame;
+                    result.error = "Review storage returned incompatible pixels. Existing views kept.";
+                }
+            }
+        } catch (const std::bad_alloc&) {
+            result.error = "Capture allocation failed. Existing views kept; remove a view and retry.";
+        } catch (const std::length_error&) {
+            result.error = "Capture allocation size failed. Existing views kept; lower resolution and restart.";
         } catch (const std::exception& error) {
-            result.error = std::string{"Detection failed: "} + error.what();
+            result.error = std::string{"Capture processing failed: "} + error.what();
         } catch (...) {
-            result.error = "Detection failed with an unknown error.";
+            result.error = "Capture processing failed with an unknown error.";
         }
-        QMetaObject::invokeMethod(this, [this, frame, generation, reviewRevision, result = std::move(result)]() mutable {
+        QMetaObject::invokeMethod(this, [this, frame = std::move(review), generation, reviewRevision, result = std::move(result)]() mutable {
             busy_ = false;
             if (generation != generation_ || shuttingDown_) { emit changed(); return; }
             acceptCapture(frame, std::move(result), reviewRevision);
@@ -219,6 +246,10 @@ void CalibrationController::capture()
 void CalibrationController::acceptCapture(FramePtr frame, CalibrationDetection detection, std::uint64_t reviewRevision)
 {
     const auto corners = detection.corners;
+    if (reviewRevision == reviewRevision_) {
+        if (detection.error.empty()) reviewDetection_ = detection;
+        else reviewDetection_.reset();
+    }
     const auto decision = session_.add(frame, std::move(detection));
     captureFeedback_ = QString::fromStdString(decision.message);
     const auto feedback = captureFeedback_;
@@ -281,11 +312,12 @@ void CalibrationController::sampleLive()
                 + " queued_live=0");
             detectedFrame_ = frame;
             liveDetection_ = detection;
-            // Evaluate existing quality/diversity rules on a disposable copy;
-            // live feedback must never add an observation to the real session.
-            auto probe = session_;
-            if (probe.state() != CalibrationCaptureState::Collecting) probe.restart(sourceId_.toStdString());
-            const auto decision = probe.add(frame, detection);
+            // Assess without copying the dataset, retaining pixels or preparing
+            // review images on the GUI thread. Inactive sessions use an empty probe.
+            CalibrationCapture probe{session_.config()};
+            if (session_.state() != CalibrationCaptureState::Collecting) probe.restart(sourceId_.toStdString());
+            const auto& assessment = session_.state() == CalibrationCaptureState::Collecting ? session_ : probe;
+            const auto decision = assessment.assess(frame, detection);
             liveCorners_ = detection.error.empty() ? detection.corners : std::vector<ImageCorner>{};
             liveAccepted_ = decision.accepted;
             resetTracking();
@@ -420,7 +452,10 @@ void CalibrationController::reviewView(int index)
     live_ = false;
     ++liveEpoch_;
     resetLiveOverlay();
+    detectedFrame_.reset();
+    liveDetection_.reset();
     const auto& view = session_.views()[static_cast<std::size_t>(index)];
+    reviewDetection_ = view.detection;
     ++previewEpoch_;
     presentPreview(view.frame, view.detection.corners, true);
 }
@@ -433,6 +468,8 @@ void CalibrationController::showLive()
     liveDetection_.reset();
     nextLiveSample_ = {};
     cancelReview();
+    reviewDetection_.reset();
+    selectedReviewDetection_.reset();
     live_ = true;
     ++previewEpoch_;
     const auto now = clock_();
