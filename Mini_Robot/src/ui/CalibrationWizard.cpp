@@ -10,6 +10,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QStandardItemModel>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -19,11 +20,12 @@ namespace micro_robot {
 class CalibrationPreview final : public QWidget {
 public:
     using QWidget::QWidget;
-    void present(FramePtr frame, std::vector<ImageCorner> corners, bool accepted)
+    void present(FramePtr frame, std::vector<ImageCorner> corners, bool accepted, bool approximate)
     {
         frame_ = std::move(frame);
         corners_ = std::move(corners);
         accepted_ = accepted;
+        approximate_ = approximate;
         // QWidget coalesces updates. It holds one newest preview, never a frame queue.
         update();
     }
@@ -46,10 +48,10 @@ protected:
         const QSize fitted = image.size().scaled(size(), Qt::KeepAspectRatio);
         const QRect bounds{QPoint{(width() - fitted.width()) / 2, (height() - fitted.height()) / 2}, fitted};
         painter.drawImage(bounds, image);
-        painter.setPen(QPen(accepted_ ? Qt::green : Qt::red, 2));
+        painter.setPen(QPen(approximate_ ? Qt::cyan : accepted_ ? Qt::green : Qt::red, 2));
         const auto map = [&](const ImageCorner& p) {
-            return QPointF{bounds.x() + p.u * bounds.width() / frame_->width,
-                           bounds.y() + p.v * bounds.height() / frame_->height};
+            return QPointF{bounds.x() + (p.u + 0.5) * bounds.width() / frame_->width,
+                           bounds.y() + (p.v + 0.5) * bounds.height() / frame_->height};
         };
         for (const auto& p : corners_) painter.drawEllipse(map(p), 3, 3);
         if (!corners_.empty()) {
@@ -62,6 +64,7 @@ private:
     FramePtr frame_;
     std::vector<ImageCorner> corners_;
     bool accepted_{};
+    bool approximate_{};
 };
 
 CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget* parent)
@@ -74,7 +77,8 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     auto* instructions = new QLabel(QStringLiteral(
         "Chessboard: %1 × %2 inner corners (%3 × %4 squares), %5 mm per square.\n"
         "Use a flat board with a white border. Capture different positions, distances and rotations.\n"
-        "Green corners = accepted, red = rejected, yellow ring = first corner. Inspect every accepted view.")
+        "Detection up to 5 Hz; choose a live preview mode below. Cyan = held or tracked corners.\n"
+        "Green = usable, red = rejected, yellow ring = first corner. Inspect every accepted view.")
         .arg(target.columns).arg(target.rows).arg(target.columns + 1).arg(target.rows + 1)
         .arg(target.squareSizeMeters * 1000), this);
     instructions->setWordWrap(true);
@@ -111,12 +115,24 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     profiles->addWidget(reloadProfile_);
     undistorted_ = new QCheckBox(QStringLiteral("Undistorted preview"), this);
     undistorted_->setObjectName(QStringLiteral("calibrationUndistorted"));
-    undistorted_->setToolTip(QStringLiteral("Verification only; captures use original pixels. Black borders are expected. Corner overlays appear in raw view."));
+    undistorted_->setToolTip(QStringLiteral("Verification only; captures use original pixels. Black borders are expected. Corner overlays follow the selected pixel mode."));
     profiles->addWidget(undistorted_);
     layout->addLayout(profiles);
     connect(saveProfile_, &QPushButton::clicked, &controller_, &CalibrationController::saveProfile);
     connect(reloadProfile_, &QPushButton::clicked, &controller_, &CalibrationController::reloadProfile);
     connect(undistorted_, &QCheckBox::toggled, &controller_, &CalibrationController::setUndistortedPreview);
+    auto* overlayOptions = new QHBoxLayout;
+    overlayOptions->addWidget(new QLabel(QStringLiteral("Live preview:"), this));
+    overlayMode_ = new QComboBox(this);
+    overlayMode_->setObjectName(QStringLiteral("calibrationOverlayMode"));
+    overlayMode_->addItem(QStringLiteral("Hold until next detection"));
+    overlayMode_->addItem(QStringLiteral("Track between detections"));
+    overlayMode_->addItem(QStringLiteral("Matched image and corners (up to 5 Hz)"));
+    overlayMode_->setToolTip(QStringLiteral("Hold keeps corners fixed and can lag a moving board. Track follows motion and hides uncertain corners. Matched advances image and corners together. Detection runs at up to 5 Hz in all modes. Capture validates its selected frame."));
+    overlayOptions->addWidget(overlayMode_, 1);
+    layout->addLayout(overlayOptions);
+    connect(overlayMode_, &QComboBox::currentIndexChanged, this,
+        [this](int index) { controller_.setLivePreviewMode(static_cast<CalibrationLivePreviewMode>(index)); });
     auto* review = new QHBoxLayout;
     views_ = new QComboBox(this);
     views_->setObjectName(QStringLiteral("calibrationViews"));
@@ -150,8 +166,8 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     connect(close, &QPushButton::clicked, this, &CalibrationWizard::reject);
     connect(&controller_, &CalibrationController::changed, this, &CalibrationWizard::refresh);
     connect(&controller_, &CalibrationController::previewChanged, this,
-        [this](FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted) {
-            preview_->present(std::move(frame), corners, accepted);
+        [this](FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate) {
+            preview_->present(std::move(frame), corners, accepted, approximate);
         });
     refresh();
 }
@@ -161,6 +177,11 @@ void CalibrationWizard::refresh()
     const auto progress = session.progress();
     const auto& config = session.config();
     message_->setText(controller_.message());
+    const QSignalBlocker overlayBlocker(overlayMode_);
+    overlayMode_->setCurrentIndex(static_cast<int>(controller_.livePreviewMode()));
+    overlayMode_->setEnabled(!controller_.busy());
+    if (auto* model = qobject_cast<QStandardItemModel*>(overlayMode_->model()))
+        model->item(1)->setEnabled(controller_.canTrackLiveOverlay());
     QString profileText = controller_.profileMessage();
     if (const auto& profile = controller_.profile()) {
         profileText += QStringLiteral("\nCamera %1 · %2 × %3 px · RMS %4 px")
@@ -230,6 +251,20 @@ void CalibrationWizard::bindWorkspaceCalibration(WorkspaceCalibrationController&
     workspace_ = new WorkspaceCalibrationDialog(controller, this);
     workspace_->setAttribute(Qt::WA_QuitOnClose, false);
     connect(action, &QPushButton::clicked, workspace_, [dialog = workspace_] { dialog->show(); dialog->raise(); });
+}
+CalibrationWizard::~CalibrationWizard()
+{
+    controller_.setLivePreviewActive(false);
+}
+void CalibrationWizard::showEvent(QShowEvent* event)
+{
+    QDialog::showEvent(event);
+    controller_.setLivePreviewActive(true);
+}
+void CalibrationWizard::hideEvent(QHideEvent* event)
+{
+    controller_.setLivePreviewActive(false);
+    QDialog::hideEvent(event);
 }
 void CalibrationWizard::reject()
 {

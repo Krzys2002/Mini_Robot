@@ -3,7 +3,8 @@
 Issue #53 implements observation capture. Issue #54 adds the
 [intrinsics solver and quality reporting](intrinsic-calibration.md).
 Calibration-profile persistence (#55) and tabletop homography (#57) remain separate.
-No AprilTag identity or WorldModel updates occur during this workflow.
+Calibration capture does not change AprilTag identity or the WorldModel; the
+separate vision worker can continue processing frames.
 
 ## Target and operator workflow
 
@@ -17,15 +18,43 @@ Use the [printable chessboard](../calibration/chessboard-9x6-25mm.svg):
   curved or glossy target. The chosen workflow is chessboard, not ChArUco.
 
 Select and start a camera in the main window, then click **Camera calibration…**.
-The dialog previews the current camera. Click **Start / restart capture** and
-**Capture view** while holding the entire board still and in focus. Detection
-runs asynchronously. Each usable, distinct view is accepted automatically.
+Full chessboard detection runs at up to 5 Hz. Select one of three **Live preview**
+modes:
 
-Green dots show accepted inner corners. Red dots show rejected detections when
-corners are available. The yellow ring identifies the first corner. Visually
-check alignment with the printed intersections. Use the accepted-view selector
-to inspect any stored view. **Live view** returns to the current camera image;
-**Capture view** always uses the latest camera frame, even during review.
+- **Hold until next detection** (default): keep the last detected corner positions
+  fixed until the next result. They can misalign if the board moves. A result
+  without corners clears the grid.
+- **Track between detections**: estimate corner positions on intervening frames
+  using optical flow. Hide uncertain/expired grids and skip obsolete results
+  rather than drawing an old estimate on a newer frame.
+- **Matched image and corners (up to 5 Hz)**: advance the preview image and its
+  detected corners together. Video follows the detection rate, retaining exact
+  frame alignment even when the board moves. Capture can reuse that sample.
+
+The selection lasts for this application session, including dialog close/reopen;
+it is not written into calibration profiles. Hold and Track keep raw video
+advancing; Matched holds each detected sample. All three preserve the captured
+dataset when switched. Mode changes invalidate pending
+old-mode work; a paused captured-view review stays paused.
+Click **Start / restart capture** and **Capture view** while holding the board
+still and in focus. Each usable, distinct view is accepted automatically.
+
+Green dots show usable live samples or accepted captured inner corners. Red dots
+show rejected detections when corners are available. Live evaluation uses the same
+quality/diversity rules without adding an observation. **Cyan dots are held or
+tracked corners**, without a fresh assessment of the current image. The yellow
+ring identifies the first corner. Visually check alignment with the printed intersections. Use the accepted-view selector
+to inspect any stored view. **Capture view** selects the displayed sample (raw
+source pixels even in corrected mode), reusing a full detection only when it
+belongs to that exact frame. Held corners are never saved for a newer image:
+Capture runs a full-resolution
+detection on its selected frame unless that exact frame already has a full result.
+All existing quality checks remain. Neither holding nor tracking the overlay
+adds observations.
+After capture/review, click **Live view** before selecting another view. A sample
+older than two seconds is rejected; wait for a fresh sample. Integer image
+coordinates denote pixel centres; presentation adds half a pixel before scaling
+and uses the image's aspect-preserving bounds, including letterboxing.
 
 Move the board around the image, change its distance, rotate it in the image,
 and tilt it out of plane. Keep its full outer border visible. The progress text
@@ -39,7 +68,8 @@ then capture its replacement. **Start / restart capture** clears all observation
 **Cancel / close** or Escape discards an unfinished session. **Calculate intrinsics**
 completes capture and solves the in-memory dataset on a worker. Closing a completed
 dialog preserves it until restart, camera loss/change or application exit.
-There is no disk export; see the intrinsic-calibration guide for result handling.
+Use **Save profile** after solving to persist the result; see the
+[profile guide](calibration-profiles.md).
 
 ## Quality gates and diversity
 
@@ -55,7 +85,7 @@ There is no disk export; see the intrinsic-calibration guide for result handling
 | Completion | At least 10 views, 3 distinct centre cells in a 3 × 3 grid, scale spread ≥ 0.08, rotation spread ≥ 0.20 rad |
 | Storage | At most 24 accepted views and 128 MiB of retained frame storage |
 | Input size | At most 4 megapixels, neither dimension above 4096 |
-| Input freshness | Latest frame no more than 2 s old at capture request |
+| Input freshness | Selected raw frame no more than 2 s old at capture request |
 
 Redundancy comparison also considers reversed corner order, accounting for the
 unmarked chessboard's 180° ambiguity. Scale is the square root of inner-board
@@ -79,8 +109,21 @@ These coordinates describe the target plane, not the future tabletop world frame
   `findChessboardCornersSB`. OpenCV 4 uses calib3d; OpenCV 5 moved detection to
   objdetect. Frame pixels are read-only and Gray8/RGB/RGBA padded rows are supported.
 - `CalibrationController`: GUI-thread application adapter with an injected
-  detector and a single detection worker. A capture snapshots the newest frame.
-  No further jobs queue while it is busy. Frames/corners are plain domain values.
+  detector, solver and profile store on one worker; a separate worker serializes
+  optional optical flow and preview remapping. Acquisition retains the newest frame, full
+  detection retains its exact reusable frame/result and the held overlay. Each path
+  has at most one in-flight job and replaceable newest input.
+  Full live detection pauses during capture/solving/profile I/O. Preview remapping
+  can run alongside detection on the other worker. Capture stays
+  enabled during full live detection and may wait behind that one OpenCV call;
+  no additional full live calls can get ahead of it. Corrected previews remap the
+  current image and held raw coordinates using the
+  same compatible profile. Held positions remain fixed until the next result;
+  tracked positions follow the current frame only after successful flow. Tracked
+  previews run flow before remapping to avoid remapping a frame twice.
+  Cancellation/shutdown invalidate results immediately without GUI waits. OpenCV
+  itself is synchronous and cannot be interrupted mid-call. Frames/corners are
+  plain domain values; widget code does not perform detection.
 - `CalibrationWizard`: Qt presentation, corner overlays, review and action routing.
   It contains no detection or acceptance algorithm.
 
@@ -88,9 +131,12 @@ DesktopController forwards immutable frames and source/stream availability witho
 changing camera ownership or bypassing `ICameraSource`. Stop requests, source
 changes and disconnect/fault events clear the session. Resolution changes clear
 it on the next frame. Generation tokens discard any result already in flight.
-Restart/cancel can invalidate a job without blocking the GUI. Shutdown asks the
-worker to quit, and the main event loop drains both capture and detector workers
-before destruction. Normal destruction therefore does not wait on detection.
+Restart/cancel, review/live transitions and wizard hide/destruction invalidate
+in-flight live results. The target is immutable for a controller's lifetime; a
+new controller is required for another target. Restart/cancel can invalidate a
+job without blocking the GUI. Shutdown asks the
+workers to quit, and the main event loop drains camera acquisition and both
+calibration workers before destruction. Normal destruction therefore does not wait on detection.
 
 ## Build and verification
 
@@ -100,9 +146,10 @@ Qt, configure with `-DMICRO_ROBOT_BUILD_DESKTOP=OFF
 replay and calibration. The pure capture library/tests remain available.
 
 ```sh
-cmake --build build/issue-53 --parallel 3
-ctest --test-dir build/issue-53 -R '^Calibration' --output-on-failure --no-tests=error
-ctest --test-dir build/issue-53 --output-on-failure --no-tests=error
+cmake --preset macos
+cmake --build --preset macos --parallel 3
+ctest --preset macos -R '^(Calibration|QtCalibration|OpenCvCalibrationUndistorter)'
+ctest --preset macos
 ```
 
 Deterministic tests generate chessboards in memory, including rotated, scaled,
@@ -152,3 +199,126 @@ Physical target/camera capture, Linux X11/Wayland GUI checks, Windows runtime,
 and an OpenCV 4 build were not run. The source/CMake compatibility branch for
 OpenCV 4 remains for Linux CI to validate. Intrinsics, distortion and reprojection
 error calculation remain #54; profile persistence remains #55.
+
+## Live preview processing policy
+
+Full detection is visibility-gated, with a 200 ms minimum start interval, one
+in-flight job and no pending live-detection queue. Acquisition retains only the
+newest input. Capture can wait behind that single full OpenCV call, while GUI
+cancellation/shutdown invalidate results asynchronously. The synchronous OpenCV
+call cannot be interrupted mid-call. The two workers drain before destruction.
+
+`ICalibrationCornerTracker` exposes only frames and image points. Its OpenCV
+adapter uses sparse pyramidal Lucas–Kanade flow in both directions, on the
+preview worker. The provisional policy hides the whole grid if any point fails
+status, finite/bounds checks, 1 px forward/backward consistency, 20-level patch
+error, or movement above 40% of the minimum seed spacing. It rejects steps above
+150 ms and estimates more than 500 ms of capture time after the full detection.
+These conservative limits can hide valid rapid motion; repeating chessboard
+texture can still fool optical flow. Tracked points are never saved observations.
+
+Hold intentionally uses older detected coordinates over newer video and marks
+them cyan. Track draws estimates only on the frame they were calculated for.
+Matched advances pixels and full-detection points together, including the initial
+sample. All modes use the same raw/corrected pixel-centre mapping. A mode change
+invalidates old-mode detection, flow and remap completions without changing the
+captured dataset or resuming a paused review. Only Track is disabled if an injected
+configuration has no tracker. OpenCV's `video` component is required for desktop/
+calibration builds; `core` remains independent of Qt/OpenCV.
+
+## Performance and software verification for #242 (2026-11-10)
+
+Baseline `11f73a2` called `ICalibrationDetector::detect` only from Capture, once per
+explicit request; `receiveFrame` performed no chessboard detection. The separate
+`VisionController` continuously runs AprilTag detection on its own worker, with
+one active job and one replaceable newest pending frame. Its results cannot be
+reused as chessboard corners. No continuous chessboard bottleneck existed.
+
+Synthetic measurements used macOS 26.7.2 arm64, AppleClang 21, Qt 6.12.0, OpenCV
+5.1.0 and Debug builds. Four detector calls per image, including the cold call,
+measured the following full-resolution durations:
+
+| Image | Complete board duration (ms) | Blank duration (ms) |
+| --- | --- | --- |
+| 640 × 480 | 8.95–13.32 | 6.21–6.63 |
+| 1280 × 720 | 22.07–24.50 | 19.80–21.55 |
+| 1920 × 1080 | 49.94–53.48 | 46.34–48.02 |
+
+These measurements support a provisional 5 Hz full-detection cap; they are not a
+hard processing deadline or representative of every real negative scene.
+
+The final offscreen audit completed 27 scenarios: three preview modes × hidden/
+raw/corrected display × VGA/720p/1080p. A synthetic board alternated by 2 px at a
+requested 33 ms input interval, with the real AprilTag worker active. Each
+scenario lasted roughly two seconds. All visible scenarios ran nine full
+detections; hidden scenarios ran none. Hold/Matched ran no optical flow. No
+sequence rewind occurred. Representative 1080p observations were:
+
+| Mode / display | Video frames / inputs | Full detections | Flow calls / mean ms |
+| --- | --- | --- | --- |
+| Hold / raw | 61 / 61 | 9 | 0 / — |
+| Track / raw | 60 / 60 | 9 | 67 / 2.75 |
+| Track / corrected | 59 / 61 | 9 | 65 / 1.89 |
+| Matched / raw | 9 / 60 | 9 | 0 / — |
+| Matched / corrected | 10 / 61 | 9 | 0 / — |
+
+Corrected startup may briefly present a raw image before a compatible synthetic
+profile is loaded. A pending final corrected frame may be discarded on hide/
+shutdown. Some frames receive both an estimate and a later correction, so overlay
+updates and flow calls are not distinct-frame counts. GUI heartbeat observations
+and earlier synthetic measurements showed no sustained GUI stall; they do not
+establish native input/display latency limits. Rendering/remapping/flow can still
+skip intermediate frames under load. This is not a guarantee of camera FPS on
+arbitrary equipment.
+
+Deterministic tests cover sample reuse, exact-frame full redetection on Capture,
+quality/diversity rules, bounded work, current-frame flow and analytical
+Brown–Conrady corner remapping. UI tests cover all three modes, switching while
+flow is gated, review preservation, dialog reopen, camera/resolution/restart
+invalidation, missing detections, cancellation and both-worker shutdown.
+
+After local integration into `feat/242-live-calibration-overlays` at `8696dc9`:
+
+- Root macOS build passed; CTest passed 475 tests, with one opt-in detector timing
+  test skipped (476 discovered).
+- Root core build/CTest passed 280 tests without Qt/OpenCV.
+- The standalone `Mini_Robot/` macOS entry point was rebuilt for the same code
+  revision and passed 475 tests with the same one opt-in skip.
+- Initial simultaneous core/desktop runs encountered a failure and a skip in
+  unchanged `V4l2IdentityTest` cases. Separate full reruns passed. The intermittent
+  cause was not established; no camera-identity source was changed.
+- `git diff --check` passed. Unrelated IDE edits were excluded from commits.
+
+Commands executed from the configured repository root:
+
+```sh
+cmake --build --preset macos --parallel 3
+ctest --preset macos --parallel 3
+cmake --build --preset core --parallel 3
+ctest --preset core --parallel 3
+```
+
+Run the desktop/core suites separately. Existing GoogleTest source was supplied
+through `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` when configuring the local presets.
+The standalone `Mini_Robot/` entry point uses separate build directories and the
+same presets. Reproduce the explicit audit from the repository root:
+
+```sh
+cmake --build build/macos --target micro_robot_calibration_audit --parallel 3
+QT_QPA_PLATFORM=offscreen build/macos/Mini_Robot/tests/micro_robot_calibration_audit
+MICRO_ROBOT_CALIBRATION_AUDIT=1 build/macos/Mini_Robot/tests/micro_robot_calibration_detector_tests --gtest_filter=CalibrationDetectorTest.PerformanceAudit
+```
+
+The audit executable is excluded from the default build. The timed detector test
+is opt-in and skipped by normal CTest; it asserts correctness without a
+machine-dependent timing threshold. Runtime debug logs record full-detection
+frame sequence/duration and `queued_live=0`; flow and AprilTag workers independently
+record their processing durations.
+
+Physical camera/native-display checks, real focus/blur and rapid board motion,
+Linux X11/Wayland, Windows and OpenCV 4 execution remain **NOT RUN** for #242.
+Real acceptance belongs to [#179](https://github.com/Krzys2002/Mini_Robot/issues/179).
+Record setup, revision, preview/pixel mode, screenshots and PASS/FAIL/NOT RUN per
+scenario. Existing physical evidence for older revisions does not validate this
+change. No optical accuracy, physical motor safety or complete motion loop is
+claimed. Intermediate experiment details remain available in Git history.
