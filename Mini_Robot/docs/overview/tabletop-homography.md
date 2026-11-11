@@ -145,3 +145,22 @@ revalidate placement. Record reference measurement uncertainty, camera/lens/devi
 identity, resolution, table dimensions, correspondences, residuals and revisions.
 Native macOS, Linux X11/Wayland and Windows dialog/input checks and OpenCV 4 execution
 remain separate unverified platform checks; offscreen tests do not establish them.
+
+## Side-mounted views and fit support
+
+See the [side-mounted source audit and limitations](oblique-tabletop.md) for the
+known-geometry tests and demonstrated numerical fix. A projective H handles an
+oblique plane without changing physical axis labels. Use visible, independently
+measured references across near/far edges and both axes; raise an almost edge-on
+camera and never guess occluded reference locations.
+
+Solve feedback separates workspace fitting-hull coverage, image coverage and
+extrapolated Check references from metric residuals. Small image coverage alone
+is expected in some side views. Fit coverage is session-only and is not an
+accuracy/confidence bound; loaded profiles cannot restore it. Neither bounds
+membership nor a low residual establishes accuracy outside the fitting hull.
+
+Keep camera/table/lens settings fixed. Markers above the calibrated plane have
+height-dependent parallax; undistortion does not correct it and this method does
+not reconstruct arbitrary 3D. Physical side-camera acceptance is NOT RUN and
+belongs to #261; printed-tag metric acceptance remains #224.
