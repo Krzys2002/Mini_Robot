@@ -37,7 +37,10 @@ public:
 
     // Apply tracked measurements on the owner thread. Rejections leave state intact.
     [[nodiscard]] PoseUpdateResult updateTrackedPose(RobotId id, const Pose2D& pose,
-                                                     Timestamp capturedAt, TrackingThresholds thresholds);
+                                                     Timestamp capturedAt, TrackingThresholds thresholds,
+                                                     std::optional<Pose2D> rawPose = {}, double continuousHeading = 0,
+                                                     std::optional<PlanarVelocity> velocity = {},
+                                                     std::optional<double> quality = {});
     void invalidateTracking(RobotId id);
     // Explicit time avoids hidden clocks. A time before capture is conservatively lost.
     [[nodiscard]] TrackingInfo tracking(RobotId id, Timestamp now) const;
