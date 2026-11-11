@@ -20,6 +20,9 @@
 #include <QPushButton>
 #include <QThread>
 #include <QTimer>
+#include <QToolButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -1427,5 +1430,79 @@ TEST(CalibrationReviewTest, CachedLiveDetectionAlsoStartsReviewAndEmitsNonModalF
     EXPECT_EQ(f.controller->session().views().size(), 1u);
     QObject::disconnect(preview);
     QObject::disconnect(feedback);
+}
+} // namespace
+
+namespace {
+TEST(CalibrationGuidanceUiTest, HintsFollowMeasurementsWithoutClaimingMeasuredTilt)
+{
+    CaptureFixture f;
+    auto* hint = f.wizard->findChild<QLabel*>("calibrationGuidance");
+    ASSERT_TRUE(hint);
+    EXPECT_TRUE(hint->text().contains("Start the camera"));
+    f.controller->restart();
+    EXPECT_TRUE(hint->text().contains("centred"));
+    f.capture(1);
+    EXPECT_TRUE(hint->text().contains("Tilt is not measured"));
+    const auto acceptedHint = hint->text();
+    f.detector->missing = true;
+    f.capture(2);
+    EXPECT_EQ(hint->text(), acceptedHint);
+    EXPECT_TRUE(f.controller->captureFeedback().contains("not found"));
+    f.controller->reviewView(0);
+    EXPECT_EQ(hint->text(), acceptedHint);
+    f.controller->showLive();
+    EXPECT_EQ(hint->text(), acceptedHint);
+    f.controller->cancel();
+    EXPECT_TRUE(hint->text().contains("Start the camera"));
+    f.controller->restart();
+    EXPECT_TRUE(hint->text().contains("centred"));
+    f.controller->setInput("different", true);
+    EXPECT_TRUE(hint->text().contains("Start the camera"));
+}
+TEST(CalibrationGuidanceUiTest, HelpExplainsTargetAxesQualityAndMeasurementLimits)
+{
+    CaptureFixture f;
+    auto* toggle = f.wizard->findChild<QToolButton*>("calibrationHelpToggle");
+    auto* help = f.wizard->findChild<QLabel*>("calibrationHelp");
+    auto* instructions = f.wizard->findChild<QLabel*>("calibrationInstructions");
+    ASSERT_TRUE(toggle); ASSERT_TRUE(help); ASSERT_TRUE(instructions);
+    EXPECT_TRUE(help->isHidden());
+    toggle->click();
+    EXPECT_FALSE(help->isHidden());
+    const auto text = help->text();
+    for (const auto* phrase : {"inner corners", "25 mm", "flat", "focus", "lighting", "exposure",
+            "corner regions", "Tilt about X", "Tilt about Y", "Rotate about Z", "edge-on",
+            "accepted views only", "Tilt about X/Y is not measured", "redundant", "reprojection"})
+        EXPECT_TRUE(text.contains(phrase)) << phrase;
+    EXPECT_TRUE(instructions->text().contains("9 × 6 inner corners (10 × 7 squares)"));
+    EXPECT_EQ(help->textFormat(), Qt::PlainText);
+    toggle->click();
+    EXPECT_TRUE(help->isHidden());
+}
+TEST(CalibrationGuidanceUiTest, SmallWindowKeepsWrappedHelpAndControlsAccessibleByScrolling)
+{
+    CaptureFixture f;
+    f.wizard->show();
+    f.wizard->resize(520, 480);
+    f.wizard->findChild<QToolButton*>("calibrationHelpToggle")->click();
+    QApplication::processEvents();
+    auto* scroll = f.wizard->findChild<QScrollArea*>("calibrationScroll");
+    auto* help = f.wizard->findChild<QLabel*>("calibrationHelp");
+    ASSERT_TRUE(scroll); ASSERT_TRUE(help);
+    EXPECT_GT(scroll->verticalScrollBar()->maximum(), 0);
+    EXPECT_GE(help->height(), help->heightForWidth(help->width()));
+    // Primary actions stay outside the scrolling help/preview content.
+    const QPoint position = f.button("calibrationCapture")->mapTo(f.wizard.get(), QPoint{});
+    EXPECT_TRUE(f.wizard->rect().contains(QRect{position, f.button("calibrationCapture")->size()}));
+    scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+    QApplication::processEvents();
+    EXPECT_EQ(f.button("calibrationCapture")->mapTo(f.wizard.get(), QPoint{}), position);
+    const auto path = qEnvironmentVariable("MICRO_ROBOT_GUIDANCE_SCREENSHOT");
+    if (!path.isEmpty()) {
+        scroll->ensureWidgetVisible(help, 0, 0);
+        QApplication::processEvents();
+        EXPECT_TRUE(f.wizard->grab().save(path));
+    }
 }
 } // namespace
