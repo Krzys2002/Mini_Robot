@@ -85,7 +85,7 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     worldDescription->setObjectName(QStringLiteral("worldDescription"));
     worldDescription->setWordWrap(true);
     auto* convention = new QLabel(QStringLiteral(
-        "Tabletop frame: origin at lower-left (0, 0) m; +X → right, +Y ↑ up.\n"
+        "Tabletop frame: explicit calibrated origin (0, 0) m; +X → right, +Y ↑ up in world view.\n"
         "Heading: 0 rad along +X; positive counterclockwise (CCW)."), worldGroup);
     convention->setObjectName(QStringLiteral("worldCoordinateConvention"));
     convention->setWordWrap(true);

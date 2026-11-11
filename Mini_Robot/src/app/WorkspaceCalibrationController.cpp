@@ -1,5 +1,6 @@
 #include "app/WorkspaceCalibrationController.hpp"
 #include <QMetaObject>
+#include <QUuid>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -39,10 +40,13 @@ void WorkspaceCalibrationController::invalidate(bool clearFrame)
     ++generation_;
     draft_.reset();
     if (clearFrame) {
+        ++referencesRevision_;
         latest_.reset();
         frozen_.reset();
         fit_.clear();
         check_.clear();
+        corners_.clear();
+        boundaryConfirmed_ = false;
     }
 }
 
@@ -98,22 +102,97 @@ void WorkspaceCalibrationController::receiveFrame(FramePtr frame)
     emit changed();
 }
 
-void WorkspaceCalibrationController::configure(QString id, double width, double height)
+void WorkspaceCalibrationController::geometryChanged()
 {
-    if (shuttingDown_)
-        return;
-    if (id == workspaceId_ && bounds_ && width == bounds_->width().value && height == bounds_->height().value)
-        return;
     invalidate(false);
+    ++referencesRevision_;
+    fit_.clear();
+    check_.clear();
+    boundaryConfirmed_ = false;
+    frameId_ = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+}
+
+void WorkspaceCalibrationController::configure(QString id, double width, double height,
+                                               double originX, double originY)
+{
+    if (shuttingDown_) return;
+    if (id == workspaceId_ && bounds_ && width == bounds_->width().value && height == bounds_->height().value
+        && -originX == bounds_->minimum().x.value && -originY == bounds_->minimum().y.value) return;
+    geometryChanged();
     workspaceId_ = std::move(id);
     bounds_.reset();
     try {
-        bounds_.emplace(Meters{width}, Meters{height});
+        if (!std::isfinite(originX) || !std::isfinite(originY) || originX < 0 || originY < 0
+            || originX > width || originY > height) throw std::invalid_argument("origin");
+        bounds_.emplace(Meters{width}, Meters{height}, WorldPoint2D{Meters{-originX}, Meters{-originY}});
     } catch (const std::invalid_argument&) {
-        publish(QStringLiteral("Enter finite positive measured workspace dimensions in metres."));
+        publish(QStringLiteral("Enter positive measured dimensions and an origin offset inside the rectangle (metres)."));
         return;
     }
-    publish(QStringLiteral("Workspace changed. Calculate or explicitly reload its saved transform."));
+    publish(QStringLiteral("Frame changed; draft references cleared. Review and confirm base, +X, opposite, +Y corners."));
+}
+
+void WorkspaceCalibrationController::selectCorner(ImageCorner point, std::optional<std::size_t> replace)
+{
+    if (shuttingDown_ || !frozen_) return;
+    if (!std::isfinite(point.u) || !std::isfinite(point.v) || point.u < 0 || point.v < 0
+        || point.u > frozen_->width - 1 || point.v > frozen_->height - 1) {
+        if (replace && *replace < corners_.size()) geometryChanged();
+        publish(QStringLiteral("Select a finite corner inside the undistorted native image.")); return;
+    }
+    if (replace && *replace >= corners_.size()) return;
+    if (!replace && corners_.size() == WorkspaceCornerCount) {
+        publish(QStringLiteral("Four corners selected. Confirm or reselect a labelled corner.")); return;
+    }
+    geometryChanged();
+    if (replace) corners_[*replace] = point;
+    else corners_.push_back(point);
+    publish(QStringLiteral("%1/4 corners selected: base, +X neighbour, opposite, +Y neighbour. Confirm the labelled perimeter.")
+        .arg(corners_.size()));
+}
+void WorkspaceCalibrationController::undoCorner()
+{
+    if (shuttingDown_ || corners_.empty()) return;
+    geometryChanged();
+    corners_.pop_back();
+    publish(QStringLiteral("Last corner removed. Reselect it before confirming the boundary."));
+}
+void WorkspaceCalibrationController::clearCorners()
+{
+    if (shuttingDown_) return;
+    geometryChanged();
+    corners_.clear();
+    publish(QStringLiteral("Select physical base, +X neighbour, opposite, +Y neighbour in that order."));
+}
+void WorkspaceCalibrationController::confirmBoundary()
+{
+    if (shuttingDown_ || busy_ || !frozen_ || !bounds_ || corners_.size() != WorkspaceCornerCount) {
+        publish(QStringLiteral("Freeze a compatible frame, enter dimensions/origin and select four corners first.")); return;
+    }
+    WorkspaceBoundary boundary;
+    std::copy(corners_.begin(), corners_.end(), boundary.begin());
+    if (auto error = validateWorkspaceBoundary(boundary, frozen_->width, frozen_->height); !error.empty()) {
+        publish(QString::fromStdString(error)); return;
+    }
+    geometryChanged();
+    const auto world = workspaceCorners(*bounds_);
+    for (std::size_t i = 0; i < boundary.size(); ++i) fit_.push_back({boundary[i], world[i]});
+    boundaryConfirmed_ = true;
+    publish(QStringLiteral("Boundary confirmed. Review axes/dimensions, then add measured references or Calculate. "
+                           "After calculating, an image pick can set the origin; this clears draft results/references."));
+}
+void WorkspaceCalibrationController::setOriginFromImage(ImageCorner point)
+{
+    if (shuttingDown_ || busy_ || !draft_ || !draft_->homography || !bounds_ || !frozen_) return;
+    if (!std::isfinite(point.u) || !std::isfinite(point.v) || point.u < 0 || point.v < 0
+        || point.u > frozen_->width - 1 || point.v > frozen_->height - 1) return;
+    const auto world = projectWorkspacePoint(*draft_->homography, point);
+    if (!world || !bounds_->contains(*world)) {
+        publish(QStringLiteral("Origin pick must map inside the reviewed workspace.")); return;
+    }
+    const auto b = *bounds_;
+    configure(workspaceId_, b.width().value, b.height().value,
+              world->x.value - b.minimum().x.value, world->y.value - b.minimum().y.value);
 }
 
 void WorkspaceCalibrationController::setPoints(std::vector<WorkspaceCorrespondence> fit,
@@ -121,6 +200,18 @@ void WorkspaceCalibrationController::setPoints(std::vector<WorkspaceCorresponden
 {
     if (shuttingDown_)
         return;
+    if (!boundaryConfirmed_ && !fit.empty()) {
+        publish(QStringLiteral("Confirm the four labelled corners before adding fitting references.")); return;
+    }
+    if (boundaryConfirmed_ && !fit.empty()) {
+        if (fit.size() < WorkspaceCornerCount) return;
+        for (std::size_t i = 0; i < WorkspaceCornerCount; ++i) {
+            if (fit[i].image.u != fit_[i].image.u || fit[i].image.v != fit_[i].image.v
+                || fit[i].world.x.value != fit_[i].world.x.value || fit[i].world.y.value != fit_[i].world.y.value) {
+                publish(QStringLiteral("Boundary rows are fixed. Use corner reselection or edit the origin/dimensions.")); return;
+            }
+        }
+    }
     const auto sameFit = fit.size() == fit_.size() &&
                          std::equal(fit.begin(), fit.end(), fit_.begin(), [](const auto& a, const auto& b) {
                              return a.image.u == b.image.u && a.image.v == b.image.v &&
@@ -129,6 +220,7 @@ void WorkspaceCalibrationController::setPoints(std::vector<WorkspaceCorresponden
     ++generation_;
     if (!sameFit)
         draft_.reset();
+    if (fit.empty()) boundaryConfirmed_ = false;
     fit_ = std::move(fit);
     check_ = std::move(check);
     publish(QStringLiteral("Draft points changed. Calculate a fit, or verify check points against the "
@@ -140,7 +232,7 @@ void WorkspaceCalibrationController::freeze()
     if (!canFreeze())
         return;
     const auto age = MonotonicClock::now() - latest_->capturedAt;
-    if (age < Duration::zero() || age > std::chrono::seconds{2}) {
+    if (age < Duration::zero() || age > MaximumFrozenFrameAge) {
         publish(QStringLiteral("Frame is stale. Wait for a fresh frame."));
         return;
     }
@@ -148,8 +240,11 @@ void WorkspaceCalibrationController::freeze()
     const auto optical = *intrinsics_;
     ++generation_;
     frozen_.reset();
+    ++referencesRevision_;
     fit_.clear();
     check_.clear();
+    corners_.clear();
+    boundaryConfirmed_ = false;
     const auto generation = generation_;
     busy_ = true;
     publish(QStringLiteral("Freezing an undistorted native-K image…"));
@@ -182,8 +277,8 @@ void WorkspaceCalibrationController::freeze()
                     }
                     if (result.frame && result.error.empty()) {
                         frozen_ = result.frame;
-                        publish(QStringLiteral("Frozen undistorted pixels. Pair measured points in any "
-                                               "order, or add Check points to verify a loaded transform."));
+                        publish(QStringLiteral("Frozen undistorted pixels. Select base, +X, opposite, +Y "
+                                               "corners, or add Check points to verify a loaded transform."));
                     } else
                         publish(QStringLiteral("Undistortion failed: %1")
                                     .arg(QString::fromStdString(result.error)));
@@ -203,13 +298,16 @@ void WorkspaceCalibrationController::calculate()
         {WorkspaceCalibrationProfileVersion, workspaceId_.toStdString(), *bounds_, *intrinsics_},
         fit_,
         check_};
+    input.profile.frameId = frameId_;
+    WorkspaceBoundary boundary;
+    std::copy(corners_.begin(), corners_.end(), boundary.begin());
+    input.profile.boundary = boundary;
     if (const auto error = validateWorkspaceHomographyInput(input); !error.empty()) {
         publish(QString::fromStdString(error));
         return;
     }
     const auto generation = ++generation_;
     draft_.reset();
-    emit profileChanged();
     busy_ = true;
     publish(QStringLiteral("Calculating image-to-world homography…"));
     QMetaObject::invokeMethod(
@@ -231,11 +329,16 @@ void WorkspaceCalibrationController::calculate()
                     !error.empty())
                     outcome.error = error;
                 else if (outcome.result->profile.workspaceId != input.profile.workspaceId ||
-                         outcome.result->profile.bounds.width().value != input.profile.bounds.width().value ||
-                         outcome.result->profile.bounds.height().value !=
-                             input.profile.bounds.height().value ||
+                         !(outcome.result->profile.bounds == input.profile.bounds) ||
+                         outcome.result->profile.frameId != input.profile.frameId ||
+                         outcome.result->profile.boundary.has_value() != input.profile.boundary.has_value() ||
                          !outcome.result->profile.homography)
                     outcome.error = "Solver returned another workspace or no transform.";
+                else if (!std::equal(input.profile.boundary->begin(), input.profile.boundary->end(),
+                                     outcome.result->profile.boundary->begin(), [](const auto& a, const auto& b) {
+                                         return a.u == b.u && a.v == b.v;
+                                     }))
+                    outcome.error = "Solver returned another boundary.";
                 else
                     outcome = evaluateWorkspaceHomography(input, *outcome.result->profile.homography);
             }
@@ -385,8 +488,12 @@ void WorkspaceCalibrationController::load()
                         return;
                     }
                     if (result.state == ProfileLoadState::Loaded && result.profile && result.error.empty()) {
+                        ++referencesRevision_;
                         draft_ = result.profile;
                         bounds_ = draft_->bounds;
+                        frameId_ = draft_->frameId;
+                        corners_.clear();
+                        boundaryConfirmed_ = false;
                         // A stored H has no current captured correspondences/check evidence.
                         frozen_.reset();
                         fit_.clear();

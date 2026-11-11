@@ -576,13 +576,14 @@ void DesktopController::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds
 void DesktopController::setWorkspaceCalibration(const std::optional<WorkspaceCalibrationProfile>& profile)
 {
     if (shuttingDown_) return;
+    world_.clearMeasurements();
     if (!profile || !profile->homography || !validateWorkspaceCalibrationProfile(*profile).empty()) {
         setWorkspaceBounds({});
         return;
     }
-    workspaceCalibrationDescription_ = QStringLiteral("transform available for %1 · robot observations not transformed")
+    workspaceCalibrationDescription_ = QStringLiteral("transform available for %1 · explicit metric frame")
         .arg(QString::fromStdString(profile->workspaceId));
-    world_.setWorkspaceBounds(profile->bounds);
+    world_.setWorkspaceFrame(profile->bounds, profile->frameId);
     if (initialized_) publishWorld();
 }
 
@@ -590,9 +591,11 @@ void DesktopController::publishWorld()
 {
     const auto workspace = world_.workspaceBounds();
     emit workspaceDescriptionChanged(workspace
-        ? QStringLiteral("Workspace: %1 m × %2 m · %3")
+        ? QStringLiteral("Workspace: %1 m × %2 m · %3 · X [%4, %5] m · Y [%6, %7] m")
             .arg(workspace->width().value, 0, 'g', 6).arg(workspace->height().value, 0, 'g', 6)
             .arg(workspaceCalibrationDescription_)
+            .arg(workspace->minimum().x.value, 0, 'g', 6).arg(workspace->maximum().x.value, 0, 'g', 6)
+            .arg(workspace->minimum().y.value, 0, 'g', 6).arg(workspace->maximum().y.value, 0, 'g', 6)
         : QStringLiteral("Workspace dimensions not configured · camera-to-world calibration not established"));
     const auto state = world_.robot(robotId_);
     if (!state) {

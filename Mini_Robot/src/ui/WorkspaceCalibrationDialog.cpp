@@ -1,4 +1,5 @@
 #include "ui/WorkspaceCalibrationDialog.hpp"
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QImage>
@@ -13,7 +14,6 @@
 #include <QVBoxLayout>
 #include <cmath>
 #include <functional>
-#include <limits>
 
 namespace micro_robot {
 class WorkspaceImageView final : public QWidget {
@@ -21,187 +21,238 @@ public:
     using QWidget::QWidget;
     FramePtr frame;
     std::vector<std::pair<ImageCorner, bool>> markers;
+    std::vector<ImageCorner> corners;
+    std::optional<ImageCorner> origin;
+    QString dimensions;
     std::function<void(ImageCorner)> clicked;
-
     QRectF imageBounds() const
     {
-        if (!frame)
-            return {};
+        if (!frame) return {};
         const QSizeF fitted = QSizeF(frame->width, frame->height).scaled(size(), Qt::KeepAspectRatio);
         return {{(width() - fitted.width()) / 2, (height() - fitted.height()) / 2}, fitted};
     }
-
 protected:
     void mousePressEvent(QMouseEvent* event) override
     {
         const auto bounds = imageBounds();
-        if (event->button() != Qt::LeftButton || !frame || !bounds.contains(event->position()))
-            return;
+        if (event->button() != Qt::LeftButton || !frame || !bounds.contains(event->position())) return;
         const double u = (event->position().x() - bounds.x()) * frame->width / bounds.width() - 0.5;
         const double v = (event->position().y() - bounds.y()) * frame->height / bounds.height() - 0.5;
-        if (u >= 0 && v >= 0 && u <= frame->width - 1 && v <= frame->height - 1 && clicked)
-            clicked({u, v});
+        if (u >= 0 && v >= 0 && u <= frame->width - 1 && v <= frame->height - 1 && clicked) clicked({u,v});
     }
-
     void paintEvent(QPaintEvent*) override
     {
         QPainter painter(this);
         painter.fillRect(rect(), Qt::black);
         if (!frame) {
             painter.setPen(Qt::white);
-            painter.drawText(rect(), Qt::AlignCenter,
-                             QStringLiteral("Freeze a compatible undistorted frame to select points"));
+            painter.drawText(rect(), Qt::AlignCenter, "Freeze a compatible undistorted frame to select corners");
             return;
         }
-        auto format = frame->pixelFormat == PixelFormat::Rgb8    ? QImage::Format_RGB888
-                      : frame->pixelFormat == PixelFormat::Rgba8 ? QImage::Format_RGBA8888
-                                                                 : QImage::Format_Grayscale8;
+        const auto format = frame->pixelFormat == PixelFormat::Rgb8 ? QImage::Format_RGB888
+            : frame->pixelFormat == PixelFormat::Rgba8 ? QImage::Format_RGBA8888 : QImage::Format_Grayscale8;
         const QImage image(reinterpret_cast<const uchar*>(frame->pixels->data()),
-                           static_cast<int>(frame->width), static_cast<int>(frame->height),
-                           static_cast<qsizetype>(frame->strideBytes), format);
+            static_cast<int>(frame->width), static_cast<int>(frame->height),
+            static_cast<qsizetype>(frame->strideBytes), format);
         const auto bounds = imageBounds();
         painter.drawImage(bounds, image);
+        auto at = [&](ImageCorner p) {
+            return QPointF{bounds.x() + (p.u + 0.5) * bounds.width() / frame->width,
+                           bounds.y() + (p.v + 0.5) * bounds.height() / frame->height};
+        };
+        painter.setPen(QPen(Qt::cyan, 2));
+        for (std::size_t i = 0; i < corners.size(); ++i) {
+            painter.drawEllipse(at(corners[i]), 4, 4);
+            painter.drawText(at(corners[i]) + QPointF(6,-6), QStringLiteral("C%1").arg(i+1));
+            if (i) painter.drawLine(at(corners[i-1]), at(corners[i]));
+        }
+        if (corners.size() == WorkspaceCornerCount) {
+            painter.drawLine(at(corners.back()), at(corners.front()));
+            painter.drawText((at(corners[0])+at(corners[1]))/2, "+X");
+            painter.drawText((at(corners[0])+at(corners[3]))/2, "+Y");
+            // Arrows point along the selected physical edges, independent of screen orientation.
+            for (std::size_t i : {std::size_t{1}, std::size_t{3}}) {
+                const auto start = at(corners[0]), end = at(corners[i]);
+                const auto delta = end-start;
+                const auto tip = start + delta*0.4;
+                const double length = std::hypot(delta.x(), delta.y());
+                if (length > 0) {
+                    const QPointF direction = delta / length, normal{-direction.y(), direction.x()};
+                    painter.drawLine(start, tip);
+                    painter.drawLine(tip, tip-direction*10+normal*5);
+                    painter.drawLine(tip, tip-direction*10-normal*5);
+                }
+            }
+        }
         int index = 0;
         for (const auto& [p, check] : markers) {
             ++index;
-            if (!std::isfinite(p.u) || !std::isfinite(p.v))
-                continue;
+            if (!std::isfinite(p.u) || !std::isfinite(p.v)) continue;
             painter.setPen(QPen(check ? Qt::yellow : Qt::green, 2));
-            const QPointF at{bounds.x() + (p.u + 0.5) * bounds.width() / frame->width,
-                             bounds.y() + (p.v + 0.5) * bounds.height() / frame->height};
-            painter.drawEllipse(at, 4, 4);
-            painter.drawText(at + QPointF(6, -6), QString::number(index));
+            painter.drawEllipse(at(p), 4, 4);
+            painter.drawText(at(p)+QPointF(6,12), QString::number(index));
         }
+        if (origin) {
+            painter.setPen(QPen(Qt::magenta, 2));
+            painter.drawEllipse(at(*origin), 6, 6);
+            painter.drawText(at(*origin)+QPointF(8,0), "(0,0)");
+        }
+        painter.fillRect(QRectF{0,0,static_cast<double>(width()),25}, QColor(0,0,0,190));
+        painter.setPen(Qt::white);
+        painter.drawText(QRectF{5,0,static_cast<double>(width()-10),25}, Qt::AlignVCenter, dimensions);
     }
 };
 
-WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationController& controller,
-                                                       QWidget* parent)
+WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationController& controller, QWidget* parent)
     : QDialog(parent), controller_(controller)
 {
-    setWindowTitle(QStringLiteral("Tabletop homography calibration"));
-    resize(900, 780);
+    setWindowTitle("Tabletop homography calibration");
+    resize(1000,900);
     auto* layout = new QVBoxLayout(this);
     auto* instructions = new QLabel(
-        QStringLiteral(
-            "Freeze an undistorted image. Click or enter native (u,v) pixels and measured world (x,y) "
-            "metres.\n"
-            "Fit 4–64 paired points in any order. Mark independent references as Check.\n"
-            "World origin: lower-left; +X right, +Y up. Do not move the camera/table after calibration."),
-        this);
+        "1. Freeze compatible undistorted pixels. Select physical C1 (base), C2 (+X neighbour), C3 (opposite), C4 (+Y neighbour).\n"
+        "2. Enter measured edge lengths and origin offsets from C1 along +X/+Y. Review the labelled perimeter and Confirm boundary.\n"
+        "3. Add extra paired references / independent Checks, Calculate, review errors, then explicitly Activate. Keep camera/table fixed.", this);
     instructions->setWordWrap(true);
     layout->addWidget(instructions);
     auto* settings = new QHBoxLayout;
     identity_ = new QLineEdit(this);
     identity_->setObjectName("workspaceIdentity");
     identity_->setPlaceholderText("Workspace identity (required)");
-    settings->addWidget(identity_, 2);
-    auto dimension = [this](const char* name, const QString& suffix) {
+    settings->addWidget(identity_,2);
+    auto dimension = [this](const char* name, const char* suffix) {
         auto* value = new QDoubleSpinBox(this);
         value->setObjectName(name);
-        value->setDecimals(6);
-        value->setRange(0, 1000);
+        value->setDecimals(CoordinateDisplayDecimals);
+        value->setRange(0, MaximumWorkspaceDimensionMeters);
         value->setSuffix(suffix);
-        value->setSpecialValueText("Not measured");
         return value;
     };
-    width_ = dimension("workspaceWidth", " m wide");
-    height_ = dimension("workspaceHeight", " m high");
-    settings->addWidget(width_);
-    settings->addWidget(height_);
+    width_ = dimension("workspaceWidth", " m along +X");
+    height_ = dimension("workspaceHeight", " m along +Y");
+    settings->addWidget(width_); settings->addWidget(height_);
     layout->addLayout(settings);
-    image_ = new WorkspaceImageView(this);
-    image_->setObjectName("workspaceImage");
-    image_->setMinimumSize(320, 180);
-    image_->clicked = [this](ImageCorner point) { addPoint(point); };
-    layout->addWidget(image_, 1);
-    points_ = new QTableWidget(0, 5, this);
-    points_->setObjectName("workspacePoints");
-    points_->setHorizontalHeaderLabels({"u (px)", "v (px)", "x (m)", "y (m)", "Check only"});
-    points_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    points_->setMinimumHeight(130);
-    layout->addWidget(points_);
-    auto* rows = new QHBoxLayout;
-    auto* add = new QPushButton("Add point", this);
-    add->setObjectName("workspaceAddPoint");
-    rows->addWidget(add);
-    auto* remove = new QPushButton("Remove selected row", this);
-    remove->setObjectName("workspaceRemovePoint");
-    rows->addWidget(remove);
-    layout->addLayout(rows);
-    message_ = new QLabel(this);
-    message_->setObjectName("workspaceMessage");
-    message_->setTextFormat(Qt::PlainText);
-    message_->setWordWrap(true);
-    message_->setMinimumHeight(message_->fontMetrics().lineSpacing() * 4);
-    layout->addWidget(message_);
-    auto* actions = new QHBoxLayout;
-    auto action = [this, actions](const char* name, const QString& text) {
-        auto* b = new QPushButton(text, this);
-        b->setObjectName(name);
-        actions->addWidget(b);
-        return b;
+    auto* originRow = new QHBoxLayout;
+    originCorner_ = new QComboBox(this);
+    originCorner_->setObjectName("workspaceOriginCorner");
+    originCorner_->addItems({"Origin: measured offsets", "Origin at C1", "Origin at C2", "Origin at C3", "Origin at C4"});
+    originX_ = dimension("workspaceOriginX", " m from C1 along +X");
+    originY_ = dimension("workspaceOriginY", " m from C1 along +Y");
+    originRow->addWidget(originCorner_); originRow->addWidget(originX_); originRow->addWidget(originY_);
+    originPick_ = new QPushButton("Pick origin after Calculate", this);
+    originPick_->setObjectName("workspacePickOrigin"); originPick_->setCheckable(true);
+    originRow->addWidget(originPick_); layout->addLayout(originRow);
+    image_ = new WorkspaceImageView(this); image_->setObjectName("workspaceImage");
+    image_->setMinimumSize(320,180); layout->addWidget(image_,1);
+    corners_ = new QTableWidget(0,2,this); corners_->setObjectName("workspaceCorners");
+    corners_->setHorizontalHeaderLabels({"Corner u (px)", "Corner v (px)"});
+    corners_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    corners_->setMaximumHeight(150); layout->addWidget(corners_);
+    auto* cornerActions = new QHBoxLayout;
+    auto button = [this](QHBoxLayout* row, const char* name, const char* text) {
+        auto* b = new QPushButton(text,this); b->setObjectName(name); row->addWidget(b); return b;
     };
-    freeze_ = action("workspaceFreeze", "Freeze undistorted frame");
-    calculate_ = action("workspaceCalculate", "Calculate");
-    save_ = action("workspaceSave", "Save transform");
-    load_ = action("workspaceLoad", "Load transform");
-    verify_ = action("workspaceVerify", "Verify checks");
-    activate_ = action("workspaceActivate", "Activate transform");
-    auto* close = action("workspaceClose", "Close");
+    undo_ = button(cornerActions,"workspaceUndoCorner","Undo last corner");
+    reset_ = button(cornerActions,"workspaceResetCorners","Reselect all corners");
+    reselect_ = button(cornerActions,"workspaceReselectCorner","Reselect selected corner");
+    confirm_ = button(cornerActions,"workspaceConfirmBoundary","Confirm boundary / axes");
+    layout->addLayout(cornerActions);
+    points_ = new QTableWidget(0,5,this); points_->setObjectName("workspacePoints");
+    points_->setHorizontalHeaderLabels({"u (px)","v (px)","x (m)","y (m)","Check only"});
+    points_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    points_->setMaximumHeight(160); layout->addWidget(points_);
+    auto* rows = new QHBoxLayout;
+    add_ = button(rows,"workspaceAddPoint","Add reference");
+    remove_ = button(rows,"workspaceRemovePoint","Remove selected reference");
+    layout->addLayout(rows);
+    message_ = new QLabel(this); message_->setObjectName("workspaceMessage");
+    message_->setTextFormat(Qt::PlainText); message_->setWordWrap(true);
+    message_->setMinimumHeight(message_->fontMetrics().lineSpacing()*3); layout->addWidget(message_);
+    auto* actions = new QHBoxLayout;
+    freeze_ = button(actions,"workspaceFreeze","Freeze undistorted frame");
+    calculate_ = button(actions,"workspaceCalculate","Calculate");
+    verify_ = button(actions,"workspaceVerify","Verify checks");
+    activate_ = button(actions,"workspaceActivate","Activate transform");
     layout->addLayout(actions);
-    auto configure = [this] { controller_.configure(identity_->text(), width_->value(), height_->value()); };
-    connect(identity_, &QLineEdit::textChanged, this, configure);
-    connect(width_, &QDoubleSpinBox::valueChanged, this, configure);
-    connect(height_, &QDoubleSpinBox::valueChanged, this, configure);
-    connect(points_, &QTableWidget::itemChanged, this, [this] { pointsChanged(); });
-    connect(add, &QPushButton::clicked, this, [this] { addPoint({}); });
-    connect(remove, &QPushButton::clicked, this, [this] {
-        const int row = points_->currentRow();
-        if (row >= 0) {
-            points_->removeRow(row);
-            pointsChanged();
+    auto* storage = new QHBoxLayout;
+    save_ = button(storage,"workspaceSave","Save transform");
+    load_ = button(storage,"workspaceLoad","Load transform");
+    auto* close = button(storage,"workspaceClose","Close"); layout->addLayout(storage);
+    image_->clicked = [this](ImageCorner p) {
+        if (controller_.busy()) return;
+        if (originPick_->isChecked()) {
+            originPick_->setChecked(false); controller_.setOriginFromImage(p);
+        } else if (replacingCorner_) {
+            const auto index = replacingCorner_; replacingCorner_.reset(); controller_.selectCorner(p,index);
+        } else if (!controller_.canAddReferences()) controller_.selectCorner(p);
+        else addPoint(p);
+    };
+    for (auto* value : {width_,height_,originX_,originY_})
+        connect(value,&QDoubleSpinBox::valueChanged,this,[this]{ configure(); });
+    connect(identity_,&QLineEdit::textChanged,this,[this]{ configure(); });
+    connect(originCorner_,&QComboBox::activated,this,[this](int index) {
+        if (index == 0) return;
+        { const QSignalBlocker x(originX_), y(originY_);
+          originX_->setValue(index == 2 || index == 3 ? width_->value() : 0);
+          originY_->setValue(index == 3 || index == 4 ? height_->value() : 0); }
+        configure();
+    });
+    connect(corners_,&QTableWidget::itemChanged,this,[this](QTableWidgetItem* item) {
+        const int row = item->row(); bool a{}, b{};
+        const double u = QLocale::c().toDouble(corners_->item(row,0)->text(),&a);
+        const double v = QLocale::c().toDouble(corners_->item(row,1)->text(),&b);
+        controller_.selectCorner({a ? u : std::numeric_limits<double>::quiet_NaN(),
+                                 b ? v : std::numeric_limits<double>::quiet_NaN()}, static_cast<std::size_t>(row));
+    });
+    connect(undo_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::undoCorner);
+    connect(reset_,&QPushButton::clicked,this,[this]{ replacingCorner_.reset(); controller_.clearCorners(); });
+    connect(reselect_,&QPushButton::clicked,this,[this]{
+        if (corners_->currentRow() >= 0) {
+            replacingCorner_ = static_cast<std::size_t>(corners_->currentRow());
+            message_->setText("Click the replacement for the selected labelled corner.");
         }
     });
-    connect(freeze_, &QPushButton::clicked, &controller_, &WorkspaceCalibrationController::freeze);
-    connect(calculate_, &QPushButton::clicked, &controller_, &WorkspaceCalibrationController::calculate);
-    connect(save_, &QPushButton::clicked, &controller_, &WorkspaceCalibrationController::save);
-    connect(load_, &QPushButton::clicked, &controller_, &WorkspaceCalibrationController::load);
-    connect(verify_, &QPushButton::clicked, &controller_, &WorkspaceCalibrationController::verify);
-    connect(activate_, &QPushButton::clicked, &controller_, &WorkspaceCalibrationController::activate);
-    connect(close, &QPushButton::clicked, this, &QDialog::close);
-    connect(&controller_, &WorkspaceCalibrationController::changed, this,
-            &WorkspaceCalibrationDialog::refresh);
-    const QSignalBlocker identityBlocker(identity_), widthBlocker(width_), heightBlocker(height_);
-    identity_->setText(controller_.workspaceId());
-    if (const auto bounds = controller_.draftBounds()) {
-        width_->setValue(bounds->width().value);
-        height_->setValue(bounds->height().value);
-    }
+    connect(confirm_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::confirmBoundary);
+    connect(points_,&QTableWidget::itemChanged,this,[this]{ pointsChanged(); });
+    connect(add_,&QPushButton::clicked,this,[this]{ addPoint({}); });
+    connect(remove_,&QPushButton::clicked,this,[this]{
+        const int row = points_->currentRow();
+        if (row >= 0 && (!controller_.boundaryConfirmed() || row >= static_cast<int>(WorkspaceCornerCount))) {
+            points_->removeRow(row); pointsChanged();
+        }
+    });
+    connect(freeze_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::freeze);
+    connect(calculate_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::calculate);
+    connect(verify_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::verify);
+    connect(activate_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::activate);
+    connect(save_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::save);
+    connect(load_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::load);
+    connect(close,&QPushButton::clicked,this,&QDialog::close);
+    connect(&controller_,&WorkspaceCalibrationController::changed,this,&WorkspaceCalibrationDialog::refresh);
+    { const QSignalBlocker block(identity_); identity_->setText(controller_.workspaceId()); }
     refresh();
 }
-
+void WorkspaceCalibrationDialog::configure()
+{
+    { const QSignalBlocker block(originCorner_); originCorner_->setCurrentIndex(0); }
+    controller_.configure(identity_->text(),width_->value(),height_->value(),originX_->value(),originY_->value());
+}
 void WorkspaceCalibrationDialog::addPoint(std::optional<ImageCorner> point)
 {
-    if (points_->rowCount() >= 128 || controller_.busy())
-        return;
-    const QSignalBlocker blocker(points_);
-    const int row = points_->rowCount();
-    points_->insertRow(row);
-    for (int col = 0; col < 4; ++col)
-        points_->setItem(row, col, new QTableWidgetItem);
+    if (!controller_.canAddReferences() || !controller_.frozenFrame() || controller_.busy()
+        || points_->rowCount() >= MaximumReferenceRows) return;
+    const QSignalBlocker block(points_);
+    const int row = points_->rowCount(); points_->insertRow(row);
+    for (int col = 0; col < 4; ++col) points_->setItem(row,col,new QTableWidgetItem);
     if (point) {
-        points_->item(row, 0)->setText(QString::number(point->u, 'g', 15));
-        points_->item(row, 1)->setText(QString::number(point->v, 'g', 15));
+        points_->item(row,0)->setText(QString::number(point->u,'g',17));
+        points_->item(row,1)->setText(QString::number(point->v,'g',17));
     }
     auto* check = new QTableWidgetItem;
-    check->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable);
+    check->setFlags(Qt::ItemIsEnabled|Qt::ItemIsUserCheckable|Qt::ItemIsSelectable);
     check->setCheckState(controller_.draftProfile() ? Qt::Checked : Qt::Unchecked);
-    points_->setItem(row, 4, check);
-    points_->setCurrentCell(row, 2);
-    pointsChanged();
+    points_->setItem(row,4,check); points_->setCurrentCell(row,2); pointsChanged();
 }
-
 void WorkspaceCalibrationDialog::pointsChanged()
 {
     std::vector<WorkspaceCorrespondence> fit, check;
@@ -209,59 +260,80 @@ void WorkspaceCalibrationDialog::pointsChanged()
     for (int row = 0; row < points_->rowCount(); ++row) {
         double values[4];
         for (int col = 0; col < 4; ++col) {
-            bool valid = false;
-            const auto* item = points_->item(row, col);
-            values[col] = item ? QLocale::c().toDouble(item->text(), &valid) : 0;
-            if (!valid)
-                values[col] = std::numeric_limits<double>::quiet_NaN();
+            bool valid{}; const auto* item = points_->item(row,col);
+            values[col] = item ? QLocale::c().toDouble(item->text(),&valid) : 0;
+            if (!valid) values[col] = std::numeric_limits<double>::quiet_NaN();
         }
-        const bool isCheck = points_->item(row, 4) && points_->item(row, 4)->checkState() == Qt::Checked;
-        image_->markers.emplace_back(ImageCorner{values[0], values[1]}, isCheck);
-        (isCheck ? check : fit).push_back({{values[0], values[1]}, {Meters{values[2]}, Meters{values[3]}}});
+        const bool isCheck = points_->item(row,4) && points_->item(row,4)->checkState() == Qt::Checked;
+        if (controller_.boundaryConfirmed() && row < static_cast<int>(WorkspaceCornerCount)) {
+            fit.push_back(controller_.fitPoints()[static_cast<std::size_t>(row)]);
+            continue;
+        }
+        image_->markers.emplace_back(ImageCorner{values[0],values[1]},isCheck);
+        (isCheck ? check : fit).push_back({{values[0],values[1]}, {Meters{values[2]},Meters{values[3]}}});
     }
-    image_->update();
-    controller_.setPoints(std::move(fit), std::move(check));
+    image_->update(); controller_.setPoints(std::move(fit),std::move(check));
 }
-
+void WorkspaceCalibrationDialog::restoreReferences()
+{
+    const QSignalBlocker block(points_); points_->setRowCount(0); image_->markers.clear();
+    auto restore = [this](const auto& references, bool isCheck) {
+        for (const auto& p : references) {
+            const int row = points_->rowCount(); points_->insertRow(row);
+            const bool boundary = controller_.boundaryConfirmed() && !isCheck && row < static_cast<int>(WorkspaceCornerCount);
+            const double values[]{p.image.u,p.image.v,p.world.x.value,p.world.y.value};
+            for (int col = 0; col < 4; ++col) {
+                auto* item = new QTableWidgetItem(QString::number(values[col],'g',15));
+                if (boundary) item->setFlags(Qt::ItemIsEnabled|Qt::ItemIsSelectable);
+                points_->setItem(row,col,item);
+            }
+            auto* check = new QTableWidgetItem;
+            check->setFlags(boundary ? Qt::ItemIsEnabled : Qt::ItemIsEnabled|Qt::ItemIsUserCheckable|Qt::ItemIsSelectable);
+            check->setCheckState(isCheck ? Qt::Checked : Qt::Unchecked); points_->setItem(row,4,check);
+            if (!boundary) image_->markers.emplace_back(p.image,isCheck);
+        }
+    };
+    restore(controller_.fitPoints(),false); restore(controller_.checkPoints(),true);
+}
 void WorkspaceCalibrationDialog::refresh()
 {
     const auto frame = controller_.frozenFrame();
-    if (frame != shownFrame_) {
-        shownFrame_ = frame;
-        image_->frame = frame;
-        image_->markers.clear();
-        image_->update();
-        const QSignalBlocker blocker(points_);
-        points_->setRowCount(0);
-        auto restore = [this](const auto& references, bool isCheck) {
-            for (const auto& p : references) {
-                const int row = points_->rowCount();
-                points_->insertRow(row);
-                const double values[]{p.image.u, p.image.v, p.world.x.value, p.world.y.value};
-                for (int col = 0; col < 4; ++col)
-                    points_->setItem(row, col, new QTableWidgetItem(QString::number(values[col], 'g', 15)));
-                auto* check = new QTableWidgetItem;
-                check->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable);
-                check->setCheckState(isCheck ? Qt::Checked : Qt::Unchecked);
-                points_->setItem(row, 4, check);
-                image_->markers.emplace_back(p.image, isCheck);
-            }
-        };
-        restore(controller_.fitPoints(), false);
-        restore(controller_.checkPoints(), true);
+    if (frame != shownFrame_ || shownRevision_ != controller_.referencesRevision()) {
+        originPick_->setChecked(false); replacingCorner_.reset();
+        shownFrame_ = frame; shownRevision_ = controller_.referencesRevision();
+        image_->frame = frame; restoreReferences();
+        const QSignalBlocker block(corners_); corners_->setRowCount(0);
+        const QStringList labels{"C1 base", "C2 +X", "C3 opposite", "C4 +Y"};
+        for (const auto& p : controller_.corners()) {
+            const int row = corners_->rowCount(); corners_->insertRow(row);
+            corners_->setVerticalHeaderItem(row,new QTableWidgetItem(labels[row]));
+            corners_->setItem(row,0,new QTableWidgetItem(QString::number(p.u,'g',17)));
+            corners_->setItem(row,1,new QTableWidgetItem(QString::number(p.v,'g',17)));
+        }
     }
-    if (const auto& p = controller_.draftProfile()) {
-        const QSignalBlocker a(width_), b(height_);
-        width_->setValue(p->bounds.width().value);
-        height_->setValue(p->bounds.height().value);
+    image_->corners = controller_.corners(); image_->origin.reset();
+    if (const auto b = controller_.draftBounds()) {
+        const QSignalBlocker w(width_), h(height_), x(originX_), y(originY_);
+        width_->setValue(b->width().value); height_->setValue(b->height().value);
+        originX_->setValue(-b->minimum().x.value); originY_->setValue(-b->minimum().y.value);
+        image_->dimensions = QStringLiteral("+X edge %1 m · +Y edge %2 m · origin from C1 (%3, %4) m")
+            .arg(b->width().value).arg(b->height().value).arg(-b->minimum().x.value).arg(-b->minimum().y.value);
     }
-    message_->setText(controller_.message());
-    freeze_->setEnabled(controller_.canFreeze());
-    calculate_->setEnabled(controller_.canCalculate());
-    save_->setEnabled(controller_.canSave());
-    load_->setEnabled(controller_.canLoad());
-    verify_->setEnabled(controller_.canVerify());
-    activate_->setEnabled(controller_.canActivate());
-    points_->setEnabled(!controller_.busy());
+    if (const auto& p = controller_.draftProfile(); p && p->homography) {
+        image_->origin = unprojectWorkspacePoint(*p->homography,{});
+        if (image_->corners.empty() && p->boundary && frame)
+            image_->corners.assign(p->boundary->begin(),p->boundary->end());
+    }
+    image_->update(); message_->setText(controller_.message());
+    const bool idle = !controller_.busy();
+    freeze_->setEnabled(controller_.canFreeze()); calculate_->setEnabled(controller_.canCalculate());
+    save_->setEnabled(controller_.canSave()); load_->setEnabled(controller_.canLoad());
+    verify_->setEnabled(controller_.canVerify()); activate_->setEnabled(controller_.canActivate());
+    corners_->setEnabled(idle); points_->setEnabled(idle);
+    confirm_->setEnabled(idle && frame && controller_.corners().size() == WorkspaceCornerCount);
+    undo_->setEnabled(idle && !controller_.corners().empty()); reset_->setEnabled(idle && frame);
+    reselect_->setEnabled(idle && !controller_.corners().empty());
+    originPick_->setEnabled(idle && frame && controller_.draftProfile().has_value());
+    add_->setEnabled(idle && frame && controller_.canAddReferences()); remove_->setEnabled(idle);
 }
 } // namespace micro_robot
