@@ -2,11 +2,16 @@
 
 #include "camera/CameraTypes.hpp"
 
+#include <array>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace micro_robot {
+
+inline constexpr int CalibrationLocationGridSide = 3;
+inline constexpr std::size_t CalibrationLocationCellCount =
+    CalibrationLocationGridSide * CalibrationLocationGridSide;
 
 // Target coordinates: top-left inner corner is (0,0,0), x along columns,
 // y along rows on the board, all in metres. Image corners use pixels.
@@ -56,6 +61,18 @@ struct CalibrationProgress {
     double scaleSpread{};
     double angleSpreadRadians{};
     bool ready{};
+    // Row-major image-space board-centre coverage; not corner/tilt coverage.
+    std::array<bool, CalibrationLocationCellCount> occupiedLocationCells{};
+};
+enum class CalibrationSuggestion {
+    Start, FirstView, ChangeLocation, ChangeScale, RotateInPlane,
+    MoreViews, Ready, ReviewResult, ReplaceView
+};
+struct CalibrationGuidance {
+    CalibrationSuggestion suggestion{CalibrationSuggestion::Start};
+    // Optional row-major image region to place the board centre. Keep the entire
+    // target visible; this is a suggestion, never an acceptance/safety guarantee.
+    std::optional<std::size_t> nextLocationCell;
 };
 struct CaptureDecision {
     bool accepted{};
@@ -77,6 +94,8 @@ public:
     [[nodiscard]] bool remove(std::size_t index);
     [[nodiscard]] bool finish();
     [[nodiscard]] CalibrationProgress progress() const;
+    // Uses accepted-view measurements only. Out-of-plane tilt is not measured.
+    [[nodiscard]] CalibrationGuidance guidance() const;
     [[nodiscard]] CalibrationCaptureState state() const noexcept { return state_; }
     [[nodiscard]] const CalibrationCaptureConfig& config() const noexcept { return config_; }
     [[nodiscard]] const std::vector<CalibrationView>& views() const noexcept { return views_; }

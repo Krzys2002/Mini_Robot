@@ -136,3 +136,88 @@ TEST(CalibrationCaptureTest, StorageBudgetAndViewLimitAreBoundedAndReleasedOnRem
     EXPECT_NE(limited.add(captureFrame(4), captureDetection(500, 400, 50)).message.find("limit"), std::string::npos);
 }
 } // namespace
+
+namespace {
+TEST(CalibrationGuidanceTest, StartAndFirstViewTrackSessionLifecycle)
+{
+    CalibrationCapture session;
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::Start);
+    session.restart("camera");
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::FirstView);
+    EXPECT_FALSE(session.add(captureFrame(), {}).accepted);
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::FirstView);
+    ASSERT_TRUE(session.add(captureFrame(), captureDetection()).accepted);
+    session.cancel();
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::Start);
+    EXPECT_EQ(session.progress().locationCells, 0u);
+    session.restart("other");
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::FirstView);
+}
+TEST(CalibrationGuidanceTest, SuggestsAnUnoccupiedBoardCentreCellFromAcceptedViewsOnly)
+{
+    CalibrationCapture session;
+    session.restart("camera");
+    ASSERT_TRUE(session.add(captureFrame(1), captureDetection()).accepted);
+    auto progress = session.progress();
+    EXPECT_TRUE(progress.occupiedLocationCells[4]);
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::ChangeLocation);
+    ASSERT_TRUE(session.guidance().nextLocationCell);
+    EXPECT_FALSE(progress.occupiedLocationCells[*session.guidance().nextLocationCell]);
+    auto blurry = captureDetection(200, 150, 20);
+    blurry.sharpness = 0;
+    EXPECT_FALSE(session.add(captureFrame(2), blurry).accepted);
+    EXPECT_FALSE(session.progress().occupiedLocationCells[0]);
+    ASSERT_TRUE(session.add(captureFrame(3), captureDetection(200, 150, 20)).accepted);
+    EXPECT_TRUE(session.progress().occupiedLocationCells[0]);
+    EXPECT_NE(session.guidance().nextLocationCell, 0u);
+    ASSERT_TRUE(session.remove(1));
+    EXPECT_EQ(session.guidance().nextLocationCell, 0u);
+    EXPECT_FALSE(session.progress().occupiedLocationCells[0]);
+}
+TEST(CalibrationGuidanceTest, ScaleThenInPlaneAngleThenReadyReflectMeasuredGaps)
+{
+    CalibrationCaptureConfig config;
+    config.minimumViews = 3;
+    CalibrationCapture session{config};
+    session.restart("camera");
+    ASSERT_TRUE(session.add(captureFrame(1), captureDetection(250)).accepted);
+    ASSERT_TRUE(session.add(captureFrame(2), captureDetection(500)).accepted);
+    ASSERT_TRUE(session.add(captureFrame(3), captureDetection(750)).accepted);
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::ChangeScale);
+    EXPECT_FALSE(session.guidance().nextLocationCell);
+    ASSERT_TRUE(session.add(captureFrame(4), captureDetection(500, 400, 55)).accepted);
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::RotateInPlane);
+    ASSERT_TRUE(session.add(captureFrame(5), captureDetection(500, 400, 55, 0.4)).accepted);
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::Ready);
+    ASSERT_TRUE(session.finish());
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::ReviewResult);
+    ASSERT_TRUE(session.remove(4));
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::RotateInPlane);
+}
+TEST(CalibrationGuidanceTest, DisabledDiversityGatesStillRequireCount)
+{
+    CalibrationCaptureConfig config;
+    config.minimumLocationCells = 1;
+    config.minimumScaleSpread = config.minimumAngleSpreadRadians = 0;
+    CalibrationCapture session{config};
+    session.restart("camera");
+    ASSERT_TRUE(session.add(captureFrame(), captureDetection()).accepted);
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::MoreViews);
+    EXPECT_FALSE(session.guidance().nextLocationCell);
+}
+TEST(CalibrationGuidanceTest, FullDatasetWithMissingDiversitySuggestsReplacement)
+{
+    CalibrationCaptureConfig config;
+    config.minimumViews = config.maximumViews = 3;
+    config.minimumLocationCells = 1;
+    CalibrationCapture session{config};
+    session.restart("camera");
+    ASSERT_TRUE(session.add(captureFrame(1), captureDetection(250)).accepted);
+    ASSERT_TRUE(session.add(captureFrame(2), captureDetection(500)).accepted);
+    ASSERT_TRUE(session.add(captureFrame(3), captureDetection(750)).accepted);
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::ReplaceView);
+    EXPECT_FALSE(session.progress().ready);
+    ASSERT_TRUE(session.remove(0));
+    EXPECT_EQ(session.guidance().suggestion, CalibrationSuggestion::ChangeScale);
+}
+} // namespace

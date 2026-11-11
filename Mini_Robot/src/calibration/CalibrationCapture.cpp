@@ -60,7 +60,7 @@ CalibrationCapture::CalibrationCapture(CalibrationCaptureConfig config) : config
             return !std::isfinite(v) || v < 0;
         }) || config.minimumViews < 3 || config.maximumViews < config.minimumViews
         || config.maximumViews > 100 || config.maximumStoredBytes == 0
-        || config.minimumLocationCells < 1 || config.minimumLocationCells > 9
+        || config.minimumLocationCells < 1 || config.minimumLocationCells > CalibrationLocationCellCount
         || config.minimumAreaFraction >= 1 || config.duplicateDistance <= 0
         || config.minimumScaleSpread > 1
         || config.minimumAngleSpreadRadians > std::numbers::pi / 2) {
@@ -149,7 +149,6 @@ CalibrationProgress CalibrationCapture::progress() const
 {
     CalibrationProgress result;
     result.count = views_.size();
-    std::array<bool, 9> cells{};
     double minScale = 1;
     double maxScale = 0;
     for (const auto& view : views_) {
@@ -158,9 +157,11 @@ CalibrationProgress CalibrationCapture::progress() const
         for (const auto& p : view.detection.corners) { u += p.u; v += p.v; }
         u /= static_cast<double>(view.detection.corners.size()) * view.frame->width;
         v /= static_cast<double>(view.detection.corners.size()) * view.frame->height;
-        const int column = std::clamp(static_cast<int>(u * 3), 0, 2);
-        const int row = std::clamp(static_cast<int>(v * 3), 0, 2);
-        cells[row * 3 + column] = true;
+        const int column = std::clamp(static_cast<int>(u * CalibrationLocationGridSide),
+            0, CalibrationLocationGridSide - 1);
+        const int row = std::clamp(static_cast<int>(v * CalibrationLocationGridSide),
+            0, CalibrationLocationGridSide - 1);
+        result.occupiedLocationCells[row * CalibrationLocationGridSide + column] = true;
         const double scale = std::sqrt(boardArea(view.detection.corners, config_.target.columns)
             / (static_cast<double>(view.frame->width) * view.frame->height));
         minScale = std::min(minScale, scale);
@@ -171,13 +172,36 @@ CalibrationProgress CalibrationCapture::progress() const
             result.angleSpreadRadians = std::max(result.angleSpreadRadians, difference);
         }
     }
-    result.locationCells = static_cast<std::size_t>(std::count(cells.begin(), cells.end(), true));
+    result.locationCells = static_cast<std::size_t>(std::count(
+        result.occupiedLocationCells.begin(), result.occupiedLocationCells.end(), true));
     result.scaleSpread = views_.empty() ? 0 : maxScale - minScale;
     result.ready = result.count >= config_.minimumViews
         && result.locationCells >= config_.minimumLocationCells
         && result.scaleSpread >= config_.minimumScaleSpread
         && result.angleSpreadRadians >= config_.minimumAngleSpreadRadians;
     return result;
+}
+CalibrationGuidance CalibrationCapture::guidance() const
+{
+    if (state_ == CalibrationCaptureState::Idle || state_ == CalibrationCaptureState::Cancelled)
+        return {CalibrationSuggestion::Start, {}};
+    if (state_ == CalibrationCaptureState::Complete)
+        return {CalibrationSuggestion::ReviewResult, {}};
+    const auto measured = progress();
+    if (measured.ready) return {CalibrationSuggestion::Ready, {}};
+    if (measured.count >= config_.maximumViews) return {CalibrationSuggestion::ReplaceView, {}};
+    if (measured.count == 0) return {CalibrationSuggestion::FirstView, {}};
+    if (measured.locationCells < config_.minimumLocationCells) {
+        const auto unused = std::find(measured.occupiedLocationCells.begin(),
+            measured.occupiedLocationCells.end(), false);
+        return {CalibrationSuggestion::ChangeLocation, static_cast<std::size_t>(
+            unused - measured.occupiedLocationCells.begin())};
+    }
+    if (measured.scaleSpread < config_.minimumScaleSpread)
+        return {CalibrationSuggestion::ChangeScale, {}};
+    if (measured.angleSpreadRadians < config_.minimumAngleSpreadRadians)
+        return {CalibrationSuggestion::RotateInPlane, {}};
+    return {CalibrationSuggestion::MoreViews, {}};
 }
 bool CalibrationCapture::finish()
 {
