@@ -113,8 +113,11 @@ its source frame, transformed corners and acceptance colour together. Adapters
 without point remapping suppress the overlay instead of painting raw coordinates
 on corrected pixels.
 
-Only presentation is corrected. Calibration observations retain original pixels;
-this issue does not alter detection, robot state, world coordinates or control.
+Only presentation is corrected. Detection uses the original selected image and
+observations retain original pixel coordinates. Stored review images are compact
+full-resolution grayscale; source dimensions and camera/profile binding remain
+unchanged. See [storage policy](calibration-capture.md#bounded-review-storage-and-memory-feedback).
+This does not alter robot state, world coordinates or control.
 The controller retains one active remap and the newest pending raw preview,
 serializes file operations and coalesces repeated reload requests. Camera/
 resolution changes discard late file/remap results. Capture restarts leave an
@@ -130,7 +133,7 @@ tests cover Unicode paths, camera/resolution key isolation, store recreation,
 replacement, failed saves and tampered identity/size. Analytical remap tests cover
 all pixel formats, row padding, immutability, timestamps, zero distortion and the
 Brown–Conrady sampling equations. Offscreen dialog/controller tests cover save and
-reload across controller recreation, raw capture preservation, bounded preview
+reload across controller recreation, original capture geometry, bounded preview
 work, worker exceptions and stale results after input/mode/shutdown changes.
 
 Run the full suite using the [test guide](../development/testing.md), or select:

@@ -129,6 +129,10 @@ in [platform boundaries](platform-boundaries.md).
 
 ## Audit correction helpers
 
+- [Calibration storage audit](../../../tools/calibration_storage_audit.py): temporary
+  hardware-free baseline/current builds, repeated capture/cancel retained-capacity
+  and process-RSS snapshots; [memory evidence](calibration-capture.md#memory-diagnosis-and-verification-245-2026-11-11).
+
 - [V4L2 physical identity](../../src/camera/V4l2Identity.hpp),
   [implementation](../../src/camera/V4l2Identity.cpp): filesystem-only adapter helper
   used by Linux capture; [profile behavior](calibration-profiles.md#physical-camera-identity-and-review-corrections).
