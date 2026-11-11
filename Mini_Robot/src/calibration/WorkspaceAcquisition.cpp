@@ -23,6 +23,21 @@ WorkspaceBoardGeneration generateWorkspaceBoard(const WorkspaceBoardPlacement& p
     const auto object = calibrationObjectPoints(p.target);
     if (p.detected.size() != object.size() || p.anchorIndex >= object.size()
         || p.included.size() != object.size()) return {{},"A complete exact-frame detection and review mask are required."};
+    std::set<std::pair<double,double>> pixels;
+    for (const auto image:p.detected)
+        if (!std::isfinite(image.u) || !std::isfinite(image.v) || !pixels.insert({image.u,image.v}).second)
+            return {{},"Redetect the complete board: original pixels are non-finite or duplicated."};
+    WorkspaceBoundary perimeter{{p.detected.front(),p.detected[static_cast<std::size_t>(p.target.columns-1)],
+        p.detected.back(),p.detected[p.detected.size()-static_cast<std::size_t>(p.target.columns)]}};
+    double minU=perimeter[0].u,maxU=minU,minV=perimeter[0].v,maxV=minV;
+    for (const auto image:perimeter) {minU=std::min(minU,image.u); maxU=std::max(maxU,image.u); minV=std::min(minV,image.v); maxV=std::max(maxV,image.v);}
+    const double width=maxU-minU,height=maxV-minV;
+    if (!std::isfinite(width) || !std::isfinite(height) || width<=0 || height<=0)
+        return {{},"Redetect a non-degenerate two-dimensional board."};
+    for (auto& image:perimeter) image={(image.u-minU)/width,(image.v-minV)/height};
+    // Check only topology here, not a physical image-coverage/accuracy threshold.
+    if (!validateWorkspaceBoundary(perimeter,MinimumWorkspaceImageDimensionPixels,MinimumWorkspaceImageDimensionPixels).empty())
+        return {{},"Redetect the board: its ordered outer inner-corners are crossed/collinear/degenerate."};
     const double cosine = std::cos(p.columnAngle.value), sine = std::sin(p.columnAngle.value);
     WorkspaceBoardGeneration result;
     for (std::size_t i = 0; i < object.size(); ++i) {
@@ -66,6 +81,13 @@ std::string validateWorkspaceAcquisition(const WorkspaceAcquisitionRecord& recor
         if (!p.id || p.id==std::numeric_limits<std::uint64_t>::max() || !placements.emplace(p.id,&p).second) return "Duplicate/invalid placement identity.";
         auto generated = generateWorkspaceBoard(p);
         if (!generated.error.empty()) return generated.error;
+        if (p.reviewRejections.size()!=p.included.size()) return "Missing original placement review results.";
+        for (std::size_t i=0;i<p.included.size();++i) {
+            const auto reason=p.reviewRejections[i];
+            if (reason!=WorkspaceReferenceRejection::None && reason!=WorkspaceReferenceRejection::Duplicate
+                && reason!=WorkspaceReferenceRejection::OutsideDomain) return "Unknown placement review result.";
+            if (p.included[i] && reason!=WorkspaceReferenceRejection::None) return "Rejected placement point cannot be included.";
+        }
         if (!std::isfinite(p.measuredOffset.x.value) || !std::isfinite(p.measuredOffset.y.value)
             || !std::isfinite(p.relativeReferenceSnapshot.x.value) || !std::isfinite(p.relativeReferenceSnapshot.y.value)) return "Invalid measured placement offset.";
         if (p.relativeReferenceId && (p.anchor.x.value!=p.relativeReferenceSnapshot.x.value+p.measuredOffset.x.value
@@ -121,7 +143,8 @@ std::string serializeWorkspaceAcquisition(const WorkspaceAcquisitionRecord& reco
             << ' ' << p.relativeReferenceSnapshot.x.value << ' ' << p.relativeReferenceSnapshot.y.value << ' ' << p.frameSequence
             << ' ' << p.capturedTicksNanoseconds << ' ' << std::quoted(p.note) << ' ' << p.detected.size();
         for (std::size_t i = 0; i < p.detected.size(); ++i)
-            out << ' ' << p.detected[i].u << ' ' << p.detected[i].v << ' ' << p.included[i];
+            out << ' ' << p.detected[i].u << ' ' << p.detected[i].v << ' ' << p.included[i]
+                << ' ' << static_cast<int>(p.reviewRejections[i]);
         out << '\n';
     }
     out << "references " << record.references.size() << '\n';
@@ -164,9 +187,10 @@ WorkspaceAcquisitionLoadOutcome parseWorkspaceAcquisition(std::string_view text)
             return reject("Invalid placement metadata/count.");
         if (referenceId) p.relativeReferenceId=referenceId;
         for (std::size_t i=0;i<corners;++i) {
-            ImageCorner pixel; bool include{};
-            if (!(in>>pixel.u>>pixel.v>>include)) return reject("Invalid placement detection/mask.");
+            ImageCorner pixel; bool include{}; int rejection{};
+            if (!(in>>pixel.u>>pixel.v>>include>>rejection) || rejection<0 || rejection>static_cast<int>(WorkspaceReferenceRejection::Duplicate)) return reject("Invalid placement detection/mask.");
             p.detected.push_back(pixel); p.included.push_back(include);
+            p.reviewRejections.push_back(static_cast<WorkspaceReferenceRejection>(rejection));
         }
         record->placements.push_back(std::move(p));
     }

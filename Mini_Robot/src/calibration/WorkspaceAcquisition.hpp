@@ -2,6 +2,7 @@
 #include "calibration/TabletopHomography.hpp"
 #include <cstdint>
 #include <memory>
+#include <limits>
 
 namespace micro_robot {
 inline constexpr CalibrationTarget WorkspaceBoardTarget{}; // Same intrinsic 9x6 / 25 mm target.
@@ -16,8 +17,8 @@ struct WorkspaceBoardPlacement {
     CalibrationTarget target{WorkspaceBoardTarget};
     std::size_t anchorIndex{}; // Logical row-major inner corner after explicit ordering selection.
     WorldPoint2D anchor;
-    Radians columnAngle; // +columns angle from world +X, positive CCW.
-    int rowDirection{1}; // +1: +rows is +90 degrees from +columns; -1: -90 degrees.
+    Radians columnAngle{std::numeric_limits<double>::quiet_NaN()}; // +columns angle from world +X, positive CCW.
+    int rowDirection{}; // +1: +rows is +90 degrees from +columns; -1: -90 degrees.
     bool reverseColumns{}, reverseRows{};
     std::optional<std::uint64_t> relativeReferenceId;
     WorldPoint2D relativeReferenceSnapshot; // Original reference coordinates, even if later edited/removed.
@@ -26,6 +27,7 @@ struct WorkspaceBoardPlacement {
     std::int64_t capturedTicksNanoseconds{}; // Session steady-clock tick, not UTC.
     std::string note;
     std::vector<ImageCorner> detected; // Original complete detection on that exact undistorted frame.
+    std::vector<WorkspaceReferenceRejection> reviewRejections; // Logical order, original automatic review result.
     std::vector<bool> included; // Explicit review mask; original detections remain even when excluded.
 };
 struct WorkspaceBoardSource { std::uint64_t placementId{}; std::size_t cornerIndex{}; };

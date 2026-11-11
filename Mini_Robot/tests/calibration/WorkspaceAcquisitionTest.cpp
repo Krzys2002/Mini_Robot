@@ -8,7 +8,7 @@ using namespace micro_robot::test;
 namespace {
 WorkspaceBoardPlacement board()
 {
-    WorkspaceBoardPlacement p; p.id=1; p.anchor={Meters{0.2},Meters{0.2}};
+    WorkspaceBoardPlacement p; p.id=1; p.columnAngle=Radians{0}; p.rowDirection=1; p.anchor={Meters{0.2},Meters{0.2}};
     p.frameSequence=12; p.capturedTicksNanoseconds=12345; p.note="measured placement";
     for (int row=0;row<WorkspaceBoardTarget.rows;++row) for (int col=0;col<WorkspaceBoardTarget.columns;++col) {
         p.detected.push_back({100.0+col*20,100.0+row*20}); p.included.push_back(true);
@@ -34,6 +34,11 @@ TEST(WorkspaceAcquisitionTest, ExplicitAnchorOrientationAndReversalsDetermineEve
     p.rowDirection=0; EXPECT_FALSE(generateWorkspaceBoard(p).error.empty());
     p=board(); p.detected.pop_back(); EXPECT_FALSE(generateWorkspaceBoard(p).error.empty());
     p=board(); p.anchorIndex=54; EXPECT_FALSE(generateWorkspaceBoard(p).error.empty());
+    p=board(); p.detected[1]=p.detected[0]; EXPECT_FALSE(generateWorkspaceBoard(p).error.empty());
+    p=board(); for (auto& pixel:p.detected) pixel.v=pixel.u;
+    EXPECT_FALSE(generateWorkspaceBoard(p).error.empty());
+    p=board(); p.columnAngle=Radians{std::numeric_limits<double>::quiet_NaN()};
+    EXPECT_FALSE(generateWorkspaceBoard(p).error.empty());
 }
 TEST(WorkspaceAcquisitionTest, Inclusive1525LocationLatticeUsesReviewedOverlappingPlacements)
 {
@@ -59,6 +64,7 @@ TEST(WorkspaceAcquisitionTest, Inclusive1525LocationLatticeUsesReviewedOverlappi
         ASSERT_TRUE(generated.error.empty());
         auto assessment=assessWorkspaceReferences(profile,existing,generated.points);
         ASSERT_TRUE(assessment.error.empty())<<assessment.error;
+        p.reviewRejections=assessment.candidates;
         for (std::size_t i=0;i<generated.points.size();++i) {
             p.included[i]=assessment.candidates[i]==WorkspaceReferenceRejection::None;
             if (p.included[i]) {

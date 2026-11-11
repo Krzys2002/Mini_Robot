@@ -177,6 +177,7 @@ int main(int argc, char* argv[])
         std::make_unique<OpenCvCalibrationUndistorter>(), std::make_unique<QtWorkspaceProfileStore>(
             QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)).filePath(QStringLiteral("workspace"))),
         logger.channel("workspace")};
+    workspace.setAcquisitionDetector(std::make_unique<OpenCvCalibrationDetector>());
     QObject::connect(&workspace, &WorkspaceCalibrationController::profileChanged, &controller, [&] {
         controller.setWorkspaceCalibration(workspace.profile());
     });

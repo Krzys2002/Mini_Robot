@@ -34,12 +34,12 @@ def child(binary, mode):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True)
-    parser.add_argument('--child', choices=['legacy-full-1525', 'thin-1525', 'thin-4096'])
+    parser.add_argument('--child', choices=['legacy-full-1525', 'thin-1525', 'thin-4096', 'solver-1525', 'solver-4096'])
     args = parser.parse_args()
     if args.child:
         return child(args.binary, args.child)
     results = []
-    for mode in ['legacy-full-1525', 'thin-1525', 'thin-4096']:
+    for mode in ['legacy-full-1525', 'thin-1525', 'thin-4096', 'solver-1525', 'solver-4096']:
         run = subprocess.run([sys.executable, __file__, '--binary', args.binary, '--child', mode], capture_output=True, text=True)
         if not run.stdout:
             raise RuntimeError(run.stderr)

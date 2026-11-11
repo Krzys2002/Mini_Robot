@@ -3,6 +3,7 @@
 #include "calibration/WorkspaceCalibration.hpp"
 
 namespace micro_robot {
+inline constexpr std::size_t MinimumWorkspaceFitPoints = 4;
 inline constexpr std::size_t MaximumWorkspaceFitPoints = 4096;
 inline constexpr std::size_t MaximumWorkspaceCheckPoints = 4096;
 inline constexpr std::size_t MaximumWorkspaceReferences = MaximumWorkspaceFitPoints + MaximumWorkspaceCheckPoints;

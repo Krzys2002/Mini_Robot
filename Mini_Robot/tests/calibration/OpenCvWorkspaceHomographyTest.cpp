@@ -115,6 +115,7 @@ TEST(OpenCvWorkspaceHomographyCapacityTest, Solves1525And4096PointsWithIndepende
 #include <opencv2/core.hpp>
 #include <opencv2/core/version.hpp>
 #include <cstdlib>
+#include <chrono>
 #include <iostream>
 
 TEST(WorkspaceSolverMemoryAudit, BoundedThinDecomposition)
@@ -122,8 +123,26 @@ TEST(WorkspaceSolverMemoryAudit, BoundedThinDecomposition)
     const char* setting=std::getenv("MICRO_ROBOT_WORKSPACE_SVD_AUDIT");
     if (!setting) GTEST_SKIP()<<"Opt-in isolated process memory audit; run tools/calibration/audit_workspace_solver.py.";
     const std::string mode{setting};
-    ASSERT_TRUE(mode=="legacy-full-1525" || mode=="thin-1525" || mode=="thin-4096");
-    const int count=mode=="thin-4096"?4096:1525;
+    ASSERT_TRUE(mode=="legacy-full-1525" || mode=="thin-1525" || mode=="thin-4096" || mode=="solver-1525" || mode=="solver-4096");
+    const int count=mode.ends_with("4096")?4096:1525;
+    if (mode.starts_with("solver-")) {
+        auto input=homographyInput(); input.profile.bounds=WorkspaceBounds{Meters{1.5},Meters{0.6}};
+        input.fitPoints.clear(); input.checkPoints.clear();
+        const int columns=count==1525?61:64, rows=count==1525?25:64;
+        for (int row=0;row<rows;++row) for (int column=0;column<columns;++column) {
+            const double x=1.5*column/(columns-1),y=0.6*row/(rows-1);
+            input.fitPoints.push_back({{50+500*x,730-900*y},{Meters{x},Meters{y}}});
+        }
+        input.checkPoints={{{156.5,498.7},{Meters{0.213},Meters{0.257}}}};
+        const auto start=std::chrono::steady_clock::now();
+        const auto result=OpenCvWorkspaceHomographySolver{}.solve(input);
+        ASSERT_TRUE(result.result)<<result.error;
+        EXPECT_EQ(result.result->fit.distancesMeters.size(),static_cast<std::size_t>(count));
+        EXPECT_LT(result.result->check->maximumMeters,1e-9);
+        std::cout<<"OpenCV "<<CV_VERSION<<"; full solver points="<<count<<"; elapsed_ms="
+                 <<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()<<'\n';
+        return;
+    }
     cv::Mat a=cv::Mat::zeros(count*2,9,CV_64F);
     for (int i=0;i<count;++i) {
         const double u=0.05+0.8*(i%61)/60, v=0.1+0.7*(i/61)/68;

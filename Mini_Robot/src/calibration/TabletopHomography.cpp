@@ -181,7 +181,7 @@ std::string validateWorkspaceHomographyInput(const WorkspaceHomographyInput& inp
     profile.homography.reset(); // An old estimate does not constrain a new fit.
     if (auto error = validateWorkspaceCalibrationProfile(profile); !error.empty())
         return error;
-    if (input.fitPoints.size() < 4 || input.fitPoints.size() > MaximumWorkspaceFitPoints ||
+    if (input.fitPoints.size() < MinimumWorkspaceFitPoints || input.fitPoints.size() > MaximumWorkspaceFitPoints ||
         input.checkPoints.size() > MaximumWorkspaceCheckPoints)
         return "Use 4–4096 fitting points and at most 4096 independent check points; observations are never truncated.";
     const auto& k = profile.intrinsics;
