@@ -488,3 +488,68 @@ coverage and native-display acceptance belong to
 OpenCV 4 and native input/display behavior were not exercised by these offscreen
 macOS tests. Source inspection used `rg` because this worktree had no local graph;
 no generated graph or another worktree's cache was used.
+
+## Two-point workspace distance (#250)
+
+Software evidence on 2026-11-11, macOS arm64 / AppleClang 21 / Qt 6.12.0 /
+OpenCV 5.1.0. Approved parent is #249 PR #267 at
+`1d147fd41fd6f9b791dd07c063fe69e34b14676e`; #246/#248 are in that unmerged
+lineage and independent #247 PR #262 is not. Tested implementation commits:
+core `f9009ef`, application/UI `6553ea3`. These results do not establish physical
+accuracy, actual coverage, human review or remote CI.
+
+From the issue worktree root, ran `cmake --preset core` and `cmake --preset macos`,
+using the existing offline GoogleTest source through
+`-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`, followed by
+`cmake --build --preset <preset> --parallel 3` and
+`ctest --preset <preset> --parallel 3` for each preset. Root core:
+**314 passed**. Root desktop: **519 passed, one existing opt-in SVD audit skipped
+(520 selected), zero failures**; the production application built. The independent
+standalone `Mini_Robot/` entry point was configured/built/tested with its core
+preset and its own build directory: **314 passed**.
+
+Focused core `WorkspaceDistanceTest.*` cases are included in both complete core
+runs. Nine cases cover known lengths/directions, signed origins and perspective,
+zero/near-zero length, logical viewport/pixel-centre round trips, invalid centres,
+missing/negative/unjustified selection bounds, projective-horizon footprints,
+image-fit hull constraints and conservative calibration/selection propagation.
+Tests enclose full-circle perturbations and compare the zero-selection result to
+the exact sum of #249's per-endpoint prediction envelopes; independent-error RSS
+is not used.
+
+Executed the eight `WorkspaceDistanceUiTest.*` cases offscreen, separately at
+`QT_SCALE_FACTOR=1.5` and `2`: **8/8 each**. Both supported views were rendered and
+screenshots reviewed. The tests exercise real source-controller loading/activation,
+separate measurement freezing without replacing calibration references, stale/bad
+undistortion and late optical results, GUI event delivery while a worker is held,
+camera/world endpoint preservation, coordinate editing and bound resets, method
+and units handling, re-freeze/clear, pending evidence with old ± withheld,
+resolution/camera invalidation, draft-vs-active origin changes and larger loaded
+coordinate ranges. Synthetic undistortion fakes validate lifecycle/metadata, not
+physical optical correction; existing production OpenCV undistorter tests remain
+in the host suite.
+
+```sh
+QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=1.5 build/macos/Mini_Robot/tests/micro_robot_tests \
+  '--gtest_filter=WorkspaceDistanceUiTest.*'
+QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests \
+  '--gtest_filter=WorkspaceDistanceUiTest.*'
+```
+
+Set `MICRO_ROBOT_DISTANCE_SCREENSHOT=/path/distance.png` to retain the evidence
+controls/view-switching test's world image and `/path/distance.png.camera.png`
+camera image. The black camera raster in these fixtures is synthetic, not physical
+equipment evidence. Measurement capture reuses the serialized calibration worker;
+no new frame queue or distance worker is introduced. This worktree's local graph
+was missing, so navigation used source/`rg` fallback; no foreign graph/cache was
+used or generated output committed.
+
+The [operator and propagation guide](../overview/workspace-distance.md) defines
+pixel conventions, support, the projective disk bound and conditional coverage.
+Physical length residuals, selection-budget justification, actual coverage and
+native-display acceptance are owned by
+[#268](https://github.com/Krzys2002/Mini_Robot/issues/268), with calibration-model
+validation in #265 and related #63/#224 evidence. **All new physical camera and native display checks: NOT RUN.** Linux, Windows, OpenCV 4 and native pointer/display
+behavior were not tested here. Fixed-pair conditional model coverage does not
+establish a general accuracy guarantee, 3D measurement, motion control or robot
+safety.

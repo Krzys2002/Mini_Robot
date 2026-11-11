@@ -187,3 +187,8 @@ acceptance remains separate from synthetic tests and from the broader
 [#63 benchmark](https://github.com/Krzys2002/Mini_Robot/issues/63) and
 [#224 metric pose acceptance](https://github.com/Krzys2002/Mini_Robot/issues/224).
 No physical accuracy or general 95% coverage is established by this implementation.
+
+The [two-point distance consumer](workspace-distance.md#calibration-prediction-over-the-whole-footprint)
+uses the endpoint contract over complete selection footprints, preserving the same
+model and explicitly accounting for deterministic selection bounds. It does not
+replace this estimator or reinterpret fit RMS as uncertainty.
