@@ -16,7 +16,7 @@ TEST(WorkspaceCalibrationTest, SeparateVersionedProfileStartsWithoutATransform)
 {
     static_assert(!std::is_same_v<WorkspaceCalibrationProfile, IntrinsicCalibration>);
     auto p = profile();
-    EXPECT_EQ(p.version, 1U);
+    EXPECT_EQ(p.version, WorkspaceCalibrationProfileVersion);
     EXPECT_FALSE(p.homography);
     EXPECT_TRUE(validateWorkspaceCalibrationProfile(p).empty());
     EXPECT_TRUE(workspaceCalibrationCompatibilityError(p, p.intrinsics).empty());
@@ -24,7 +24,7 @@ TEST(WorkspaceCalibrationTest, SeparateVersionedProfileStartsWithoutATransform)
 TEST(WorkspaceCalibrationTest, RejectsUnknownVersionMissingIdentityAndUnsupportedPixelDomain)
 {
     auto p = profile();
-    p.version = 2;
+    p.version = WorkspaceCalibrationProfileVersion + 1;
     EXPECT_FALSE(validateWorkspaceCalibrationProfile(p).empty());
     p = profile(); p.workspaceId.clear();
     EXPECT_FALSE(validateWorkspaceCalibrationProfile(p).empty());

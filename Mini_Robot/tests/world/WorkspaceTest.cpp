@@ -1,3 +1,4 @@
+#include <array>
 #include "world/Workspace.hpp"
 #include "world/WorldModel.hpp"
 
@@ -113,3 +114,51 @@ TEST(WorkspaceTest, BoundsChangesDoNotClampOrReinterpretRobotPoses)
     EXPECT_DOUBLE_EQ(world.robot(RobotId{1})->pose->heading.value, 8);
 }
 } // namespace
+
+TEST(WorkspaceFrameTest, InteriorOriginRoundTripsSignedCoordinatesAndRejectsInvalidExtents)
+{
+    const WorkspaceBounds b{Meters{1.5}, Meters{0.6}, {Meters{-0.75}, Meters{-0.2}}};
+    for (const auto p : std::array<WorldPoint2D, 3>{b.minimum(), WorldPoint2D{}, b.maximum()}) {
+        ASSERT_TRUE(b.contains(p));
+        auto v = workspaceToView(b, p);
+        ASSERT_TRUE(v);
+        auto restored = viewToWorkspace(b, *v);
+        ASSERT_TRUE(restored);
+        EXPECT_NEAR(restored->x.value, p.x.value, 1e-15);
+        EXPECT_NEAR(restored->y.value, p.y.value, 1e-15);
+    }
+    const auto origin = workspaceToView(b, {});
+    ASSERT_TRUE(origin);
+    EXPECT_DOUBLE_EQ(origin->u, 0.5);
+    EXPECT_NEAR(origin->v, 2.0 / 3, 1e-15);
+    EXPECT_FALSE(b.contains({Meters{-0.751}, Meters{0}}));
+    EXPECT_THROW((WorkspaceBounds{Meters{1}, Meters{1}, {Meters{1e300}, Meters{0}}}), std::invalid_argument);
+}
+
+TEST(WorkspaceFrameTest, ExplicitFrameReplacementClearsMeasurementsWithoutRemovingRobots)
+{
+    WorldModel world;
+    const RobotId id{1};
+    ASSERT_TRUE(world.registerRobot(id, Timestamp{}));
+    ASSERT_EQ(world.updateTrackedPose(id, {Meters{-0.2}, Meters{0.1}, Radians{0.7}},
+        Timestamp{} + std::chrono::seconds{1}, {std::chrono::seconds{1}, std::chrono::seconds{2}}), PoseUpdateResult::Applied);
+    world.clearMeasurements();
+    ASSERT_TRUE(world.robot(id));
+    EXPECT_FALSE(world.robot(id)->pose);
+    EXPECT_FALSE(world.robot(id)->poseUpdatedAt);
+    EXPECT_FALSE(world.robot(id)->tracking);
+}
+
+TEST(WorkspaceFrameTest, AuthoritativeFrameIdentityAndSignedBoundsSurviveSnapshotCopy)
+{
+    WorldModel world;
+    world.setWorkspaceFrame(WorkspaceBounds{Meters{1},Meters{0.6},{Meters{-0.5},Meters{-0.3}}},"frame-A");
+    auto first = world.snapshot();
+    ASSERT_TRUE(first.workspaceFrameId);
+    EXPECT_EQ(*first.workspaceFrameId,"frame-A");
+    world.setWorkspaceFrame(WorkspaceBounds{Meters{1},Meters{0.6}},"frame-B");
+    EXPECT_EQ(*first.workspaceFrameId,"frame-A");
+    EXPECT_DOUBLE_EQ(first.workspace->minimum().x.value,-0.5);
+    world.setWorkspaceBounds({});
+    EXPECT_FALSE(world.snapshot().workspaceFrameId);
+}

@@ -109,3 +109,18 @@ TEST(MetricObservationTest, NearHorizonFiniteMappingAndSingularRejection)
     corners[2].v = corners[3].v = 1001;
     EXPECT_EQ(metricObservation({}, corners, profile).status, MetricObservationStatus::InvalidGeometry);
 }
+
+TEST(MetricObservationTest, InteriorOriginProducesNegativePositionsWithoutChangingHeading)
+{
+    auto p = homographyInput().profile;
+    p.bounds = WorkspaceBounds{Meters{1}, Meters{0.6}, {Meters{-0.75}, Meters{-0.4}}};
+    p.homography = knownHomography();
+    p.homography->imageToWorld[2] -= 0.75;
+    p.homography->imageToWorld[5] -= 0.4;
+    const std::array<MarkerCorner, 4> corners{{{400,300}, {600,300}, {600,500}, {400,500}}};
+    const auto result = metricObservation({}, corners, p);
+    ASSERT_TRUE(result.measurement);
+    EXPECT_NEAR(result.measurement->pose.x.value, -0.25, 1e-12);
+    EXPECT_NEAR(result.measurement->pose.y.value, -0.1, 1e-12);
+    EXPECT_NEAR(result.measurement->pose.heading.value, std::numbers::pi / 2, 1e-12);
+}

@@ -106,7 +106,7 @@ TEST(WorkspaceProfileTest, RejectsUnknownVersionsTruncationGarbageOversizeAndInv
     p.homography = knownHomography();
     const auto text = serializeWorkspaceProfile(p);
     for (const auto& [from, to] :
-         std::vector<std::pair<std::string, std::string>>{{"workspace 1", "workspace -1"},
+         std::vector<std::pair<std::string, std::string>>{{"workspace 2", "workspace -1"},
                                                           {"dimensions 1", "dimensions nan"},
                                                           {"undistorted_native_k", "raw_distorted"},
                                                           {"homography 1", "homography -1"}}) {
@@ -140,4 +140,84 @@ TEST(TabletopHomographyReviewTest, AcceptsUnorderedCornersEdgeMidpointsAndInteri
     EXPECT_LT(result.result->fit.maximumMeters, 1e-12);
     const WorkspaceHomography horizon{{1, 0, 0, 0, 1, 0, 1, 0, -500}};
     EXPECT_FALSE(evaluateWorkspaceHomography(input, horizon).result);
+}
+
+TEST(WorkspaceProfileTest, VersionTwoPreservesFrameAndVersionOneMigratesWithoutMovingCoordinates)
+{
+    auto p = homographyInput().profile;
+    p.homography = knownHomography();
+    auto old = serializeWorkspaceProfile(p);
+    old.replace(old.find("workspace 2"), std::string("workspace 2").size(), "workspace 1");
+    old.erase(old.find("minimum "), old.find("image_coordinates") - old.find("minimum "));
+    const auto migrated = parseWorkspaceProfile(old);
+    ASSERT_TRUE(migrated.profile) << migrated.error;
+    EXPECT_EQ(migrated.profile->version, WorkspaceCalibrationProfileVersion);
+    EXPECT_EQ(migrated.profile->homography->imageToWorld, p.homography->imageToWorld);
+    EXPECT_TRUE(migrated.profile->bounds == p.bounds);
+    EXPECT_EQ(migrated.profile->frameId, "legacy-lower-left");
+    EXPECT_FALSE(migrated.profile->boundary);
+    p.bounds = WorkspaceBounds{Meters{1}, Meters{0.6}, {Meters{-0.25}, Meters{-0.3}}};
+    p.frameId = "frame-246";
+    p.boundary = WorkspaceBoundary{{{100,700}, {900,700}, {900,100}, {100,100}}};
+    const auto roundTrip = parseWorkspaceProfile(serializeWorkspaceProfile(p));
+    ASSERT_TRUE(roundTrip.profile) << roundTrip.error;
+    EXPECT_TRUE(roundTrip.profile->bounds == p.bounds);
+    EXPECT_EQ(roundTrip.profile->frameId, p.frameId);
+    ASSERT_TRUE(roundTrip.profile->boundary);
+    for (std::size_t i = 0; i < WorkspaceCornerCount; ++i) {
+        EXPECT_DOUBLE_EQ((*roundTrip.profile->boundary)[i].u, (*p.boundary)[i].u);
+        EXPECT_DOUBLE_EQ((*roundTrip.profile->boundary)[i].v, (*p.boundary)[i].v);
+    }
+}
+
+TEST(WorkspaceBoundaryTest, PhysicalOrderAcceptsBothImageWindingsAndRejectsBadPerimeters)
+{
+    const WorkspaceBoundary valid{{{100,700}, {900,700}, {900,100}, {100,100}}};
+    EXPECT_TRUE(validateWorkspaceBoundary(valid, 1000, 800).empty());
+    auto reversed = valid;
+    std::swap(reversed[1], reversed[3]);
+    EXPECT_TRUE(validateWorkspaceBoundary(reversed, 1000, 800).empty());
+    auto bad = valid;
+    std::swap(bad[1], bad[2]);
+    EXPECT_FALSE(validateWorkspaceBoundary(bad, 1000, 800).empty());
+    bad = valid; bad[2] = bad[1];
+    EXPECT_FALSE(validateWorkspaceBoundary(bad, 1000, 800).empty());
+    bad = valid; bad[2] = {500,700};
+    EXPECT_FALSE(validateWorkspaceBoundary(bad, 1000, 800).empty());
+    bad = valid; bad[2] = {200,600};
+    EXPECT_FALSE(validateWorkspaceBoundary(bad, 1000, 800).empty());
+    bad = valid; bad[0].u = -1;
+    EXPECT_FALSE(validateWorkspaceBoundary(bad, 1000, 800).empty());
+}
+
+TEST(WorkspaceProfileTest, RejectsIncompleteOrInvalidFrameDescriptors)
+{
+    auto p = homographyInput().profile;
+    for (auto bounds : {WorkspaceBounds{Meters{1},Meters{0.6},{Meters{0.1},Meters{0}}},
+                        WorkspaceBounds{Meters{1},Meters{0.6},{Meters{-2},Meters{0}}}}) {
+        p.bounds = bounds;
+        EXPECT_THROW((void)serializeWorkspaceProfile(p),std::invalid_argument);
+    }
+    p = homographyInput().profile;
+    p.frameId.clear();
+    EXPECT_THROW((void)serializeWorkspaceProfile(p),std::invalid_argument);
+    p.frameId = std::string(MaximumWorkspaceFrameIdBytes+1,'x');
+    EXPECT_THROW((void)serializeWorkspaceProfile(p),std::invalid_argument);
+    auto text = serializeWorkspaceProfile(homographyInput().profile);
+    text.erase(text.find("minimum "),text.find("image_coordinates")-text.find("minimum "));
+    EXPECT_FALSE(parseWorkspaceProfile(text).profile); // v2 never silently defaults a missing frame.
+}
+
+TEST(TabletopHomographyTest, NativeProjectionInverseRoundTripsSignedWorldAndRejectsSingularMaps)
+{
+    WorkspaceHomography h{{0.001,0.0001,-0.5, 0.00005,-0.0007,0.2, 0.0001,0.0002,1}};
+    for (const auto image : std::array<ImageCorner,3>{{{100,100},{500,400},{900,700}}}) {
+        const auto world = projectWorkspacePoint(h,image);
+        ASSERT_TRUE(world);
+        const auto restored = unprojectWorkspacePoint(h,*world);
+        ASSERT_TRUE(restored);
+        EXPECT_NEAR(restored->u,image.u,1e-10);
+        EXPECT_NEAR(restored->v,image.v,1e-10);
+    }
+    EXPECT_FALSE(unprojectWorkspacePoint(WorkspaceHomography{},{}));
 }

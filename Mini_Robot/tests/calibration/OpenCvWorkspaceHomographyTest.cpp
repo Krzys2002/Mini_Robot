@@ -66,3 +66,25 @@ TEST(OpenCvWorkspaceHomographyReviewTest, FitsUnorderedRectangleWithEdgeAndInter
     ASSERT_TRUE(result.result) << result.error;
     EXPECT_LT(result.result->fit.maximumMeters, 1e-10);
 }
+
+TEST(OpenCvWorkspaceHomographyTest, InteriorOriginAndReversedAxesPreserveMetricMapping)
+{
+    OpenCvWorkspaceHomographySolver solver;
+    for (bool reverse : {false, true}) {
+        auto input = homographyInput();
+        input.profile.bounds = WorkspaceBounds{Meters{1}, Meters{0.6}, {Meters{-0.5}, Meters{-0.3}}};
+        for (auto* set : {&input.fitPoints, &input.checkPoints})
+            for (auto& p : *set) {
+                p.world.x.value = (reverse ? 1 - p.world.x.value : p.world.x.value) - 0.5;
+                p.world.y.value -= 0.3;
+            }
+        auto result = solver.solve(input);
+        ASSERT_TRUE(result.result) << result.error;
+        EXPECT_LT(result.result->fit.maximumMeters, 1e-10);
+        EXPECT_LT(result.result->check->maximumMeters, 1e-10);
+        const auto p = projectWorkspacePoint(*result.result->profile.homography, {300, 600});
+        ASSERT_TRUE(p);
+        EXPECT_NEAR(p->x.value, reverse ? 0.25 : -0.25, 1e-10);
+        EXPECT_NEAR(p->y.value, -0.2, 1e-10);
+    }
+}
