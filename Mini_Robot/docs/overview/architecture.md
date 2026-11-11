@@ -238,8 +238,9 @@ These M1 contracts apply to all later milestones:
   uses an optional value.
 - `Pose2D` uses metres for x/y and radians for heading. In a top-down world view,
   +x is right and +y is up; heading is zero along +x and positive counterclockwise.
-  The [workspace origin](workspace.md) is the measured lower-left corner of the
-  intended world view; optional metric table bounds are part of WorldModel. Image
+  The [workspace origin](workspace.md) is explicit: a corner or interior point
+  relative to labelled physical +X/+Y edges. Signed metric bounds and active frame
+  identity are part of WorldModel; v1 profiles retain their original lower-left coordinates. Image
   coordinates have a separate top-left origin with +u right and +v down.
 - `Meters` and `Radians` are explicit value wrappers. They do not normalize
   angles, validate finite values, or provide dimensional arithmetic. Code that

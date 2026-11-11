@@ -379,3 +379,24 @@ ctest --test-dir build -R '^(AprilTag|VisionControllerTest)' --output-on-failure
 Physical printed-tag detection is not established by generated images or videos;
 record the [commissioning checks](../vision/apriltag-detection.md#physical-acceptance-not-run)
 separately. Linux/Windows runtime and legacy OpenCV execution were not run locally.
+
+## Guided workspace frame regression (#246)
+
+`WorkspaceBoundaryTest`, `WorkspaceFrameTest`, `WorkspaceProfileTest`,
+`OpenCvWorkspaceHomographyTest` and `WorkspaceCornerWorkflowTest` cover ordered
+perimeters in both image windings, signed origin geometry, native projection/view
+round trips, v1-to-v2 migration, exact frame persistence, stale-worker rejection
+and downstream measurement invalidation. `QtWorkspaceProfileStoreTest` checks
+signed metadata through atomic filesystem storage.
+
+Run the core preset plus the host desktop preset. A focused desktop selection is:
+
+```sh
+ctest --test-dir build/macos -R 'Workspace|TabletopHomography|MetricObservation' --output-on-failure --no-tests=error
+QT_SCALE_FACTOR=1.5 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter='WorkspaceCornerWorkflowTest.*:WorkspaceCalibrationUiTest.Dialog*'
+QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter='WorkspaceCornerWorkflowTest.*:WorkspaceCalibrationUiTest.Dialog*'
+```
+
+These paths are for root builds; standalone executable paths omit `Mini_Robot/`.
+The offscreen entry point does not establish native-display or physical-camera
+acceptance. Those new checks belong to #259 and remain NOT RUN until executed.
