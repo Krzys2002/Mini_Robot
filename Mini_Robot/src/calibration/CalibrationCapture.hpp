@@ -3,6 +3,7 @@
 #include "camera/CameraTypes.hpp"
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -12,6 +13,28 @@ namespace micro_robot {
 inline constexpr int CalibrationLocationGridSide = 3;
 inline constexpr std::size_t CalibrationLocationCellCount =
     CalibrationLocationGridSide * CalibrationLocationGridSide;
+inline constexpr std::uint32_t CalibrationMaximumImageDimension = 4096;
+inline constexpr std::uint64_t CalibrationMaximumImagePixels = 4'000'000;
+inline constexpr std::size_t CalibrationMaximumViews = 24;
+inline constexpr std::size_t CalibrationDefaultStoredPixelBudget = 128 * 1024 * 1024;
+inline constexpr std::size_t CalibrationBytesPerMiB = 1024 * 1024;
+// Integer luma approximation for review only; detection uses original pixels.
+inline constexpr unsigned CalibrationReviewRedWeight = 77;
+inline constexpr unsigned CalibrationReviewGreenWeight = 150;
+inline constexpr unsigned CalibrationReviewBlueWeight = 29;
+inline constexpr unsigned CalibrationReviewWeightSum = 256;
+
+[[nodiscard]] inline bool supportedCalibrationResolution(std::uint32_t width, std::uint32_t height) noexcept
+{
+    return width > 0 && height > 0 && width <= CalibrationMaximumImageDimension
+        && height <= CalibrationMaximumImageDimension
+        && static_cast<std::uint64_t>(width) * height <= CalibrationMaximumImagePixels;
+}
+// Keeps sequence/time, full dimensions and pixel-centre coordinates. Removes
+// colour, padding and unused vector capacity. Throws on invalid input/allocation
+// failure. Production callers perform bulk conversion on their capture worker.
+[[nodiscard]] FramePtr prepareCalibrationReviewFrame(FramePtr frame);
+using CalibrationReviewFrameFactory = std::function<FramePtr(FramePtr)>;
 
 // Target coordinates: top-left inner corner is (0,0,0), x along columns,
 // y along rows on the board, all in metres. Image corners use pixels.
@@ -40,8 +63,8 @@ public:
 struct CalibrationCaptureConfig {
     CalibrationTarget target;
     std::size_t minimumViews{10};
-    std::size_t maximumViews{24};
-    std::size_t maximumStoredBytes{128 * 1024 * 1024};
+    std::size_t maximumViews{CalibrationMaximumViews};
+    std::size_t maximumStoredBytes{CalibrationDefaultStoredPixelBudget};
     double minimumSharpness{40.0};
     double minimumAreaFraction{0.02};
     double minimumCornerMarginPixels{4.0};
@@ -52,7 +75,7 @@ struct CalibrationCaptureConfig {
 };
 enum class CalibrationCaptureState { Idle, Collecting, Complete, Cancelled };
 struct CalibrationView {
-    FramePtr frame;
+    FramePtr frame; // Full-resolution, tightly packed Gray8 review; no raw colour retention.
     CalibrationDetection detection;
 };
 struct CalibrationProgress {
@@ -90,7 +113,12 @@ public:
     explicit CalibrationCapture(CalibrationCaptureConfig config = {});
     void restart(std::string sourceId);
     void cancel();
-    [[nodiscard]] CaptureDecision add(FramePtr frame, CalibrationDetection detection);
+    // Read-only quality/diversity/budget preflight; never retains or copies pixels.
+    [[nodiscard]] CaptureDecision assess(FramePtr frame, const CalibrationDetection& detection) const;
+    // Strong storage guarantee: rejected/failed preparation leaves captures/bytes
+    // unchanged. Injectable preparation also permits deterministic failure tests.
+    [[nodiscard]] CaptureDecision add(FramePtr frame, CalibrationDetection detection,
+        const CalibrationReviewFrameFactory& prepare = prepareCalibrationReviewFrame);
     [[nodiscard]] bool remove(std::size_t index);
     [[nodiscard]] bool finish();
     [[nodiscard]] CalibrationProgress progress() const;
@@ -100,6 +128,8 @@ public:
     [[nodiscard]] const CalibrationCaptureConfig& config() const noexcept { return config_; }
     [[nodiscard]] const std::vector<CalibrationView>& views() const noexcept { return views_; }
     [[nodiscard]] const std::string& sourceId() const noexcept { return sourceId_; }
+    [[nodiscard]] std::size_t storedPixelBytes() const noexcept { return storedBytes_; }
+    [[nodiscard]] std::size_t remainingPixelBytes() const noexcept { return config_.maximumStoredBytes - storedBytes_; }
 private:
     CalibrationCaptureConfig config_;
     CalibrationCaptureState state_{CalibrationCaptureState::Idle};

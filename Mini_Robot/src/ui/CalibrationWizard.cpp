@@ -295,13 +295,16 @@ void CalibrationWizard::refresh()
     undistorted_->setChecked(controller_.undistortedPreview());
     progress_->setText(QStringLiteral(
         "Views %1 / %2 minimum (%3 maximum) · Image regions %4 / %5\n"
-        "Scale spread %6 / %7 · In-plane rotation %8° / %9°%10")
+        "Scale spread %6 / %7 · In-plane rotation %8° / %9°%10\n"
+        "Review pixels: %11 / %12 MiB budget (packed grayscale; full resolution)")
         .arg(progress.count).arg(config.minimumViews).arg(config.maximumViews)
         .arg(progress.locationCells).arg(config.minimumLocationCells)
         .arg(progress.scaleSpread, 0, 'f', 2).arg(config.minimumScaleSpread, 0, 'f', 2)
         .arg(progress.angleSpreadRadians * 180 / std::numbers::pi, 0, 'f', 0)
         .arg(config.minimumAngleSpreadRadians * 180 / std::numbers::pi, 0, 'f', 0)
-        .arg(session.state() == CalibrationCaptureState::Complete ? QStringLiteral(" · Complete") : QString{}));
+        .arg(session.state() == CalibrationCaptureState::Complete ? QStringLiteral(" · Complete") : QString{})
+        .arg(static_cast<double>(session.storedPixelBytes()) / CalibrationBytesPerMiB, 0, 'f', 1)
+        .arg(static_cast<double>(config.maximumStoredBytes) / CalibrationBytesPerMiB, 0, 'f', 1));
     capture_->setEnabled(controller_.canCapture());
     finish_->setEnabled(!controller_.busy() && !controller_.profileBusy() && !controller_.result()
         && ((progress.ready && session.state() == CalibrationCaptureState::Collecting)
