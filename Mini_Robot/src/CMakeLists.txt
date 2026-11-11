@@ -46,6 +46,8 @@ add_library(micro_robot_calibration STATIC
     calibration/WorkspaceCalibration.cpp
     calibration/TabletopHomography.cpp
     calibration/TabletopHomography.hpp
+    calibration/WorkspaceDistance.hpp
+    calibration/WorkspaceDistance.cpp
     calibration/WorkspaceDiagnostics.hpp
     calibration/WorkspaceDiagnostics.cpp
     calibration/WorkspaceAcquisition.hpp

@@ -43,7 +43,7 @@ endif()
 add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp
     calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp
     calibration/WorkspaceCalibrationTest.cpp calibration/TabletopHomographyTest.cpp
-    calibration/WorkspaceAcquisitionTest.cpp calibration/WorkspaceDiagnosticsTest.cpp)
+    calibration/WorkspaceAcquisitionTest.cpp calibration/WorkspaceDiagnosticsTest.cpp calibration/WorkspaceDistanceTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
 gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST)
