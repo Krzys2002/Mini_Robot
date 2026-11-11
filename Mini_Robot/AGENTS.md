@@ -303,6 +303,12 @@ Treat iPhone LiDAR as a separate future depth-sensor pipeline, preferably throug
 
 Use C++20.
 
+Do not use magic numbers for behavioral values such as durations, limits or
+thresholds. Define named `constexpr` constants (using `static constexpr` for class
+members) in the relevant header and reuse them instead of duplicating literals.
+Use explicit units for physical and timing values. UI placement and layout values
+are exempt from this rule.
+
 Prefer:
 - RAII;
 - `std::unique_ptr` for clear exclusive ownership;
