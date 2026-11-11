@@ -88,6 +88,111 @@ dialog preserves it until restart, camera loss/change or application exit.
 Use **Save profile** after solving to persist the result; see the
 [profile guide](calibration-profiles.md).
 
+## Placement, rotation and next-capture help
+
+Open **Board placement and capture help** in the wizard for the setup checklist,
+axis definitions and common rejection remedies. The **Next capture** line uses
+only accepted-view measurements. Read the last capture feedback alongside it:
+a rejected frame does not fill a coverage cell or improve progress. Help can be
+collapsed; the content scrolls on a small window or scaled display so controls
+and wrapped text remain reachable.
+
+### Prepare the target and camera
+
+An **inner corner** is an intersection surrounded by four squares inside the
+board. Nine by six inner corners therefore needs ten by seven squares; do not
+enter or print a nine-by-six-square target. The adjacent inner-corner spacing is
+one square side. Measure several squares along both printed directions with a
+ruler after printing at 100% without fit-to-page. For the supplied target, both
+spacings must be 25 mm. This wizard has no square-size entry field: reprint a
+mismatched target rather than assuming the solver knows its measured dimensions.
+Keep the target flat on a rigid backing and preserve its white border.
+
+Keep the camera fixed and move the board. Set a useful focus, even lighting and
+an exposure that keeps the stationary grid sharp without glare or deep shadows.
+Keep resolution, focus, zoom, exposure and other image-processing settings fixed;
+disable automatic changes where the backend allows. Restart capture after
+changing settings. A profile from a different focus/zoom or optical setup needs
+fresh calibration even if device identity and resolution happen to match.
+
+### Try this sequence
+
+1. Begin with the board near the image centre, facing the camera and large enough
+   to read every intersection. Hold it still for Capture view, then inspect the
+   stored corner overlay.
+2. Move the **board centre** toward the top, bottom, left and right image regions,
+   then toward each of the four image-corner regions. These are regions of the
+   camera image, not squares of the printed target. Keep all outer squares and
+   the white border visible. If an edge-region placement would clip the target,
+   move slightly farther away first; do not try to put the target centre on the
+   literal image boundary.
+3. Try nearer and farther distances to change the board's apparent size. The
+   closer view must remain fully visible and the farther view must remain sharp,
+   sufficiently large and readable. A count of ten nearly identical views is
+   not useful diversity.
+4. Turn the board within the image, then add out-of-plane tilts about **both**
+   board axes as described below. Alternate which edge comes toward the camera.
+   Do not use nearly edge-on, clipped, moving/blurred or unreadable views.
+5. Follow the next-capture suggestion for missing measured diversity, but also
+   inspect X/Y tilts yourself. Once measured minimums pass, calculate intrinsics
+   and inspect aggregate/per-view reprojection errors. Thresholds and low error
+   alone do not establish physical accuracy; validate with real equipment in
+   [#179](https://github.com/Krzys2002/Mini_Robot/issues/179).
+
+### Board axes and rotations
+
+These are axes attached to the board, separate from image coordinates or a
+future tabletop world frame. For the supplied landscape target:
+
+| Axis | Direction on the board | What the operator does |
+| --- | --- | --- |
+| X | Along the nine-column inner-corner direction, across the long edge | Tilt about X: bring the top edge toward the camera, then try the bottom edge |
+| Y | Along the six-row inner-corner direction, across the short edge | Tilt about Y: bring the left edge toward the camera, then try the right edge |
+| Z | Perpendicular to the board face | Rotate about Z: turn the board clockwise/counterclockwise within the image |
+
+Use gentle, readable X/Y tilts that show perspective, rather than flattening
+one board dimension into a nearly edge-on sliver. The unmarked target can have
+reversed corner ordering; these axis descriptions guide movement and are not a
+claim that the software knows which physical edge is positive. **X/Y tilt angles
+are not measured or certified by capture progress.** In-plane angle diversity is
+not a substitute for both out-of-plane tilts.
+
+### Interpret progress and hints
+
+- **Views** counts accepted observations only. The minimum is a collection gate;
+  the maximum bounds storage. Removing a view recomputes the remaining coverage.
+- **Image regions** counts occupied board-centre cells in a 3 × 3 image grid.
+  The default requires three different cells. It does not measure full corner
+  coverage, board tilt or a well-conditioned camera model. Explore edges and
+  corners even after the minimum is satisfied.
+- **Scale spread** is max minus min of the square root of the inner-corner
+  quadrilateral area divided by image area. It is dimensionless. For example,
+  4% and 9% area produce scale values 0.20 and 0.30, hence a spread of 0.10;
+  the default minimum is 0.08. It is neither a measured distance nor a tilt angle.
+- **In-plane rotation** is the largest first-row angle difference modulo 180°.
+  The default minimum is 0.20 rad (about 11.5°); this does not estimate X/Y tilt.
+- Hints first suggest a missing image region, then scale, then in-plane angle,
+  then additional distinct views. They are suggestions, not new acceptance
+  gates. Once minimums pass, they ask for visual X/Y-tilt and overlay inspection.
+  At the view limit with insufficient diversity, remove a similar view and
+  replace it. A cancelled/new-source session starts guidance from the beginning.
+
+| Capture feedback | Action before trying again |
+| --- | --- |
+| Full chessboard not found | Show every outer square and border, improve lighting/focus, reduce extreme tilt |
+| Board clipped or too close to edge | Move inward or slightly farther away; keep the outer border visible too |
+| Blurry or low contrast | Hold still, improve focus/light, avoid glare; keep settings fixed after adjusting/restarting |
+| Too small | Move closer while keeping the whole target visible |
+| Redundant view | Change position, distance, in-plane rotation or X/Y tilt; retry after the board is still |
+| Repeated/old/stale frame | Wait for fresh camera input or reconnect/start the camera |
+| View or memory limit | Remove a less useful view; if lowering resolution is necessary, restart the session |
+| Resolution changed | Restart at one fixed delivered resolution |
+| Detector failure | Read the reported error, restore readable input and retry; preserve persistent failures for diagnosis |
+
+The sharpness number is a Laplacian-variance/contrast heuristic in the target
+bounds, not a physical focus measurement. Redundancy compares corner positions,
+including reversed ordering; it does not infer a measured 3D orientation.
+
 ## Quality gates and diversity
 
 `CalibrationCaptureConfig` centralizes the injectable thresholds. Defaults:
@@ -365,3 +470,35 @@ Verification executed on macOS arm64 with AppleClang 21, Qt 6.12.0 and OpenCV 5.
 No root/standalone build integration changed; standalone execution was not
 repeated for #243. Physical camera/native display, Linux/Windows and OpenCV 4
 execution remain **NOT RUN**. This is software evidence only.
+
+## Guidance validation (#244, 2026-11-11)
+
+The #244 child was tested on approved PR #253 head
+`5eb25a90ad3bac0a87ba6901b6f149967a08b390` (itself based on #252).
+On macOS arm64, AppleClang 21, Qt 6.12.0 and OpenCV 5.1.0:
+
+- Root `cmake --preset core` with the existing GoogleTest checkout, then
+  `cmake --build --preset core --parallel 3` and
+  `ctest --preset core --parallel 3`: **285 passed**, without Qt/OpenCV.
+- Root `cmake --preset macos` with that checkout, then
+  `cmake --build --preset macos --parallel 3` and
+  `ctest --preset macos --parallel 3`: **492 passed, 1 opt-in performance audit
+  skipped**, zero failures (493 discovered).
+- Five new `CalibrationGuidanceTest` cases cover accepted-only region coverage,
+  rejected/removal/reset transitions, scale/angle priorities, count/readiness and
+  view-limit replacement. Three `CalibrationGuidanceUiTest` cases cover hints,
+  help, retained rejection feedback and small-window scrolling/fixed actions.
+- `QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=1.5` and `=2` runs of
+  `micro_robot_tests --gtest_filter='CalibrationGuidanceUiTest.*'`: **3/3 passed
+  at each scale**. Rendered 520 × 480 logical-pixel help/primary-action views were
+  visually inspected at both scales. Qt printed a font-alias startup notice;
+  it did not affect the passing checks.
+- `git diff --check`: passed. No build integration changed; standalone execution
+  was not repeated for #244. The task worktree had no usable graph, so source
+  and tests were inspected directly.
+
+Physical camera/printed target, native-display behavior, Linux/Windows and
+OpenCV 4 execution: **NOT RUN**. The placement/rotation guidance follow-up in
+[#179](https://github.com/Krzys2002/Mini_Robot/issues/179) owns setup and per-scenario
+physical evidence, separate from the software acceptance above. Earlier #179
+results do not establish acceptance of this revision's guidance.

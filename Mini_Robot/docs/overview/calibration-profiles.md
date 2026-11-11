@@ -201,3 +201,10 @@ Capture results in raw and corrected mode return to live preview after five
 seconds from presentation. The capture reason remains readable separately;
 explicitly reviewing a stored view cancels automatic return. See the
 [capture guide](calibration-capture.md) for timer, camera-loss and lifecycle behavior.
+
+For target setup, image-region examples and clearly labelled board X/Y tilts and
+Z rotation, use the wizard's **Board placement and capture help** and the
+[placement guide](calibration-capture.md#placement-rotation-and-next-capture-help).
+Next-capture hints use accepted-view count/region/scale/in-plane-angle measurements;
+they do not measure out-of-plane tilt or certify physical profile accuracy. Keep
+focus, zoom and camera settings fixed; changed optics require fresh calibration.
