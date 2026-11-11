@@ -12,7 +12,11 @@ import subprocess
 import sys
 import time
 
-VERSION = "0.9.102"
+from doc_links import MARKER, PROFILE, add_document_links, technical_document
+from source_checks import check_cpp_calls, retain_rejections
+from graph_quality import audit_graph, find_nodes
+
+VERSION = "0.9.106"
 FORMAT = 1
 OUT = "graphify-out"
 
@@ -59,7 +63,7 @@ def snapshot(root: Path) -> dict:
             files[name] = digest(path)
     return {"format": FORMAT, "root": str(root),
             "head": git(root, "rev-parse", "HEAD").decode().strip(),
-            "graphify_version": VERSION, "profile": "code-only", "files": files}
+            "graphify_version": VERSION, "profile": PROFILE, "files": files}
 
 
 def graph_data(root: Path) -> dict:
@@ -74,8 +78,10 @@ def graph_data(root: Path) -> dict:
     if metadata.get("graphify_version") != VERSION:
         raise ValueError("unexpected Graphify graph version")
     if any(n.get("file_type") in {"document", "paper", "image", "video"}
+           and not (n.get("file_type") == "document" and n.get("extraction") == MARKER
+                    and technical_document(n.get("source_file", "")))
            for n in data["nodes"]):
-        raise ValueError("semantic content found; run build for a clean code-only graph")
+        raise ValueError("unapproved semantic content found; run build")
     return data
 
 
@@ -87,7 +93,7 @@ def freshness(root: Path) -> tuple[bool, str]:
             return False, "graph changed outside the wrapper"
         if saved["snapshot"] != snapshot(root):
             return False, "checkout, content, or policy changed"
-        return True, "fresh (code-only; documentation is not indexed)"
+        return True, "fresh (code and explicitly linked technical documentation; backend none)"
     except (OSError, ValueError, KeyError, TypeError):
         return False, "missing, incompatible, or corrupt graph/provenance"
 
@@ -148,7 +154,9 @@ def rebuild(root: Path, command: str) -> int:
             raise ValueError("Corrupt provenance; run build.")
         keys = ("format", "root", "graphify_version", "profile")
         policy = (".graphifyrc", ".graphifyignore", "tools/graphify/uv.lock",
-                  "tools/graphify/pyproject.toml", "tools/graphify/project_graph.py")
+                  "tools/graphify/pyproject.toml", "tools/graphify/project_graph.py",
+                  "tools/graphify/doc_links.py", "tools/graphify/source_checks.py",
+                  "tools/graphify/graph_quality.py")
         if (any(previous.get(k) != before[k] for k in keys)
                 or any(previous["files"].get(p) != before["files"].get(p) for p in policy)
                 or saved["graph_sha256"] != digest(root / OUT / "graph.json")):
@@ -168,10 +176,24 @@ def rebuild(root: Path, command: str) -> int:
     result = run_graphify(root, args)
     if result:
         return result
-    if command == "build":
-        result = run_graphify(root, ["cluster-only", str(root), "--no-label"])
-        if result:
-            return result
+    graph_path = root / OUT / "graph.json"
+    data = graph_data(root)
+    checks = check_cpp_calls(root, data)
+    check_path = root / OUT / "source-checks.json"
+    previous_checks = {}
+    if command == "update" and check_path.exists():
+        try:
+            previous_checks = json.loads(check_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    checks = retain_rejections(root, checks, previous_checks)
+    check_path.write_text(
+        json.dumps(checks, indent=2) + "\n", encoding="utf-8")
+    data = add_document_links(root, data, before["files"])
+    graph_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    result = run_graphify(root, ["cluster-only", str(root), "--no-label"])
+    if result:
+        return result
     graph_data(root)
     after = snapshot(root)
     if before != after:
@@ -186,11 +208,11 @@ def rebuild(root: Path, command: str) -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["build", "update", "status", "query", "path",
+    parser.add_argument("command", choices=["build", "update", "status", "audit", "find", "query", "path",
                                              "explain", "affected"])
     parser.add_argument("terms", nargs="*")
     args = parser.parse_args(argv)
-    counts = {"build": 0, "update": 0, "status": 0, "query": 1,
+    counts = {"build": 0, "update": 0, "status": 0, "audit": 0, "find": 1, "query": 1,
               "path": 2, "explain": 1, "affected": 1}
     if len(args.terms) != counts[args.command] or any(t.startswith("-") for t in args.terms):
         parser.error(f"{args.command} expects {counts[args.command]} quoted term(s), no options")
@@ -206,6 +228,22 @@ def main(argv=None) -> int:
             fresh, reason = freshness(root)
             if not fresh:
                 raise ValueError(f"Graph unavailable: {reason}. Run build/update, or use source search.")
+            if args.command == "audit":
+                report = audit_graph(root, graph_data(root))
+                print(json.dumps(report, indent=2))
+                return 0 if report["passed"] else 2
+            if args.command == "find":
+                matches = find_nodes(graph_data(root), args.terms[0])
+                for node in matches[:20]:
+                    print(f"{node.get('label')} [{node.get('file_type')}] "
+                          f"{node.get('source_file') or 'unresolved/external'}:{node.get('source_location', '')}\n"
+                          f"  id: {node['id']}")
+                print(f"{len(matches)} match(es); showing at most 20. Narrow by source path if needed.")
+                return 0 if matches else 4
+            # Upstream query tokenizes full IDs into broad, unrelated seeds.
+            # An exact ID means one symbol: use its bounded neighborhood.
+            if args.command == "query" and any(n["id"] == args.terms[0] for n in graph_data(root)["nodes"]):
+                return run_graphify(root, ["explain", *args.terms, "--graph", str(root / OUT / "graph.json")])
             return run_graphify(root, [args.command, *args.terms, "--graph",
                                        str(root / OUT / "graph.json")])
     except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as exc:

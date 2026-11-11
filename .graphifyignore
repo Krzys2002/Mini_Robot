@@ -10,10 +10,12 @@
 **/graphify-out/
 .codex/
 Mini_Robot/.codex/
-# Legacy standalone firmware is outside the desktop navigation corpus.
-T1-ESP-C6/
-T1-ESP-S3/
-# The initial graph is code-only; semantic indexing is intentionally deferred.
+# GitHub automation, project administration and agent configuration.
+.github/
+.agents/
+**/AGENTS.md
+# Markdown is added by the wrapper's explicit technical-document link pass.
+# Never send documentation/media to a semantic backend.
 *.md
 **/*.md
 *.txt
@@ -21,3 +23,7 @@ T1-ESP-S3/
 report/
 Pres/
 Mini_Robot/output/
+Mini_Robot/docs/planning/
+Mini_Robot/docs/archive/
+Mini_Robot/docs/testing/evidence/
+core arhiteture.md
