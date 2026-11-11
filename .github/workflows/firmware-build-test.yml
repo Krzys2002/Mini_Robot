@@ -1,18 +1,14 @@
 name: Firmware build and host tests
 
 on:
-  pull_request:
-    paths:
-      - 'Mini_Robot/firmware/codecell-c6/**'
-      - '.github/workflows/firmware-build-test.yml'
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: firmware-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: firmware-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   firmware:
