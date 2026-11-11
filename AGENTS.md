@@ -59,7 +59,7 @@ Report commands actually run and distinguish build/test results from GUI or
 hardware validation. Do not claim a completed perception-to-motion loop or
 production motor safety based on component tests or the BLE connection fixture.
 
-## Optional code graph
+## Code graph for agent navigation
 
 Graphify is a derived navigation aid. Applicable instructions and assigned issues
 define scope; source and tests establish implementation; live GitHub data
@@ -68,17 +68,35 @@ establishes project state; recorded execution establishes validation. Use
 planning catalogs, archives, or the historical `core arhiteture.md` sketch.
 
 - Read applicable instructions and the assigned issue/dependencies first.
-- For structural exploration, check `python3 tools/graphify/project_graph.py status`
+- For callers, interface consumers, dependency paths and candidate regression
+  tests, use the local graph when available. Start with
+  `python3 tools/graphify/project_graph.py status`
   from the Git worktree root. A missing/stale graph must not block work: use `rg`
   and source inspection, or explicitly build/update the graph when worthwhile.
-- Use scoped query/path/explain/affected commands to locate relevant code/tests.
+- Discover exact node IDs with `python3 tools/graphify/project_graph.py find 'WorldModel'`;
+  then use `explain '<id>'`, `affected '<id>'` or `path '<id A>' '<id B>'`.
+  `query '<exact id>'` shows that one symbol's neighborhood; free-text queries
+  may expand broadly. Narrow by source path when several symbols share a name.
+  `audit` checks graph/source integrity and explicit document links. Run it after
+  graph tooling changes and before relying on a rebuilt graph for broad impact work.
   Exact strings and errors can use `rg` directly. Verify source before editing;
   an absent edge does not prove independence. Pass this guidance to exploring
   subagents; they share this worktree's graph and must not refresh concurrently.
 - After coherent edits, refresh with `update`; use `build` for first use,
   recovery, or changed extraction policy. Every worktree owns its ignored
   `graphify-out/`. Never reuse another checkout's output or commit generated graphs.
-- Keep backend `none` and code-only extraction. Semantic indexing, hosted upload,
+- The wrapper, policy, tests, guide and these instructions are repository files.
+  The installed environment and generated graph are local, ignored artifacts;
+  a GitHub checkout does not arrive with a usable graph. Install/build per the
+  guide if worthwhile. Do not publish changes or invoke the manual diagnostics
+  workflow merely to use the graph locally.
+- Inspect `graphify-out/source-checks.json` for known rejected call links.
+  Rejected links are unresolved, not evidence of independence. Source-less nodes
+  are unresolved/external names, not confirmed repository definitions. The audit
+  does not prove complete call coverage or compiler-correct symbol binding.
+- Keep backend `none` and code-only extraction, followed by the wrapper's explicit
+  technical-document links. Include desktop and firmware code; exclude GitHub
+  administration, plans, reports, presentations and evidence records. Semantic indexing, hosted upload,
   saved-answer ingestion, hooks, and global agent changes are outside this setup.
 - Do not infer issue completion, calibrated closed-loop operation, physical
   stopping, or firmware safety from graph results. Read live GitHub blockers;
@@ -87,3 +105,7 @@ planning catalogs, archives, or the historical `core arhiteture.md` sketch.
 Commands, coverage limits, and recovery: [Graphify guide](Mini_Robot/docs/development/graphify.md).
 For the reusable structural-exploration procedure, use the repository skill
 [mini-robot-graph](.agents/skills/mini-robot-graph/SKILL.md).
+For setup, worktree recreation, update and recovery steps, read
+[the graph lifecycle workflow](.codex/workflows/graphify.md). When explicitly
+implementing an issue with the saved workflow, use this worktree's
+[issue workflow](.codex/workflows/github-issue-implementation.md), not a global copy.
