@@ -1,6 +1,7 @@
 #pragma once
 #include "app/WorkspaceCalibrationController.hpp"
 #include <QDialog>
+#include <QPointer>
 #include <limits>
 class QLineEdit;
 class QComboBox;
@@ -16,6 +17,7 @@ inline constexpr int MaximumWorkspaceOverlayReferenceLabels = 64;
 class WorkspaceImageView;
 class WorkspaceReferenceModel;
 class WorkspaceBoardPanel;
+class WorkspaceDiagnosticsDialog;
 
 class WorkspaceCalibrationDialog final : public QDialog {
     Q_OBJECT
@@ -37,6 +39,8 @@ private:
     QTableView* points_{};
     WorkspaceReferenceModel* referenceModel_{};
     WorkspaceBoardPanel* board_{};
+    QPointer<WorkspaceDiagnosticsDialog> diagnosticsDialog_;
+    QPushButton* diagnostics_{};
     QLabel* message_{};
     QPushButton *freeze_{}, *calculate_{}, *save_{}, *load_{}, *verify_{}, *activate_{};
     QPushButton *confirm_{}, *undo_{}, *reset_{}, *reselect_{}, *originPick_{}, *add_{}, *remove_{};

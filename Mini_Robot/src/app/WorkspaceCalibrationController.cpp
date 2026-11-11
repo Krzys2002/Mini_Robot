@@ -1,4 +1,5 @@
 #include "app/WorkspaceCalibrationController.hpp"
+#include "app/WorkspaceDiagnosticsController.hpp"
 #include <QMetaObject>
 #include <QUuid>
 #include <algorithm>
@@ -14,6 +15,11 @@ WorkspaceCalibrationController::WorkspaceCalibrationController(
 {
     if (!solver_ || !undistorter_ || !store_)
         throw std::invalid_argument("Workspace calibration services are required.");
+    diagnostics_ = std::make_unique<WorkspaceDiagnosticsController>();
+    connect(this, &WorkspaceCalibrationController::profileChanged, this, [this] {
+        diagnostics_->setCalibration(profile_, activeAcquisition_);
+    });
+    connect(diagnostics_.get(), &WorkspaceDiagnosticsController::stopped, this, &WorkspaceCalibrationController::stopped);
     workerContext_ = new QObject;
     workerContext_->moveToThread(&worker_);
     connect(&worker_, &QThread::finished, workerContext_, &QObject::deleteLater);
@@ -26,6 +32,9 @@ WorkspaceCalibrationController::~WorkspaceCalibrationController()
     worker_.quit();
     worker_.wait();
 }
+
+WorkspaceDiagnosticsController& WorkspaceCalibrationController::diagnostics() const { return *diagnostics_; }
+bool WorkspaceCalibrationController::isStopped() const { return worker_.isFinished() && diagnostics_->isStopped(); }
 
 void WorkspaceCalibrationController::publish(QString message)
 {
@@ -574,6 +583,7 @@ void WorkspaceCalibrationController::load()
 
 void WorkspaceCalibrationController::shutdown()
 {
+    diagnostics_->shutdown();
     if (shuttingDown_)
         return;
     shuttingDown_ = true;
