@@ -196,3 +196,8 @@ non-finite, overflowing and underflow-to-zero inputs. Local desktop build and
 full CTest passed **261/261**; Qt/OpenCV-free build and full CTest passed
 **166/166**. `git diff --check` passed. Updated remote CI is required to verify
 the older runner toolchain; these local results do not claim that verification.
+
+Capture results in raw and corrected mode return to live preview after five
+seconds from presentation. The capture reason remains readable separately;
+explicitly reviewing a stored view cancels automatic return. See the
+[capture guide](calibration-capture.md) for timer, camera-loss and lifecycle behavior.

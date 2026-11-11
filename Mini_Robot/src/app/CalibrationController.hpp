@@ -6,8 +6,11 @@
 
 #include <QObject>
 #include <QThread>
+#include <QTimer>
 #include <QString>
 
+#include <chrono>
+#include <functional>
 #include <memory>
 
 namespace micro_robot {
@@ -21,10 +24,15 @@ enum class CalibrationLivePreviewMode { Hold = 0, Track = 1, Matched = 2 };
 class CalibrationController final : public QObject {
     Q_OBJECT
 public:
+    static constexpr auto CaptureReviewDuration = std::chrono::seconds{5};
+    static constexpr auto MaximumLiveFrameAge = std::chrono::seconds{2};
+
+    // Optional review clock is called on the GUI thread and must be monotonic.
     CalibrationController(std::unique_ptr<ICalibrationDetector> detector,
                           std::unique_ptr<IIntrinsicCalibrationSolver> solver, LogChannel log,
                           CalibrationCaptureConfig config = {},
-                          IntrinsicCalibrationConfig intrinsicConfig = {}, QObject* parent = nullptr);
+                          IntrinsicCalibrationConfig intrinsicConfig = {}, QObject* parent = nullptr,
+                          std::function<Timestamp()> clock = [] { return MonotonicClock::now(); });
     ~CalibrationController() override;
     // Inject once before input; used exclusively on the preview worker.
     void setLiveTracker(std::unique_ptr<ICalibrationCornerTracker> tracker);
@@ -48,6 +56,7 @@ public:
     void receiveFrame(FramePtr frame);
     [[nodiscard]] const CalibrationCapture& session() const noexcept { return session_; }
     [[nodiscard]] const QString& message() const noexcept { return message_; }
+    [[nodiscard]] const QString& captureFeedback() const noexcept { return captureFeedback_; }
     [[nodiscard]] bool busy() const noexcept { return busy_; }
     [[nodiscard]] bool canCapture() const;
     // GUI-thread access; copy the validated value before use on another worker.
@@ -76,10 +85,21 @@ signals:
     void changed();
     // Same-thread presentation signals. Frame storage remains owned/immutable.
     void previewChanged(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate = false);
+    // Reusable non-modal event; retained by captureFeedback() across live transitions.
+    void captureFeedbackAvailable(const QString& reason, bool accepted);
     void stopped();
 
 private:
     void publish(const QString& message);
+    void cancelReview();
+    void emitPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate);
+    void expireReview();
+    std::function<Timestamp()> clock_;
+    QTimer reviewTimer_;
+    std::optional<Timestamp> reviewDeadline_;
+    FramePtr reviewFrame_;
+    std::uint64_t reviewRevision_{};
+    QString captureFeedback_;
     void invalidate();
     void presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate = false);
     void processPreview();
@@ -87,7 +107,7 @@ private:
     void resetLiveOverlay();
     void trackLive();
     void resetTracking();
-    void acceptCapture(FramePtr frame, CalibrationDetection detection);
+    void acceptCapture(FramePtr frame, CalibrationDetection detection, std::uint64_t reviewRevision);
     CalibrationCapture session_;
     LogChannel log_;
     QString sourceId_;

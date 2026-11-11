@@ -12,10 +12,17 @@
 namespace micro_robot {
 CalibrationController::CalibrationController(std::unique_ptr<ICalibrationDetector> detector,
     std::unique_ptr<IIntrinsicCalibrationSolver> solver, LogChannel log,
-    CalibrationCaptureConfig config, IntrinsicCalibrationConfig intrinsicConfig, QObject* parent)
-    : QObject(parent), session_(config), log_(std::move(log)), detector_(std::move(detector)),
+    CalibrationCaptureConfig config, IntrinsicCalibrationConfig intrinsicConfig, QObject* parent,
+    std::function<Timestamp()> clock)
+    : QObject(parent), clock_(std::move(clock)), session_(config), log_(std::move(log)), detector_(std::move(detector)),
       solver_(std::move(solver)), intrinsicConfig_(intrinsicConfig)
 {
+    if (!clock_) throw std::invalid_argument("Calibration clock is required");
+    reviewTimer_.setParent(this);
+    reviewTimer_.setObjectName(QStringLiteral("calibrationReviewTimer"));
+    reviewTimer_.setSingleShot(true);
+    reviewTimer_.setTimerType(Qt::PreciseTimer);
+    connect(&reviewTimer_, &QTimer::timeout, this, &CalibrationController::expireReview);
     if (!detector_ || !solver_) throw std::invalid_argument("Calibration detector and solver are required");
     if (const auto error = validateIntrinsicConfig(intrinsicConfig_); !error.empty())
         throw std::invalid_argument(error);
@@ -47,8 +54,40 @@ void CalibrationController::publish(const QString& message)
     log_.info(message.toStdString());
     emit changed();
 }
+void CalibrationController::cancelReview()
+{
+    ++reviewRevision_;
+    reviewTimer_.stop();
+    reviewDeadline_.reset();
+    reviewFrame_.reset();
+}
+void CalibrationController::emitPreview(FramePtr frame, const std::vector<ImageCorner>& corners,
+                                        bool accepted, bool approximate)
+{
+    // This is the GUI presentation boundary, including asynchronous correction.
+    // Arm before notifying observers so a reentrant user action can cancel it.
+    if (reviewFrame_ && !reviewDeadline_ && !live_ && frame
+        && frame->sequence == reviewFrame_->sequence && frame->capturedAt == reviewFrame_->capturedAt) {
+        reviewDeadline_ = clock_() + CaptureReviewDuration;
+        reviewTimer_.start(CaptureReviewDuration);
+    }
+    emit previewChanged(std::move(frame), corners, accepted, approximate);
+}
+void CalibrationController::expireReview()
+{
+    if (!reviewDeadline_ || shuttingDown_) return;
+    const auto now = clock_();
+    if (now < *reviewDeadline_) {
+        // Also guards an obsolete queued timeout after a replacement capture.
+        reviewTimer_.start(std::chrono::ceil<std::chrono::milliseconds>(*reviewDeadline_ - now));
+        return;
+    }
+    showLive();
+}
 void CalibrationController::invalidate()
 {
+    cancelReview();
+    captureFeedback_.clear();
     ++generation_;
     ++liveEpoch_;
     resetLiveOverlay();
@@ -123,6 +162,8 @@ bool CalibrationController::canCapture() const
 void CalibrationController::restart()
 {
     if (shuttingDown_ || !streaming_ || sourceId_.isEmpty()) return;
+    cancelReview();
+    captureFeedback_.clear();
     ++generation_;
     ++liveEpoch_;
     resetLiveOverlay();
@@ -141,15 +182,17 @@ void CalibrationController::capture()
     if (!canCapture()) return;
     const auto frame = livePreviewActive_ && selectedFrame_ ? selectedFrame_ : latest_;
     const auto age = MonotonicClock::now() - frame->capturedAt;
-    if (age < Duration::zero() || age > std::chrono::seconds{2}) {
+    if (age < Duration::zero() || age > MaximumLiveFrameAge) {
         publish(QStringLiteral("Latest frame is stale. Wait for a fresh camera frame."));
         return;
     }
+    cancelReview();
+    const auto reviewRevision = reviewRevision_;
     ++liveEpoch_;
     resetLiveOverlay(); // A running live job cannot replace the selected capture.
     live_ = false;
     if (frame == detectedFrame_ && liveDetection_) {
-        acceptCapture(frame, *liveDetection_);
+        acceptCapture(frame, *liveDetection_, reviewRevision);
         return;
     }
     busy_ = true;
@@ -157,7 +200,7 @@ void CalibrationController::capture()
     const auto target = session_.config().target;
     const auto detector = detector_;
     publish(QStringLiteral("Detecting chessboard corners…"));
-    QMetaObject::invokeMethod(workerContext_, [this, detector, frame, target, generation] {
+    QMetaObject::invokeMethod(workerContext_, [this, detector, frame, target, generation, reviewRevision] {
         CalibrationDetection result;
         try {
             result = detector->detect(*frame, target);
@@ -166,25 +209,32 @@ void CalibrationController::capture()
         } catch (...) {
             result.error = "Detection failed with an unknown error.";
         }
-        QMetaObject::invokeMethod(this, [this, frame, generation, result = std::move(result)]() mutable {
+        QMetaObject::invokeMethod(this, [this, frame, generation, reviewRevision, result = std::move(result)]() mutable {
             busy_ = false;
             if (generation != generation_ || shuttingDown_) { emit changed(); return; }
-            acceptCapture(frame, std::move(result));
+            acceptCapture(frame, std::move(result), reviewRevision);
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);
 }
-void CalibrationController::acceptCapture(FramePtr frame, CalibrationDetection detection)
+void CalibrationController::acceptCapture(FramePtr frame, CalibrationDetection detection, std::uint64_t reviewRevision)
 {
     const auto corners = detection.corners;
     const auto decision = session_.add(frame, std::move(detection));
-    live_ = false;
-    ++previewEpoch_;
-    presentPreview(frame, corners, decision.accepted);
-    publish(QString::fromStdString(decision.message));
+    captureFeedback_ = QString::fromStdString(decision.message);
+    const auto feedback = captureFeedback_;
+    if (reviewRevision == reviewRevision_) {
+        live_ = false;
+        ++previewEpoch_;
+        reviewFrame_ = frame;
+        publish(feedback);
+        if (reviewRevision == reviewRevision_) presentPreview(frame, corners, decision.accepted);
+    } else emit changed(); // Retain the observation without overriding newer review/live actions.
+    emit captureFeedbackAvailable(feedback, decision.accepted);
 }
 void CalibrationController::setLivePreviewActive(bool active)
 {
     if (shuttingDown_ || livePreviewActive_ == active) return;
+    if (!active) cancelReview();
     livePreviewActive_ = active;
     ++previewEpoch_;
     if (!active) undistortedPreview_ = false;
@@ -204,7 +254,7 @@ void CalibrationController::sampleLive()
     if (!livePreviewActive_ || !live_ || liveDetectionBusy_ || busy_ || profileIoBusy_
         || shuttingDown_ || !streaming_ || !latest_ || now < nextLiveSample_)
         return;
-    if (now < latest_->capturedAt || now - latest_->capturedAt > std::chrono::seconds{2}) return;
+    if (now < latest_->capturedAt || now - latest_->capturedAt > MaximumLiveFrameAge) return;
     // Maximum 5 starts/s, further limited by detector duration. No pending
     // live jobs: receiveFrame retains just the newest acquisition for the next try.
     nextLiveSample_ = now + std::chrono::milliseconds{200};
@@ -366,6 +416,7 @@ void CalibrationController::removeView(int index)
 void CalibrationController::reviewView(int index)
 {
     if (index < 0 || static_cast<std::size_t>(index) >= session_.views().size()) return;
+    cancelReview();
     live_ = false;
     ++liveEpoch_;
     resetLiveOverlay();
@@ -381,10 +432,19 @@ void CalibrationController::showLive()
     detectedFrame_.reset();
     liveDetection_.reset();
     nextLiveSample_ = {};
+    cancelReview();
     live_ = true;
     ++previewEpoch_;
-    presentPreview(latest_, {}, false);
-    sampleLive();
+    const auto now = clock_();
+    if (!streaming_ || !latest_ || latest_->capturedAt > now
+        || now - latest_->capturedAt > MaximumLiveFrameAge) {
+        presentPreview({}, {}, false);
+        publish(QStringLiteral("No current camera frame. Start or reconnect the camera and wait for a fresh frame."));
+    } else {
+        presentPreview(latest_, {}, false);
+        emit changed();
+        sampleLive();
+    }
 }
 void CalibrationController::finish()
 {
@@ -395,6 +455,7 @@ void CalibrationController::finish()
     }
     if (result_) return;
     if (profileIoBusy_) return;
+    cancelReview();
     auto input = intrinsicCalibrationInput(session_);
     const auto config = intrinsicConfig_;
     const auto solver = solver_;

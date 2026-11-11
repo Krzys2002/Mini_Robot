@@ -51,8 +51,25 @@ Capture runs a full-resolution
 detection on its selected frame unless that exact frame already has a full result.
 All existing quality checks remain. Neither holding nor tracking the overlay
 adds observations.
-After capture/review, click **Live view** before selecting another view. A sample
-older than two seconds is rejected; wait for a fresh sample. Integer image
+Every completed capture (accepted, rejected or detector failure) shows its result
+for five seconds, then resumes live preview automatically. Its duration is defined
+by `CalibrationController::CaptureReviewDuration` in `src/app/CalibrationController.hpp`.
+The interval begins at presentation, after any asynchronous corrected-preview
+processing finishes; no sleep blocks
+the GUI. Accepted observations remain stored. The last capture reason stays in a
+separate non-modal feedback line through the transition, including redundant-view
+rejections. `captureFeedbackAvailable(reason, accepted)` is the reusable event for
+future non-modal notifications; `captureFeedback()` retains the latest reason.
+
+A new capture replaces the interval. **Live view** resumes immediately; explicitly
+selecting a stored view pauses it until the next action. Restart, cancel, camera or
+resolution changes, hiding/closing the wizard and shutdown cancel obsolete timers.
+A manual review/live choice made during detection is preserved when the result
+arrives; the observation and feedback are retained without replacing that choice.
+If no valid live frame is available at expiry (including a frame older than two
+seconds or a future timestamp), the preview clears and asks the operator to start
+or reconnect the camera. Fresh input restores live presentation. A sample
+older than two seconds is rejected for capture; wait for a fresh sample. Integer image
 coordinates denote pixel centres; presentation adds half a pixel before scaling
 and uses the image's aspect-preserving bounds, including letterboxing.
 
@@ -322,3 +339,29 @@ Record setup, revision, preview/pixel mode, screenshots and PASS/FAIL/NOT RUN pe
 scenario. Existing physical evidence for older revisions does not validate this
 change. No optical accuracy, physical motor safety or complete motion loop is
 claimed. Intermediate experiment details remain available in Git history.
+
+## Automatic review validation (#243)
+
+Deterministic `CalibrationReviewTest` cases inject a monotonic clock and deliver
+Qt timeout events without waiting five seconds. They cover accepted/rejected/
+throwing-detector results, the 4999/5000 ms boundary, replacing an interval, queued
+old timeouts, explicit review/live during detection, invalidation, missing input,
+shutdown/destruction, retained UI feedback, and delayed corrected presentation.
+Physical camera and native-display acceptance belongs to #179 and is **NOT RUN**
+for this change. Software timing tests do not establish native rendering latency.
+
+Verification executed on macOS arm64 with AppleClang 21, Qt 6.12.0 and OpenCV 5.1.0:
+
+- Root `cmake --preset macos` using an existing GoogleTest checkout, followed by
+  `cmake --build --preset macos --parallel 3` and
+  `ctest --preset macos --parallel 3`: **484 passed, 1 opt-in performance audit
+  skipped**, zero failures (485 discovered, including nine review tests).
+- Root `cmake --preset core` using the same GoogleTest source, followed by
+  `cmake --build --preset core --parallel 3` and
+  `ctest --preset core --parallel 3`: **280 passed** without Qt/OpenCV.
+- `git diff --check`: passed. Initial review-fixture observer lifetime failures
+  were corrected before the final full passing run.
+
+No root/standalone build integration changed; standalone execution was not
+repeated for #243. Physical camera/native display, Linux/Windows and OpenCV 4
+execution remain **NOT RUN**. This is software evidence only.

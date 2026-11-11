@@ -92,6 +92,14 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     message_->setWordWrap(true);
     message_->setTextFormat(Qt::PlainText);
     layout->addWidget(message_);
+    auto* feedback = new QLabel(this);
+    feedback->setObjectName(QStringLiteral("calibrationCaptureFeedback"));
+    feedback->setWordWrap(true);
+    feedback->setTextFormat(Qt::PlainText);
+    feedback->setText(controller_.captureFeedback());
+    layout->addWidget(feedback);
+    connect(&controller_, &CalibrationController::changed, feedback,
+        [this, feedback] { feedback->setText(controller_.captureFeedback()); });
     progress_ = new QLabel(this);
     progress_->setObjectName(QStringLiteral("calibrationProgress"));
     progress_->setWordWrap(true);

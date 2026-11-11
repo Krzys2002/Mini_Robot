@@ -99,7 +99,7 @@ void CalibrationController::setUndistortedPreview(bool enabled)
     undistortedPreview_ = enabled && canUndistort();
     ++previewEpoch_;
     if (undistortedPreview_) processPreview();
-    else { selectedFrame_ = previewFrame_; emit previewChanged(previewFrame_, previewCorners_, previewAccepted_, previewApproximate_); }
+    else { selectedFrame_ = previewFrame_; emitPreview(previewFrame_, previewCorners_, previewAccepted_, previewApproximate_); }
     emit changed();
 }
 void CalibrationController::presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate)
@@ -110,7 +110,7 @@ void CalibrationController::presentPreview(FramePtr frame, const std::vector<Ima
     previewAccepted_ = accepted;
     previewApproximate_ = approximate;
     if (undistortedPreview_ && previewFrame_ && profile_) processPreview();
-    else { selectedFrame_ = previewFrame_; emit previewChanged(previewFrame_, previewCorners_, previewAccepted_, previewApproximate_); }
+    else { selectedFrame_ = previewFrame_; emitPreview(previewFrame_, previewCorners_, previewAccepted_, previewApproximate_); }
 }
 void CalibrationController::processPreview()
 {
@@ -139,13 +139,13 @@ void CalibrationController::processPreview()
             if (epoch == previewEpoch_ && undistortedPreview_) {
                 if (outcome.frame && outcome.error.empty()) {
                     selectedFrame_ = frame;
-                    emit previewChanged(outcome.frame, outcome.corners, accepted, approximate);
+                    emitPreview(outcome.frame, outcome.corners, accepted, approximate);
                 }
                 else {
                     undistortedPreview_ = false;
                     profileMessage_ = QStringLiteral("Undistorted preview failed: %1").arg(QString::fromStdString(outcome.error));
                     selectedFrame_ = previewFrame_;
-                    emit previewChanged(previewFrame_, previewCorners_, previewAccepted_, previewApproximate_);
+                    emitPreview(previewFrame_, previewCorners_, previewAccepted_, previewApproximate_);
                     emit changed();
                 }
             }
