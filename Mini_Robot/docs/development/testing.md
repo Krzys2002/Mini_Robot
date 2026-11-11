@@ -400,3 +400,34 @@ QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter=
 These paths are for root builds; standalone executable paths omit `Mini_Robot/`.
 The offscreen entry point does not establish native-display or physical-camera
 acceptance. Those new checks belong to #259 and remain NOT RUN until executed.
+
+## Workspace chessboard acquisition (#248)
+
+Run root `core` and host presets. Also configure/build/test `Mini_Robot/` with its
+own core preset/build directory when validating the shared target integration.
+Offline builds can supply the existing GoogleTest source using
+`-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/existing/googletest`.
+
+Focused commands from the repository root:
+
+```sh
+ctest --test-dir build/macos -R 'Workspace|CalibrationDetectorWorkspace' --output-on-failure --no-tests=error
+QT_SCALE_FACTOR=1.5 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter='WorkspaceBoardAcquisitionUiTest.*'
+QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter='WorkspaceBoardAcquisitionUiTest.*'
+python3 tools/calibration/audit_workspace_solver.py --binary build/macos/Mini_Robot/tests/micro_robot_calibration_detector_tests
+```
+
+The memory audit is opt-in and skipped by default CTest. Its isolated Unix child
+processes distinguish legacy full-U, thin-U and complete production-solver RSS/time;
+there are no hardware-independent timing assertions. The normal deterministic
+capacity tests exercise exact four-point nullspace, 1,525/4,096-point fitting,
+separate Check points, 40 reviewed placements yielding 1,525 unique locations,
+8,192-row table models, metadata/byte bounds, original review masks, manual
+corrections, v1/v2 migration and immutable linked records. UI tests cover exact
+frozen-frame ownership, stale work, explicit orientation/identity, labelled zoom,
+relative-anchor snapshots, active/draft evidence and camera/origin invalidation.
+
+[The operator/capacity/provenance guide](../overview/workspace-chessboard.md)
+records the contract and measured host evidence. All new physical/native-display
+acceptance remains NOT RUN in #263. Synthetic process/geometry results do not
+establish physical board accuracy or a motion loop.

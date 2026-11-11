@@ -48,7 +48,7 @@ points. It does not establish a safe extrapolation region or permission to contr
 2. Enter an explicit workspace identity and measured positive width/height in
    metres. No physical table dimensions are assumed. Keep camera, lens settings,
    resolution and table fixed throughout acquisition and later use.
-3. Press **Freeze undistorted frame**. A fresh frame (at most two seconds old) is
+3. Press **Freeze / reset references**. A fresh frame (at most two seconds old) is
    remapped on the worker. Point selection always refers to that immutable frame;
    incoming frames do not move its reference features. Freezing again clears all
    old correspondences while retaining the draft transform for verification.
@@ -62,12 +62,12 @@ points. It does not establish a safe extrapolation region or permission to contr
    Interior origins deliberately create negative coordinates on part of the table.
    Press **Confirm boundary / axes** before adding extra references. The four
    generated paired boundary rows are locked; correct them through the corner
-   controls. Add up to 64 total fitting references, including those four corners.
+   controls. Add up to 4,096 total fitting references, including those four corners.
    After **Calculate**, **Pick origin after Calculate** permits a mapped image
    pick inside the workspace. Changing the origin clears draft results and all
    fit/check references; confirm the boundary again and recalculate. A picked
    origin is transform-derived, not independent ground truth.
-5. Add independent interior/reference points and tick **Check only**. Up to 64
+5. Add independent interior/reference points and tick **Check only**. Up to 4,096
    check points are held out of estimation. They must not repeat fitting points
    or each other. All image points must lie inside the native image, and all world
    points inside the declared measured bounds. Numeric cells use a decimal dot.
@@ -120,14 +120,16 @@ vertices; interior and edge samples do not impose perimeter-order restrictions.
 Check points never influence estimation. No extrapolation accuracy outside the
 measured fitting region is established.
 
-The workspace profile remains separate from the intrinsic profile. Strict v2 text
+The workspace profile remains separate from the intrinsic profile. Strict v3 text
 stores dimensions, explicit minimum X/Y, frame identity, optional ordered boundary,
-`undistorted_native_k`, optional nine-element H and complete bound intrinsics.
+`undistorted_native_k`, optional nine-element H, complete bound intrinsics and an optional acquisition-record ID.
 V1 profiles migrate with exactly zero minimums and unchanged H/intrinsics, retaining
-their original lower-left coordinates. Saves write v2; unknown versions are rejected.
-See [frame/persistence details and rollback limits](workspace.md#profile-v2-and-compatibility).
-Acquisition fit/check points and residuals remain session diagnostics, not persisted
-measurement evidence. Loaded boundary coordinates are stored acquisition references;
+their original lower-left coordinates. V2 files retain signed bounds/frame/H unchanged. Saves write v3; unknown versions are rejected.
+See [frame/persistence details and rollback limits](workspace.md#profile-versions-and-compatibility).
+Complete v3 acquisitions persist fit/check pairs, measured placements and original
+detections in a linked sidecar. Legacy and reset/recheck-only sessions do not invent
+missing provenance. Residuals are recomputed from retained inputs, not stored as
+physical accuracy evidence. See [flat-board acquisition](workspace-chessboard.md). Loaded boundary coordinates are stored acquisition references;
 freezing another image does not prove unchanged camera/table placement. Independent
 Check points may verify a loaded H without selecting corners again; use **Reselect
 all corners** to begin a new fit instead.
@@ -162,3 +164,13 @@ revalidate placement. Record reference measurement uncertainty, camera/lens/devi
 identity, resolution, table dimensions, correspondences, residuals and revisions.
 Native macOS, Linux X11/Wayland and Windows dialog/input checks and OpenCV 4 execution
 remain separate unverified platform checks; offscreen tests do not establish them.
+
+## Repeated flat-board placements
+
+The [workspace chessboard guide](workspace-chessboard.md) describes the shared
+9×6 inner-corner target, measured anchor/orientation and explicit ordering review.
+Use **Freeze next board frame** to keep the dataset between placements; the
+original reset/recheck action clears its displayed references. Large reference
+tables use a model, worker validation/verification and consistent 4,096-point
+role limits. V3 profiles link immutable acquisition snapshots; preserve profile
+and sidecar together. Physical large-dataset/target accuracy is NOT RUN in #263.
