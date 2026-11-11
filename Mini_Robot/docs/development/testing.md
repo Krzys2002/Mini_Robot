@@ -169,11 +169,11 @@ Tests that need devices or a person are listed separately in
 ## macOS continuous integration
 
 The repository-level `.github/workflows/daily-build-test.yml` checks `master`
-once daily at **02:00 UTC**. It calls the reusable macOS and Linux build workflows
+once daily at **02:00 UTC**. It calls the reusable macOS, Linux, Windows and firmware build workflows
 only when a newly merged pull request is present in the checked-out `master`
 snapshot. A separate `pr-verification.yml` workflow runs daily at 02:00 UTC on
 `master`: one Ubuntu GCC desktop build with native BLE and marker tools enabled,
-all hardware-free CTest cases, repository automation and prototype browser tests.
+all hardware-free CTest cases and repository automation tests.
 It runs independently of the merge gate, including on days without new merges.
 
 The gate compares against the last successful daily run, including successful

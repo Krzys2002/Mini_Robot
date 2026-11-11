@@ -70,7 +70,10 @@ CMake downloads 1.17.0; offline users may set
 The same pure tests are included by desktop/core CTest without linking embedded
 production sources. Fixtures cover injected time, future/negative readings and
 the 32-bit millisecond wrap boundary. They do not test a motor controller.
-The dedicated firmware CI matrix performs compile/host tests on Ubuntu and macOS;
+The reusable firmware CI matrix performs compile/host tests on Ubuntu and macOS
+as part of the standard daily `master` batch at 02:00 UTC, only when the daily
+merge gate requests a build. It has no PR, push or manual trigger, so automatic
+firmware builds run at most once per day after merge to `master`;
 only actual executed jobs establish validation on those hosts.
 
 ## Device discovery, upload, monitor and recovery
