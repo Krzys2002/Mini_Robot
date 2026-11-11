@@ -214,6 +214,28 @@ Current local validation (macOS, Python 3.12, Graphify 0.9.106):
 - `git diff --check` and manual-workflow YAML parsing passed. The hosted workflow,
   application builds, GUI and physical hardware were not run for these tooling edits.
 
+### Fresh worktree verification — 2026-11-11
+
+Verified against committed implementation `35abf74` in a disposable detached Git
+worktree, with neither the original graph nor its environment copied:
+
+- Initial `status` returned 2 for missing graph/provenance, as expected.
+- `uv sync --project tools/graphify --locked --offline` with a shared package
+  cache created a separate worktree-local environment successfully.
+- All 38 offline wrapper tests passed in the new worktree.
+- Real `build`, `status`, `audit`, `find WorldModel` and the exact-ID
+  RobotTracker-to-WorldModel path passed. Provenance recorded the new root.
+- Both `.codex/workflows/` files arrived as regular tracked files with no
+  home-directory paths. They require explicit reading; no hook was installed.
+- Adding a temporary C++ class, running `update`, then finding it succeeded.
+  Deleting that file and updating removed its nodes. Final audit passed with
+  the baseline 4,428 nodes, 9,012 edges and all 49 technical documents restored.
+- The temporary source was removed and the worktree was clean. No application,
+  GUI, hardware, hosted-runner or Windows/Linux execution was part of this check.
+
+After committing, re-run `update`, `status` and `audit` in the active checkout:
+HEAD changes invalidate provenance even when source bytes are unchanged.
+
 Offline wrapper tests require only Python and Git:
 
 ```sh
