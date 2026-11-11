@@ -9,7 +9,7 @@
 #include <string>
 
 namespace micro_robot {
-inline constexpr std::uint32_t WorkspaceCalibrationProfileVersion = 2;
+inline constexpr std::uint32_t WorkspaceCalibrationProfileVersion = 3;
 inline constexpr std::uint32_t MinimumWorkspaceImageDimensionPixels = 2;
 inline constexpr std::size_t WorkspaceCornerCount = 4;
 inline constexpr double WorkspaceBoundaryCrossTolerance = 1e-8; // Normalized image area.
@@ -44,6 +44,7 @@ struct WorkspaceCalibrationProfile {
     // New guided frames use a persistent unique ID; edits allocate a new identity.
     std::string frameId{"legacy-lower-left"};
     std::optional<WorkspaceBoundary> boundary{}; // Ordered native-K acquisition references.
+    std::string acquisitionId{}; // Optional immutable sidecar link; no point arrays in runtime profiles.
 };
 // Empty error means structurally valid metadata (including an optional finite,
 // numerically nonsingular H), not physical accuracy or permission to control a robot.
