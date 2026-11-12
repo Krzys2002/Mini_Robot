@@ -221,3 +221,76 @@ TEST(TabletopHomographyTest, NativeProjectionInverseRoundTripsSignedWorldAndReje
     }
     EXPECT_FALSE(unprojectWorkspacePoint(WorkspaceHomography{},{}));
 }
+
+#include "ObliqueWorkspaceFixtures.hpp"
+
+TEST(TabletopObliqueTest, KnownPinholePlaneChecksNearFarEdgesAndIndependentInterior)
+{
+    const auto input = obliqueWorkspaceInput();
+    const auto h = obliqueHomography();
+    const auto result = evaluateWorkspaceHomography(input,h);
+    ASSERT_TRUE(result.result) << result.error;
+    EXPECT_LT(result.result->fit.maximumMeters,1e-12);
+    EXPECT_LT(result.result->check->maximumMeters,1e-12);
+    EXPECT_NEAR(result.result->coverage.workspaceFraction,1,1e-14);
+    EXPECT_EQ(result.result->coverage.extrapolatedCheckCount,0);
+    EXPECT_LT(result.result->coverage.imageFraction,0.1); // A side view occupies little image area; not poor table coverage.
+    const auto nearA = obliqueImage({Meters{0.2},Meters{0}}), nearB = obliqueImage({Meters{0.3},Meters{0}});
+    const auto farA = obliqueImage({Meters{0.2},Meters{2.4}}), farB = obliqueImage({Meters{0.3},Meters{2.4}});
+    EXPECT_NEAR((nearB.u-nearA.u)/(farB.u-farA.u),3.4,1e-12);
+    const auto forward = projectWorkspacePoint(h,obliqueImage({Meters{0.75},Meters{0.5}}));
+    const auto farther = projectWorkspacePoint(h,obliqueImage({Meters{0.75},Meters{1.5}}));
+    ASSERT_TRUE(forward); ASSERT_TRUE(farther);
+    EXPECT_GT(farther->y.value,forward->y.value); // World +Y is up despite far edge shrinking in image.
+}
+
+TEST(TabletopObliqueTest, CoverageSeparatesUnsupportedExtrapolatedChecksFromFitResiduals)
+{
+    auto input = homographyInput(); input.fitPoints.clear(); input.checkPoints.clear();
+    for (const auto xy : std::array<std::array<double,2>,4>{{{0.4,0.2},{0.6,0.2},{0.6,0.4},{0.4,0.4}}})
+        input.fitPoints.push_back({{100+800*xy[0],700-1000*xy[1]},{Meters{xy[0]},Meters{xy[1]}}});
+    input.checkPoints = {{{500,400},{Meters{0.5},Meters{0.3}}},{{180,600},{Meters{0.1},Meters{0.1}}}};
+    auto result = evaluateWorkspaceHomography(input,knownHomography());
+    ASSERT_TRUE(result.result) << result.error;
+    EXPECT_NEAR(result.result->coverage.workspaceFraction,0.04/0.6,1e-14);
+    EXPECT_EQ(result.result->coverage.extrapolatedCheckCount,1);
+    EXPECT_LT(result.result->fit.maximumMeters,1e-12);
+    EXPECT_LT(result.result->check->maximumMeters,1e-12); // Low synthetic residual does not erase extrapolation.
+    std::reverse(input.fitPoints.begin(),input.fitPoints.end());
+    result = evaluateWorkspaceHomography(input,knownHomography());
+    ASSERT_TRUE(result.result);
+    EXPECT_EQ(result.result->coverage.extrapolatedCheckCount,1);
+}
+
+TEST(TabletopObliqueTest, ElevatedPointHasExpectedParallaxAndHorizonFailureIsActionable)
+{
+    const WorldPoint2D actual{Meters{0.3},Meters{1}};
+    const auto onPlane = projectWorkspacePoint(obliqueHomography(),obliqueImage(actual));
+    const auto elevated = projectWorkspacePoint(obliqueHomography(),obliqueImage(actual,0.05));
+    ASSERT_TRUE(onPlane); ASSERT_TRUE(elevated);
+    EXPECT_NEAR(onPlane->y.value,actual.y.value,1e-12);
+    EXPECT_NEAR(elevated->y.value,2.0*0.5/0.45-1,1e-12);
+    EXPECT_GT(std::hypot(elevated->x.value-actual.x.value,elevated->y.value-actual.y.value),0.2);
+    auto input = obliqueWorkspaceInput();
+    const WorkspaceHomography horizon{{1,0,0,0,1,0,0,1,-400}};
+    const auto result = evaluateWorkspaceHomography(input,horizon);
+    EXPECT_FALSE(result.result);
+    EXPECT_NE(result.error.find("horizon"),std::string::npos);
+    EXPECT_NE(result.error.find("raise"),std::string::npos);
+}
+
+TEST(TabletopObliqueTest, InteriorOriginPreservesObliqueCoverageAndHeldOutChecks)
+{
+    auto input=obliqueWorkspaceInput();
+    input.profile.bounds=WorkspaceBounds{Meters{1.5},Meters{2.4},{Meters{-0.75},Meters{-1.2}}};
+    input.profile.frameId="integration-signed-oblique";
+    for(auto* points:{&input.fitPoints,&input.checkPoints})for(auto& pair:*points) {
+        pair.world.x.value-=0.75;pair.world.y.value-=1.2;
+    }
+    auto h=obliqueHomography();
+    for(std::size_t i=0;i<3;++i) {h.imageToWorld[i]-=0.75*h.imageToWorld[i+6];h.imageToWorld[i+3]-=1.2*h.imageToWorld[i+6];}
+    const auto result=evaluateWorkspaceHomography(input,h);ASSERT_TRUE(result.result)<<result.error;
+    EXPECT_NEAR(result.result->coverage.workspaceFraction,1,1e-12);
+    EXPECT_EQ(result.result->coverage.extrapolatedCheckCount,0u);
+    ASSERT_TRUE(result.result->check);EXPECT_LT(result.result->check->maximumMeters,1e-12);
+}

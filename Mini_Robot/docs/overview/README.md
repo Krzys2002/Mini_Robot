@@ -28,6 +28,8 @@
 - [Workspace distance](workspace-distance.md): two endpoints in frozen camera/world views, selection bounds and conditional distance intervals.
 - [Workspace diagnostics](workspace-diagnostics.md): directional px/cm, independent survey error maps, bounded exports and conditional prediction contract.
 - [Workspace chessboard acquisition](workspace-chessboard.md): flat-board anchors/orientation, repeated placements, 1,525-location coverage, capacity and v3 provenance.
+
+- [Side-mounted tabletop audit](oblique-tabletop.md): known oblique geometry, fit coverage, recovery advice and plane/parallax limits.
 - [Tabletop homography](tabletop-homography.md): paired undistorted image/world points, residuals, workspace profile save/load and commissioning.
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
   verified board/motor facts, unresolved safety blockers, and the bench envelope

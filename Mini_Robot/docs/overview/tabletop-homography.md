@@ -192,3 +192,22 @@ freeze retains calibration data; world endpoints persist across view-only change
 Conditional ± combines surveyed calibration evidence and justified selection disks;
 missing evidence produces distance with uncertainty unavailable. Physical acceptance
 is tracked in [#268](https://github.com/Krzys2002/Mini_Robot/issues/268), all new checks NOT RUN.
+
+## Side-mounted views and fit support
+
+See the [side-mounted source audit and limitations](oblique-tabletop.md) for the
+known-geometry tests and demonstrated numerical fix. A projective H handles an
+oblique plane without changing physical axis labels. Use visible, independently
+measured references across near/far edges and both axes; raise an almost edge-on
+camera and never guess occluded reference locations.
+
+Solve feedback separates workspace fitting-hull coverage, image coverage and
+extrapolated Check references from metric residuals. Small image coverage alone
+is expected in some side views. Fit coverage is not an accuracy/confidence bound. Linked acquisition records can
+restore the underlying references; legacy profiles without those records cannot. Neither bounds
+membership nor a low residual establishes accuracy outside the fitting hull.
+
+Keep camera/table/lens settings fixed. Markers above the calibrated plane have
+height-dependent parallax; undistortion does not correct it and this method does
+not reconstruct arbitrary 3D. Physical side-camera acceptance is NOT RUN and
+belongs to #261; printed-tag metric acceptance remains #224.

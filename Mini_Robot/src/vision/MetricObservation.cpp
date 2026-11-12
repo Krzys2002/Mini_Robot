@@ -1,6 +1,7 @@
 #include "vision/MetricObservation.hpp"
 #include "common/Angle.hpp"
 #include <cmath>
+#include <algorithm>
 
 namespace micro_robot {
 MetricObservationResult metricObservation(const RobotObservation& observation,
@@ -14,10 +15,16 @@ MetricObservationResult metricObservation(const RobotObservation& observation,
     if (!geometry) return {MetricObservationStatus::InvalidGeometry, {}};
     const auto& h = *calibration->homography;
     std::array<WorldPoint2D, 4> world;
+    // Match projection's homogeneous normalization before checking horizon sides.
+    // Finite equivalent H coefficients can otherwise overflow h6*u+h7*v+h8.
+    auto denominator = h.imageToWorld;
+    double scale = 0;
+    for (auto value : denominator) scale = std::max(scale, std::abs(value));
+    for (auto& value : denominator) value /= scale; // Profile validation established nonzero finite H.
     double sign = 0;
     for (std::size_t i = 0; i < corners.size(); ++i) {
         const auto& p = corners[i];
-        const double w = h.imageToWorld[6] * p.u + h.imageToWorld[7] * p.v + h.imageToWorld[8];
+        const double w = denominator[6] * p.u + denominator[7] * p.v + denominator[8];
         const auto point = projectWorkspacePoint(h, {p.u, p.v});
         if (!point || !std::isfinite(w) || w == 0 || (i && std::signbit(w) != std::signbit(sign)))
             return {MetricObservationStatus::InvalidGeometry, {}};

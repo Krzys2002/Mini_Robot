@@ -1,5 +1,6 @@
 #include "../calibration/CaptureFixtures.hpp"
 #include "../calibration/HomographyFixtures.hpp"
+#include "../calibration/ObliqueWorkspaceFixtures.hpp"
 #include "app/WorkspaceCalibrationController.hpp"
 #include "app/WorkspaceDiagnosticsController.hpp"
 #include "ui/WorkspaceDiagnosticsDialog.hpp"
@@ -52,16 +53,19 @@ class Solver final : public IWorkspaceHomographySolver {
 public:
     std::shared_ptr<Gate> gate;
     std::function<void(WorkspaceHomographyResult&)> alter;
+    bool oblique{};
 
     WorkspaceHomographyOutcome solve(const WorkspaceHomographyInput& input) override
     {
         if (gate)
             gate->wait();
-        auto h = knownHomography();
-        for (std::size_t i=0;i<3;++i) h.imageToWorld[i]*=input.profile.bounds.width().value;
-        for (std::size_t i=3;i<6;++i) h.imageToWorld[i]*=input.profile.bounds.height().value/0.6;
-        h.imageToWorld[2] += input.profile.bounds.minimum().x.value;
-        h.imageToWorld[5] += input.profile.bounds.minimum().y.value;
+        auto h = oblique ? obliqueHomography() : knownHomography();
+        for (std::size_t i=0;i<3;++i) h.imageToWorld[i]*=input.profile.bounds.width().value/(oblique?1.5:1);
+        for (std::size_t i=3;i<6;++i) h.imageToWorld[i]*=input.profile.bounds.height().value/(oblique?2.4:0.6);
+        for (std::size_t i=0;i<3;++i) {
+            h.imageToWorld[i] += input.profile.bounds.minimum().x.value*h.imageToWorld[i+6];
+            h.imageToWorld[i+3] += input.profile.bounds.minimum().y.value*h.imageToWorld[i+6];
+        }
         auto result = evaluateWorkspaceHomography(input, h);
         if (alter && result.result) alter(*result.result);
         return result;
@@ -864,4 +868,33 @@ TEST(WorkspaceBoardAcquisitionUiTest, InteriorOriginKeepsNegativeBoardCoordinate
     EXPECT_EQ(record.record->profile.frameId,f.controller.draftProfile()->frameId);
     EXPECT_DOUBLE_EQ(record.record->profile.bounds.minimum().x.value,-0.5);
     EXPECT_DOUBLE_EQ(record.record->placements[0].anchor.x.value,-0.3);
+}
+
+TEST(WorkspaceObliqueUiTest, ShowsCoverageAndPlaneLimitsWithoutReplacingActiveTransform)
+{
+    Fixture f;
+    const auto input = obliqueWorkspaceInput();
+    f.controller.setInput(input.profile.intrinsics,true); f.fresh(2); f.freeze();
+    f.solver->oblique = true;
+    f.controller.configure("table-A",1.5,2.4);
+    for (const auto& p:input.fitPoints) f.controller.selectCorner(p.image);
+    f.controller.confirmBoundary();
+    ASSERT_TRUE(f.controller.boundaryConfirmed());
+    f.controller.setPoints(input.fitPoints,input.checkPoints);
+    WorkspaceCalibrationDialog dialog{f.controller};
+    dialog.show(); QApplication::processEvents();
+    f.controller.calculate();
+    ASSERT_TRUE(QTest::qWaitFor([&]{ return !f.controller.busy(); }));
+    ASSERT_TRUE(f.controller.draftProfile()) << f.controller.message().toStdString();
+    EXPECT_FALSE(f.controller.profile());
+    const auto message = dialog.findChild<QLabel*>("workspaceMessage")->text();
+    EXPECT_TRUE(message.contains("covers 100%"));
+    EXPECT_TRUE(message.contains("0 Check point(s)"));
+    EXPECT_TRUE(message.contains("unsupported"));
+    const auto screenshot = qEnvironmentVariable("MICRO_ROBOT_WORKSPACE_OBLIQUE_SCREENSHOT");
+    if (!screenshot.isEmpty()) EXPECT_TRUE(dialog.grab().save(screenshot));
+    f.controller.activate();
+    const auto active = f.controller.profile()->homography->imageToWorld;
+    f.controller.setPoints({},{});
+    EXPECT_EQ(f.controller.profile()->homography->imageToWorld,active);
 }

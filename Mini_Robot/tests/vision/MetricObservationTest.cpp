@@ -124,3 +124,44 @@ TEST(MetricObservationTest, InteriorOriginProducesNegativePositionsWithoutChangi
     EXPECT_NEAR(result.measurement->pose.y.value, -0.1, 1e-12);
     EXPECT_NEAR(result.measurement->pose.heading.value, std::numbers::pi / 2, 1e-12);
 }
+
+TEST(MetricObservationTest, ProjectiveMetricMappingIsInvariantToLargeFiniteHomogeneousScale)
+{
+    auto profile = homographyInput().profile;
+    const WorkspaceHomography h{{0.001,0,0, 0,0.001,0, 0,0.001,1}};
+    profile.homography = h;
+    const std::array<MarkerCorner,4> corners{{{400,300},{600,300},{600,500},{400,500}}};
+    const auto expected = metricObservation({},corners,profile);
+    ASSERT_TRUE(expected.measurement);
+    for (double scale : {1.7e308,-1.7e308,1e-200}) {
+        profile.homography = h;
+        for (auto& value : profile.homography->imageToWorld) value *= scale;
+        ASSERT_TRUE(validateWorkspaceCalibrationProfile(profile).empty());
+        const auto actual = metricObservation({},corners,profile);
+        ASSERT_TRUE(actual.measurement) << "scale " << scale;
+        EXPECT_NEAR(actual.measurement->pose.x.value,expected.measurement->pose.x.value,1e-12);
+        EXPECT_NEAR(actual.measurement->pose.y.value,expected.measurement->pose.y.value,1e-12);
+        EXPECT_NEAR(actual.measurement->pose.heading.value,expected.measurement->pose.heading.value,1e-12);
+    }
+}
+
+#include "../calibration/ObliqueWorkspaceFixtures.hpp"
+
+TEST(MetricObservationObliqueTest, NearFarTagsHaveKnownMetricPositionAndWorldHeading)
+{
+    auto profile = obliqueWorkspaceInput().profile; profile.homography = obliqueHomography();
+    for (double y : {0.1,1.1,2.3}) for (double heading : {0.0,0.7,-2.1}) {
+        std::array<MarkerCorner,4> corners;
+        const double front[]{1,1,-1,-1}, right[]{-1,1,1,-1};
+        for (std::size_t i=0;i<corners.size();++i) {
+            const double x = 0.4+0.025*(front[i]*std::cos(heading)+right[i]*std::sin(heading));
+            const double wy = y+0.025*(front[i]*std::sin(heading)-right[i]*std::cos(heading));
+            const auto image = obliqueImage({Meters{x},Meters{wy}}); corners[i] = {image.u,image.v};
+        }
+        const auto result = metricObservation({},corners,profile);
+        ASSERT_TRUE(result.measurement);
+        EXPECT_NEAR(result.measurement->pose.x.value,0.4,1e-12);
+        EXPECT_NEAR(result.measurement->pose.y.value,y,1e-12);
+        EXPECT_NEAR(std::remainder(result.measurement->pose.heading.value-heading,2*std::numbers::pi),0,1e-12);
+    }
+}
