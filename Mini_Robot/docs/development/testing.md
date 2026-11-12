@@ -379,3 +379,177 @@ ctest --test-dir build -R '^(AprilTag|VisionControllerTest)' --output-on-failure
 Physical printed-tag detection is not established by generated images or videos;
 record the [commissioning checks](../vision/apriltag-detection.md#physical-acceptance-not-run)
 separately. Linux/Windows runtime and legacy OpenCV execution were not run locally.
+
+## Guided workspace frame regression (#246)
+
+`WorkspaceBoundaryTest`, `WorkspaceFrameTest`, `WorkspaceProfileTest`,
+`OpenCvWorkspaceHomographyTest` and `WorkspaceCornerWorkflowTest` cover ordered
+perimeters in both image windings, signed origin geometry, native projection/view
+round trips, v1-to-v2 migration, exact frame persistence, stale-worker rejection
+and downstream measurement invalidation. `QtWorkspaceProfileStoreTest` checks
+signed metadata through atomic filesystem storage.
+
+Run the core preset plus the host desktop preset. A focused desktop selection is:
+
+```sh
+ctest --test-dir build/macos -R 'Workspace|TabletopHomography|MetricObservation' --output-on-failure --no-tests=error
+QT_SCALE_FACTOR=1.5 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter='WorkspaceCornerWorkflowTest.*:WorkspaceCalibrationUiTest.Dialog*'
+QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter='WorkspaceCornerWorkflowTest.*:WorkspaceCalibrationUiTest.Dialog*'
+```
+
+These paths are for root builds; standalone executable paths omit `Mini_Robot/`.
+The offscreen entry point does not establish native-display or physical-camera
+acceptance. Those new checks belong to #259 and remain NOT RUN until executed.
+
+## Workspace chessboard acquisition (#248)
+
+Run root `core` and host presets. Also configure/build/test `Mini_Robot/` with its
+own core preset/build directory when validating the shared target integration.
+Offline builds can supply the existing GoogleTest source using
+`-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/existing/googletest`.
+
+Focused commands from the repository root:
+
+```sh
+ctest --test-dir build/macos -R 'Workspace|CalibrationDetectorWorkspace' --output-on-failure --no-tests=error
+QT_SCALE_FACTOR=1.5 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter='WorkspaceBoardAcquisitionUiTest.*'
+QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter='WorkspaceBoardAcquisitionUiTest.*'
+python3 tools/calibration/audit_workspace_solver.py --binary build/macos/Mini_Robot/tests/micro_robot_calibration_detector_tests
+```
+
+The memory audit is opt-in and skipped by default CTest. Its isolated Unix child
+processes distinguish legacy full-U, thin-U and complete production-solver RSS/time;
+there are no hardware-independent timing assertions. The normal deterministic
+capacity tests exercise exact four-point nullspace, 1,525/4,096-point fitting,
+separate Check points, 40 reviewed placements yielding 1,525 unique locations,
+8,192-row table models, metadata/byte bounds, original review masks, manual
+corrections, v1/v2 migration and immutable linked records. UI tests cover exact
+frozen-frame ownership, stale work, explicit orientation/identity, labelled zoom,
+relative-anchor snapshots, active/draft evidence and camera/origin invalidation.
+
+[The operator/capacity/provenance guide](../overview/workspace-chessboard.md)
+records the contract and measured host evidence. All new physical/native-display
+acceptance remains NOT RUN in #263. Synthetic process/geometry results do not
+establish physical board accuracy or a motion loop.
+
+## Workspace spatial diagnostics (#249)
+
+Software evidence on 2026-11-11, macOS arm64 / AppleClang 21 / Qt 6.12.0 /
+OpenCV 5.1.0, child of #248 PR #264 at `cdeb2d10e33c0d1f6194cc7df9f4a1e9c66cfb6d`.
+The combined tree includes #246 and #248; independent #247 PR #262 is not in this
+lineage. Tested implementation commits: core `6ffaad7`, UI/application `a77cc25`.
+These results do not establish reviews/CI or physical acceptance.
+
+From the issue worktree root, configured and built both `core` and `macos` using
+`cmake --preset <preset>`, `cmake --build --preset <preset> --parallel 3`, then
+`ctest --preset <preset> --parallel 3`. Both configure commands used the existing
+offline GoogleTest source via `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`.
+Root core: **305 passed**. Root desktop: **502 passed, one opt-in SVD audit skipped
+(503 selected), zero failures**; the production application built. The independent
+standalone entry point (`cd Mini_Robot`, same core configure/build/CTest commands
+and its own build directory) also passed **305** tests.
+
+The core `WorkspaceDiagnosticsTest.*` suite covers analytic affine/perspective
+scales, homogeneous-scale invariance, signed origins, relative denominators,
+fit/native/horizon/survey support, survey gates, Student-t reference quantiles,
+synthetic bias/noise and capacity. A seeded 300-trial fixed-predictor Gaussian
+simulation with correlated X/Y errors had 298 true errors inside the conservative
+point-radius bounds. This is an implementation check under the synthetic model,
+not evidence of physical 95% coverage. A complete 8192-reference (4096 per role),
+4225-sample run retained all data and took approximately 0.89–0.90 s in the local
+root/standalone Debug suites; no portable timing guarantee is asserted.
+
+Focused desktop tests:
+
+```sh
+QT_QPA_PLATFORM=offscreen build/macos/Mini_Robot/tests/micro_robot_tests \
+  '--gtest_filter=WorkspaceDiagnostics*'
+QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=1.5 build/macos/Mini_Robot/tests/micro_robot_tests \
+  '--gtest_filter=WorkspaceDiagnosticsUiTest.*'
+QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests \
+  '--gtest_filter=WorkspaceDiagnosticsUiTest.*'
+```
+
+The focused lifecycle/export/UI/integration run passed **7/7**. Each scale-factor
+run passed **6/6**. Screenshots at both scales were retained locally and reviewed;
+all five map modes render, with labelled units/ranges, reference positions and
+grey unavailable cells. Set `MICRO_ROBOT_MAP_SCREENSHOT=/path/map.png` to retain
+the evidence-controls test image. The source integration test verifies binding
+to active evidence, draft-edit isolation and optical invalidation. Queue tests
+pause a worker and replace 100 pending requests; only the running and latest
+request execute. Export tests parse complete profile/acquisition text, model,
+IDs, observations and null masks, and exercise a failed destination.
+
+The [operator/model guide](../overview/workspace-diagnostics.md) defines evidence,
+coverage, correlations, support and export semantics. Physical scale/error/model
+coverage and native-display acceptance belong to
+[#265](https://github.com/Krzys2002/Mini_Robot/issues/265), related to #63/#224.
+**All new physical-camera/native-display checks: NOT RUN.** Linux, Windows,
+OpenCV 4 and native input/display behavior were not exercised by these offscreen
+macOS tests. Source inspection used `rg` because this worktree had no local graph;
+no generated graph or another worktree's cache was used.
+
+## Two-point workspace distance (#250)
+
+Software evidence on 2026-11-11, macOS arm64 / AppleClang 21 / Qt 6.12.0 /
+OpenCV 5.1.0. Approved parent is #249 PR #267 at
+`1d147fd41fd6f9b791dd07c063fe69e34b14676e`; #246/#248 are in that unmerged
+lineage and independent #247 PR #262 is not. Tested implementation commits:
+core `f9009ef`, application/UI `6553ea3`. These results do not establish physical
+accuracy, actual coverage, human review or remote CI.
+
+From the issue worktree root, ran `cmake --preset core` and `cmake --preset macos`,
+using the existing offline GoogleTest source through
+`-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`, followed by
+`cmake --build --preset <preset> --parallel 3` and
+`ctest --preset <preset> --parallel 3` for each preset. Root core:
+**314 passed**. Root desktop: **519 passed, one existing opt-in SVD audit skipped
+(520 selected), zero failures**; the production application built. The independent
+standalone `Mini_Robot/` entry point was configured/built/tested with its core
+preset and its own build directory: **314 passed**.
+
+Focused core `WorkspaceDistanceTest.*` cases are included in both complete core
+runs. Nine cases cover known lengths/directions, signed origins and perspective,
+zero/near-zero length, logical viewport/pixel-centre round trips, invalid centres,
+missing/negative/unjustified selection bounds, projective-horizon footprints,
+image-fit hull constraints and conservative calibration/selection propagation.
+Tests enclose full-circle perturbations and compare the zero-selection result to
+the exact sum of #249's per-endpoint prediction envelopes; independent-error RSS
+is not used.
+
+Executed the eight `WorkspaceDistanceUiTest.*` cases offscreen, separately at
+`QT_SCALE_FACTOR=1.5` and `2`: **8/8 each**. Both supported views were rendered and
+screenshots reviewed. The tests exercise real source-controller loading/activation,
+separate measurement freezing without replacing calibration references, stale/bad
+undistortion and late optical results, GUI event delivery while a worker is held,
+camera/world endpoint preservation, coordinate editing and bound resets, method
+and units handling, re-freeze/clear, pending evidence with old ± withheld,
+resolution/camera invalidation, draft-vs-active origin changes and larger loaded
+coordinate ranges. Synthetic undistortion fakes validate lifecycle/metadata, not
+physical optical correction; existing production OpenCV undistorter tests remain
+in the host suite.
+
+```sh
+QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=1.5 build/macos/Mini_Robot/tests/micro_robot_tests \
+  '--gtest_filter=WorkspaceDistanceUiTest.*'
+QT_QPA_PLATFORM=offscreen QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests \
+  '--gtest_filter=WorkspaceDistanceUiTest.*'
+```
+
+Set `MICRO_ROBOT_DISTANCE_SCREENSHOT=/path/distance.png` to retain the evidence
+controls/view-switching test's world image and `/path/distance.png.camera.png`
+camera image. The black camera raster in these fixtures is synthetic, not physical
+equipment evidence. Measurement capture reuses the serialized calibration worker;
+no new frame queue or distance worker is introduced. This worktree's local graph
+was missing, so navigation used source/`rg` fallback; no foreign graph/cache was
+used or generated output committed.
+
+The [operator and propagation guide](../overview/workspace-distance.md) defines
+pixel conventions, support, the projective disk bound and conditional coverage.
+Physical length residuals, selection-budget justification, actual coverage and
+native-display acceptance are owned by
+[#268](https://github.com/Krzys2002/Mini_Robot/issues/268), with calibration-model
+validation in #265 and related #63/#224 evidence. **All new physical camera and native display checks: NOT RUN.** Linux, Windows, OpenCV 4 and native pointer/display
+behavior were not tested here. Fixed-pair conditional model coverage does not
+establish a general accuracy guarantee, 3D measurement, motion control or robot
+safety.

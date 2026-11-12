@@ -1,6 +1,7 @@
 #include "world/WorldModel.hpp"
 
 #include <cmath>
+#include <stdexcept>
 
 namespace micro_robot {
 
@@ -46,6 +47,14 @@ void WorldModel::invalidateTracking(RobotId id)
     const auto found = robots_.find(id);
     if (found != robots_.end() && found->second.tracking) found->second.tracking->invalidated = true;
 }
+void WorldModel::clearMeasurements()
+{
+    for (auto& [id, state] : robots_) {
+        state.pose.reset();
+        state.poseUpdatedAt.reset();
+        state.tracking.reset();
+    }
+}
 TrackingInfo WorldModel::tracking(RobotId id, Timestamp now) const
 {
     const auto found = robots_.find(id);
@@ -70,10 +79,21 @@ std::optional<RobotState> WorldModel::robot(RobotId id) const
 
 std::size_t WorldModel::robotCount() const noexcept { return robots_.size(); }
 
-WorldSnapshot WorldModel::snapshot() const { return {robots_, workspace_}; }
+WorldSnapshot WorldModel::snapshot() const { return {robots_, workspace_, workspaceFrameId_}; }
 
 std::optional<WorkspaceBounds> WorldModel::workspaceBounds() const { return workspace_; }
 
-void WorldModel::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds) { workspace_ = bounds; }
+void WorldModel::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds)
+{
+    workspace_ = bounds;
+    workspaceFrameId_.reset();
+}
+void WorldModel::setWorkspaceFrame(WorkspaceBounds bounds, std::string frameId)
+{
+    if (frameId.empty()) throw std::invalid_argument("Workspace frame identity is required.");
+    clearMeasurements();
+    workspace_ = bounds;
+    workspaceFrameId_ = std::move(frameId);
+}
 
 } // namespace micro_robot

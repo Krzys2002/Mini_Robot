@@ -2,10 +2,12 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
+#include <cstdint>
 
 namespace micro_robot {
 namespace {
-constexpr std::size_t maximumPoints = 64;
+
 
 struct Point {
     double x, y;
@@ -35,14 +37,42 @@ bool spansPlane(std::vector<Point> points)
     return hull.size() >= 4; // Closed hull with at least three non-collinear vertices.
 }
 
-bool duplicate(const WorkspaceCorrespondence& a, const WorkspaceCorrespondence& b,
-               const WorkspaceCalibrationProfile& profile)
-{
-    return std::hypot((a.image.u - b.image.u) / profile.intrinsics.width,
-                      (a.image.v - b.image.v) / profile.intrinsics.height) <= 1e-8 ||
-           std::hypot((a.world.x.value - b.world.x.value) / profile.bounds.width().value,
-                      (a.world.y.value - b.world.y.value) / profile.bounds.height().value) <= 1e-8;
-}
+class PointIndex {
+public:
+    bool contains(Point point) const
+    {
+        const auto [x,y] = key(point);
+        for (std::int64_t dx = -1; dx <= 1; ++dx) for (std::int64_t dy = -1; dy <= 1; ++dy) {
+            const auto found = cells_.find({x+dx,y+dy});
+            if (found != cells_.end()) for (const auto& previous : found->second)
+                if (std::hypot(point.x-previous.x,point.y-previous.y) <= WorkspaceDuplicateTolerance) return true;
+        }
+        return false;
+    }
+    void insert(Point point) { cells_[key(point)].push_back(point); }
+private:
+    static std::pair<std::int64_t,std::int64_t> key(Point p)
+    {
+        return {static_cast<std::int64_t>(std::floor(p.x/WorkspaceDuplicateTolerance)),
+                static_cast<std::int64_t>(std::floor(p.y/WorkspaceDuplicateTolerance))};
+    }
+    std::map<std::pair<std::int64_t,std::int64_t>,std::vector<Point>> cells_;
+};
+class ReferenceIndex {
+public:
+    explicit ReferenceIndex(const WorkspaceCalibrationProfile& p) : profile_(p) {}
+    bool insert(const WorkspaceCorrespondence& pair)
+    {
+        const Point image{pair.image.u/profile_.intrinsics.width,pair.image.v/profile_.intrinsics.height};
+        const Point world{(pair.world.x.value-profile_.bounds.minimum().x.value)/profile_.bounds.width().value,
+                          (pair.world.y.value-profile_.bounds.minimum().y.value)/profile_.bounds.height().value};
+        if (image_.contains(image) || world_.contains(world)) return false;
+        image_.insert(image); world_.insert(world); return true;
+    }
+private:
+    const WorkspaceCalibrationProfile& profile_;
+    PointIndex image_,world_;
+};
 
 bool validPoint(const WorkspaceCorrespondence& p, const WorkspaceCalibrationProfile& profile)
 {
@@ -110,40 +140,67 @@ std::optional<WorldPoint2D> projectWorkspacePoint(const WorkspaceHomography& tra
     return WorldPoint2D{Meters{x}, Meters{y}};
 }
 
+std::optional<ImageCorner> unprojectWorkspacePoint(const WorkspaceHomography& transform, WorldPoint2D point)
+{
+    auto h = transform.imageToWorld;
+    double scale = 0;
+    for (auto value : h) {
+        if (!std::isfinite(value)) return {};
+        scale = std::max(scale, std::abs(value));
+    }
+    if (scale == 0) return {};
+    for (auto& value : h) value /= scale;
+    // Adjugate is an inverse up to homogeneous scale; projection checks singularity/horizon.
+    const WorkspaceHomography inverse{{h[4]*h[8]-h[5]*h[7], h[2]*h[7]-h[1]*h[8], h[1]*h[5]-h[2]*h[4],
+        h[5]*h[6]-h[3]*h[8], h[0]*h[8]-h[2]*h[6], h[2]*h[3]-h[0]*h[5],
+        h[3]*h[7]-h[4]*h[6], h[1]*h[6]-h[0]*h[7], h[0]*h[4]-h[1]*h[3]}};
+    const auto projected = projectWorkspacePoint(inverse, {point.x.value, point.y.value});
+    if (!projected) return {};
+    return ImageCorner{projected->x.value, projected->y.value};
+}
+WorkspaceReferenceAssessment assessWorkspaceReferences(const WorkspaceCalibrationProfile& profile,
+    const std::vector<WorkspaceCorrespondence>& existing, const std::vector<WorkspaceCorrespondence>& candidates)
+{
+    if (existing.size() > MaximumWorkspaceReferences || candidates.size() > MaximumWorkspaceReferences)
+        return {{},"Reference assessment exceeds bounded capacity."};
+    if (auto error = validateWorkspaceCalibrationProfile(profile); !error.empty()) return {{},error};
+    ReferenceIndex index{profile};
+    for (const auto& p : existing)
+        if (!validPoint(p,profile) || !index.insert(p)) return {{},"Correct invalid/duplicate existing references first."};
+    WorkspaceReferenceAssessment result;
+    for (const auto& p : candidates) {
+        if (!validPoint(p,profile)) result.candidates.push_back(WorkspaceReferenceRejection::OutsideDomain);
+        else result.candidates.push_back(index.insert(p) ? WorkspaceReferenceRejection::None : WorkspaceReferenceRejection::Duplicate);
+    }
+    return result;
+}
+
 std::string validateWorkspaceHomographyInput(const WorkspaceHomographyInput& input)
 {
     auto profile = input.profile;
     profile.homography.reset(); // An old estimate does not constrain a new fit.
     if (auto error = validateWorkspaceCalibrationProfile(profile); !error.empty())
         return error;
-    if (input.fitPoints.size() < 4 || input.fitPoints.size() > maximumPoints ||
-        input.checkPoints.size() > maximumPoints)
-        return "Use 4–64 fitting points and at most 64 independent check points.";
+    if (input.fitPoints.size() < MinimumWorkspaceFitPoints || input.fitPoints.size() > MaximumWorkspaceFitPoints ||
+        input.checkPoints.size() > MaximumWorkspaceCheckPoints)
+        return "Use 4–4096 fitting points and at most 4096 independent check points; observations are never truncated.";
     const auto& k = profile.intrinsics;
     std::vector<Point> image, world;
-    std::vector<WorkspaceCorrespondence> seen;
+    ReferenceIndex index{profile};
     for (const auto& p : input.fitPoints) {
-        for (const auto& previous : seen)
-            if (duplicate(p, previous, profile))
-                return "Remove duplicate fitting image/world points.";
-        seen.push_back(p);
         if (!validPoint(p, profile))
             return "Each paired point must be finite and inside the native image and measured workspace.";
+        if (!index.insert(p)) return "Remove duplicate fitting image/world points.";
         image.push_back({p.image.u / k.width, p.image.v / k.height});
-        world.push_back({p.world.x.value / profile.bounds.width().value,
-                         p.world.y.value / profile.bounds.height().value});
+        world.push_back({(p.world.x.value - profile.bounds.minimum().x.value) / profile.bounds.width().value,
+                         (p.world.y.value - profile.bounds.minimum().y.value) / profile.bounds.height().value});
     }
     if (!spansPlane(image) || !spansPlane(world))
         return "Fitting image and world points must span a non-degenerate two-dimensional region.";
-    std::vector<WorkspaceCorrespondence> all = input.fitPoints;
     for (const auto& p : input.checkPoints) {
         if (!validPoint(p, profile))
             return "Check points must be finite and inside the native image and workspace.";
-        for (const auto& previous : all) {
-            if (duplicate(p, previous, profile))
-                return "Check points must be independent of the fitting points and each other.";
-        }
-        all.push_back(p);
+        if (!index.insert(p)) return "Check points must be independent of the fitting points and each other.";
     }
     return {};
 }
@@ -153,15 +210,11 @@ evaluateWorkspaceChecks(const WorkspaceCalibrationProfile& profile,
                         const std::vector<WorkspaceCorrespondence>& points)
 {
     if (!profile.homography || !validateWorkspaceCalibrationProfile(profile).empty() || points.empty() ||
-        points.size() > maximumPoints)
+        points.size() > MaximumWorkspaceCheckPoints)
         return {};
-    for (std::size_t i = 0; i < points.size(); ++i) {
-        if (!validPoint(points[i], profile))
-            return {};
-        for (std::size_t j = 0; j < i; ++j)
-            if (duplicate(points[i], points[j], profile))
-                return {};
-    }
+    ReferenceIndex index{profile};
+    for (const auto& point : points)
+        if (!validPoint(point,profile) || !index.insert(point)) return {};
     return errors(*profile.homography, points);
 }
 

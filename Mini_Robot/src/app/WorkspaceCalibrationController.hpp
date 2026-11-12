@@ -1,6 +1,7 @@
 #pragma once
 #include "calibration/TabletopHomography.hpp"
 #include "calibration/WorkspaceProfile.hpp"
+#include "calibration/WorkspaceAcquisition.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include <QObject>
 #include <QString>
@@ -8,8 +9,9 @@
 #include <memory>
 
 namespace micro_robot {
-// GUI-thread application service. Undistortion, estimation and disk I/O share
-// one serialized worker. Input/configuration changes invalidate late results.
+class WorkspaceDiagnosticsController;
+// GUI-thread application service. Calibration work shares one serialized worker;
+// owned spatial diagnostics have a separate bounded worker. Changes fence late results.
 class WorkspaceCalibrationController final : public QObject {
     Q_OBJECT
 public:
@@ -18,11 +20,43 @@ public:
                                    std::unique_ptr<IWorkspaceProfileStore> store, LogChannel log,
                                    QObject* parent = nullptr);
     ~WorkspaceCalibrationController() override;
+    [[nodiscard]] WorkspaceDiagnosticsController& diagnostics() const;
     void setInput(std::optional<IntrinsicCalibration> intrinsics, bool persistent);
     void receiveFrame(FramePtr frame);
-    void configure(QString workspaceId, double widthMeters, double heightMeters);
+    void configure(QString workspaceId, double widthMeters, double heightMeters,
+                   double originFromBaseXMeters = 0, double originFromBaseYMeters = 0);
+    void selectCorner(ImageCorner point, std::optional<std::size_t> replace = {});
+    void undoCorner();
+    void clearCorners();
+    void confirmBoundary();
+    void setOriginFromImage(ImageCorner point);
+    [[nodiscard]] const auto& frameId() const { return frameId_; }
+    [[nodiscard]] const auto& corners() const { return corners_; }
+    [[nodiscard]] std::uint64_t referencesRevision() const { return referencesRevision_; }
+    [[nodiscard]] bool boundaryConfirmed() const { return boundaryConfirmed_; }
+    [[nodiscard]] bool canAddReferences() const { return boundaryConfirmed_ || (draft_ && draft_->homography); }
+    void setAcquisitionDetector(std::unique_ptr<ICalibrationDetector> detector);
+    void editReference(std::size_t index, WorkspaceCorrespondence point, bool check);
+    void appendReference(std::optional<ImageCorner> point = {});
+    void removeReference(std::size_t index);
+    [[nodiscard]] const auto& references() const { return references_; }
+    [[nodiscard]] const auto& placements() const { return placements_; }
+    [[nodiscard]] const auto& boardReview() const { return boardReview_; }
+    [[nodiscard]] const auto& boardPoints() const { return boardPoints_; }
+    [[nodiscard]] const auto& boardAssessment() const { return boardAssessment_; }
+    [[nodiscard]] bool canDetectBoard() const { return !busy_ && !shuttingDown_ && frozen_ && detector_ && boundaryConfirmed_; }
+    [[nodiscard]] bool canImportBoard() const { return !busy_ && !shuttingDown_ && frozen_ && boardReview_ && boundaryConfirmed_; }
+    void discardBoardReview();
+    [[nodiscard]] std::uint64_t boardRevision() const { return boardRevision_; }
+    [[nodiscard]] const auto& detectedBoard() const { return detectedBoard_; }
+    [[nodiscard]] bool canReviewBoard() const { return !busy_ && !shuttingDown_ && frozen_ && detectedBoard_ && boundaryConfirmed_; }
+    void reviewBoardPlacement(WorkspaceBoardPlacement settings);
+    void setBoardPointIncluded(std::size_t index, bool included);
+    void importBoardPlacement(bool check, bool physicalIdentityConfirmed);
     void setPoints(std::vector<WorkspaceCorrespondence> fit, std::vector<WorkspaceCorrespondence> check);
 
+    [[nodiscard]] const auto& activeAcquisition() const { return activeAcquisition_; }
+    [[nodiscard]] const auto& draftAcquisition() const { return draftAcquisition_; }
     [[nodiscard]] const std::optional<WorkspaceCalibrationProfile>& profile() const { return profile_; }
 
     [[nodiscard]] const std::optional<WorkspaceCalibrationProfile>& draftProfile() const { return draft_; }
@@ -42,10 +76,13 @@ public:
 
     [[nodiscard]] bool canActivate() const
     {
-        return !shuttingDown_ && !busy_ && draft_ && draft_->homography;
+        return !shuttingDown_ && !busy_ && draft_ && draft_->homography
+            && (draft_->acquisitionId.empty() || (draftAcquisition_ && draftAcquisition_->id==draft_->acquisitionId));
     }
 
     [[nodiscard]] FramePtr frozenFrame() const { return frozen_; }
+    [[nodiscard]] FramePtr measurementFrame() const { return measurementFrame_; }
+    [[nodiscard]] bool canFreezeMeasurement() const { return profile_ && canFreeze(); }
 
     [[nodiscard]] QString message() const { return message_; }
 
@@ -55,7 +92,7 @@ public:
 
     [[nodiscard]] bool canCalculate() const
     {
-        return !shuttingDown_ && !busy_ && frozen_ && intrinsics_ && bounds_ && !workspaceId_.isEmpty();
+        return !shuttingDown_ && !busy_ && frozen_ && intrinsics_ && bounds_ && !workspaceId_.isEmpty() && boundaryConfirmed_;
     }
 
     [[nodiscard]] bool canSave() const
@@ -68,10 +105,13 @@ public:
         return !shuttingDown_ && !busy_ && persistent_ && intrinsics_ && !workspaceId_.isEmpty();
     }
 
-    [[nodiscard]] bool isStopped() const { return worker_.isFinished(); }
+    [[nodiscard]] bool isStopped() const;
 
 public slots:
     void freeze();
+    void freezeMeasurement();
+    void freezeBoard();
+    void detectBoard();
     void calculate();
     void verify();
     void activate();
@@ -81,15 +121,31 @@ public slots:
 signals:
     void changed();
     void profileChanged();
+    void measurementFrameChanged();
     void stopped();
 
 private:
     void invalidate(bool clearFrame);
+    void geometryChanged();
+    void freezeFrame(bool preserveReferences);
+    void synchronizeReferences();
+    void referencesEdited();
+    void clearBoardReview();
+    [[nodiscard]] std::shared_ptr<WorkspaceAcquisitionRecord> acquisitionSnapshot(const WorkspaceCalibrationProfile& profile) const;
     void publish(QString message);
     std::shared_ptr<IWorkspaceHomographySolver> solver_;
     std::shared_ptr<ICalibrationUndistorter> undistorter_;
     std::shared_ptr<IWorkspaceProfileStore> store_;
+    std::shared_ptr<ICalibrationDetector> detector_;
+    std::vector<WorkspaceReference> references_;
+    std::vector<WorkspaceBoardPlacement> placements_;
+    std::optional<WorkspaceBoardPlacement> detectedBoard_, boardReview_;
+    std::vector<WorkspaceCorrespondence> boardPoints_;
+    std::vector<WorkspaceReferenceRejection> boardAssessment_;
+    std::shared_ptr<const WorkspaceAcquisitionRecord> draftAcquisition_, activeAcquisition_;
+    std::uint64_t nextReferenceId_{1}, nextPlacementId_{1}, boardRevision_{};
     LogChannel log_;
+    std::unique_ptr<WorkspaceDiagnosticsController> diagnostics_;
     QThread worker_;
     QObject* workerContext_{}; // Deleted on worker completion.
     std::optional<IntrinsicCalibration> intrinsics_;
@@ -97,11 +153,16 @@ private:
     std::optional<WorkspaceCalibrationProfile> profile_; // Active, explicitly installed calibration.
     std::optional<WorkspaceCalibrationProfile> draft_;
     QString workspaceId_;
-    FramePtr latest_, frozen_;
+    std::string frameId_;
+    std::vector<ImageCorner> corners_;
+    bool boundaryConfirmed_{};
+    FramePtr latest_, frozen_, measurementFrame_;
+    std::uint64_t measurementGeneration_{};
     std::vector<WorkspaceCorrespondence> fit_, check_;
     QString message_{
         QStringLiteral("Load or calculate compatible intrinsics, then freeze an undistorted frame.")};
-    std::uint64_t generation_{};
+    std::uint64_t generation_{}, referencesRevision_{};
+    static constexpr auto MaximumFrozenFrameAge = std::chrono::seconds{2};
     bool persistent_{}, busy_{}, shuttingDown_{}, resolutionMismatch_{};
 };
 } // namespace micro_robot

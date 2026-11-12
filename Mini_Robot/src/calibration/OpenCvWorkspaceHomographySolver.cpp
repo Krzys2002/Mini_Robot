@@ -20,7 +20,8 @@ WorkspaceHomographyOutcome OpenCvWorkspaceHomographySolver::solve(const Workspac
         for (std::size_t i = 0; i < input.fitPoints.size(); ++i) {
             const auto& p = input.fitPoints[i];
             const double u = p.image.u / k.width, v = p.image.v / k.height;
-            const double x = p.world.x.value / width, y = p.world.y.value / height;
+            const double x = (p.world.x.value - input.profile.bounds.minimum().x.value) / width;
+            const double y = (p.world.y.value - input.profile.bounds.minimum().y.value) / height;
             auto* r = a.ptr<double>(static_cast<int>(i * 2));
             r[0] = -u;
             r[1] = -v;
@@ -37,7 +38,10 @@ WorkspaceHomographyOutcome OpenCvWorkspaceHomographySolver::solve(const Workspac
             r[8] = y;
         }
         cv::Mat w, u, vt;
-        cv::SVD::compute(a, w, u, vt, cv::SVD::FULL_UV);
+        // Four points produce an 8x9 matrix: retain the complete right nullspace.
+        // For >=5 points the thin U is (2N)x9 instead of quadratic (2N)x(2N).
+        const int flags = input.fitPoints.size() == MinimumWorkspaceFitPoints ? cv::SVD::FULL_UV : 0;
+        cv::SVD::compute(a, w, u, vt, flags);
         if (w.at<double>(7) <= w.at<double>(0) * 1e-9)
             return {{}, "Correspondences are numerically degenerate."};
         WorkspaceHomography initial;
@@ -46,6 +50,12 @@ WorkspaceHomographyOutcome OpenCvWorkspaceHomographySolver::solve(const Workspac
             for (int col = 0; col < 3; ++col)
                 initial.imageToWorld[static_cast<std::size_t>(row * 3 + col)] =
                     vt.at<double>(8, row * 3 + col) * rows[row] * columns[col];
+        for (int col = 0; col < 3; ++col) {
+            initial.imageToWorld[static_cast<std::size_t>(col)] += input.profile.bounds.minimum().x.value
+                * initial.imageToWorld[static_cast<std::size_t>(6 + col)];
+            initial.imageToWorld[static_cast<std::size_t>(3 + col)] += input.profile.bounds.minimum().y.value
+                * initial.imageToWorld[static_cast<std::size_t>(6 + col)];
+        }
         const auto initialOutcome = evaluateWorkspaceHomography(input, initial);
         if (!initialOutcome.result)
             return initialOutcome;
