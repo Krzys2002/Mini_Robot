@@ -188,3 +188,11 @@ non-finite, overflowing and underflow-to-zero inputs. Local desktop build and
 full CTest passed **261/261**; Qt/OpenCV-free build and full CTest passed
 **166/166**. `git diff --check` passed. Updated remote CI is required to verify
 the older runner toolchain; these local results do not claim that verification.
+
+### Tabletop frame boundary
+
+Boundary and origin selection define a tabletop world frame (z=0); they do not
+estimate camera extrinsics or validate elevated tags. WorkspaceBounds remains
+robot travel geometry. Survey references outside that rectangle belong to
+[reference monitoring #271](https://github.com/Krzys2002/Mini_Robot/issues/271),
+not enlarged or shifted travel bounds.
