@@ -44,7 +44,10 @@ The current layers are:
   quality/diversity policy, intrinsic result values, solver contract and validation.
 - `micro_robot_calibration_opencv`: replaceable chessboard detector and intrinsic solver
   selected by composition, without camera ownership. `CalibrationController` schedules
-  one detection or solving job on its worker; `CalibrationWizard` renders frames,
+  detection, full-resolution grayscale review preparation and solving on its
+  capture worker. A second serialized worker handles optical flow/remapping.
+  Live quality assessment retains no images; the accepted-view pixel budget is
+  separate from bounded current/worker frames. `CalibrationWizard` renders frames,
   corners and reprojection quality and forwards requests.
 - `micro_robot_vision_api`: Qt/OpenCV-free timestamped marker observations and detector interface.
 - `micro_robot_vision_observation`: Qt/OpenCV-free tag-to-RobotId mapping, rejection of

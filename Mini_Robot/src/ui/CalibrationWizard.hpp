@@ -19,17 +19,23 @@ class CalibrationWizard final : public QDialog {
     Q_OBJECT
 public:
     explicit CalibrationWizard(CalibrationController& controller, QWidget* parent = nullptr);
+    ~CalibrationWizard() override;
     void bindWorkspaceCalibration(WorkspaceCalibrationController& controller);
 protected:
     void reject() override;
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 private:
+    static constexpr double MillimetersPerMeter = 1000.0;
     void refresh();
     WorkspaceCalibrationDialog* workspace_{};
     CalibrationController& controller_;
     CalibrationPreview* preview_{};
     QComboBox* views_{};
+    QComboBox* overlayMode_{};
     QLabel* message_{};
     QLabel* progress_{};
+    QLabel* guidance_{};
     QLabel* quality_{};
     QLabel* profileStatus_{};
     QPushButton* saveProfile_{};

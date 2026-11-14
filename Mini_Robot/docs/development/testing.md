@@ -33,7 +33,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_vision_tests` | `vision` | AprilTag formats/stride, canonical rotations and resulting robot headings, multiple IDs, invalid inputs, negative scenes and generated-video replay; desktop or standalone vision ON |
 | `micro_robot_ble_contract_tests` | `core`, `ble` | Qt-free Robot Info, identity/GATT validation, command codec, malformed notifications and sequence wrap |
 | `micro_robot_ble_tests` (opt-in) | `ble` | Qt Core fake-radio lifecycle, bounded dispatch/freshness, telemetry/results, E-stop retries, controller delivery, timeouts and recovery; no physical radio |
-| `micro_robot_calibration_tests` | `core`, `calibration` | Capture policy plus intrinsic result validation, weighted RMS, warning thresholds and owned snapshots |
+| `micro_robot_calibration_tests` | `core`, `calibration` | Capture/guidance policy, bounded review storage, allocation/overflow/cleanup regressions, intrinsic result validation and owned snapshots |
 | `micro_robot_calibration_detector_tests` | `calibration` | Generated chessboards, analytic intrinsic/distortion recovery and metric corner-undistortion tests; built with desktop or standalone calibration enabled |
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time, angle normalization |
 | `micro_robot_vision_observation_tests` | `core`, `vision` | [Robot marker observations](../vision/robot-observation.md): tag-to-RobotId mapping, unknown/duplicate/invalid rejection, projective center, image and metric heading, calibration and workspace rejection |

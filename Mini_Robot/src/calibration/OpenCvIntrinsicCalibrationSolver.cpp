@@ -18,9 +18,8 @@ IntrinsicCalibrationOutcome OpenCvIntrinsicCalibrationSolver::solve(const Intrin
     const auto fail = [](std::string error) { return IntrinsicCalibrationOutcome{{}, std::move(error)}; };
     if (const auto error = validateIntrinsicConfig(config); !error.empty()) return fail(error);
     if (input.sourceId.empty() || input.width == 0 || input.height == 0
-        || input.width > 4096 || input.height > 4096
-        || static_cast<std::uint64_t>(input.width) * input.height > 4'000'000
-        || input.observations.size() < 3 || input.observations.size() > 24)
+        || !supportedCalibrationResolution(input.width, input.height)
+        || input.observations.size() < 3 || input.observations.size() > CalibrationMaximumViews)
         return fail("Expected camera identity, supported resolution and 3–24 complete views.");
     try {
         std::vector<cv::Point3f> object;
