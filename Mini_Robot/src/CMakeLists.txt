@@ -47,6 +47,8 @@ add_library(micro_robot_calibration STATIC
     calibration/WorkspaceCalibration.cpp
     calibration/TabletopHomography.cpp
     calibration/TabletopHomography.hpp
+    calibration/WorkspaceAcquisition.hpp
+    calibration/WorkspaceAcquisition.cpp
     calibration/WorkspaceProfile.cpp
     calibration/WorkspaceProfile.hpp
 )
@@ -256,6 +258,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_desktop_controller STATIC
         app/VisionController.hpp
         app/VisionController.cpp
+        app/WorkspaceCalibrationControllerAcquisition.cpp
         app/WorkspaceCalibrationController.cpp
         app/WorkspaceCalibrationController.hpp
         app/CalibrationController.hpp
@@ -277,6 +280,10 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
+        ui/WorkspaceBoardPanel.hpp
+        ui/WorkspaceBoardPanel.cpp
+        ui/WorkspaceReferenceModel.hpp
+        ui/WorkspaceReferenceModel.cpp
         ui/WorkspaceCalibrationDialog.cpp
         ui/WorkspaceCalibrationDialog.hpp
         ui/CalibrationWizard.hpp

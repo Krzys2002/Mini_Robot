@@ -41,6 +41,7 @@ void WorkspaceCalibrationController::invalidate(bool clearFrame)
     draft_.reset();
     if (clearFrame) {
         ++referencesRevision_;
+        references_.clear(); placements_.clear(); clearBoardReview(); draftAcquisition_.reset();
         latest_.reset();
         frozen_.reset();
         fit_.clear();
@@ -67,7 +68,7 @@ void WorkspaceCalibrationController::setInput(std::optional<IntrinsicCalibration
     invalidate(true);
     resolutionMismatch_ = false;
     if (profile_) {
-        profile_.reset();
+        profile_.reset(); activeAcquisition_.reset();
         emit profileChanged();
     }
     intrinsics_ = std::move(input);
@@ -88,7 +89,7 @@ void WorkspaceCalibrationController::receiveFrame(FramePtr frame)
             resolutionMismatch_ = true;
             invalidate(true);
             if (profile_) {
-                profile_.reset();
+                profile_.reset(); activeAcquisition_.reset();
                 emit profileChanged();
             }
             publish(QStringLiteral("Resolution mismatch; workspace transform cleared."));
@@ -106,6 +107,7 @@ void WorkspaceCalibrationController::geometryChanged()
 {
     invalidate(false);
     ++referencesRevision_;
+    references_.clear(); placements_.clear(); clearBoardReview(); draftAcquisition_.reset();
     fit_.clear();
     check_.clear();
     boundaryConfirmed_ = false;
@@ -178,6 +180,7 @@ void WorkspaceCalibrationController::confirmBoundary()
     const auto world = workspaceCorners(*bounds_);
     for (std::size_t i = 0; i < boundary.size(); ++i) fit_.push_back({boundary[i], world[i]});
     boundaryConfirmed_ = true;
+    synchronizeReferences();
     publish(QStringLiteral("Boundary confirmed. Review axes/dimensions, then add measured references or Calculate. "
                            "After calculating, an image pick can set the origin; this clears draft results/references."));
 }
@@ -200,6 +203,12 @@ void WorkspaceCalibrationController::setPoints(std::vector<WorkspaceCorresponden
 {
     if (shuttingDown_)
         return;
+    if (fit.size()>MaximumWorkspaceFitPoints || check.size()>MaximumWorkspaceCheckPoints) {
+        publish(QStringLiteral("Reference count exceeds 4096 per role; no rows were replaced.")); return;
+    }
+    if (!placements_.empty()) {
+        publish(QStringLiteral("Use reference-row edits to preserve placement provenance; bulk manual replacement is unavailable while placements exist.")); return;
+    }
     if (!boundaryConfirmed_ && !fit.empty()) {
         publish(QStringLiteral("Confirm the four labelled corners before adding fitting references.")); return;
     }
@@ -223,11 +232,18 @@ void WorkspaceCalibrationController::setPoints(std::vector<WorkspaceCorresponden
     if (fit.empty()) boundaryConfirmed_ = false;
     fit_ = std::move(fit);
     check_ = std::move(check);
+    synchronizeReferences();
     publish(QStringLiteral("Draft points changed. Calculate a fit, or verify check points against the "
                            "current draft transform."));
 }
 
-void WorkspaceCalibrationController::freeze()
+void WorkspaceCalibrationController::freeze() { freezeFrame(false); }
+void WorkspaceCalibrationController::freezeBoard()
+{
+    if (!boundaryConfirmed_) { publish(QStringLiteral("Confirm the physical workspace boundary before retaining placement data.")); return; }
+    freezeFrame(true);
+}
+void WorkspaceCalibrationController::freezeFrame(bool preserveReferences)
 {
     if (!canFreeze())
         return;
@@ -240,17 +256,18 @@ void WorkspaceCalibrationController::freeze()
     const auto optical = *intrinsics_;
     ++generation_;
     frozen_.reset();
-    ++referencesRevision_;
-    fit_.clear();
-    check_.clear();
-    corners_.clear();
-    boundaryConfirmed_ = false;
+    clearBoardReview();
+    if (!preserveReferences) {
+        ++referencesRevision_;
+        references_.clear(); placements_.clear();
+        fit_.clear(); check_.clear(); corners_.clear(); boundaryConfirmed_ = false;
+    }
     const auto generation = generation_;
     busy_ = true;
     publish(QStringLiteral("Freezing an undistorted native-K image…"));
     QMetaObject::invokeMethod(
         workerContext_,
-        [this, frame, optical, generation] {
+        [this, frame, optical, generation, preserveReferences] {
             UndistortedPreviewOutcome result;
             try {
                 result = undistorter_->undistort(*frame, optical);
@@ -267,7 +284,7 @@ void WorkspaceCalibrationController::freeze()
                 result.error = "Undistorter returned incompatible frame metadata.";
             QMetaObject::invokeMethod(
                 this,
-                [this, generation, result = std::move(result)] {
+                [this, generation, preserveReferences, result = std::move(result)] {
                     busy_ = false;
                     if (shuttingDown_)
                         return;
@@ -277,8 +294,9 @@ void WorkspaceCalibrationController::freeze()
                     }
                     if (result.frame && result.error.empty()) {
                         frozen_ = result.frame;
-                        publish(QStringLiteral("Frozen undistorted pixels. Select base, +X, opposite, +Y "
-                                               "corners, or add Check points to verify a loaded transform."));
+                        publish(preserveReferences
+                            ? QStringLiteral("Frozen next placement frame; stored references retained. Keep camera/table fixed. Detect this exact board image.")
+                            : QStringLiteral("Frozen undistorted pixels. Select base, +X, opposite, +Y corners, or add Check points to verify a loaded transform."));
                     } else
                         publish(QStringLiteral("Undistortion failed: %1")
                                     .arg(QString::fromStdString(result.error)));
@@ -302,20 +320,19 @@ void WorkspaceCalibrationController::calculate()
     WorkspaceBoundary boundary;
     std::copy(corners_.begin(), corners_.end(), boundary.begin());
     input.profile.boundary = boundary;
-    if (const auto error = validateWorkspaceHomographyInput(input); !error.empty()) {
-        publish(QString::fromStdString(error));
-        return;
-    }
+    input.profile.acquisitionId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    const auto acquisition = acquisitionSnapshot(input.profile);
     const auto generation = ++generation_;
     draft_.reset();
     busy_ = true;
     publish(QStringLiteral("Calculating image-to-world homography…"));
     QMetaObject::invokeMethod(
         workerContext_,
-        [this, input, generation] {
+        [this, input, generation, acquisition] {
             WorkspaceHomographyOutcome outcome;
             try {
-                outcome = solver_->solve(input);
+                if (auto error = validateWorkspaceHomographyInput(input); !error.empty()) outcome.error=error;
+                else outcome = solver_->solve(input);
             } catch (const std::exception& e) {
                 outcome.error = e.what();
             } catch (...) {
@@ -331,6 +348,7 @@ void WorkspaceCalibrationController::calculate()
                 else if (outcome.result->profile.workspaceId != input.profile.workspaceId ||
                          !(outcome.result->profile.bounds == input.profile.bounds) ||
                          outcome.result->profile.frameId != input.profile.frameId ||
+                         outcome.result->profile.acquisitionId != input.profile.acquisitionId ||
                          outcome.result->profile.boundary.has_value() != input.profile.boundary.has_value() ||
                          !outcome.result->profile.homography)
                     outcome.error = "Solver returned another workspace or no transform.";
@@ -342,9 +360,13 @@ void WorkspaceCalibrationController::calculate()
                 else
                     outcome = evaluateWorkspaceHomography(input, *outcome.result->profile.homography);
             }
+            if (outcome.result && outcome.error.empty()) {
+                acquisition->profile=outcome.result->profile;
+                outcome.error=validateWorkspaceAcquisition(*acquisition);
+            }
             QMetaObject::invokeMethod(
                 this,
-                [this, generation, outcome = std::move(outcome)] {
+                [this, generation, acquisition, outcome = std::move(outcome)] {
                     busy_ = false;
                     if (shuttingDown_)
                         return;
@@ -358,6 +380,7 @@ void WorkspaceCalibrationController::calculate()
                         return;
                     }
                     draft_ = outcome.result->profile;
+                    draftAcquisition_ = acquisition;
                     auto text = QStringLiteral("Fit RMS %1 m, maximum %2 m (%3 points). ")
                                     .arg(outcome.result->fit.rmsMeters, 0, 'g', 6)
                                     .arg(outcome.result->fit.maximumMeters, 0, 'g', 6)
@@ -381,26 +404,32 @@ void WorkspaceCalibrationController::calculate()
 
 void WorkspaceCalibrationController::verify()
 {
-    if (!canVerify())
-        return;
-    // At most 64 simple projections; no image processing or refit on the GUI thread.
-    if (!fit_.empty()) {
-        if (const auto error = validateWorkspaceHomographyInput({*draft_, fit_, check_}); !error.empty()) {
-            publish(QStringLiteral("Verification rejected: %1").arg(QString::fromStdString(error)));
-            return;
-        }
-    }
-    const auto result = evaluateWorkspaceChecks(*draft_, check_);
-    if (!result) {
-        publish(QStringLiteral("Verification rejected: use finite, distinct Check points inside the native "
-                               "image and workspace."));
-        return;
-    }
-    publish(QStringLiteral("Independent check RMS %1 m, maximum %2 m (%3 points). Transform unchanged. "
-                           "Review errors against your accuracy requirement before Activate.")
-                .arg(result->rmsMeters, 0, 'g', 6)
-                .arg(result->maximumMeters, 0, 'g', 6)
-                .arg(result->distancesMeters.size()));
+    if (!canVerify()) return;
+    const auto profile=*draft_;
+    const auto fit=fit_, check=check_;
+    const auto acquisition=boundaryConfirmed_ && !profile.acquisitionId.empty()?acquisitionSnapshot(profile):nullptr;
+    const auto generation=++generation_; busy_=true;
+    publish(QStringLiteral("Verifying independent Check references on the calibration worker…"));
+    QMetaObject::invokeMethod(workerContext_,[this,profile,fit,check,generation,acquisition] {
+        std::string error;
+        std::optional<WorkspaceMappingErrors> result;
+        try {
+            if (!fit.empty()) error=validateWorkspaceHomographyInput({profile,fit,check});
+            if (error.empty()) result=evaluateWorkspaceChecks(profile,check);
+            if (error.empty() && acquisition) error=validateWorkspaceAcquisition(*acquisition);
+            if (error.empty() && !result) error="Use finite distinct Check points inside the native image and workspace.";
+        } catch (const std::exception& e) { error=e.what(); }
+        catch (...) { error="Unknown Check verification failure."; }
+        QMetaObject::invokeMethod(this,[this,generation,acquisition,error=std::move(error),result=std::move(result)] {
+            busy_=false; if (shuttingDown_) return;
+            if (generation!=generation_) { emit changed(); return; }
+            if (!result || !error.empty()) { publish(QStringLiteral("Verification rejected: %1").arg(QString::fromStdString(error))); return; }
+            if (acquisition) draftAcquisition_=acquisition;
+            publish(QStringLiteral("Independent check RMS %1 m, maximum %2 m (%3 points). Transform unchanged. "
+                                   "Review errors against your accuracy requirement before Activate.")
+                .arg(result->rmsMeters,0,'g',6).arg(result->maximumMeters,0,'g',6).arg(result->distancesMeters.size()));
+        },Qt::QueuedConnection);
+    },Qt::QueuedConnection);
 }
 
 void WorkspaceCalibrationController::activate()
@@ -408,6 +437,7 @@ void WorkspaceCalibrationController::activate()
     if (!canActivate())
         return;
     profile_ = draft_;
+    activeAcquisition_=draftAcquisition_;
     emit profileChanged();
     log_.info("Workspace transform explicitly activated");
     publish(QStringLiteral("Workspace transform activated. Operator acceptance of physical placement and "
@@ -419,15 +449,21 @@ void WorkspaceCalibrationController::save()
     if (!canSave())
         return;
     const auto profile = *draft_;
+    const auto acquisition = !profile.acquisitionId.empty()
+        ? (boundaryConfirmed_ ? acquisitionSnapshot(profile) : draftAcquisition_) : nullptr;
     const auto generation = generation_;
     busy_ = true;
     publish(QStringLiteral("Saving workspace profile…"));
     QMetaObject::invokeMethod(
         workerContext_,
-        [this, profile, generation] {
+        [this, profile, generation, acquisition] {
             std::string error;
             try {
-                error = store_->save(profile);
+                if (!profile.acquisitionId.empty()) {
+                    error=acquisition ? validateWorkspaceAcquisition(*acquisition) : "Acquisition provenance is unavailable; calculate a complete dataset before saving.";
+                    if (error.empty()) error=store_->saveAcquisition(profile,*acquisition);
+                }
+                else error = store_->save(profile);
             } catch (const std::exception& e) {
                 error = e.what();
             } catch (...) {
@@ -435,15 +471,16 @@ void WorkspaceCalibrationController::save()
             }
             QMetaObject::invokeMethod(
                 this,
-                [this, generation, error] {
+                [this, generation, error, acquisition] {
                     busy_ = false;
                     if (shuttingDown_)
                         return;
-                    if (generation == generation_)
+                    if (generation == generation_) {
+                        if (error.empty() && acquisition) draftAcquisition_=acquisition;
                         publish(error.empty() ? QStringLiteral("Workspace transform saved atomically.")
                                               : QStringLiteral("Workspace save failed: %1")
                                                     .arg(QString::fromStdString(error)));
-                    else
+                    } else
                         emit changed();
                 },
                 Qt::QueuedConnection);
@@ -471,6 +508,12 @@ void WorkspaceCalibrationController::load()
                     result.error = workspaceCalibrationCompatibilityError(*result.profile, active);
                     if (result.profile->workspaceId != id || !result.profile->homography)
                         result.error = "Loaded workspace identity/transform mismatch.";
+                    if (!result.profile->acquisitionId.empty()) {
+                        if (!result.acquisition) result.error="Linked acquisition provenance is missing.";
+                        else if (serializeWorkspaceProfile(result.acquisition->profile)!=serializeWorkspaceProfile(*result.profile))
+                            result.error="Linked acquisition/profile binding mismatch.";
+                        else if (auto error=validateWorkspaceAcquisition(*result.acquisition); !error.empty()) result.error=error;
+                    }
                 }
             } catch (const std::exception& e) {
                 result.error = e.what();
@@ -498,9 +541,25 @@ void WorkspaceCalibrationController::load()
                         frozen_.reset();
                         fit_.clear();
                         check_.clear();
-                        publish(QStringLiteral(
-                            "Draft transform loaded. Freeze a fresh frame, add Check points and Verify; then "
-                            "explicitly Activate after reviewing measured errors."));
+                        references_.clear(); placements_.clear(); clearBoardReview();
+                        draftAcquisition_=result.acquisition;
+                        if (draftAcquisition_) {
+                            references_=draftAcquisition_->references; placements_=draftAcquisition_->placements;
+                            if (draft_->boundary) {
+                                corners_.assign(draft_->boundary->begin(),draft_->boundary->end());
+                                boundaryConfirmed_=true;
+                            }
+                            nextReferenceId_=1; nextPlacementId_=1;
+                            for (const auto& r:references_) {
+                                nextReferenceId_=std::max(nextReferenceId_,r.id+1);
+                                (r.check ? check_ : fit_).push_back(r.point);
+                            }
+                            for (const auto& placement:placements_) nextPlacementId_=std::max(nextPlacementId_,placement.id+1);
+                        }
+                        publish(draftAcquisition_
+                            ? QStringLiteral("Draft transform and acquisition loaded (%1 references, %2 placements). Use Freeze next board frame to retain the dataset, or Freeze/reset for session-only rechecks. Verify independently before explicit Activate.")
+                                .arg(references_.size()).arg(placements_.size())
+                            : QStringLiteral("Draft transform loaded without acquisition provenance. Freeze/reset a fresh frame, add Check points and Verify; explicitly Activate only after reviewing measured errors."));
                     } else
                         publish(
                             result.state == ProfileLoadState::Missing && result.error.empty()
@@ -519,7 +578,7 @@ void WorkspaceCalibrationController::shutdown()
         return;
     shuttingDown_ = true;
     invalidate(true);
-    profile_.reset();
+    profile_.reset(); activeAcquisition_.reset();
     emit profileChanged();
     worker_.quit();
     emit changed();

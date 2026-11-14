@@ -13,6 +13,7 @@
 #include <chrono>
 #include <iostream>
 #include <cstdlib>
+#include <cmath>
 
 namespace {
 using namespace micro_robot;
@@ -160,3 +161,37 @@ TEST(CalibrationDetectorTest, PerformanceAudit)
     }
 }
 } // namespace
+
+#include "calibration/WorkspaceAcquisition.hpp"
+#include "calibration/OpenCvWorkspaceHomographySolver.hpp"
+#include "HomographyFixtures.hpp"
+
+TEST(CalibrationDetectorWorkspaceTest, SharedRasterTargetGeneratesMeasuredNativeWorkspacePairs)
+{
+    using namespace micro_robot::test;
+    auto frame=frameFrom(chessboard()); frame.sequence=42;
+    OpenCvCalibrationDetector detector;
+    const auto detected=detector.detect(frame,WorkspaceBoardTarget);
+    ASSERT_EQ(detected.corners.size(),54);
+    // Independent synthetic plane map: 50 native pixels correspond to a measured
+    // 25 mm square. Physical axes are declared here, not inferred by production UI.
+    auto world=[](ImageCorner p) {return WorldPoint2D{Meters{(p.u-49.5)/2000},Meters{(724.5-p.v)/2000}};};
+    WorkspaceBoardPlacement placement; placement.id=1; placement.detected=detected.corners;
+    placement.included.assign(54,true); placement.frameSequence=frame.sequence;
+    placement.anchor=world(detected.corners[0]);
+    const auto columnA=world(detected.corners[0]),columnB=world(detected.corners[1]),rowB=world(detected.corners[9]);
+    const double cx=columnB.x.value-columnA.x.value,cy=columnB.y.value-columnA.y.value;
+    placement.columnAngle=Radians{std::atan2(cy,cx)};
+    placement.rowDirection=cx*(rowB.y.value-columnA.y.value)-cy*(rowB.x.value-columnA.x.value)>0?1:-1;
+    auto input=homographyInput(); input.profile.bounds=WorkspaceBounds{Meters{0.4},Meters{0.3}};
+    input.profile.intrinsics.distortion={0,0,0,0,0}; input.fitPoints.clear(); input.checkPoints.clear();
+    const auto generated=generateWorkspaceBoard(placement,input.profile.bounds);
+    ASSERT_TRUE(generated.error.empty())<<generated.error;
+    input.fitPoints=generated.points;
+    input.checkPoints={{{403.5,438.5},{Meters{0.177},Meters{0.143}}}};
+    const auto result=OpenCvWorkspaceHomographySolver{}.solve(input);
+    ASSERT_TRUE(result.result)<<result.error;
+    EXPECT_LT(result.result->fit.maximumMeters,0.0001);
+    EXPECT_LT(result.result->check->maximumMeters,0.0001);
+    EXPECT_EQ(placement.frameSequence,42);
+}

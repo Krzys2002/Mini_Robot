@@ -3,10 +3,25 @@
 #include "calibration/WorkspaceCalibration.hpp"
 
 namespace micro_robot {
+inline constexpr std::size_t MinimumWorkspaceFitPoints = 4;
+inline constexpr std::size_t MaximumWorkspaceFitPoints = 4096;
+inline constexpr std::size_t MaximumWorkspaceCheckPoints = 4096;
+inline constexpr std::size_t MaximumWorkspaceReferences = MaximumWorkspaceFitPoints + MaximumWorkspaceCheckPoints;
+inline constexpr double WorkspaceDuplicateTolerance = 1e-8; // Fraction of image/workspace extents.
 struct WorkspaceCorrespondence {
     ImageCorner image;  // Undistorted native-K pixels, never display coordinates.
     WorldPoint2D world; // Measured metres.
 };
+
+enum class WorkspaceReferenceRejection { None, OutsideDomain, Duplicate };
+struct WorkspaceReferenceAssessment {
+    std::vector<WorkspaceReferenceRejection> candidates;
+    std::string error;
+};
+// Worker-only batch assessment. Duplicate neighbourhoods use a spatial ordered index;
+// candidates are assessed in order against existing and earlier accepted candidates.
+[[nodiscard]] WorkspaceReferenceAssessment assessWorkspaceReferences(const WorkspaceCalibrationProfile& profile,
+    const std::vector<WorkspaceCorrespondence>& existing, const std::vector<WorkspaceCorrespondence>& candidates);
 
 struct WorkspaceHomographyInput {
     WorkspaceCalibrationProfile profile;

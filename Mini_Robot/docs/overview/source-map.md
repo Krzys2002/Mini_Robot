@@ -156,3 +156,17 @@ overview, and relevant test instructions. Check behavior against implementation
 and tests, not only declarations. Preserve historical reports as dated records.
 New capabilities remain issue-scoped; documenting a planned module must not imply
 that it already exists.
+
+### Workspace acquisition and persistence
+
+| Sources | Owning target / guide |
+| --- | --- |
+| [WorkspaceAcquisition.hpp](../../src/calibration/WorkspaceAcquisition.hpp), [WorkspaceAcquisition.cpp](../../src/calibration/WorkspaceAcquisition.cpp) | `micro_robot_calibration`: [flat-board generation/provenance](workspace-chessboard.md) |
+| [WorkspaceCalibration.hpp](../../src/calibration/WorkspaceCalibration.hpp), [WorkspaceCalibration.cpp](../../src/calibration/WorkspaceCalibration.cpp) | `micro_robot_calibration`: [lightweight explicit frame/profile contract](workspace.md) |
+| [WorkspaceProfile.hpp](../../src/calibration/WorkspaceProfile.hpp), [WorkspaceProfile.cpp](../../src/calibration/WorkspaceProfile.cpp) | `micro_robot_calibration`: [versioned frame/record links](workspace-chessboard.md#profile-v3-and-acquisition-record-v1) |
+| [TabletopHomography.hpp](../../src/calibration/TabletopHomography.hpp), [TabletopHomography.cpp](../../src/calibration/TabletopHomography.cpp) | `micro_robot_calibration`: [bounded point validation](workspace-chessboard.md#capacity-and-the-requested-1525-locations) |
+| [OpenCvWorkspaceHomographySolver.cpp](../../src/calibration/OpenCvWorkspaceHomographySolver.cpp) | `micro_robot_calibration_opencv`: [bounded DLT/SVD](workspace-chessboard.md#capacity-and-the-requested-1525-locations) |
+| [QtWorkspaceProfileStore.hpp](../../src/calibration/QtWorkspaceProfileStore.hpp), [QtWorkspaceProfileStore.cpp](../../src/calibration/QtWorkspaceProfileStore.cpp) | `micro_robot_calibration_profiles`: [atomic profile/sidecar storage](workspace-chessboard.md#profile-v3-and-acquisition-record-v1) |
+| [WorkspaceCalibrationController.hpp](../../src/app/WorkspaceCalibrationController.hpp), [WorkspaceCalibrationController.cpp](../../src/app/WorkspaceCalibrationController.cpp), [WorkspaceCalibrationControllerAcquisition.cpp](../../src/app/WorkspaceCalibrationControllerAcquisition.cpp) | `micro_robot_desktop_controller`: [exact-frame acquisition/lifecycle](workspace-chessboard.md#operator-procedure) |
+| [WorkspaceCalibrationDialog.cpp](../../src/ui/WorkspaceCalibrationDialog.cpp), [WorkspaceBoardPanel.hpp](../../src/ui/WorkspaceBoardPanel.hpp), [WorkspaceBoardPanel.cpp](../../src/ui/WorkspaceBoardPanel.cpp) | `micro_robot_ui`: [boundary/board review and labelled zoom](workspace-chessboard.md#operator-procedure) |
+| [WorkspaceReferenceModel.hpp](../../src/ui/WorkspaceReferenceModel.hpp), [WorkspaceReferenceModel.cpp](../../src/ui/WorkspaceReferenceModel.cpp) | `micro_robot_ui`: [large typed reference table](workspace-chessboard.md#capacity-and-the-requested-1525-locations) |
