@@ -21,6 +21,12 @@ TrackerUpdate RobotTracker::observe(RobotId id, const Pose2D& pose, Timestamp ca
     observed_.insert(id);
     return TrackerUpdate::Applied;
 }
+void RobotTracker::clearMeasurements(Timestamp now)
+{
+    invalidate(now);
+    world_.clearMeasurements();
+    observed_.clear();
+}
 void RobotTracker::invalidate(Timestamp now)
 {
     if (!invalidatedAt_ || now > *invalidatedAt_) invalidatedAt_ = now;

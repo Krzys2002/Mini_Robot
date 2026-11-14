@@ -38,6 +38,35 @@ double angle(const CalibrationView& view, int columns)
 }
 } // namespace
 
+FramePtr prepareCalibrationReviewFrame(FramePtr frame)
+{
+    if (!frame || !isValidFrame(*frame) || !supportedCalibrationResolution(frame->width, frame->height))
+        throw std::invalid_argument("Invalid or oversized calibration review frame.");
+    const auto bytes = static_cast<std::size_t>(frame->width) * frame->height;
+    if (frame->pixelFormat == PixelFormat::Gray8 && frame->strideBytes == frame->width
+        && frame->pixels->size() == bytes && frame->pixels->capacity() == bytes) return frame;
+    auto pixels = std::make_shared<std::vector<std::byte>>(bytes);
+    const auto channels = frame->pixelFormat == PixelFormat::Gray8 ? 1u
+        : frame->pixelFormat == PixelFormat::Rgb8 ? 3u : 4u;
+    for (std::size_t y = 0; y < frame->height; ++y) {
+        const auto* source = frame->pixels->data() + y * frame->strideBytes;
+        auto* destination = pixels->data() + y * frame->width;
+        if (channels == 1) std::copy_n(source, frame->width, destination);
+        else for (std::size_t x = 0; x < frame->width; ++x) {
+            const auto* rgb = source + x * channels;
+            const auto luma = CalibrationReviewRedWeight * std::to_integer<unsigned>(rgb[0])
+                + CalibrationReviewGreenWeight * std::to_integer<unsigned>(rgb[1])
+                + CalibrationReviewBlueWeight * std::to_integer<unsigned>(rgb[2]);
+            destination[x] = static_cast<std::byte>(luma / CalibrationReviewWeightSum);
+        }
+    }
+    auto result = std::make_shared<Frame>(*frame);
+    result->pixelFormat = PixelFormat::Gray8;
+    result->strideBytes = frame->width;
+    result->pixels = std::move(pixels);
+    return result;
+}
+
 std::vector<TargetPoint> calibrationObjectPoints(const CalibrationTarget& target)
 {
     validateTarget(target);
@@ -59,8 +88,8 @@ CalibrationCapture::CalibrationCapture(CalibrationCaptureConfig config) : config
     if (std::any_of(std::begin(values), std::end(values), [](double v) {
             return !std::isfinite(v) || v < 0;
         }) || config.minimumViews < 3 || config.maximumViews < config.minimumViews
-        || config.maximumViews > 100 || config.maximumStoredBytes == 0
-        || config.minimumLocationCells < 1 || config.minimumLocationCells > 9
+        || config.maximumViews > CalibrationMaximumViews || config.maximumStoredBytes == 0
+        || config.minimumLocationCells < 1 || config.minimumLocationCells > CalibrationLocationCellCount
         || config.minimumAreaFraction >= 1 || config.duplicateDistance <= 0
         || config.minimumScaleSpread > 1
         || config.minimumAngleSpreadRadians > std::numbers::pi / 2) {
@@ -82,11 +111,13 @@ void CalibrationCapture::cancel()
     sourceId_.clear();
     state_ = CalibrationCaptureState::Cancelled;
 }
-CaptureDecision CalibrationCapture::add(FramePtr frame, CalibrationDetection detection)
+CaptureDecision CalibrationCapture::assess(FramePtr frame, const CalibrationDetection& detection) const
 {
     if (state_ != CalibrationCaptureState::Collecting) return {false, "Start or restart capture first."};
     if (!frame || !isValidFrame(*frame)) return {false, "Invalid frame."};
-    if (!detection.error.empty()) return {false, std::move(detection.error)};
+    if (!supportedCalibrationResolution(frame->width, frame->height))
+        return {false, "Unsupported calibration resolution: at most 4 megapixels, neither dimension above 4096. Lower resolution and restart."};
+    if (!detection.error.empty()) return {false, detection.error};
     if (detection.corners.size() != static_cast<std::size_t>(config_.target.columns * config_.target.rows)) {
         return {false, "Full chessboard not found. Show all inner corners with a white border."};
     }
@@ -128,20 +159,48 @@ CaptureDecision CalibrationCapture::add(FramePtr frame, CalibrationDetection det
             return {false, "Redundant view. Move, tilt, rotate the board or change its distance."};
         }
     }
-    if (views_.size() >= config_.maximumViews) return {false, "Capture limit reached. Remove a view to recapture."};
-    if (frame->pixels->size() > config_.maximumStoredBytes - storedBytes_) {
-        return {false, "Capture memory limit reached. Remove views or lower the camera resolution and restart."};
+    if (views_.size() >= config_.maximumViews)
+        return {false, "Capture limit reached: " + std::to_string(config_.maximumViews)
+            + " views. Remove a view to recapture."};
+    const auto required = static_cast<std::size_t>(frame->width) * frame->height;
+    if (required > remainingPixelBytes()) {
+        return {false, "Capture memory limit reached: review needs " + std::to_string(required)
+            + " B; stored " + std::to_string(storedBytes_) + "/"
+            + std::to_string(config_.maximumStoredBytes)
+            + " B. Remove a view, or lower resolution and restart."};
     }
-    storedBytes_ += frame->pixels->size();
-    views_.push_back({std::move(frame), std::move(detection)});
     return {true, "View accepted. Review its corners, then vary position, distance and rotation."};
+}
+CaptureDecision CalibrationCapture::add(FramePtr frame, CalibrationDetection detection,
+                                        const CalibrationReviewFrameFactory& prepare)
+{
+    const auto decision = assess(frame, detection);
+    if (!decision.accepted) return decision;
+    try {
+        auto review = prepare(frame);
+        const auto expected = static_cast<std::size_t>(frame->width) * frame->height;
+        if (!review || !isValidFrame(*review) || review->width != frame->width || review->height != frame->height
+            || review->sequence != frame->sequence || review->capturedAt != frame->capturedAt
+            || review->pixelFormat != PixelFormat::Gray8 || review->strideBytes != frame->width
+            || review->pixels->size() != expected || review->pixels->capacity() > remainingPixelBytes())
+            return {false, "Review storage is incompatible or exceeds the remaining pixel budget. Existing views kept."};
+        const auto bytes = review->pixels->capacity();
+        // Commit accounting only after both preparation and vector growth succeed.
+        views_.push_back({std::move(review), std::move(detection)});
+        storedBytes_ += bytes;
+    } catch (const std::bad_alloc&) {
+        return {false, "Review allocation failed. Existing views kept; remove a view and retry."};
+    } catch (const std::length_error&) {
+        return {false, "Review allocation size failed. Existing views kept; lower resolution and restart."};
+    }
+    return decision;
 }
 bool CalibrationCapture::remove(std::size_t index)
 {
     if ((state_ != CalibrationCaptureState::Collecting && state_ != CalibrationCaptureState::Complete)
         || index >= views_.size()) return false;
     state_ = CalibrationCaptureState::Collecting;
-    storedBytes_ -= views_[index].frame->pixels->size();
+    storedBytes_ -= views_[index].frame->pixels->capacity();
     views_.erase(views_.begin() + static_cast<std::ptrdiff_t>(index));
     return true;
 }
@@ -149,7 +208,6 @@ CalibrationProgress CalibrationCapture::progress() const
 {
     CalibrationProgress result;
     result.count = views_.size();
-    std::array<bool, 9> cells{};
     double minScale = 1;
     double maxScale = 0;
     for (const auto& view : views_) {
@@ -158,9 +216,11 @@ CalibrationProgress CalibrationCapture::progress() const
         for (const auto& p : view.detection.corners) { u += p.u; v += p.v; }
         u /= static_cast<double>(view.detection.corners.size()) * view.frame->width;
         v /= static_cast<double>(view.detection.corners.size()) * view.frame->height;
-        const int column = std::clamp(static_cast<int>(u * 3), 0, 2);
-        const int row = std::clamp(static_cast<int>(v * 3), 0, 2);
-        cells[row * 3 + column] = true;
+        const int column = std::clamp(static_cast<int>(u * CalibrationLocationGridSide),
+            0, CalibrationLocationGridSide - 1);
+        const int row = std::clamp(static_cast<int>(v * CalibrationLocationGridSide),
+            0, CalibrationLocationGridSide - 1);
+        result.occupiedLocationCells[row * CalibrationLocationGridSide + column] = true;
         const double scale = std::sqrt(boardArea(view.detection.corners, config_.target.columns)
             / (static_cast<double>(view.frame->width) * view.frame->height));
         minScale = std::min(minScale, scale);
@@ -171,13 +231,36 @@ CalibrationProgress CalibrationCapture::progress() const
             result.angleSpreadRadians = std::max(result.angleSpreadRadians, difference);
         }
     }
-    result.locationCells = static_cast<std::size_t>(std::count(cells.begin(), cells.end(), true));
+    result.locationCells = static_cast<std::size_t>(std::count(
+        result.occupiedLocationCells.begin(), result.occupiedLocationCells.end(), true));
     result.scaleSpread = views_.empty() ? 0 : maxScale - minScale;
     result.ready = result.count >= config_.minimumViews
         && result.locationCells >= config_.minimumLocationCells
         && result.scaleSpread >= config_.minimumScaleSpread
         && result.angleSpreadRadians >= config_.minimumAngleSpreadRadians;
     return result;
+}
+CalibrationGuidance CalibrationCapture::guidance() const
+{
+    if (state_ == CalibrationCaptureState::Idle || state_ == CalibrationCaptureState::Cancelled)
+        return {CalibrationSuggestion::Start, {}};
+    if (state_ == CalibrationCaptureState::Complete)
+        return {CalibrationSuggestion::ReviewResult, {}};
+    const auto measured = progress();
+    if (measured.ready) return {CalibrationSuggestion::Ready, {}};
+    if (measured.count >= config_.maximumViews) return {CalibrationSuggestion::ReplaceView, {}};
+    if (measured.count == 0) return {CalibrationSuggestion::FirstView, {}};
+    if (measured.locationCells < config_.minimumLocationCells) {
+        const auto unused = std::find(measured.occupiedLocationCells.begin(),
+            measured.occupiedLocationCells.end(), false);
+        return {CalibrationSuggestion::ChangeLocation, static_cast<std::size_t>(
+            unused - measured.occupiedLocationCells.begin())};
+    }
+    if (measured.scaleSpread < config_.minimumScaleSpread)
+        return {CalibrationSuggestion::ChangeScale, {}};
+    if (measured.angleSpreadRadians < config_.minimumAngleSpreadRadians)
+        return {CalibrationSuggestion::RotateInPlane, {}};
+    return {CalibrationSuggestion::MoreViews, {}};
 }
 bool CalibrationCapture::finish()
 {

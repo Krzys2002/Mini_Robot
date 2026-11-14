@@ -10,6 +10,7 @@
 #include "vision/OpenCvMetricObservation.hpp"
 #include "vision/OpenCvAprilTagDetector.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
+#include "calibration/OpenCvCalibrationCornerTracker.hpp"
 #include "calibration/OpenCvIntrinsicCalibrationSolver.hpp"
 #include "calibration/OpenCvCalibrationUndistorter.hpp"
 #include "calibration/QtCalibrationProfileStore.hpp"
@@ -166,6 +167,7 @@ int main(int argc, char* argv[])
     CalibrationController calibration{std::make_unique<OpenCvCalibrationDetector>(),
                                       std::make_unique<OpenCvIntrinsicCalibrationSolver>(),
                                       logger.channel("calibration")};
+    calibration.setLiveTracker(std::make_unique<OpenCvCalibrationCornerTracker>());
     calibration.setProfileServices(std::make_unique<QtCalibrationProfileStore>(
         QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
             .filePath(QStringLiteral("calibration"))), std::make_unique<OpenCvCalibrationUndistorter>());

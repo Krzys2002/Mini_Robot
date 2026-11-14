@@ -8,7 +8,7 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | Area | Implemented | Integration/acceptance still required |
 | --- | --- | --- |
 | Camera | Native Qt and Linux V4L2 discovery, selection, bounded capture; deterministic replay adapter | Normal replay selection workflow, broader physical-device/recovery acceptance |
-| Intrinsics | Capture, solving, exact camera/resolution profile save/load and undistorted preview; physical-identity gate for Linux persistence; remove solved views and recalculate | Optical/measurement accuracy for each camera/lens; missing/ambiguous identity stays session-only |
+| Intrinsics | Capture with bounded full-resolution grayscale review storage, solving, exact camera/resolution profile save/load and undistorted preview; physical-identity gate for Linux persistence; remove solved views and recalculate | Optical/measurement accuracy for each camera/lens; missing/ambiguous identity stays session-only |
 | Vision | AprilTag detection, RobotId association, pixel observations, calibrated metric measurement boundary and matched-frame debug overlays | Physical metric-pose acceptance (#224) |
 | World | One authoritative robot registry, signed metric workspace with guided corners/editable origin, flat-board acquisition/provenance and v1/v2/v3 profiles, tracked pose measurements and explicit observation age | Physical tracking acceptance, filtering, obstacles and planning state |
 | Communication | Native BLE command/telemetry adapter, RobotManager sessions and deterministic simulation with shared pending Stop priority | Production command/safety interoperability, over-air measurements and remaining multi-link hardware checks |

@@ -19,8 +19,8 @@ std::string validateIntrinsicConfig(const IntrinsicCalibrationConfig& c)
 std::string validateIntrinsicCalibration(const IntrinsicCalibration& r, const IntrinsicCalibrationConfig& c)
 {
     if (const auto error = validateIntrinsicConfig(c); !error.empty()) return error;
-    if (r.sourceId.empty() || r.width == 0 || r.height == 0)
-        return "Calibration needs camera identity and nonzero resolution.";
+    if (r.sourceId.empty() || !supportedCalibrationResolution(r.width, r.height))
+        return "Calibration needs camera identity and supported resolution: at most 4 megapixels and 4096 per dimension.";
     const auto& k = r.cameraMatrix;
     if (!std::all_of(k.begin(), k.end(), [](double v) { return std::isfinite(v); }))
         return "Camera matrix contains non-finite values.";

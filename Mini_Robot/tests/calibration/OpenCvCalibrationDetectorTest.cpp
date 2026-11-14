@@ -11,6 +11,8 @@
 #include <cstring>
 #include <array>
 #include <chrono>
+#include <iostream>
+#include <cstdlib>
 #include <cmath>
 
 namespace {
@@ -135,6 +137,28 @@ TEST(CalibrationDetectorTest, BlurReducesTargetSharpness)
     const auto bad = detector.detect(frameFrom(blurred), {});
     ASSERT_EQ(good.corners.size(), 54U);
     if (!bad.corners.empty()) EXPECT_LT(bad.sharpness, 40);
+}
+// Opt-in audit, not a timing assertion. Normal regression runs do no extra work.
+TEST(CalibrationDetectorTest, PerformanceAudit)
+{
+    if (!std::getenv("MICRO_ROBOT_CALIBRATION_AUDIT")) GTEST_SKIP() << "Opt-in synthetic timing audit";
+    OpenCvCalibrationDetector detector;
+    for (const auto size : {cv::Size{640,480}, cv::Size{1280,720}, cv::Size{1920,1080}}) {
+        cv::Mat board;
+        cv::resize(chessboard(), board, size);
+        for (bool present : {true, false}) {
+            const auto frame = frameFrom(present ? board : cv::Mat(size, CV_8UC1, cv::Scalar{127}));
+            for (int repeat = 0; repeat < 4; ++repeat) {
+                const auto start = MonotonicClock::now();
+                const auto detection = detector.detect(frame, {});
+                const auto ms = std::chrono::duration<double, std::milli>(MonotonicClock::now()-start).count();
+                EXPECT_TRUE(detection.error.empty());
+                EXPECT_EQ(detection.corners.size(), present ? 54U : 0U);
+                std::cout << "AUDIT " << size.width << "x" << size.height << " board=" << present
+                          << " repeat=" << repeat << " duration_ms=" << ms << std::endl;
+            }
+        }
+    }
 }
 } // namespace
 

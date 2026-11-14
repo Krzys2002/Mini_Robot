@@ -55,7 +55,7 @@ set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_executable(micro_robot_calibration_detector_tests calibration/OpenCvCalibrationDetectorTest.cpp
         calibration/OpenCvWorkspaceHomographyTest.cpp calibration/OpenCvMetricObservationTest.cpp
-        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp calibration/OpenCvCalibrationUndistorterTest.cpp)
+        calibration/OpenCvIntrinsicCalibrationSolverTest.cpp calibration/OpenCvCalibrationUndistorterTest.cpp calibration/OpenCvCalibrationCornerTrackerTest.cpp)
     target_link_libraries(micro_robot_calibration_detector_tests PRIVATE
         micro_robot_calibration_opencv GTest::gtest_main ${OpenCV_LIBS})
     target_include_directories(micro_robot_calibration_detector_tests SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
@@ -98,6 +98,11 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/GuiCompatibilityTest.cpp
         ui/ManualBackends.hpp
     )
+    # Explicit synthetic audit tool; not part of timed regression assertions.
+    add_executable(micro_robot_calibration_audit EXCLUDE_FROM_ALL calibration/LiveCalibrationAudit.cpp)
+    target_link_libraries(micro_robot_calibration_audit PRIVATE micro_robot_ui
+        micro_robot_calibration_opencv micro_robot_vision_opencv)
+    micro_robot_target_defaults(micro_robot_calibration_audit)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     target_link_libraries(micro_robot_tests PRIVATE
         micro_robot_ui micro_robot_simulation micro_robot_camera_discovery micro_robot_calibration_profiles GTest::gtest Qt6::Test
