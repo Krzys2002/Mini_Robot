@@ -49,10 +49,9 @@ std::string profileError(const IntrinsicCalibration& c)
 {
     if (c.sourceId.size() > 4096 || std::any_of(c.sourceId.begin(), c.sourceId.end(),
         [](unsigned char v) { return v < 32 || v == 127; })) return "Invalid camera identifier.";
-    if (c.width > 4096 || c.height > 4096
-        || static_cast<std::uint64_t>(c.width) * c.height > 4'000'000)
-        return "Profile resolution exceeds the supported 4 megapixel bound.";
-    if (c.perViewErrors.size() > 24) return "Profile has too many views.";
+    if (!supportedCalibrationResolution(c.width, c.height))
+        return "Profile resolution exceeds the supported 4 megapixel / 4096 per dimension bound.";
+    if (c.perViewErrors.size() > CalibrationMaximumViews) return "Profile has too many views.";
     for (const auto& v : c.perViewErrors)
         if (v.pointCount > 1'000'000) return "Invalid profile point count.";
     return validateIntrinsicCalibration(c);
@@ -108,7 +107,7 @@ IntrinsicCalibrationOutcome parseCalibrationProfile(std::string_view text)
     c.distortion.resize(5);
     for (double& v : c.distortion) if (!number(v)) return reject("invalid distortion.");
     std::size_t count{};
-    if (!token("rms") || !number(c.rmsPixels) || !token("views") || !number(count) || count > 24)
+    if (!token("rms") || !number(c.rmsPixels) || !token("views") || !number(count) || count > CalibrationMaximumViews)
         return reject("invalid reprojection metadata.");
     for (std::size_t i = 0; i < count; ++i) {
         ReprojectionError view;

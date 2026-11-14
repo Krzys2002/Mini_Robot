@@ -23,7 +23,7 @@ private:
     QSpinBox* anchor_{};
     QComboBox* rowDirection_{};
     QCheckBox *reverseColumns_{},*reverseRows_{},*relative_{},*identity_{},*check_{};
-    QLineEdit* note_{};
+    QLineEdit *note_{}, *surface_{}, *boardThickness_{}, *backingThickness_{}, *elevationMethod_{};
     QTableWidget* points_{};
     QLabel* details_{};
     QPushButton *freeze_{},*detect_{},*review_{},*import_{},*reference_{};

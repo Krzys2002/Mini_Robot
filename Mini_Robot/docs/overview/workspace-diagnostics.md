@@ -192,3 +192,18 @@ The [two-point distance consumer](workspace-distance.md#calibration-prediction-o
 uses the endpoint contract over complete selection footprints, preserving the same
 model and explicitly accounting for deterministic selection bounds. It does not
 replace this estimator or reinterpret fit RMS as uncertainty.
+
+### Plane identity and observed axis errors
+
+Maps and distances describe the active tabletop z=0 plane. Exports retain the
+world-frame identity and exact canonical calibration revision. Signed observed
+X/Y residuals are compared separately against ±0.005 m. Radial residuals,
+interpolation, unsupported cells and conditional 95% prediction coverage have
+different meanings: none establishes maximum robot-position error. A two-point
+distance interval does not certify independently-per-X/Y ±5 mm localization.
+Tabletop uncertainty cannot be reused as axle/body uncertainty without propagation
+and new height/extrinsic, mounting/heading, survey and temporal evidence.
+
+Plane/mount transforms belong to #270, reference/survey identity to #271 and timing
+to #272. These diagnostics are supporting work, not prerequisites for those issues.
+Physical model acceptance (#265) remains NOT RUN; body localization remains #224/#63.

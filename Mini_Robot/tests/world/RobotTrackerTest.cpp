@@ -73,10 +73,12 @@ TEST(MetricTrackingTest, ValidMeasurementsAgeAndInputInvalidationStopsTracking)
     ingestMetricBatch(tracker, batch, at(1200ms));
     EXPECT_EQ(world.tracking(RobotId{1}, at(1200ms)).status, TrackingStatus::Stale);
     ingestMetricBatch(tracker, {}, at(1300ms));
-    EXPECT_EQ(world.tracking(RobotId{1}, at(1300ms)).status, TrackingStatus::Lost);
+    EXPECT_FALSE(world.robot(RobotId{1})->pose);
+    EXPECT_FALSE(world.robot(RobotId{1})->tracking);
+    EXPECT_EQ(world.tracking(RobotId{1}, at(1300ms)).status, TrackingStatus::Unknown);
     batch->measurements.push_back({RobotId{1}, pose, at(1250ms), 2, 10, {}});
     ingestMetricBatch(tracker, batch, at(1350ms));
-    EXPECT_EQ(world.tracking(RobotId{1}, at(1350ms)).status, TrackingStatus::Lost);
+    EXPECT_EQ(world.tracking(RobotId{1}, at(1350ms)).status, TrackingStatus::Unknown);
     batch->measurements[0].capturedAt = at(1400ms);
     ingestMetricBatch(tracker, batch, at(1400ms));
     EXPECT_EQ(world.tracking(RobotId{1}, at(1400ms)).status, TrackingStatus::Fresh);

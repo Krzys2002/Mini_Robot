@@ -18,9 +18,8 @@ CalibrationDetection OpenCvCalibrationDetector::detect(const Frame& frame,
                                                        const CalibrationTarget& target)
 {
     CalibrationDetection result;
-    if (!isValidFrame(frame) || frame.width > 4096 || frame.height > 4096
-        || static_cast<std::uint64_t>(frame.width) * frame.height > 4'000'000) {
-        result.error = "Invalid or oversized frame. Select a resolution of at most 4 megapixels.";
+    if (!isValidFrame(frame) || !supportedCalibrationResolution(frame.width, frame.height)) {
+        result.error = "Invalid or oversized frame. Select at most 4 megapixels, neither dimension above 4096.";
         return result;
     }
     try {
