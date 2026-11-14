@@ -36,12 +36,14 @@ All commands use `python3 tools/graphify/project_graph.py` followed by:
 
 | Intent | Arguments |
 | --- | --- |
+| Find exact symbols/IDs or narrow by source path | `find 'WorldModel'` |
+| Check integrity, source locations and explicit doc references | `audit` |
 | Find relevant concepts | `query 'WorldModel'` |
 | Inspect a specific symbol and its neighbors | `explain '<symbol or full node ID>'` |
 | Trace a connection | `path '<node A>' '<node B>'` |
 | Find consumers and candidate regression tests | `affected 'WorldModel'` |
 
-Quote each term; `query` accepts one string and `path` accepts two. The wrapper
+Quote each term; `find`/`query` accept one string and `path` accepts two. The wrapper
 does not forward upstream flags. Prefer short queries using actual project
 identifiers: the matcher does not provide general semantic/synonym search. For a
 question about changing the robot transport boundary, start with `IRobotTransport`
@@ -52,7 +54,9 @@ match, locate a likely symbol with scoped source search and query that symbol.
   line, then retry using its full node ID. Constructors/destructors and classes
   can share labels. For example, the RobotManager class currently has ID
   `mini_robot_src_app_robotmanager_robotmanager`; prefer freshly returned IDs
-  over assuming this example remains unchanged.
+  over assuming this example remains unchanged. Prefer `find` then `explain`;
+  `query '<exact id>'` now routes to that one symbol's neighborhood instead of
+  tokenizing the ID into unrelated search seeds.
 - Exit 4 means no matching node. Try a source-grounded name if readily available,
   otherwise fall back to source search. It does not establish that the feature or
   dependency is absent.
@@ -64,6 +68,10 @@ match, locate a likely symbol with scoped source search and query that symbol.
 ## Verify and refresh
 
 Verify the relevant source lines before editing or making behavioral claims.
+Run `audit` after graph tooling changes. Inspect `graphify-out/source-checks.json`
+for known rejected call edges; these remain unresolved. The graph/environment
+are ignored per-worktree artifacts, while the wrapper/instructions are repository
+files. Do not invoke the manual GitHub diagnostics workflow for local navigation.
 Qt signals/slots, templates, injected concrete implementations, CMake target
 ownership and conditional builds may be incompletely modeled. Distinguish paths
 found in the graph from relationships established by source inspection. Report
@@ -72,8 +80,9 @@ useful source/test locations and material gaps, rather than dumping the graph.
 After coherent source changes, refresh once with `update` when useful. Let the
 main agent own refreshes when subagents share a worktree. Use the wrapper only:
 direct upstream writers bypass its freshness/locking checks. Preserve the
-code-only backend policy, ignored output, and `.graphifyignore`, including the
-`T1-ESP-C6/` and `T1-ESP-S3/` exclusions. Do not install upstream agent rules,
+backend `none`, code extraction plus explicit technical-document links, ignored
+output, and `.graphifyignore`. Desktop and standalone firmware are included;
+GitHub administration, plans, reports and presentations are excluded. Do not install upstream agent rules,
 enable semantic extraction, save answers into the graph, add hooks, or upload
 content as part of this exploration workflow.
 

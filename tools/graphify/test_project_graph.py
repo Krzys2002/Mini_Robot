@@ -191,6 +191,15 @@ class GraphTests(unittest.TestCase):
             self.assertEqual(pg.main(["query", "anything"]), 2)
             run.assert_not_called()
 
+    def test_exact_id_query_uses_one_symbol_neighborhood(self):
+        self.stamp()
+        with patch.object(pg, "repository_root", return_value=self.root), \
+             patch.object(pg, "graph_data", return_value={"nodes": [{"id": "exact_id"}]}), \
+             patch.object(pg, "run_graphify", return_value=0) as run:
+            self.assertEqual(pg.main(["query", "exact_id"]), 0)
+        self.assertEqual(run.call_args.args[1], ["explain", "exact_id", "--graph",
+                                               str(self.root / pg.OUT / "graph.json")])
+
     def test_missing_environment_is_actionable(self):
         with self.assertRaisesRegex(ValueError, "uv sync"):
             pg.run_graphify(self.root, ["query", "A"])

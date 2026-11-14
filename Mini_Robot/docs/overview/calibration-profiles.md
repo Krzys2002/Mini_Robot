@@ -98,21 +98,32 @@ disabled. The domain core has no Qt, filesystem-location or OpenCV dependency.
 ## Preview and lifecycle
 
 `OpenCvCalibrationUndistorter` operates behind `ICalibrationUndistorter` on the
-same calibration worker as detection/solving. It supports padded Gray8/RGB8/RGBA8,
+live-preview worker, separate from detection/solving and profile storage, with
+newest-frame replacement. Optional optical flow shares this serialized worker.
+The Live preview selector switches between holding, tracking and matched-frame
+presentation without changing saved profiles or captured observations. In held-overlay mode, the last detected
+raw coordinates are remapped with the current image until the next detection;
+they can lag a moving board. It supports padded Gray8/RGB8/RGBA8,
 produces independent immutable storage and preserves capture timestamp, sequence,
 resolution and pixel format. It keeps the original camera matrix and full image
 extent. Black borders and interpolation are expected; there is no automatic crop
-or new camera model. Raw corner overlays are hidden in corrected mode because
-they use the original image coordinates.
+or new camera model. Corner overlays are transformed with `undistortPoints`
+using the same original camera matrix as the image remap. Each presentation keeps
+its source frame, transformed corners and acceptance colour together. Adapters
+without point remapping suppress the overlay instead of painting raw coordinates
+on corrected pixels.
 
-Only presentation is corrected. Calibration observations retain original pixels;
-this issue does not alter detection, robot state, world coordinates or control.
+Only presentation is corrected. Detection uses the original selected image and
+observations retain original pixel coordinates. Stored review images are compact
+full-resolution grayscale; source dimensions and camera/profile binding remain
+unchanged. See [storage policy](calibration-capture.md#bounded-review-storage-and-memory-feedback).
+This does not alter robot state, world coordinates or control.
 The controller retains one active remap and the newest pending raw preview,
 serializes file operations and coalesces repeated reload requests. Camera/
 resolution changes discard late file/remap results. Capture restarts leave an
 in-flight lookup for the same camera valid. Toggle/review changes invalidate
 older preview work. Remap failure returns to raw preview with an actionable error;
-shutdown drains the worker while the GUI event loop continues.
+shutdown drains both calibration workers while the GUI event loop continues.
 
 ## Verification and physical checks
 
@@ -122,7 +133,7 @@ tests cover Unicode paths, camera/resolution key isolation, store recreation,
 replacement, failed saves and tampered identity/size. Analytical remap tests cover
 all pixel formats, row padding, immutability, timestamps, zero distortion and the
 Brown–Conrady sampling equations. Offscreen dialog/controller tests cover save and
-reload across controller recreation, raw capture preservation, bounded preview
+reload across controller recreation, original capture geometry, bounded preview
 work, worker exceptions and stale results after input/mode/shutdown changes.
 
 Run the full suite using the [test guide](../development/testing.md), or select:
@@ -135,7 +146,7 @@ Physical camera/lens verification is **NOT RUN**. With a real calibrated camera,
 compare straight board/table edges in raw/corrected mode, stop/restart the
 application and confirm the same profile reloads, then change camera or resolution
 and confirm correction becomes unavailable until an exact profile is present.
-Inspect black borders and review raw corner overlays separately. Record OS, Qt,
+Inspect black borders and check corner alignment in both raw and corrected modes. Record OS, Qt,
 OpenCV, device ID, negotiated resolution and model/RMS. Linux X11/Wayland, Windows
 runtime and physical optical accuracy require their own manual verification;
 synthetic tests do not establish those results.
@@ -170,7 +181,7 @@ configurations used the existing local GoogleTest source checkout (no download):
 Physical camera/lens acceptance, Linux native GUI/BlueZ-independent runtime,
 Windows runtime and OpenCV 4 execution were **NOT RUN**. Follow the physical
 procedure above; automated geometry/persistence results do not establish optical
-accuracy or native platform interaction. The issue branch remains local until
+accuracy or native platform interaction. At that verification stage the issue branch remained local pending
 maintainer push approval.
 
 ### CI compiler compatibility follow-up (2026-10-22)
@@ -188,6 +199,18 @@ non-finite, overflowing and underflow-to-zero inputs. Local desktop build and
 full CTest passed **261/261**; Qt/OpenCV-free build and full CTest passed
 **166/166**. `git diff --check` passed. Updated remote CI is required to verify
 the older runner toolchain; these local results do not claim that verification.
+
+Capture results in raw and corrected mode return to live preview after five
+seconds from presentation. The capture reason remains readable separately;
+explicitly reviewing a stored view cancels automatic return. See the
+[capture guide](calibration-capture.md) for timer, camera-loss and lifecycle behavior.
+
+For target setup, image-region examples and clearly labelled board X/Y tilts and
+Z rotation, use the wizard's **Board placement and capture help** and the
+[placement guide](calibration-capture.md#placement-rotation-and-next-capture-help).
+Next-capture hints use accepted-view count/region/scale/in-plane-angle measurements;
+they do not measure out-of-plane tilt or certify physical profile accuracy. Keep
+focus, zoom and camera settings fixed; changed optics require fresh calibration.
 
 ### Tabletop frame boundary
 
