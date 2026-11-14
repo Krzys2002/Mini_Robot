@@ -87,7 +87,9 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
             "Freeze an undistorted image. Click or enter native (u,v) pixels and measured world (x,y) "
             "metres.\n"
             "Fit 4–64 paired points in any order. Mark independent references as Check.\n"
-            "World origin: lower-left; +X right, +Y up. Do not move the camera/table after calibration."),
+            "World origin: lower-left; +X right, +Y up. Keep camera/table fixed. "
+            "Side views are planar only: use visible references at near/far edges, never guessed occluded points. "
+            "Raise an almost edge-on camera; objects above the table have parallax error."),
         this);
     instructions->setWordWrap(true);
     layout->addWidget(instructions);

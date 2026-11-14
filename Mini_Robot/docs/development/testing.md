@@ -379,3 +379,18 @@ ctest --test-dir build -R '^(AprilTag|VisionControllerTest)' --output-on-failure
 Physical printed-tag detection is not established by generated images or videos;
 record the [commissioning checks](../vision/apriltag-detection.md#physical-acceptance-not-run)
 separately. Linux/Windows runtime and legacy OpenCV execution were not run locally.
+
+## Side-mounted planar calibration regression (#247)
+
+Run core plus the host desktop presets. `TabletopObliqueTest`,
+`OpenCvWorkspaceHomographyObliqueTest`, `MetricObservationObliqueTest`,
+`OpenCvMetricObservationObliqueTest` and `WorkspaceObliqueUiTest` cover a known
+pinhole plane with a 3.4× near/far scale ratio, independent edge/interior references,
+native-K lens correction, world headings, degeneracy/horizon recovery and
+session-only fit coverage. `MetricObservationTest.ProjectiveMetricMappingIsInvariantToLargeFiniteHomogeneousScale`
+regresses the reproduced unnormalised denominator overflow.
+
+These are deterministic software checks. Physical side-camera accuracy and new
+native-display checks belong to #261 and remain NOT RUN. The
+[oblique-camera audit](../overview/oblique-tabletop.md) records sources, geometry
+and plane/height/extrapolation limits.

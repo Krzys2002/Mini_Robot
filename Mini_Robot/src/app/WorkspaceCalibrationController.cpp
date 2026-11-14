@@ -266,6 +266,12 @@ void WorkspaceCalibrationController::calculate()
                                       .arg(outcome.result->check->distancesMeters.size())
                                 : QStringLiteral("No independent check points; four-point fit error does not "
                                                  "establish accuracy.");
+                    text += QStringLiteral(" Fit hull covers %1% of the declared workspace (%2% of the native image). "
+                                           "%3 Check point(s) are extrapolated outside the image/world fit hull. "
+                                           "Spread references across near/far edges; accuracy outside the fit hull is unsupported.")
+                                .arg(outcome.result->coverage.workspaceFraction * 100, 0, 'g', 4)
+                                .arg(outcome.result->coverage.imageFraction * 100, 0, 'g', 4)
+                                .arg(outcome.result->coverage.extrapolatedCheckCount);
                     text += QStringLiteral(
                         " Review these errors against your accuracy requirement before explicitly "
                         "activating. No automatic accuracy threshold is applied.");
@@ -294,7 +300,8 @@ void WorkspaceCalibrationController::verify()
         return;
     }
     publish(QStringLiteral("Independent check RMS %1 m, maximum %2 m (%3 points). Transform unchanged. "
-                           "Review errors against your accuracy requirement before Activate.")
+                           "Review errors against your accuracy requirement before Activate. "
+                           "Stored profiles do not retain fit coverage; no extrapolation accuracy is established.")
                 .arg(result->rmsMeters, 0, 'g', 6)
                 .arg(result->maximumMeters, 0, 'g', 6)
                 .arg(result->distancesMeters.size()));
