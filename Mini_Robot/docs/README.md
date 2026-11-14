@@ -3,7 +3,7 @@
 | Folder | Contents |
 | --- | --- |
 | [Overview](overview/README.md) | Implemented architecture, source map, API contracts, and demo usage |
-| [Protocol](protocol/README.md) | Versioned robot wire protocol and BLE GATT contract |
+| [Protocol](protocol/README.md) | Versioned robot wire protocol, BLE GATT contract and restricted-lab security profile |
 | [Vision](vision/README.md) | AprilTag selection, camera sampling constraints, and printable markers |
 | [Planning](planning/README.md) | Milestone roadmap and issue catalogs |
 | [Development](development/README.md) | Build/test procedures and GitHub automation |
