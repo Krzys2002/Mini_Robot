@@ -25,6 +25,9 @@ struct WorkspaceBoardPlacement {
     WorldPoint2D measuredOffset; // World-axis offset; anchor is the resolved absolute position.
     std::uint64_t frameSequence{};
     std::int64_t capturedTicksNanoseconds{}; // Session steady-clock tick, not UTC.
+    // Unknown stays unknown; metadata does not compensate the tabletop homography.
+    std::optional<double> surfaceElevationMeters, boardThicknessMeters, backingThicknessMeters;
+    std::string elevationMethod; // Measured corner surface relative to tabletop z=0, including provenance.
     std::string note;
     std::vector<ImageCorner> detected; // Original complete detection on that exact undistorted frame.
     std::vector<WorkspaceReferenceRejection> reviewRejections; // Logical order, original automatic review result.

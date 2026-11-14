@@ -18,7 +18,11 @@ WorkspaceBoardGeneration generateWorkspaceBoard(const WorkspaceBoardPlacement& p
         || !std::isfinite(p.target.squareSizeMeters) || p.target.squareSizeMeters <= 0
         || !std::isfinite(p.anchor.x.value) || !std::isfinite(p.anchor.y.value)
         || !std::isfinite(p.columnAngle.value) || (p.rowDirection != 1 && p.rowDirection != -1)
-        || p.note.size() > MaximumWorkspacePlacementNoteBytes)
+        || p.note.size() > MaximumWorkspacePlacementNoteBytes
+        || p.elevationMethod.size() > MaximumWorkspacePlacementNoteBytes
+        || (p.surfaceElevationMeters && (!std::isfinite(*p.surfaceElevationMeters) || p.elevationMethod.empty()))
+        || (p.boardThicknessMeters && (!std::isfinite(*p.boardThicknessMeters) || *p.boardThicknessMeters < 0))
+        || (p.backingThicknessMeters && (!std::isfinite(*p.backingThicknessMeters) || *p.backingThicknessMeters < 0)))
         return {{},"Use the shared 9x6 inner-corner target, positive measured spacing, finite anchor/angle and explicit row direction."};
     const auto object = calibrationObjectPoints(p.target);
     if (p.detected.size() != object.size() || p.anchorIndex >= object.size()
@@ -132,7 +136,7 @@ std::string serializeWorkspaceAcquisition(const WorkspaceAcquisitionRecord& reco
     if (auto error = validateWorkspaceAcquisition(record); !error.empty()) throw std::invalid_argument(error);
     std::ostringstream out; out.imbue(std::locale::classic());
     out << std::setprecision(std::numeric_limits<double>::max_digits10)
-        << "micro_robot_workspace_acquisition 1\nid " << std::quoted(record.id)
+        << "micro_robot_workspace_acquisition 2\nid " << std::quoted(record.id)
         << "\nprofile " << std::quoted(serializeWorkspaceProfile(record.profile))
         << "\nplacements " << record.placements.size() << '\n';
     for (const auto& p : record.placements) {
@@ -145,7 +149,10 @@ std::string serializeWorkspaceAcquisition(const WorkspaceAcquisitionRecord& reco
         for (std::size_t i = 0; i < p.detected.size(); ++i)
             out << ' ' << p.detected[i].u << ' ' << p.detected[i].v << ' ' << p.included[i]
                 << ' ' << static_cast<int>(p.reviewRejections[i]);
-        out << '\n';
+        out << " elevation " << p.surfaceElevationMeters.has_value() << ' ' << p.surfaceElevationMeters.value_or(0)
+            << ' ' << p.boardThicknessMeters.has_value() << ' ' << p.boardThicknessMeters.value_or(0)
+            << ' ' << p.backingThicknessMeters.has_value() << ' ' << p.backingThicknessMeters.value_or(0)
+            << ' ' << std::quoted(p.elevationMethod) << '\n';
     }
     out << "references " << record.references.size() << '\n';
     for (const auto& r : record.references)
@@ -171,7 +178,7 @@ WorkspaceAcquisitionLoadOutcome parseWorkspaceAcquisition(std::string_view text)
         return parsed.ec==std::errc{} && parsed.ptr==digits.data()+digits.size();
     };
     std::size_t count{};
-    if (!key("micro_robot_workspace_acquisition") || !(in>>version) || version!="1" || !key("id") || !quoted(id)
+    if (!key("micro_robot_workspace_acquisition") || !(in>>version) || (version!="1" && version!="2") || !key("id") || !quoted(id)
         || !key("profile") || !quoted(profileText)) return reject("Invalid acquisition header.");
     const auto profile = parseWorkspaceProfile(profileText);
     if (!profile.profile) return reject("Invalid acquisition profile: "+profile.error);
@@ -192,6 +199,16 @@ WorkspaceAcquisitionLoadOutcome parseWorkspaceAcquisition(std::string_view text)
             p.detected.push_back(pixel); p.included.push_back(include);
             p.reviewRejections.push_back(static_cast<WorkspaceReferenceRejection>(rejection));
         }
+        if (version == "2") {
+            bool surface{}, board{}, backing{};
+            double z{}, b{}, k{};
+            if (!key("elevation") || !(in >> surface >> z >> board >> b >> backing >> k)
+                || !quoted(p.elevationMethod) || (!surface && z != 0) || (!board && b != 0) || (!backing && k != 0))
+                return reject("Invalid elevation metadata.");
+            if (surface) p.surfaceElevationMeters = z;
+            if (board) p.boardThicknessMeters = b;
+            if (backing) p.backingThicknessMeters = k;
+        } // v1 records deliberately retain unknown elevation and thickness.
         record->placements.push_back(std::move(p));
     }
     if (!key("references") || !unsignedInteger(count) || count>MaximumWorkspaceReferences) return reject("Invalid reference count.");
