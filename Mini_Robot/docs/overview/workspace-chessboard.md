@@ -208,3 +208,21 @@ at 1.5× and 17/19 ms at 2× in the offscreen test. This is a synthetic one-shot
 observation, not native input-latency or camera-load acceptance. Board zoom and
 fixed primary action rows were visually reviewed offscreen. Physical/native checks
 remain NOT RUN in #263.
+
+### Elevation provenance and practical commissioning
+
+Board acquisition v2 stores optional measured corner-surface elevation relative
+to the tabletop, board and backing thickness, and measurement method/provenance.
+Blank values mean unknown. v1 sidecars read with unknown values; existing evidence
+is not rewritten. Elevation metadata does not change the existing H or establish
+corrected robot coordinates. Original detections, review masks, corrections,
+Check roles and immutable active/draft camera/frame/profile bindings remain intact.
+For a small workspace, begin with a few distributed placements spanning near/far
+edges and centre, plus independently surveyed held-out Checks. Review coverage
+and measured errors before activation. The 1,525-point dataset is a capacity
+regression, not a commissioning requirement; more points do not remove shared
+board-spacing, anchor or orientation errors.
+
+Height-aware conversion remains [#270](https://github.com/Krzys2002/Mini_Robot/issues/270);
+reference monitoring remains [#271](https://github.com/Krzys2002/Mini_Robot/issues/271).
+Physical acquisition acceptance (#263) remains NOT RUN.

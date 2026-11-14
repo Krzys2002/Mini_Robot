@@ -77,6 +77,10 @@ TEST(WorkspaceAcquisitionTest, Inclusive1525LocationLatticeUsesReviewedOverlappi
     ASSERT_EQ(record.placements.size(),40);
     ASSERT_EQ(existing.size(),1525);
     ASSERT_TRUE(validateWorkspaceAcquisition(record).empty())<<validateWorkspaceAcquisition(record);
+    record.placements.front().surfaceElevationMeters=0.004;
+    record.placements.front().boardThicknessMeters=0.003;
+    record.placements.front().backingThicknessMeters=0.001;
+    record.placements.front().elevationMethod="caliper survey from tabletop";
     const auto text=serializeWorkspaceAcquisition(record);
     EXPECT_LT(text.size(),MaximumWorkspaceAcquisitionBytes);
     auto restored=parseWorkspaceAcquisition(text);
@@ -84,6 +88,20 @@ TEST(WorkspaceAcquisitionTest, Inclusive1525LocationLatticeUsesReviewedOverlappi
     EXPECT_EQ(restored.record->references.size(),1525);
     EXPECT_EQ(restored.record->placements.size(),40);
     EXPECT_EQ(serializeWorkspaceAcquisition(*restored.record),text);
+    EXPECT_EQ(restored.record->placements.front().surfaceElevationMeters,0.004);
+    auto legacy=text;
+    legacy.replace(legacy.find("acquisition 2"),std::string("acquisition 2").size(),"acquisition 1");
+    for (auto at=legacy.find(" elevation "); at!=std::string::npos; at=legacy.find(" elevation "))
+        legacy.erase(at,legacy.find('\n',at)-at);
+    const auto old=parseWorkspaceAcquisition(legacy);
+    ASSERT_TRUE(old.record)<<old.error;
+    EXPECT_FALSE(old.record->placements.front().surfaceElevationMeters);
+    EXPECT_FALSE(old.record->placements.front().boardThicknessMeters);
+    auto mismatch=text;
+    mismatch.replace(mismatch.find("acquisition 2"),std::string("acquisition 2").size(),"acquisition 1");
+    EXPECT_FALSE(parseWorkspaceAcquisition(mismatch).record);
+    record.placements.front().elevationMethod.clear();
+    EXPECT_FALSE(validateWorkspaceAcquisition(record).empty());
     restored.record->references[4].point.world.x.value+=0.001; // Manual correction retains original placement/detection.
     EXPECT_TRUE(validateWorkspaceAcquisition(*restored.record).empty());
     EXPECT_EQ(restored.record->placements[0].detected.size(),54);
