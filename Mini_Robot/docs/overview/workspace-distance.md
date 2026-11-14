@@ -180,3 +180,12 @@ to [#268](https://github.com/Krzys2002/Mini_Robot/issues/268); calibration-model
 validation remains [#265](https://github.com/Krzys2002/Mini_Robot/issues/265), related
 to #63/#224. **All new physical-camera/native-display checks: NOT RUN.** Offscreen
 widgets and synthetic math do not establish physical accuracy or actual coverage.
+
+### Tabletop distance scope
+
+Camera/world measurements are distances on the active tabletop z=0 plane; results
+retain the world frame and exact calibration revision. They do not measure elevated
+axle/body-centre separation. Conditional distance intervals and two-point agreement
+do not certify the independently-per-X/Y ±5 mm robot-position target (#224/#63).
+Actual height-aware localization belongs to #270/#271/#272; those issues do not
+depend on this diagnostic. Physical distance acceptance (#268) remains NOT RUN.

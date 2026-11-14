@@ -1,3 +1,5 @@
+#include "calibration/WorkspaceProfile.hpp"
+#include <QCryptographicHash>
 #include "ui/WorkspaceDistanceDialog.hpp"
 #include <QCheckBox>
 #include <QComboBox>
@@ -161,6 +163,8 @@ WorkspaceDistanceDialog::WorkspaceDistanceDialog(WorkspaceCalibrationController&
     identity_->setWordWrap(true);
     identity_->setTextFormat(Qt::PlainText);
     layout->addWidget(identity_);
+    auto* limits=new QLabel("Tabletop distance and conditional intervals do not measure elevated axle/body separation or certify ±5 mm per-axis robot localization (#270/#271/#272).",body);
+    limits->setWordWrap(true); layout->addWidget(limits);
     auto* viewRow = new QHBoxLayout;
     viewMode_ = new QComboBox(body);
     viewMode_->setObjectName("distanceViewMode");
@@ -377,11 +381,16 @@ void WorkspaceDistanceDialog::refresh()
         } else
             c.native->setText("Endpoint not selected");
     }
+    if (geometry) {
+        const auto canonical=QByteArray::fromStdString(serializeWorkspaceProfile(geometry->profile));
+        identity_->setText(identity_->text()+"\nCalibration revision SHA-256: "+
+            QString::fromLatin1(QCryptographicHash::hash(canonical,QCryptographicHash::Sha256).toHex()));
+    }
     initialized_ = true;
     status_->setText(controller_.message());
     if (const auto& m = controller_.measurement(); m.result) {
         const auto& result = *m.result;
-        distance_->setText(QStringLiteral("Planar distance: %1 cm (%2 mm)")
+        distance_->setText(QStringLiteral("Tabletop z=0 distance: %1 cm (%2 mm)")
                                .arg(result.distanceMeters * 100, 0, 'g', 9)
                                .arg(result.distanceMeters * 1000, 0, 'g', 9));
         uncertainty_->setText(
@@ -395,7 +404,7 @@ void WorkspaceDistanceDialog::refresh()
                 : QStringLiteral("Uncertainty unavailable: %1")
                       .arg(QString::fromStdString(result.uncertaintyUnavailable)));
     } else {
-        distance_->setText("Select two supported endpoints to measure planar distance.");
+        distance_->setText("Select two supported endpoints on the active tabletop z=0 plane. This does not measure elevated axle/body separation or certify ±5 mm per-axis robot localization (#270/#271/#272).");
         uncertainty_->setText(
             controller_.measurement().error.empty()
                 ? QStringLiteral(

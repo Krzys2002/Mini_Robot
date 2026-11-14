@@ -18,6 +18,8 @@ struct WorkspaceDistanceEndpoint {
     WorkspaceEndpointSelection selection;
 };
 struct WorkspaceDistanceResult {
+    std::string diagnosticPlane{"tabletop z=0"};
+    std::string frameId, calibrationRevision; // Exact canonical profile revision, not a display name.
     double distanceMeters{};
     std::optional<double> plusMinusMeters, lowerMeters, upperMeters;
     std::array<std::optional<double>, WorkspaceDistanceEndpointCount> selectionRadiiMeters,
