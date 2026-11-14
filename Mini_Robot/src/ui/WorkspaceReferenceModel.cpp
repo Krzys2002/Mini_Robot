@@ -13,7 +13,7 @@ QVariant WorkspaceReferenceModel::headerData(int section,Qt::Orientation orienta
 {
     if (role!=Qt::DisplayRole) return {};
     if (orientation==Qt::Vertical) return section+1;
-    const QStringList labels{"u (px)","v (px)","x (m)","y (m)","Check only","Provenance"};
+    const QStringList labels{"u (px)","v (px)","x ("+workspaceUnitLabel(unit_)+")","y ("+workspaceUnitLabel(unit_)+")","Check only","Provenance"};
     return section>=0 && section<labels.size()?QVariant{labels[section]}:QVariant{};
 }
 QVariant WorkspaceReferenceModel::data(const QModelIndex& index,int role) const
@@ -26,13 +26,13 @@ QVariant WorkspaceReferenceModel::data(const QModelIndex& index,int role) const
             const auto original=generateWorkspaceBoard(*placement,controller_.draftBounds());
             if (r.source->cornerIndex<original.points.size()) {
                 const auto& p=original.points[r.source->cornerIndex];
-                return QStringLiteral("Placement %1 · source frame %2 · anchor index %3 at (%4,%5) m · +columns %6 rad · +rows sign %7.\n"
-                                      "Original native pixel (%8,%9); original generated world (%10,%11) m. Current editable values are shown in the row.\n"
+                return QStringLiteral("Placement %1 · source frame %2 · anchor index %3 at (%4,%5) %12 · +columns %6 rad · +rows sign %7.\n"
+                                      "Original native pixel (%8,%9); original generated world (%10,%11) %12. Current editable values are shown in the row.\n"
                                       "Original detection, measured anchor/offset and review mask remain in the acquisition record. Shared placement measurements can have correlated errors.")
                     .arg(placement->id).arg(placement->frameSequence).arg(placement->anchorIndex)
-                    .arg(placement->anchor.x.value,0,'g',12).arg(placement->anchor.y.value,0,'g',12)
+                    .arg(placement->anchor.x.value*workspaceUnitsPerMeter(unit_),0,'g',12).arg(placement->anchor.y.value*workspaceUnitsPerMeter(unit_),0,'g',12)
                     .arg(placement->columnAngle.value,0,'g',12).arg(placement->rowDirection)
-                    .arg(p.image.u,0,'g',12).arg(p.image.v,0,'g',12).arg(p.world.x.value,0,'g',12).arg(p.world.y.value,0,'g',12);
+                    .arg(p.image.u,0,'g',12).arg(p.image.v,0,'g',12).arg(p.world.x.value*workspaceUnitsPerMeter(unit_),0,'g',12).arg(p.world.y.value*workspaceUnitsPerMeter(unit_),0,'g',12).arg(workspaceUnitLabel(unit_));
             }
         }
     }
@@ -43,7 +43,7 @@ QVariant WorkspaceReferenceModel::data(const QModelIndex& index,int role) const
         if (r.source) return QStringLiteral("Placement %1 · corner %2 (editable)").arg(r.source->placementId).arg(r.source->cornerIndex);
         return QStringLiteral("Manual #%1").arg(r.id);
     }
-    const double values[]{r.point.image.u,r.point.image.v,r.point.world.x.value,r.point.world.y.value};
+    const double values[]{r.point.image.u,r.point.image.v,r.point.world.x.value*workspaceUnitsPerMeter(unit_),r.point.world.y.value*workspaceUnitsPerMeter(unit_)};
     if (index.column()<0 || index.column()>3) return {};
     return QString::number(values[index.column()],'g',role==Qt::DisplayRole?12:std::numeric_limits<double>::max_digits10);
 }
@@ -65,14 +65,21 @@ bool WorkspaceReferenceModel::setData(const QModelIndex& index,const QVariant& v
     auto point=r.point; bool check=r.check;
     if (index.column()==4 && role==Qt::CheckStateRole) check=value.toInt()==Qt::Checked;
     else if (index.column()>=0 && index.column()<4 && role==Qt::EditRole) {
-        bool valid{}; double number=value.toDouble(&valid);
+        bool valid{}; double number=index.column()>=2 ? parseWorkspaceLength(value.toString(),&valid) : value.toDouble(&valid);
         if (!valid) number=std::numeric_limits<double>::quiet_NaN();
         if (index.column()==0) point.image.u=number;
         if (index.column()==1) point.image.v=number;
-        if (index.column()==2) point.world.x=Meters{number};
-        if (index.column()==3) point.world.y=Meters{number};
+        if (index.column()==2) point.world.x=Meters{number/workspaceUnitsPerMeter(unit_)};
+        if (index.column()==3) point.world.y=Meters{number/workspaceUnitsPerMeter(unit_)};
     } else return false;
     controller_.editReference(static_cast<std::size_t>(index.row()),point,check); return true;
+}
+void WorkspaceReferenceModel::setLengthUnit(WorkspaceLengthUnit unit)
+{
+    if (unit==unit_) return;
+    unit_=unit;
+    emit headerDataChanged(Qt::Horizontal,2,3);
+    if (rowCount()) emit dataChanged(index(0,2),index(rowCount()-1,3));
 }
 void WorkspaceReferenceModel::refresh()
 {

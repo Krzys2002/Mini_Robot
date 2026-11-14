@@ -4,9 +4,10 @@
 #include "ui/WorkspaceReferenceModel.hpp"
 #include "ui/WorkspaceBoardPanel.hpp"
 #include <QScrollArea>
+#include <QMessageBox>
+#include <QFormLayout>
 #include <QTableView>
 #include <QComboBox>
-#include <QDoubleSpinBox>
 #include <QHeaderView>
 #include <QImage>
 #include <QLabel>
@@ -22,6 +23,17 @@
 #include <functional>
 
 namespace micro_robot {
+namespace {
+// Keep an unchanged rendered length bound to its original metre value. A unit
+// presentation round trip must not allocate a new calibration frame through rounding.
+inline void setWorkspaceLengthText(QLineEdit* field, double meters, WorkspaceLengthUnit unit)
+{
+    field->setText(workspaceLengthText(meters*workspaceUnitsPerMeter(unit)));
+    field->setProperty("workspaceRenderedText",field->text());
+    field->setProperty("workspaceMeters",meters);
+}
+}
+
 class WorkspaceImageView final : public QWidget {
 public:
     using QWidget::QWidget;
@@ -151,30 +163,31 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
         "3. Add extra paired references / independent Checks, Calculate, review errors, then explicitly Activate. Keep camera/table fixed.", this);
     instructions->setWordWrap(true);
     layout->addWidget(instructions);
-    auto* settings = new QHBoxLayout;
+    auto* settings = new QFormLayout;
     identity_ = new QLineEdit(this);
     identity_->setObjectName("workspaceIdentity");
-    identity_->setPlaceholderText("Workspace identity (required)");
-    settings->addWidget(identity_,2);
-    auto dimension = [this](const char* name, const char* suffix) {
-        auto* value = new QDoubleSpinBox(this);
-        value->setObjectName(name);
-        value->setDecimals(CoordinateDisplayDecimals);
-        value->setRange(0, MaximumWorkspaceDimensionMeters);
-        value->setSuffix(suffix);
+    settings->addRow("Workspace identity",identity_);
+    units_=new QComboBox(this); units_->setObjectName("workspaceLengthUnit");
+    units_->addItems({"m", "cm"}); settings->addRow("Length unit (whole window)",units_);
+    auto dimension = [this,settings](const char* name,const char* text,bool origin=false) {
+        auto* value = new QLineEdit(this); value->setObjectName(name);
+        value->setPlaceholderText(origin ? "0" : "Required");
+        if (origin) value->setText("0");
+        auto* label=new QLabel(this); label->setBuddy(value);
+        label->setProperty("workspaceLengthLabel",QString::fromUtf8(text));
+        settings->addRow(label,value);
         return value;
     };
-    width_ = dimension("workspaceWidth", " m along +X");
-    height_ = dimension("workspaceHeight", " m along +Y");
-    settings->addWidget(width_); settings->addWidget(height_);
+    width_=dimension("workspaceWidth","Edge length along +X");
+    height_=dimension("workspaceHeight","Edge length along +Y");
+    originX_=dimension("workspaceOriginX","Origin offset from C1 along +X",true);
+    originY_=dimension("workspaceOriginY","Origin offset from C1 along +Y",true);
     layout->addLayout(settings);
     auto* originRow = new QHBoxLayout;
     originCorner_ = new QComboBox(this);
     originCorner_->setObjectName("workspaceOriginCorner");
     originCorner_->addItems({"Origin: measured offsets", "Origin at C1", "Origin at C2", "Origin at C3", "Origin at C4"});
-    originX_ = dimension("workspaceOriginX", " m from C1 along +X");
-    originY_ = dimension("workspaceOriginY", " m from C1 along +Y");
-    originRow->addWidget(originCorner_); originRow->addWidget(originX_); originRow->addWidget(originY_);
+    originRow->addWidget(originCorner_);
     originPick_ = new QPushButton("Pick origin after Calculate", this);
     originPick_->setObjectName("workspacePickOrigin"); originPick_->setCheckable(true);
     originRow->addWidget(originPick_); layout->addLayout(originRow);
@@ -244,13 +257,14 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
         else if (!board_->isChecked()) addPoint(p);
     };
     for (auto* value : {width_,height_,originX_,originY_})
-        connect(value,&QDoubleSpinBox::valueChanged,this,[this]{ configure(); });
-    connect(identity_,&QLineEdit::textChanged,this,[this]{ configure(); });
+        connect(value,&QLineEdit::editingFinished,this,[this]{ configure(); });
+    connect(identity_,&QLineEdit::editingFinished,this,[this]{ configure(); });
+    connect(units_,&QComboBox::currentIndexChanged,this,&WorkspaceCalibrationDialog::changeUnit);
     connect(originCorner_,&QComboBox::activated,this,[this](int index) {
         if (index == 0) return;
         { const QSignalBlocker x(originX_), y(originY_);
-          originX_->setValue(index == 2 || index == 3 ? width_->value() : 0);
-          originY_->setValue(index == 3 || index == 4 ? height_->value() : 0); }
+          originX_->setText(index == 2 || index == 3 ? width_->text() : "0");
+          originY_->setText(index == 3 || index == 4 ? height_->text() : "0"); }
         configure();
     });
     connect(corners_,&QTableWidget::itemChanged,this,[this](QTableWidgetItem* item) {
@@ -268,7 +282,7 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
             message_->setText("Click the replacement for the selected labelled corner.");
         }
     });
-    connect(confirm_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::confirmBoundary);
+    connect(confirm_,&QPushButton::clicked,this,[this]{ configure(); controller_.confirmBoundary(); });
     connect(add_,&QPushButton::clicked,this,[this]{ addPoint({}); });
     connect(remove_,&QPushButton::clicked,this,[this]{
         const int row = points_->currentIndex().row();
@@ -283,12 +297,82 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
     connect(close,&QPushButton::clicked,this,&QDialog::close);
     connect(&controller_,&WorkspaceCalibrationController::changed,this,&WorkspaceCalibrationDialog::refresh);
     { const QSignalBlocker block(identity_); identity_->setText(controller_.workspaceId()); }
+    updateUnitLabels();
     refresh();
 }
 void WorkspaceCalibrationDialog::configure()
 {
     { const QSignalBlocker block(originCorner_); originCorner_->setCurrentIndex(0); }
-    controller_.configure(identity_->text(),width_->value(),height_->value(),originX_->value(),originY_->value());
+    const double scale=workspaceUnitsPerMeter(unit_);
+    bool valid=true;
+    auto number=[&](QLineEdit* field,bool positive) {
+        bool ok=false; double value=parseWorkspaceLength(field->text(),&ok)/scale;
+        if (ok && field->property("workspaceMeters").isValid()
+            && field->property("workspaceRenderedText").toString()==field->text())
+            value=field->property("workspaceMeters").toDouble();
+        ok=ok && std::isfinite(value) && value>=0 && value<=MaximumWorkspaceDimensionMeters && (!positive || value>0);
+        field->setStyleSheet(ok ? "" : "QLineEdit { border: 1px solid #b42318; }");
+        field->setToolTip(ok ? "" : QStringLiteral("Enter a finite %1 in %2 (maximum %3).")
+            .arg(positive ? "positive length" : "non-negative offset",workspaceUnitLabel(unit_))
+            .arg(MaximumWorkspaceDimensionMeters*scale));
+        if (ok) {
+            field->setProperty("workspaceRenderedText",field->text());
+            field->setProperty("workspaceMeters",value);
+        }
+        valid=valid && ok;
+        return ok ? value : std::numeric_limits<double>::quiet_NaN();
+    };
+    const double width=number(width_,true),height=number(height_,true),x=number(originX_,false),y=number(originY_,false);
+    inputError_.clear();
+    configuring_=true;
+    controller_.configure(identity_->text(),width,height,x,y);
+    configuring_=false;
+    if (!valid || x>width || y>height) {
+        inputError_="Enter positive edge lengths and origin offsets inside the rectangle in the selected unit.";
+        for (auto pair:{std::pair{originX_,x>width},std::pair{originY_,y>height}})
+            if (pair.second) {
+                pair.first->setStyleSheet("QLineEdit { border: 1px solid #b42318; }");
+                pair.first->setToolTip("Origin offset must be inside the measured edge length.");
+            }
+        message_->setText(inputError_);
+        return;
+    }
+}
+void WorkspaceCalibrationDialog::updateUnitLabels()
+{
+    for (auto* label:findChildren<QLabel*>()) {
+        const auto text=label->property("workspaceLengthLabel");
+        if (text.isValid()) label->setText(text.toString()+" ("+workspaceUnitLabel(unit_)+")");
+    }
+}
+void WorkspaceCalibrationDialog::changeUnit(int index)
+{
+    const auto next=index==1 ? WorkspaceLengthUnit::Centimeters : WorkspaceLengthUnit::Meters;
+    if (next==unit_) return;
+    const bool recalculate=QMessageBox::question(this,"Change length unit",
+        "Recalculate the typed values to preserve their physical lengths?\n"
+        "Yes: convert the numbers. No: keep the typed numbers and interpret them in the new unit.\n"
+        "Stored references always display in the selected unit; saved calibration data remains in metres.",
+        QMessageBox::Yes|QMessageBox::No,QMessageBox::Yes)==QMessageBox::Yes;
+    if (recalculate) for (auto* field:{width_,height_,originX_,originY_}) {
+        bool ok=false; const double value=parseWorkspaceLength(field->text(),&ok);
+        if (ok && std::isfinite(value)) {
+            const bool unchanged=field->property("workspaceMeters").isValid()
+                && field->property("workspaceRenderedText").toString()==field->text();
+            const double meters=unchanged ? field->property("workspaceMeters").toDouble() : value/workspaceUnitsPerMeter(unit_);
+            setWorkspaceLengthText(field,meters,next);
+        }
+    }
+    unit_=next;
+    board_->setLengthUnit(next,recalculate);
+    referenceModel_->setLengthUnit(next);
+    updateUnitLabels();
+    if (!recalculate) {
+        for (auto* field:{width_,height_,originX_,originY_}) field->setProperty("workspaceMeters",QVariant{});
+        configure();
+    }
+    board_->finishUnitChange();
+    refresh();
 }
 void WorkspaceCalibrationDialog::addPoint(std::optional<ImageCorner> point)
 {
@@ -332,13 +416,21 @@ void WorkspaceCalibrationDialog::refresh()
     } else if (board_->isChecked() && controller_.detectedBoard()) {
         image_->board=controller_.detectedBoard()->detected; image_->boardAnchor=0;
     }
-    if (const auto b = controller_.draftBounds()) {
-        const QSignalBlocker w(width_), h(height_), x(originX_), y(originY_);
-        width_->setValue(b->width().value); height_->setValue(b->height().value);
-        originX_->setValue(-b->minimum().x.value); originY_->setValue(-b->minimum().y.value);
-        image_->dimensions = QStringLiteral("+X edge %1 m · +Y edge %2 m · origin from C1 (%3, %4) m")
-            .arg(b->width().value).arg(b->height().value).arg(-b->minimum().x.value).arg(-b->minimum().y.value);
+    const auto bounds=controller_.draftBounds();
+    if (bounds) {
+        const auto& b=*bounds; const double scale=workspaceUnitsPerMeter(unit_);
+        if (!configuring_ && (!shownBounds_ || *shownBounds_!=b)) {
+            inputError_.clear();
+            setWorkspaceLengthText(width_,b.width().value,unit_);
+            setWorkspaceLengthText(height_,b.height().value,unit_);
+            setWorkspaceLengthText(originX_,-b.minimum().x.value,unit_);
+            setWorkspaceLengthText(originY_,-b.minimum().y.value,unit_);
+        }
+        image_->dimensions = QStringLiteral("+X edge %1 %5 · +Y edge %2 %5 · origin from C1 (%3, %4) %5")
+            .arg(b.width().value*scale).arg(b.height().value*scale)
+            .arg(-b.minimum().x.value*scale).arg(-b.minimum().y.value*scale).arg(workspaceUnitLabel(unit_));
     }
+    shownBounds_=bounds;
     if (const auto& p = controller_.draftProfile(); p && p->homography) {
         image_->origin = unprojectWorkspacePoint(*p->homography,{});
         if (image_->corners.empty() && p->boundary && frame)
@@ -346,12 +438,14 @@ void WorkspaceCalibrationDialog::refresh()
     }
     image_->dimensions += QStringLiteral(" · %1 extra reference markers shown; %2 dataset rows (labels ≤%3; all rows retained)")
         .arg(image_->markers.size()).arg(controller_.references().size()).arg(MaximumWorkspaceOverlayReferenceLabels);
-    image_->update(); message_->setText(controller_.message());
+    image_->update(); message_->setText(inputError_.isEmpty() ? controller_.message() : inputError_);
     const bool idle = !controller_.busy();
     freeze_->setEnabled(controller_.canFreeze()); calculate_->setEnabled(controller_.canCalculate());
     save_->setEnabled(controller_.canSave()); load_->setEnabled(controller_.canLoad());
     verify_->setEnabled(controller_.canVerify()); activate_->setEnabled(controller_.canActivate());
     corners_->setEnabled(idle); points_->setEnabled(idle);
+    units_->setEnabled(idle);
+    for (auto* field : {identity_,width_,height_,originX_,originY_}) field->setEnabled(idle);
     confirm_->setEnabled(idle && frame && controller_.corners().size() == WorkspaceCornerCount);
     undo_->setEnabled(idle && !controller_.corners().empty()); reset_->setEnabled(idle && frame);
     reselect_->setEnabled(idle && !controller_.corners().empty());
