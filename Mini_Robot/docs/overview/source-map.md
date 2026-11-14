@@ -178,3 +178,12 @@ that it already exists.
 | [WorkspaceDiagnostics.hpp](../../src/calibration/WorkspaceDiagnostics.hpp), [WorkspaceDiagnostics.cpp](../../src/calibration/WorkspaceDiagnostics.cpp) | `micro_robot_calibration`: [scale, error interpolation and conditional prediction](workspace-diagnostics.md#reusable-prediction-contract-for-distance-reporting) |
 | [WorkspaceDiagnosticsController.hpp](../../src/app/WorkspaceDiagnosticsController.hpp), [WorkspaceDiagnosticsController.cpp](../../src/app/WorkspaceDiagnosticsController.cpp) | `micro_robot_desktop_controller`: [bounded worker, identity/invalidation and export](workspace-diagnostics.md#bounded-work-invalidation-and-export) |
 | [WorkspaceDiagnosticsDialog.hpp](../../src/ui/WorkspaceDiagnosticsDialog.hpp), [WorkspaceDiagnosticsDialog.cpp](../../src/ui/WorkspaceDiagnosticsDialog.cpp) | `micro_robot_ui`: [map rendering and explicit survey table/settings](workspace-diagnostics.md#evidence-and-operator-procedure) |
+
+### Two-point workspace distance
+
+| Sources | Owner / contract |
+| --- | --- |
+| [WorkspaceDistance.hpp](../../src/calibration/WorkspaceDistance.hpp), [WorkspaceDistance.cpp](../../src/calibration/WorkspaceDistance.cpp) | `micro_robot_calibration`: [pixel mapping, disk support and distance bounds](workspace-distance.md#distance-and-selection-propagation) |
+| [WorkspaceDistanceController.hpp](../../src/app/WorkspaceDistanceController.hpp), [WorkspaceDistanceController.cpp](../../src/app/WorkspaceDistanceController.cpp) | `micro_robot_desktop_controller`: [endpoint lifecycle and active evidence](workspace-distance.md#pixel-and-frame-conventions) |
+| [WorkspaceCalibrationControllerMeasurement.cpp](../../src/app/WorkspaceCalibrationControllerMeasurement.cpp) | `micro_robot_desktop_controller`: [separate measurement-frame capture](workspace-distance.md#pixel-and-frame-conventions) |
+| [WorkspaceDistanceDialog.hpp](../../src/ui/WorkspaceDistanceDialog.hpp), [WorkspaceDistanceDialog.cpp](../../src/ui/WorkspaceDistanceDialog.cpp) | `micro_robot_ui`: [camera/world selection, editing and uncertainty display](workspace-distance.md#operator-procedure) |
