@@ -153,6 +153,7 @@ ctest --test-dir build -LE hardware --output-on-failure --no-tests=error
 | Mock camera and robot transport | `FakeCameraTest`, `FakeCameraSourceFactoryTest`, `SimulationTransportTest`, `BackendSubstitutionTest`, interface probes; replay (`replay` label) with generated video |
 | Initialization | `DesktopIntegrationTest` (controller startup and shutdown with fake backends) and `DesktopStartup.StartsAndShutsDownCleanly` (the production executable) |
 | Platform adapters without devices | Offscreen UI tests; V4L2 tests on temporary device trees; macOS bundle permission check |
+| Firmware portable logic | `FirmwareClockTest` (`core` label): the CodeCell C6 clock contract, compiled from the independent [firmware host entry point](#firmware-build-and-host-tests) without embedded sources |
 
 The `core` configure preset turns off the desktop, replay, calibration, and marker
 targets, so CMake never looks for Qt or OpenCV:
@@ -165,6 +166,26 @@ ctest --preset core
 
 Tests that need devices or a person are listed separately in
 [hardware-dependent tests](hardware-tests.md).
+
+## Firmware build and host tests
+
+The [CodeCell C6 firmware guide](../../firmware/codecell-c6/README.md) owns the
+pinned PlatformIO installation, cross-build, provenance and failure messages.
+From the repository root, with the firmware tool environment active:
+
+```sh
+python3 .github/scripts/check_firmware_pins.py
+pio run -d Mini_Robot/firmware/codecell-c6 -e esp32-c6-devkitc-1
+cmake -S Mini_Robot/firmware/codecell-c6 -B build/firmware-host-c6 -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/firmware-host-c6 --parallel 3
+ctest --test-dir build/firmware-host-c6 --output-on-failure --no-tests=error
+```
+
+The host entry point needs only CMake, a C++20 compiler and GoogleTest; it never
+looks for PlatformIO, Arduino, Qt or OpenCV, and desktop presets never need
+PlatformIO. Run these when touching firmware contracts, pins or the firmware
+workflow. Physical upload, monitoring and recovery checks are tracked in
+[#240](https://github.com/Krzys2002/Mini_Robot/issues/240).
 
 ## macOS continuous integration
 
