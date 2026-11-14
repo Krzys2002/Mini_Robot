@@ -219,3 +219,27 @@ estimate camera extrinsics or validate elevated tags. WorkspaceBounds remains
 robot travel geometry. Survey references outside that rectangle belong to
 [reference monitoring #271](https://github.com/Krzys2002/Mini_Robot/issues/271),
 not enlarged or shifted travel bounds.
+
+### Workspace length inputs and display units
+
+A new workspace starts with empty required +X/+Y edge lengths. Enter a finite
+positive value; validation runs when editing finishes (focus leaves the field or
+Enter is pressed), rather than on each keystroke. Invalid text stays visible for
+correction. Origin offsets default to zero and must stay inside the measured
+rectangle. Descriptive labels are separate from the input text. Existing loaded
+geometry is displayed when reopening the window.
+
+The **Length unit (whole window)** selector chooses metres or centimetres for
+edge lengths, origin offsets, board anchors/spacing/elevation/thickness, editable
+world-reference coordinates, board review tables and the image dimension overlay.
+Pixels, angles, and the separate distance/diagnostic dialogs retain their explicitly
+labelled units. Calibration persistence, immutable survey records and geometry
+always use metres internally.
+
+Changing units opens a Yes/No prompt. **Yes** converts editable numbers to preserve
+physical lengths and retains the current calibration frame and reviewed geometry.
+**No** retains the typed numbers and interprets them in the new unit. If this changes
+the workspace geometry, existing draft references and solve results are invalidated
+through the usual frame-replacement rules; active calibration changes only through
+explicit activation. Invalid text and unknown optional measurements stay explicit.
+Stored reference values are redisplayed in the selected unit rather than rewritten.

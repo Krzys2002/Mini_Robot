@@ -1,3 +1,5 @@
+#include <QMessageBox>
+#include <QTimer>
 #include "../calibration/CaptureFixtures.hpp"
 #include "../calibration/HomographyFixtures.hpp"
 #include "app/WorkspaceCalibrationController.hpp"
@@ -329,8 +331,10 @@ TEST(WorkspaceCalibrationUiTest, DialogAcquiresPairsReportsInvalidInputAndRender
     dialog.show();
     QApplication::processEvents();
     dialog.findChild<QLineEdit*>("workspaceIdentity")->setText("table-A");
-    dialog.findChild<QDoubleSpinBox*>("workspaceWidth")->setValue(1);
-    dialog.findChild<QDoubleSpinBox*>("workspaceHeight")->setValue(0.6);
+    dialog.findChild<QLineEdit*>("workspaceWidth")->setText(QString::number(1));
+    QMetaObject::invokeMethod(dialog.findChild<QLineEdit*>("workspaceWidth"),"editingFinished");
+    dialog.findChild<QLineEdit*>("workspaceHeight")->setText(QString::number(0.6));
+    QMetaObject::invokeMethod(dialog.findChild<QLineEdit*>("workspaceHeight"),"editingFinished");
     dialog.findChild<QPushButton*>("workspaceFreeze")->click();
     ASSERT_TRUE(QTest::qWaitFor([&] { return !f.controller.busy(); }));
     ASSERT_TRUE(f.controller.frozenFrame());
@@ -590,8 +594,10 @@ TEST(WorkspaceCornerWorkflowTest, DialogPicksLabelledCornersAndMeasuredInteriorO
     };
     for (const auto& p : homographyInput().fitPoints) click(p.image);
     ASSERT_EQ(f.controller.corners().size(),4);
-    dialog.findChild<QDoubleSpinBox*>("workspaceOriginX")->setValue(0.5);
-    dialog.findChild<QDoubleSpinBox*>("workspaceOriginY")->setValue(0.3);
+    dialog.findChild<QLineEdit*>("workspaceOriginX")->setText(QString::number(0.5));
+    QMetaObject::invokeMethod(dialog.findChild<QLineEdit*>("workspaceOriginX"),"editingFinished");
+    dialog.findChild<QLineEdit*>("workspaceOriginY")->setText(QString::number(0.3));
+    QMetaObject::invokeMethod(dialog.findChild<QLineEdit*>("workspaceOriginY"),"editingFinished");
     dialog.findChild<QPushButton*>("workspaceConfirmBoundary")->click();
     ASSERT_TRUE(f.controller.boundaryConfirmed());
     auto* table = dialog.findChild<QTableView*>("workspacePoints");
@@ -607,8 +613,8 @@ TEST(WorkspaceCornerWorkflowTest, DialogPicksLabelledCornersAndMeasuredInteriorO
     click({300,500});
     EXPECT_FALSE(f.controller.draftProfile());
     EXPECT_EQ(table->model()->rowCount(),0);
-    EXPECT_NEAR(dialog.findChild<QDoubleSpinBox*>("workspaceOriginX")->value(),0.25,1e-8);
-    EXPECT_NEAR(dialog.findChild<QDoubleSpinBox*>("workspaceOriginY")->value(),0.2,1e-8);
+    EXPECT_NEAR(dialog.findChild<QLineEdit*>("workspaceOriginX")->text().toDouble(),0.25,1e-8);
+    EXPECT_NEAR(dialog.findChild<QLineEdit*>("workspaceOriginY")->text().toDouble(),0.2,1e-8);
 }
 
 #include <QCheckBox>
@@ -763,7 +769,8 @@ TEST(WorkspaceBoardAcquisitionUiTest, PanelRequiresOrientationReviewAndPhysicalI
     }
     import->click(); EXPECT_EQ(f.controller.references().size(),57);
     EXPECT_FALSE(f.controller.placements()[0].included[0]);
-    dialog.findChild<QDoubleSpinBox*>("workspaceOriginX")->setValue(0.5);
+    dialog.findChild<QLineEdit*>("workspaceOriginX")->setText(QString::number(0.5));
+    QMetaObject::invokeMethod(dialog.findChild<QLineEdit*>("workspaceOriginX"),"editingFinished");
     EXPECT_TRUE(f.controller.references().empty()); EXPECT_TRUE(f.controller.placements().empty());
     EXPECT_EQ(dialog.findChild<QComboBox*>("workspaceBoardRowDirection")->currentIndex(),0);
 }
@@ -864,4 +871,183 @@ TEST(WorkspaceBoardAcquisitionUiTest, InteriorOriginKeepsNegativeBoardCoordinate
     EXPECT_EQ(record.record->profile.frameId,f.controller.draftProfile()->frameId);
     EXPECT_DOUBLE_EQ(record.record->profile.bounds.minimum().x.value,-0.5);
     EXPECT_DOUBLE_EQ(record.record->placements[0].anchor.x.value,-0.3);
+}
+
+namespace {
+void changeWorkspaceUnit(WorkspaceCalibrationDialog& dialog,int index,QMessageBox::StandardButton answer)
+{
+    QTimer::singleShot(0,[answer] {
+        auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        ASSERT_NE(box,nullptr);
+        box->button(answer)->click();
+    });
+    dialog.findChild<QComboBox*>("workspaceLengthUnit")->setCurrentIndex(index);
+}
+}
+TEST(WorkspaceInputUiTest, DimensionsStartBlankAndOnlyValidateAfterEditingFinishes)
+{
+    Fixture f; f.controller.configure("table-A",0,0);
+    WorkspaceCalibrationDialog dialog(f.controller); dialog.show(); QApplication::processEvents();
+    auto* width=dialog.findChild<QLineEdit*>("workspaceWidth");
+    auto* height=dialog.findChild<QLineEdit*>("workspaceHeight");
+    ASSERT_NE(width,nullptr); ASSERT_NE(height,nullptr);
+    EXPECT_TRUE(width->text().isEmpty()); EXPECT_TRUE(height->text().isEmpty());
+    bool labelled=false;
+    for (auto* label:dialog.findChildren<QLabel*>()) if (label->buddy()==width) {
+        labelled=true; EXPECT_TRUE(label->text().contains("(m)"));
+    }
+    EXPECT_TRUE(labelled);
+    width->setText("1"); height->setText("0.5");
+    EXPECT_FALSE(f.controller.draftBounds());
+    QMetaObject::invokeMethod(height,"editingFinished");
+    ASSERT_TRUE(f.controller.draftBounds());
+    EXPECT_DOUBLE_EQ(f.controller.draftBounds()->width().value,1);
+    const auto revision=f.controller.frameId();
+    width->setText("invalid");
+    EXPECT_EQ(f.controller.frameId(),revision);
+    QMetaObject::invokeMethod(width,"editingFinished");
+    EXPECT_FALSE(f.controller.draftBounds());
+    EXPECT_EQ(width->text(),"invalid");
+    EXPECT_FALSE(width->styleSheet().isEmpty());
+    width->setText("1"); QMetaObject::invokeMethod(width,"editingFinished");
+    EXPECT_TRUE(f.controller.draftBounds()); EXPECT_TRUE(width->styleSheet().isEmpty());
+    width->clear(); QMetaObject::invokeMethod(width,"editingFinished");
+    EXPECT_TRUE(width->text().isEmpty()); EXPECT_FALSE(f.controller.draftBounds());
+}
+TEST(WorkspaceInputUiTest, YesConvertsAllLengthsAndPreservesCalibrationAndUnknowns)
+{
+    Fixture f; f.freeze(); f.boundary(); f.calculate(); f.controller.activate();
+    const auto active=f.controller.profile(); const auto frame=f.controller.frameId();
+    WorkspaceCalibrationDialog dialog(f.controller); dialog.show(); QApplication::processEvents();
+    auto* anchor=dialog.findChild<QDoubleSpinBox*>("workspaceBoardAnchorX"); anchor->setValue(0.2);
+    changeWorkspaceUnit(dialog,1,QMessageBox::Yes);
+    EXPECT_DOUBLE_EQ(dialog.findChild<QLineEdit*>("workspaceWidth")->text().toDouble(),100);
+    EXPECT_DOUBLE_EQ(dialog.findChild<QLineEdit*>("workspaceHeight")->text().toDouble(),60);
+    EXPECT_DOUBLE_EQ(anchor->value(),20);
+    EXPECT_DOUBLE_EQ(dialog.findChild<QDoubleSpinBox*>("workspaceBoardSpacing")->value(),2.5);
+    EXPECT_TRUE(dialog.findChild<QLineEdit*>("workspaceBoardSurfaceElevation")->text().isEmpty());
+    auto* model=dialog.findChild<QTableView*>("workspacePoints")->model();
+    EXPECT_EQ(model->headerData(2,Qt::Horizontal).toString(),"x (cm)");
+    EXPECT_DOUBLE_EQ(model->index(1,2).data().toString().toDouble(),100);
+    EXPECT_EQ(f.controller.frameId(),frame);
+    EXPECT_EQ(f.controller.profile()->frameId,active->frameId);
+    EXPECT_TRUE(f.controller.draftProfile());
+    for (auto* label:dialog.findChildren<QLabel*>()) if (label->buddy()==anchor)
+        EXPECT_TRUE(label->text().contains("(cm)"));
+    const auto screenshot=qEnvironmentVariable("MICRO_ROBOT_WORKSPACE_UNITS_SCREENSHOT");
+    if (!screenshot.isEmpty()) EXPECT_TRUE(dialog.grab().save(screenshot));
+    changeWorkspaceUnit(dialog,0,QMessageBox::Yes);
+    EXPECT_DOUBLE_EQ(dialog.findChild<QLineEdit*>("workspaceWidth")->text().toDouble(),1);
+    EXPECT_DOUBLE_EQ(anchor->value(),0.2);
+    EXPECT_EQ(f.controller.frameId(),frame);
+}
+TEST(WorkspaceInputUiTest, NoKeepsNumbersAndReinterpretsDraftWithoutChangingActiveCalibration)
+{
+    Fixture f; f.freeze(); f.boundary(); f.calculate(); f.controller.activate();
+    const auto active=f.controller.profile(); const auto frame=f.controller.frameId();
+    WorkspaceCalibrationDialog dialog(f.controller); dialog.show(); QApplication::processEvents();
+    auto* anchor=dialog.findChild<QDoubleSpinBox*>("workspaceBoardAnchorX"); anchor->setValue(0.2);
+    changeWorkspaceUnit(dialog,1,QMessageBox::No);
+    EXPECT_DOUBLE_EQ(dialog.findChild<QLineEdit*>("workspaceWidth")->text().toDouble(),1);
+    EXPECT_DOUBLE_EQ(anchor->value(),0.2);
+    ASSERT_TRUE(f.controller.draftBounds());
+    EXPECT_DOUBLE_EQ(f.controller.draftBounds()->width().value,0.01);
+    EXPECT_NE(f.controller.frameId(),frame);
+    EXPECT_TRUE(f.controller.references().empty());
+    EXPECT_EQ(f.controller.profile()->frameId,active->frameId);
+    EXPECT_DOUBLE_EQ(f.controller.profile()->bounds.width().value,1);
+}
+TEST(WorkspaceInputUiTest, CentimeterReferenceEditsAreConvertedAtThePresentationBoundary)
+{
+    Fixture f; f.freeze(); f.boundary(); f.controller.appendReference(ImageCorner{500,400});
+    WorkspaceCalibrationDialog dialog(f.controller);
+    changeWorkspaceUnit(dialog,1,QMessageBox::Yes);
+    auto* model=dialog.findChild<QTableView*>("workspacePoints")->model();
+    ASSERT_TRUE(model->setData(model->index(4,2),"25"));
+    ASSERT_TRUE(model->setData(model->index(4,3),"10"));
+    EXPECT_DOUBLE_EQ(f.controller.references()[4].point.world.x.value,0.25);
+    EXPECT_DOUBLE_EQ(f.controller.references()[4].point.world.y.value,0.1);
+    EXPECT_DOUBLE_EQ(model->index(4,2).data().toString().toDouble(),25);
+    EXPECT_EQ(model->headerData(0,Qt::Horizontal).toString(),"u (px)");
+}
+
+TEST(WorkspaceInputUiTest, CentimeterBoardReviewStoresMetersAndKeepsUnknownMetadataUnknown)
+{
+    Fixture f; f.freeze(); f.boundary(); installBoardDetector(f);
+    f.controller.detectBoard(); ASSERT_TRUE(QTest::qWaitFor([&]{return !f.controller.busy();}));
+    ASSERT_TRUE(f.controller.detectedBoard());
+    WorkspaceCalibrationDialog dialog(f.controller); dialog.show();
+    dialog.findChild<QGroupBox*>("workspaceBoardPanel")->setChecked(true);
+    changeWorkspaceUnit(dialog,1,QMessageBox::Yes);
+    dialog.findChild<QDoubleSpinBox*>("workspaceBoardAnchorX")->setValue(20);
+    dialog.findChild<QDoubleSpinBox*>("workspaceBoardAnchorY")->setValue(10);
+    dialog.findChild<QComboBox*>("workspaceBoardRowDirection")->setCurrentIndex(1);
+    dialog.findChild<QLineEdit*>("workspaceBoardSurfaceElevation")->setText("0.4");
+    dialog.findChild<QLineEdit*>("workspaceBoardElevationMethod")->setText("caliper survey");
+    dialog.findChild<QPushButton*>("workspaceBoardReview")->click();
+    ASSERT_TRUE(QTest::qWaitFor([&]{return !f.controller.busy();}));
+    ASSERT_TRUE(f.controller.boardReview())<<f.controller.message().toStdString();
+    EXPECT_DOUBLE_EQ(f.controller.boardReview()->anchor.x.value,0.2);
+    EXPECT_DOUBLE_EQ(f.controller.boardReview()->target.squareSizeMeters,0.025);
+    EXPECT_EQ(f.controller.boardReview()->surfaceElevationMeters,0.004);
+    EXPECT_FALSE(f.controller.boardReview()->backingThicknessMeters);
+    auto* table=dialog.findChild<QTableWidget*>("workspaceBoardPoints");
+    EXPECT_DOUBLE_EQ(table->item(0,3)->text().toDouble(),20);
+    EXPECT_TRUE(table->horizontalHeaderItem(3)->text().contains("cm"));
+    dialog.findChild<QCheckBox*>("workspaceBoardIdentityConfirmed")->setChecked(true);
+    const auto screenshot=qEnvironmentVariable("MICRO_ROBOT_WORKSPACE_BOARD_UNITS_SCREENSHOT");
+    if (!screenshot.isEmpty()) {
+        dialog.findChild<QScrollArea*>("workspaceScroll")->ensureWidgetVisible(dialog.findChild<QLineEdit*>("workspaceBoardSurfaceElevation"));
+        QApplication::processEvents(); EXPECT_TRUE(dialog.grab().save(screenshot));
+    }
+    const auto* review=&*f.controller.boardReview();
+    changeWorkspaceUnit(dialog,0,QMessageBox::Yes);
+    EXPECT_EQ(&*f.controller.boardReview(),review);
+    EXPECT_TRUE(dialog.findChild<QCheckBox*>("workspaceBoardIdentityConfirmed")->isChecked());
+}
+TEST(WorkspaceInputUiTest, NoDoesNotClampExistingNumbersWhenReturningToMeters)
+{
+    Fixture f; WorkspaceCalibrationDialog dialog(f.controller);
+    changeWorkspaceUnit(dialog,1,QMessageBox::Yes);
+    auto* spacing=dialog.findChild<QDoubleSpinBox*>("workspaceBoardSpacing");
+    EXPECT_DOUBLE_EQ(spacing->value(),2.5);
+    changeWorkspaceUnit(dialog,0,QMessageBox::No);
+    EXPECT_DOUBLE_EQ(spacing->value(),2.5);
+    EXPECT_DOUBLE_EQ(dialog.findChild<QLineEdit*>("workspaceWidth")->text().toDouble(),100);
+}
+TEST(WorkspaceInputUiTest, UnitRoundTripsAndFinishingAnUnchangedFieldPreserveExactFrameIdentity)
+{
+    Fixture f; f.controller.configure("table-A",0.123456789012345,0.5);
+    WorkspaceCalibrationDialog dialog(f.controller);
+    const auto frame=f.controller.frameId();
+    const double original=f.controller.draftBounds()->width().value;
+    changeWorkspaceUnit(dialog,1,QMessageBox::Yes);
+    QMetaObject::invokeMethod(dialog.findChild<QLineEdit*>("workspaceWidth"),"editingFinished");
+    EXPECT_EQ(f.controller.frameId(),frame);
+    EXPECT_DOUBLE_EQ(f.controller.draftBounds()->width().value,original);
+    changeWorkspaceUnit(dialog,0,QMessageBox::Yes);
+    QMetaObject::invokeMethod(dialog.findChild<QLineEdit*>("workspaceWidth"),"editingFinished");
+    EXPECT_EQ(f.controller.frameId(),frame);
+    EXPECT_DOUBLE_EQ(f.controller.draftBounds()->width().value,original);
+    EXPECT_EQ(dialog.findChild<QLineEdit*>("workspaceHeight")->text(),"0.5");
+}
+
+TEST(WorkspaceInputUiTest, PlainLengthInputsRetainDecimalCommaSupportWithoutAcceptingGrouping)
+{
+    const auto previous=QLocale();
+    struct RestoreLocale { QLocale value; ~RestoreLocale() { QLocale::setDefault(value); } } restore{previous};
+    QLocale::setDefault(QLocale{QLocale::Polish,QLocale::Poland});
+    Fixture f; WorkspaceCalibrationDialog dialog(f.controller);
+    auto* width=dialog.findChild<QLineEdit*>("workspaceWidth");
+    auto* height=dialog.findChild<QLineEdit*>("workspaceHeight");
+    width->setText("1,5"); height->setText("0,5");
+    QMetaObject::invokeMethod(height,"editingFinished");
+    ASSERT_TRUE(f.controller.draftBounds());
+    EXPECT_DOUBLE_EQ(f.controller.draftBounds()->width().value,1.5);
+    EXPECT_DOUBLE_EQ(f.controller.draftBounds()->height().value,0.5);
+    width->setText("1.25"); QMetaObject::invokeMethod(width,"editingFinished");
+    ASSERT_TRUE(f.controller.draftBounds());
+    EXPECT_DOUBLE_EQ(f.controller.draftBounds()->width().value,1.25);
+    width->setText("1 000"); QMetaObject::invokeMethod(width,"editingFinished");
+    EXPECT_FALSE(f.controller.draftBounds());
 }
