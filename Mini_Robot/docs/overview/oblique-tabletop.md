@@ -85,3 +85,17 @@ That issue requires pose/setup, intrinsics/resolution, raw correspondences,
 independent surveyed references, residuals, uncertainty, revisions and explicit
 PASS/FAIL/NOT RUN evidence. #259 retains guided-corner UI commissioning, #224
 retains physical metric tags, and #63 retains benchmarking.
+
+### Tabletop and elevated robot planes
+
+The commissioning envelope to test is a 1×0.5 m workspace with a fixed camera
+0.5–1 m above the table and 0.1–0.3 m outside its long edge, 40 mm footprint tags
+at approximately 30–70 mm **measured** height. This is intended setup, not physical
+acceptance. A tabletop homography maps z=0. An elevated parallel tag centre and
+an axle/body centre are distinct points. Per-robot heights, tag-to-body offsets
+and heading/mount transforms remain necessary; [#270](https://github.com/Krzys2002/Mini_Robot/issues/270)
+owns that conversion, [#271](https://github.com/Krzys2002/Mini_Robot/issues/271)
+owns reference/survey identity, and [#272](https://github.com/Krzys2002/Mini_Robot/issues/272)
+owns timing. These successors do not depend on the map/distance diagnostic stack.
+
+Physical side-camera acceptance (#261) remains NOT RUN.
