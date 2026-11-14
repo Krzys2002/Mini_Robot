@@ -1,4 +1,5 @@
 #include "ui/WorkspaceCalibrationDialog.hpp"
+#include "ui/WorkspaceDiagnosticsDialog.hpp"
 #include "ui/WorkspaceReferenceModel.hpp"
 #include "ui/WorkspaceBoardPanel.hpp"
 #include <QScrollArea>
@@ -218,6 +219,14 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
     auto* storage = new QHBoxLayout;
     save_ = button(storage,"workspaceSave","Save transform");
     load_ = button(storage,"workspaceLoad","Load transform");
+    diagnostics_ = button(storage,"workspaceDiagnostics","Scale / error maps…");
+    connect(diagnostics_, &QPushButton::clicked, this, [this] {
+        if (!diagnosticsDialog_) {
+            diagnosticsDialog_ = new WorkspaceDiagnosticsDialog(controller_.diagnostics(), this);
+            diagnosticsDialog_->setAttribute(Qt::WA_DeleteOnClose);
+        }
+        diagnosticsDialog_->show(); diagnosticsDialog_->raise(); diagnosticsDialog_->activateWindow();
+    });
     auto* close = button(storage,"workspaceClose","Close"); outer->addLayout(storage);
     image_->clicked = [this](ImageCorner p) {
         if (controller_.busy()) return;
@@ -292,6 +301,7 @@ void WorkspaceCalibrationDialog::restoreReferences()
 }
 void WorkspaceCalibrationDialog::refresh()
 {
+    diagnostics_->setEnabled(bool(controller_.profile()));
     const auto frame = controller_.frozenFrame();
     if (frame != shownFrame_ || shownRevision_ != controller_.referencesRevision()) {
         originPick_->setChecked(false); replacingCorner_.reset();

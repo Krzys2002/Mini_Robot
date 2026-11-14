@@ -174,3 +174,12 @@ original reset/recheck action clears its displayed references. Large reference
 tables use a model, worker validation/verification and consistent 4,096-point
 role limits. V3 profiles link immutable acquisition snapshots; preserve profile
 and sidecar together. Physical large-dataset/target accuracy is NOT RUN in #263.
+
+## Spatial scale/error diagnostics
+
+The active transform exposes [directional px/cm, survey error maps and a conditional
+prediction contract](workspace-diagnostics.md). Independent survey confirmation and
+model assumptions are explicit; fit residuals are not an accuracy guarantee.
+Exports retain the complete calibration/acquisition identity and sampled masks.
+Physical acceptance is owned by [#265](https://github.com/Krzys2002/Mini_Robot/issues/265),
+with all new physical/native-display checks NOT RUN.

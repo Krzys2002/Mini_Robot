@@ -170,3 +170,11 @@ that it already exists.
 | [WorkspaceCalibrationController.hpp](../../src/app/WorkspaceCalibrationController.hpp), [WorkspaceCalibrationController.cpp](../../src/app/WorkspaceCalibrationController.cpp), [WorkspaceCalibrationControllerAcquisition.cpp](../../src/app/WorkspaceCalibrationControllerAcquisition.cpp) | `micro_robot_desktop_controller`: [exact-frame acquisition/lifecycle](workspace-chessboard.md#operator-procedure) |
 | [WorkspaceCalibrationDialog.cpp](../../src/ui/WorkspaceCalibrationDialog.cpp), [WorkspaceBoardPanel.hpp](../../src/ui/WorkspaceBoardPanel.hpp), [WorkspaceBoardPanel.cpp](../../src/ui/WorkspaceBoardPanel.cpp) | `micro_robot_ui`: [boundary/board review and labelled zoom](workspace-chessboard.md#operator-procedure) |
 | [WorkspaceReferenceModel.hpp](../../src/ui/WorkspaceReferenceModel.hpp), [WorkspaceReferenceModel.cpp](../../src/ui/WorkspaceReferenceModel.cpp) | `micro_robot_ui`: [large typed reference table](workspace-chessboard.md#capacity-and-the-requested-1525-locations) |
+
+### Workspace diagnostics
+
+| Sources | Owner / contract |
+| --- | --- |
+| [WorkspaceDiagnostics.hpp](../../src/calibration/WorkspaceDiagnostics.hpp), [WorkspaceDiagnostics.cpp](../../src/calibration/WorkspaceDiagnostics.cpp) | `micro_robot_calibration`: [scale, error interpolation and conditional prediction](workspace-diagnostics.md#reusable-prediction-contract-for-distance-reporting) |
+| [WorkspaceDiagnosticsController.hpp](../../src/app/WorkspaceDiagnosticsController.hpp), [WorkspaceDiagnosticsController.cpp](../../src/app/WorkspaceDiagnosticsController.cpp) | `micro_robot_desktop_controller`: [bounded worker, identity/invalidation and export](workspace-diagnostics.md#bounded-work-invalidation-and-export) |
+| [WorkspaceDiagnosticsDialog.hpp](../../src/ui/WorkspaceDiagnosticsDialog.hpp), [WorkspaceDiagnosticsDialog.cpp](../../src/ui/WorkspaceDiagnosticsDialog.cpp) | `micro_robot_ui`: [map rendering and explicit survey table/settings](workspace-diagnostics.md#evidence-and-operator-procedure) |

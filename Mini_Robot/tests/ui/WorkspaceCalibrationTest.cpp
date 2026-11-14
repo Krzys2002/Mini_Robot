@@ -1,6 +1,8 @@
 #include "../calibration/CaptureFixtures.hpp"
 #include "../calibration/HomographyFixtures.hpp"
 #include "app/WorkspaceCalibrationController.hpp"
+#include "app/WorkspaceDiagnosticsController.hpp"
+#include "ui/WorkspaceDiagnosticsDialog.hpp"
 #include "ui/WorkspaceCalibrationDialog.hpp"
 #include "world/WorldModel.hpp"
 #include <QApplication>
@@ -184,6 +186,21 @@ struct Fixture {
         (void)QTest::qWaitFor([&] { return controller.isStopped(); });
     }
 };
+
+TEST(WorkspaceDiagnosticsIntegrationTest, ActiveEvidenceBindingSurvivesDraftEditsAndClearsWithOptics)
+{
+    Fixture f; f.freeze(); f.calculate();
+    WorkspaceCalibrationDialog dialog(f.controller);
+    auto* maps=dialog.findChild<QPushButton*>("workspaceDiagnostics");ASSERT_NE(maps,nullptr);EXPECT_FALSE(maps->isEnabled());
+    f.controller.activate();EXPECT_TRUE(maps->isEnabled());
+    auto& diagnostics=f.controller.diagnostics();ASSERT_TRUE(QTest::qWaitFor([&]{return !diagnostics.busy();}));ASSERT_TRUE(diagnostics.snapshot())<<diagnostics.message().toStdString();
+    EXPECT_EQ(diagnostics.snapshot()->profile.acquisitionId,f.controller.profile()->acquisitionId);
+    EXPECT_EQ(diagnostics.snapshot()->acquisition,f.controller.activeAcquisition());
+    const auto active=diagnostics.snapshot();f.controller.configure("draft-change",2,1);EXPECT_EQ(diagnostics.snapshot(),active);
+    maps->click();QApplication::processEvents();ASSERT_NE(dialog.findChild<WorkspaceDiagnosticsDialog*>(),nullptr);
+    auto optics=validIntrinsicCalibration();optics.cameraMatrix[0]+=1;f.controller.setInput(optics,true);
+    EXPECT_FALSE(diagnostics.snapshot());EXPECT_FALSE(diagnostics.profile());EXPECT_FALSE(maps->isEnabled());
+}
 
 TEST(WorkspaceCalibrationUiTest, FreezeSolveAndStoreRoundTripThroughWorker)
 {
