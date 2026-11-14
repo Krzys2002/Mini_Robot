@@ -366,6 +366,12 @@ Works does not.
 | macOS / CoreBluetooth | Pairing is OS-mediated when a protected attribute is accessed; bonds belong to the host, not the app ([Apple Core Bluetooth guide](https://developer.apple.com/library/archive/documentation/NetworkingInternetWeb/Conceptual/CoreBluetooth_concepts/BestPracticesForSettingUpYourIOSDeviceAsAPeripheral/BestPracticesForSettingUpYourIOSDeviceAsAPeripheral.html)) | A bond would authenticate a host, not an operator or application |
 | Linux / BlueZ | Pairing needs a registered agent with a matching IO capability; `Device1.Pair`, `Adapter1.RemoveDevice` remove bonds ([Agent](https://github.com/bluez/bluez/blob/master/doc/org.bluez.Agent.rst), [AgentManager](https://github.com/bluez/bluez/blob/master/doc/org.bluez.AgentManager.rst), [Device](https://github.com/bluez/bluez/blob/master/doc/org.bluez.Device.rst), [Adapter](https://github.com/bluez/bluez/blob/master/doc/org.bluez.Adapter.rst)) | Requires a platform-specific agent outside Qt; bonds are shared by all local users of `org.bluez` |
 
+The [2026-11-14 non-motor spike](../testing/security-157-spike-2026-11-14.md)
+confirmed on Linux BlueZ that the unchanged fixture accepts unpaired
+connections and unauthenticated writes. It also showed that any central can
+complete Just Works pairing without bonding, and that USB serial provisioning
+has no access control.
+
 Unsupported or unverified combinations, therefore:
 
 - MITM-resistant pairing with the CodeCell as built: **unsupported** (no robot
