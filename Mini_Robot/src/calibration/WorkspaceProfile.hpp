@@ -2,6 +2,9 @@
 #include "calibration/CalibrationProfile.hpp"
 #include "calibration/WorkspaceCalibration.hpp"
 
+// Boundary/origin selection defines the tabletop z=0 world frame, not camera
+// extrinsics or elevated robot poses. #270 owns height/mount conversion; #271
+// owns reference monitoring outside robot travel bounds. Bounds remain travel geometry.
 namespace micro_robot {
 inline constexpr std::size_t MaximumWorkspaceProfileBytes = 131072;
 

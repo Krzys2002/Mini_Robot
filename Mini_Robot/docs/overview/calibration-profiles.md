@@ -211,3 +211,11 @@ Z rotation, use the wizard's **Board placement and capture help** and the
 Next-capture hints use accepted-view count/region/scale/in-plane-angle measurements;
 they do not measure out-of-plane tilt or certify physical profile accuracy. Keep
 focus, zoom and camera settings fixed; changed optics require fresh calibration.
+
+### Tabletop frame boundary
+
+Boundary and origin selection define a tabletop world frame (z=0); they do not
+estimate camera extrinsics or validate elevated tags. WorkspaceBounds remains
+robot travel geometry. Survey references outside that rectangle belong to
+[reference monitoring #271](https://github.com/Krzys2002/Mini_Robot/issues/271),
+not enlarged or shifted travel bounds.

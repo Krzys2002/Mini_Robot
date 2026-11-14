@@ -36,6 +36,9 @@ struct WorkspaceHomographyOutcome {
 // update WorldModel (#58). Null at a horizon/non-finite input or invalid matrix.
 [[nodiscard]] std::optional<WorldPoint2D> projectWorkspacePoint(const WorkspaceHomography& transform,
                                                                 ImageCorner point);
+// World metres to undistorted native-K pixels; no viewport or lens conversion.
+[[nodiscard]] std::optional<ImageCorner> unprojectWorkspacePoint(const WorkspaceHomography& transform,
+                                                               WorldPoint2D point);
 [[nodiscard]] std::string validateWorkspaceHomographyInput(const WorkspaceHomographyInput& input);
 // Evaluate held-out references against a stored transform without refitting it.
 [[nodiscard]] std::optional<WorkspaceMappingErrors>

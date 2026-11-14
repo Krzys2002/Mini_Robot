@@ -20,7 +20,8 @@ WorkspaceHomographyOutcome OpenCvWorkspaceHomographySolver::solve(const Workspac
         for (std::size_t i = 0; i < input.fitPoints.size(); ++i) {
             const auto& p = input.fitPoints[i];
             const double u = p.image.u / k.width, v = p.image.v / k.height;
-            const double x = p.world.x.value / width, y = p.world.y.value / height;
+            const double x = (p.world.x.value - input.profile.bounds.minimum().x.value) / width;
+            const double y = (p.world.y.value - input.profile.bounds.minimum().y.value) / height;
             auto* r = a.ptr<double>(static_cast<int>(i * 2));
             r[0] = -u;
             r[1] = -v;
@@ -46,6 +47,12 @@ WorkspaceHomographyOutcome OpenCvWorkspaceHomographySolver::solve(const Workspac
             for (int col = 0; col < 3; ++col)
                 initial.imageToWorld[static_cast<std::size_t>(row * 3 + col)] =
                     vt.at<double>(8, row * 3 + col) * rows[row] * columns[col];
+        for (int col = 0; col < 3; ++col) {
+            initial.imageToWorld[static_cast<std::size_t>(col)] += input.profile.bounds.minimum().x.value
+                * initial.imageToWorld[static_cast<std::size_t>(6 + col)];
+            initial.imageToWorld[static_cast<std::size_t>(3 + col)] += input.profile.bounds.minimum().y.value
+                * initial.imageToWorld[static_cast<std::size_t>(6 + col)];
+        }
         const auto initialOutcome = evaluateWorkspaceHomography(input, initial);
         if (!initialOutcome.result)
             return initialOutcome;

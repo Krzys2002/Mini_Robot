@@ -39,6 +39,9 @@ public:
     [[nodiscard]] PoseUpdateResult updateTrackedPose(RobotId id, const Pose2D& pose,
                                                      Timestamp capturedAt, TrackingThresholds thresholds);
     void invalidateTracking(RobotId id);
+    // Explicit active-frame replacement: old coordinates cannot survive in a new frame.
+    // Registry/transport identity remains intact. Owner thread only.
+    void clearMeasurements();
     // Explicit time avoids hidden clocks. A time before capture is conservatively lost.
     [[nodiscard]] TrackingInfo tracking(RobotId id, Timestamp now) const;
     [[nodiscard]] std::optional<RobotState> robot(RobotId id) const;
@@ -49,10 +52,14 @@ public:
     // establish camera calibration or clamp/rewrite existing robot measurements.
     void setWorkspaceBounds(std::optional<WorkspaceBounds> bounds);
     [[nodiscard]] std::optional<WorkspaceBounds> workspaceBounds() const;
+    // Explicit active-frame installation clears old coordinates and keeps its identity
+    // in detached snapshots. A nonempty frame identity is required with bounds.
+    void setWorkspaceFrame(WorkspaceBounds bounds, std::string frameId);
 
 private:
     std::map<RobotId, RobotState> robots_;
     std::optional<WorkspaceBounds> workspace_;
+    std::optional<std::string> workspaceFrameId_;
 };
 
 } // namespace micro_robot

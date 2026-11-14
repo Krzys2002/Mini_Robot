@@ -110,6 +110,24 @@ std::optional<WorldPoint2D> projectWorkspacePoint(const WorkspaceHomography& tra
     return WorldPoint2D{Meters{x}, Meters{y}};
 }
 
+std::optional<ImageCorner> unprojectWorkspacePoint(const WorkspaceHomography& transform, WorldPoint2D point)
+{
+    auto h = transform.imageToWorld;
+    double scale = 0;
+    for (auto value : h) {
+        if (!std::isfinite(value)) return {};
+        scale = std::max(scale, std::abs(value));
+    }
+    if (scale == 0) return {};
+    for (auto& value : h) value /= scale;
+    // Adjugate is an inverse up to homogeneous scale; projection checks singularity/horizon.
+    const WorkspaceHomography inverse{{h[4]*h[8]-h[5]*h[7], h[2]*h[7]-h[1]*h[8], h[1]*h[5]-h[2]*h[4],
+        h[5]*h[6]-h[3]*h[8], h[0]*h[8]-h[2]*h[6], h[2]*h[3]-h[0]*h[5],
+        h[3]*h[7]-h[4]*h[6], h[1]*h[6]-h[0]*h[7], h[0]*h[4]-h[1]*h[3]}};
+    const auto projected = projectWorkspacePoint(inverse, {point.x.value, point.y.value});
+    if (!projected) return {};
+    return ImageCorner{projected->x.value, projected->y.value};
+}
 std::string validateWorkspaceHomographyInput(const WorkspaceHomographyInput& input)
 {
     auto profile = input.profile;
@@ -130,8 +148,8 @@ std::string validateWorkspaceHomographyInput(const WorkspaceHomographyInput& inp
         if (!validPoint(p, profile))
             return "Each paired point must be finite and inside the native image and measured workspace.";
         image.push_back({p.image.u / k.width, p.image.v / k.height});
-        world.push_back({p.world.x.value / profile.bounds.width().value,
-                         p.world.y.value / profile.bounds.height().value});
+        world.push_back({(p.world.x.value - profile.bounds.minimum().x.value) / profile.bounds.width().value,
+                         (p.world.y.value - profile.bounds.minimum().y.value) / profile.bounds.height().value});
     }
     if (!spansPlane(image) || !spansPlane(world))
         return "Fitting image and world points must span a non-degenerate two-dimensional region.";

@@ -2,12 +2,12 @@
 
 Issue [#57](https://github.com/Krzys2002/Mini_Robot/issues/57) estimates and saves
 a planar image-to-world transform. It builds on the [workspace model](workspace.md)
-and [intrinsic profiles](calibration-profiles.md). Robot detection/pose conversion
-and tracking are separate work in #58 and later issues; this workflow does not
-move robots or infer poses. Explicitly activated profiles install measured workspace bounds
+and [intrinsic profiles](calibration-profiles.md). Metric observation conversion and tracking exist as separate components; this
+calibration workflow does not move robots or establish a complete control loop. Explicitly activated profiles install measured workspace bounds
 in the authoritative WorldModel. Draft edits leave that calibration intact; camera
 or optical incompatibility invalidates the active calibration and its bounds. H remains
-in the calibration service until future observation consumers are implemented.
+in the calibration service and is supplied to the implemented metric observation consumer;
+a complete perception-to-motion loop is not established.
 
 ## Coordinate convention
 
@@ -23,8 +23,9 @@ subtracts 0.5 and marker rendering adds it. Numeric centres range from zero to
 width/height minus one. Black borders
 from undistortion are not physical reference features.
 
-World points use measured **metres**, origin at the tabletop's lower-left, +X to
-the right and +Y up. Image u increases right and v increases down; therefore
+World points use measured **metres** in the explicit [workspace frame](workspace.md).
+The operator labels physical +X/+Y edges and may choose a corner or interior origin.
+World +X is right and +Y up in the intended world view, independently of screen orientation. Image u increases right and v increases down; therefore
 corresponding image/world perimeter windings commonly differ. H is row-major:
 
 ```text
@@ -51,12 +52,21 @@ points. It does not establish a safe extrapolation region or permission to contr
    remapped on the worker. Point selection always refers to that immutable frame;
    incoming frames do not move its reference features. Freezing again clears all
    old correspondences while retaining the draft transform for verification.
-4. Click reference points or press **Add point**, then enter each paired u/v pixel
-   coordinate and measured x/y position. Use 4–64 paired fitting points in any
-   order, including rectangular corners, edge midpoints and interior references.
-   Each pair must identify the same physical reference in both frames; duplicate
-   image/world coordinates and collinear/degenerate layouts are rejected. Verify
-   physical labels; fitting residuals alone cannot detect every mistaken pairing.
+4. Select C1 (physical base), C2 (+X neighbour), C3 (opposite), C4 (+Y neighbour).
+   Review the cyan numbered perimeter, axis arrows and measured edge lengths.
+   Use **Undo last corner**, numeric corner cells, or **Reselect selected corner**
+   followed by an image click to correct mistakes. Crossed, duplicate, concave or
+   collinear boundaries cannot be confirmed. The application never sorts corners
+   by their positions on screen.
+   Choose a corner origin, or measured origin offsets from C1 along +X/+Y in metres.
+   Interior origins deliberately create negative coordinates on part of the table.
+   Press **Confirm boundary / axes** before adding extra references. The four
+   generated paired boundary rows are locked; correct them through the corner
+   controls. Add up to 64 total fitting references, including those four corners.
+   After **Calculate**, **Pick origin after Calculate** permits a mapped image
+   pick inside the workspace. Changing the origin clears draft results and all
+   fit/check references; confirm the boundary again and recalculate. A picked
+   origin is transform-derived, not independent ground truth.
 5. Add independent interior/reference points and tick **Check only**. Up to 64
    check points are held out of estimation. They must not repeat fitting points
    or each other. All image points must lie inside the native image, and all world
@@ -80,7 +90,9 @@ points. It does not establish a safe extrapolation region or permission to contr
    threshold are visible warnings. A finite fit alone never establishes physical
    acceptance. Keep the previous active calibration until a replacement is accepted.
 
-Identity, dimensions and fitting-point edits invalidate only the draft. Check-point
+Identity, dimension, origin and corner edits invalidate the draft and clear its
+references. Additional fitting-point edits invalidate draft H. Active calibration
+replacement clears old WorldModel measurements and pending vision diagnostics. Check-point
 edits retain H for verification. Camera loss/change, delivered resolution changes
 and optical-model changes clear both draft and active transforms and their bounds;
 repeated mismatched frames produce a single notification per mismatch episode.
@@ -96,7 +108,7 @@ Closing the dialog preserves active and draft calibrations and session reference
 
 The Qt/OpenCV-free domain owns paired coordinates, geometry validation, projection,
 residual evaluation and profile parsing. A dimension-scaled homogeneous DLT/SVD
-estimate supplies a double-precision starting fit and explicit conditioning guard;
+estimate using coordinates relative to the explicit workspace minimum supplies a double-precision starting fit and explicit conditioning guard;
 this scaling is not Hartley centroid/isotropic normalization. The OpenCV adapter
 also computes `cv::findHomography(image, world, 0)`, using every fitting pair and
 refining geometric error in destination metres. It selects that candidate only if
@@ -108,15 +120,17 @@ vertices; interior and edge samples do not impose perimeter-order restrictions.
 Check points never influence estimation. No extrapolation accuracy outside the
 measured fitting region is established.
 
-The workspace profile remains separate from the intrinsic profile. Version 1 uses
-strict `micro_robot_workspace 1` text, quoted workspace identity, metric dimensions,
-`undistorted_native_k`, optional nine-element H and a complete quoted intrinsic
-profile. Decimal doubles use `max_digits10` and the classic locale, preserving
-exact optical compatibility across save/load. Unknown versions/conventions,
-malformed/truncated/oversized data, non-finite or singular transforms, invalid
-intrinsics and trailing data are rejected. An absent H represents uncalibrated
-metadata; the UI never treats it as a usable loaded transform. Acquisition points
-and residuals are session diagnostics, not persisted measurement evidence.
+The workspace profile remains separate from the intrinsic profile. Strict v2 text
+stores dimensions, explicit minimum X/Y, frame identity, optional ordered boundary,
+`undistorted_native_k`, optional nine-element H and complete bound intrinsics.
+V1 profiles migrate with exactly zero minimums and unchanged H/intrinsics, retaining
+their original lower-left coordinates. Saves write v2; unknown versions are rejected.
+See [frame/persistence details and rollback limits](workspace.md#profile-v2-and-compatibility).
+Acquisition fit/check points and residuals remain session diagnostics, not persisted
+measurement evidence. Loaded boundary coordinates are stored acquisition references;
+freezing another image does not prove unchanged camera/table placement. Independent
+Check points may verify a loaded H without selecting corners again; use **Reselect
+all corners** to begin a new fit instead.
 
 The filesystem adapter uses hashed, length-prefixed workspace/camera/resolution
 keys under the injected per-user `workspace` directory. User IDs never become path
@@ -136,7 +150,10 @@ entry, asynchronous invalidation, stale frames and worker failure feedback.
 ctest --test-dir build/macos -R 'TabletopHomographyTest|WorkspaceProfileTest|OpenCvWorkspaceHomographyTest|QtWorkspaceProfileStoreTest|WorkspaceCalibrationUiTest' --output-on-failure --no-tests=error
 ```
 
-Physical camera/table accuracy is **NOT RUN** for this implementation. To commission,
+Physical camera/table accuracy and new native-display checks are **NOT RUN**.
+[#259](https://github.com/Krzys2002/Mini_Robot/issues/259) owns the guided-corner/origin
+physical acceptance; [#224](https://github.com/Krzys2002/Mini_Robot/issues/224) retains
+printed-tag metric pose acceptance. To commission,
 measure additional independent tabletop references, freeze the production camera
 at its intended size/focus, check axis signs and metric errors across the fitting
 region, restart the application and explicitly reload, then repeat the independent
