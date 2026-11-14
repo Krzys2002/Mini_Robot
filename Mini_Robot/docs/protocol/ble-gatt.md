@@ -153,9 +153,12 @@ lost link.
   and macOS manages its own parameters. Safety must not depend on these values.
 - All version 1 payloads fit the default 23-byte ATT MTU. A larger negotiated MTU
   is allowed, but it must not be used to send concatenated or longer frames.
-- Version 1 uses no pairing or encryption, for laboratory bring-up. Any central
-  in radio range can connect while the robot advertises. This is an accepted
-  limitation for the thesis prototype. A later version may require bonding.
+- Version 1 uses no pairing or encryption. Any central in radio range can
+  connect while the robot advertises. Version 1 may be operated only under the
+  [restricted-lab security profile](security-profile.md), which lists the
+  operating restrictions, firmware rules and accepted residual risks. `robotId`,
+  advertised names and sequence numbers are not authentication. A secure profile
+  requires a separate compatibility decision and protocol/GATT change.
 
 ## Implementation checklist
 

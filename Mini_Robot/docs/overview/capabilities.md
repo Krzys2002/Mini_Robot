@@ -12,7 +12,7 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | Vision | AprilTag detection, RobotId association, pixel observations, calibrated metric measurement boundary and matched-frame debug overlays | Physical metric-pose acceptance (#224) |
 | World | One authoritative robot registry, metric workspace, tracked pose measurements and explicit observation age | Physical tracking acceptance, filtering, obstacles and planning state |
 | Communication | Native BLE command/telemetry adapter, RobotManager sessions and deterministic simulation with shared pending Stop priority | Production command/safety interoperability, over-air measurements and remaining multi-link hardware checks |
-| Robot firmware | Fresh C6 build skeleton, pinned toolchain and portable clock host tests; separate BLE connection fixture | Production BLE runtime/protocol, actuation and measured safety acceptance (#158–#166, #238) |
+| Robot firmware | Fresh C6 build skeleton, pinned toolchain and portable clock host tests; separate BLE connection fixture; [restricted-lab security profile](../protocol/security-profile.md) decided (unauthenticated v1) | Production BLE runtime/protocol, actuation and measured safety acceptance (#158–#166, #238); security-profile enforcement and attack tests (#165) |
 | Control/planning | Pure differential-drive math and transport-level safety primitives | Domain operational safety, manual commands UI, closed-loop controller, paths, trajectories and coordination |
 | Recording | Human-readable application logs | Structured experiment records and validated end-to-end latency/error measurements |
 

@@ -30,7 +30,9 @@ Key words: **must**/**must not** are mandatory for a conforming implementation;
   BLE addresses, platform peripheral UUIDs, or Zigbee short addresses.
 - The authoritative identity is the `robotId` field of the
   [Robot Info](#robot-info-record) record, read once per session before any
-  command. Advertised names are only discovery hints.
+  command. Advertised names are only discovery hints. Identity is not
+  authentication: version 1 has no controller authorization, and the
+  [restricted-lab security profile](security-profile.md) governs its use.
 - Frames do not repeat `robotId`: a session is point-to-point, so every frame on
   it belongs to the identified robot. A future multi-robot gateway (for example
   Zigbee) must add its own addressing outside these frames.
