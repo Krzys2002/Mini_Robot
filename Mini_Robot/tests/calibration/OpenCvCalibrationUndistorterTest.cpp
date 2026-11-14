@@ -65,6 +65,29 @@ TEST(OpenCvCalibrationUndistorterTest, MatchesAnalyticalBrownConradySampling)
         EXPECT_NEAR(value, 3*sampleU, 1.0);
     }
 }
+TEST(OpenCvCalibrationUndistorterTest, CornerOverlayInvertsAnalyticalBrownConradyProjection)
+{
+    const auto model = smallModel();
+    std::vector<ImageCorner> raw;
+    std::vector<ImageCorner> expected;
+    for (double v : {8., 24., 40.}) for (double u : {8., 32., 56.}) {
+        const double x = (u - 32) / 50., y = (v - 24) / 50.;
+        const double r2 = x*x + y*y;
+        const auto& d = model.distortion;
+        const double radial = 1 + d[0]*r2 + d[1]*r2*r2 + d[4]*r2*r2*r2;
+        raw.push_back({50*(x*radial + 2*d[2]*x*y + d[3]*(r2+2*x*x))+32,
+                       50*(y*radial + d[2]*(r2+2*y*y) + 2*d[3]*x*y)+24});
+        expected.push_back({u, v});
+    }
+    OpenCvCalibrationUndistorter undistorter;
+    const auto result = undistorter.undistortWithCorners(image(PixelFormat::Gray8), model, raw);
+    ASSERT_TRUE(result.frame) << result.error;
+    ASSERT_EQ(result.corners.size(), expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_NEAR(result.corners[i].u, expected[i].u, 1e-3);
+        EXPECT_NEAR(result.corners[i].v, expected[i].v, 1e-3);
+    }
+}
 TEST(OpenCvCalibrationUndistorterTest, RejectsInvalidModelsFramesAndResolutionMismatch)
 {
     auto frame = image(PixelFormat::Gray8);

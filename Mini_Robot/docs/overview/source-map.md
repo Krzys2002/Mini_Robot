@@ -20,6 +20,9 @@ reports are scope/history, not evidence that future modules are present.
 | [src/calibration/OpenCvIntrinsicCalibrationSolver.cpp](../../src/calibration/OpenCvIntrinsicCalibrationSolver.cpp) | [Intrinsic solver](intrinsic-calibration.md) |
 | [src/calibration/OpenCvCalibrationDetector.hpp](../../src/calibration/OpenCvCalibrationDetector.hpp) | [Calibration capture](calibration-capture.md) |
 | [src/calibration/OpenCvCalibrationDetector.cpp](../../src/calibration/OpenCvCalibrationDetector.cpp) | [Calibration capture](calibration-capture.md) |
+| [src/calibration/CalibrationCornerTracker.hpp](../../src/calibration/CalibrationCornerTracker.hpp) | [Live preview modes](calibration-capture.md#live-preview-processing-policy) |
+| [src/calibration/OpenCvCalibrationCornerTracker.hpp](../../src/calibration/OpenCvCalibrationCornerTracker.hpp) | [Live preview modes](calibration-capture.md#live-preview-processing-policy) |
+| [src/calibration/OpenCvCalibrationCornerTracker.cpp](../../src/calibration/OpenCvCalibrationCornerTracker.cpp) | [Live preview modes](calibration-capture.md#live-preview-processing-policy) |
 | [src/ui/CalibrationWizard.hpp](../../src/ui/CalibrationWizard.hpp) | [Calibration capture](calibration-capture.md) |
 | [src/ui/CalibrationWizard.cpp](../../src/ui/CalibrationWizard.cpp) | [Calibration capture](calibration-capture.md) |
 | [src/app/main.cpp](../../src/app/main.cpp) | [app](desktop-demo.md) |
@@ -125,6 +128,10 @@ Each target's layer and the configure/test-time checks that enforce it are liste
 in [platform boundaries](platform-boundaries.md).
 
 ## Audit correction helpers
+
+- [Calibration storage audit](../../../tools/calibration_storage_audit.py): temporary
+  hardware-free baseline/current builds, repeated capture/cancel retained-capacity
+  and process-RSS snapshots; [memory evidence](calibration-capture.md#memory-diagnosis-and-verification-245-2026-11-11).
 
 - [V4L2 physical identity](../../src/camera/V4l2Identity.hpp),
   [implementation](../../src/camera/V4l2Identity.cpp): filesystem-only adapter helper

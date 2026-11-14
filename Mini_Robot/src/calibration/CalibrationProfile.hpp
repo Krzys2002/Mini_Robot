@@ -32,6 +32,7 @@ public:
 struct UndistortedPreviewOutcome {
     FramePtr frame;
     std::string error;
+    std::vector<ImageCorner> corners{};
 };
 class ICalibrationUndistorter {
 public:
@@ -40,5 +41,10 @@ public:
     // Original frame and capture/detection pipeline are never modified.
     [[nodiscard]] virtual UndistortedPreviewOutcome undistort(const Frame& frame,
         const IntrinsicCalibration& calibration) = 0;
+    // Adapters without point remapping suppress overlays instead of returning raw
+    // coordinates over remapped pixels. Capture always retains original points.
+    [[nodiscard]] virtual UndistortedPreviewOutcome undistortWithCorners(const Frame& frame,
+        const IntrinsicCalibration& calibration, const std::vector<ImageCorner>&)
+    { return undistort(frame, calibration); }
 };
 } // namespace micro_robot

@@ -108,7 +108,7 @@ WorkspaceBoardPanel::WorkspaceBoardPanel(WorkspaceCalibrationController& control
     setObjectName("workspaceBoardPanel"); setCheckable(true); setChecked(false);
     auto* layout=new QVBoxLayout(this); auto* body=new QWidget(this); auto* content=new QVBoxLayout(body); layout->addWidget(body);
     body->setVisible(false); connect(this,&QGroupBox::toggled,body,&QWidget::setVisible);
-    auto* help=new QLabel("Keep the 9×6 inner-corner / nominal 25 mm target FLAT on the table. Keep camera/table fixed between placements. "
+    auto* help=new QLabel("Keep the 9×6 inner-corner / nominal 25 mm target FLAT on the table. Keep camera/table fixed between placements. Record corner-surface elevation and board/backing thickness below, or leave explicitly unknown; these metadata do not compensate H. "
         "Enter the measured spacing. Every placement needs a measured anchor and explicit +columns/+rows orientation. Detector ordering does not identify a physical corner. "
         "Review index labels, reversals and exclusions; manual corrections remain possible after import.",body);
     help->setWordWrap(true); content->addWidget(help);
@@ -161,6 +161,17 @@ WorkspaceBoardPanel::WorkspaceBoardPanel(WorkspaceCalibrationController& control
     connect(anchor_,&QSpinBox::valueChanged,this,[this]{edited();});
     connect(rowDirection_,&QComboBox::currentIndexChanged,this,[this]{edited();});
     for (auto* box:{reverseColumns_,reverseRows_,relative_}) connect(box,&QCheckBox::toggled,this,[this]{edited();});
+    int metadataRow=4;
+    for (auto entry : {std::pair{&surface_, "Corner surface elevation above tabletop (m; blank = unknown)"},
+                       std::pair{&boardThickness_, "Board thickness (m; blank = unknown)"},
+                       std::pair{&backingThickness_, "Backing thickness (m; blank = unknown)"},
+                       std::pair{&elevationMethod_, "Elevation measurement method/provenance"}}) {
+        *entry.first=new QLineEdit(settings_);
+        (*entry.first)->setMaxLength(static_cast<int>(MaximumWorkspacePlacementNoteBytes));
+        grid->addWidget(new QLabel(entry.second,settings_),metadataRow,0);
+        grid->addWidget(*entry.first,metadataRow++,1);
+        connect(*entry.first,&QLineEdit::textChanged,this,[this]{edited();});
+    }
     connect(note_,&QLineEdit::textChanged,this,[this]{edited();});
     connect(reference_,&QPushButton::clicked,this,[this]{relativeId_=selectedReference_(); edited();});
     connect(check_,&QCheckBox::toggled,this,[this]{identity_->setChecked(false);});
@@ -185,6 +196,15 @@ void WorkspaceBoardPanel::review()
     p.rowDirection=rowDirection_->currentIndex()==1?1:rowDirection_->currentIndex()==2?-1:0;
     p.reverseColumns=reverseColumns_->isChecked(); p.reverseRows=reverseRows_->isChecked(); p.target.squareSizeMeters=spacing_->value();
     p.note=note_->text().toStdString();
+    auto measurement=[](QLineEdit* field)->std::optional<double> {
+        if (field->text().trimmed().isEmpty()) return {};
+        bool ok=false; const double value=field->text().toDouble(&ok);
+        return ok ? value : std::numeric_limits<double>::quiet_NaN();
+    };
+    p.surfaceElevationMeters=measurement(surface_);
+    p.boardThicknessMeters=measurement(boardThickness_);
+    p.backingThicknessMeters=measurement(backingThickness_);
+    p.elevationMethod=elevationMethod_->text().toStdString();
     if (relative_->isChecked()) { p.relativeReferenceId=relativeId_; p.measuredOffset=p.anchor; }
     controller_.reviewBoardPlacement(std::move(p));
 }
@@ -202,6 +222,7 @@ void WorkspaceBoardPanel::refresh()
         const QSignalBlocker a(x_),b(y_),c(angle_),d(anchor_),e(rowDirection_),f(reverseColumns_),g(reverseRows_),h(relative_),j(note_);
         x_->setValue(0); y_->setValue(0); angle_->setValue(0); anchor_->setValue(0); rowDirection_->setCurrentIndex(0);
         reverseColumns_->setChecked(false); reverseRows_->setChecked(false); relative_->setChecked(false); note_->clear();
+        surface_->clear(); boardThickness_->clear(); backingThickness_->clear(); elevationMethod_->clear();
     }
     { const QSignalBlocker b(identity_); identity_->setChecked(false); } import_->setEnabled(false);
     const QSignalBlocker block(points_); points_->setRowCount(0);

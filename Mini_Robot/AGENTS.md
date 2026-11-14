@@ -28,8 +28,11 @@ artifact is under `build/<preset>/Mini_Robot/src/`; a standalone build's is unde
 Read the parent [repository instructions](../AGENTS.md), including the optional
 Graphify policy. The [Graphify guide](docs/development/graphify.md) documents the
 root-level wrapper, freshness, and recovery. From this directory use
-`python3 ../tools/graphify/project_graph.py status`. Useful exploration targets
-include ICameraSource, IRobotTransport, RobotManager, WorldModel, and their tests;
+`python3 ../tools/graphify/project_graph.py status`. Discover symbols with
+`find 'Symbol'`; use the returned ID with `explain`,
+`affected` or `path`. Run `audit` after graph tooling changes. The root instructions
+define the workflow and fallback; generated graphs are local to each worktree.
+Useful targets include ICameraSource, IRobotTransport, RobotManager, WorldModel, and their tests;
 ambiguous class/constructor names need full node IDs. Check actual CMake target
 ownership, interfaces, thread/lifetime contracts, and test bodies before editing.
 Qt signal/slot paths and conditional builds are not completely modeled. No graph
