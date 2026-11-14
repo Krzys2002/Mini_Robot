@@ -20,6 +20,11 @@ std::string exportWorkspaceDiagnostics(const WorkspaceDiagnostics& d, const QStr
     try {
         QJsonObject root{
             {"schema", "mini-robot-workspace-diagnostics-v1"},
+            {"diagnosticPlane", QString::fromStdString(d.diagnosticPlane)},
+            {"worldFrameId", QString::fromStdString(d.profile.frameId)},
+            {"calibrationRevision", QString::fromStdString(serializeWorkspaceProfile(d.profile))},
+            {"observedPerAxisToleranceMeters", WorkspaceObservedAxisToleranceMeters},
+            {"toleranceMeaning", "Observed signed X/Y components only; interpolation, radial radii and conditional 95% coverage do not certify maximum robot error"},
             {"profileCanonical", QString::fromStdString(serializeWorkspaceProfile(d.profile))},
             {"acquisitionCanonical",
              d.acquisition ? QJsonValue{QString::fromStdString(serializeWorkspaceAcquisition(*d.acquisition))}
