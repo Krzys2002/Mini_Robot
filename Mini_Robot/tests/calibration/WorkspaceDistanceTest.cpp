@@ -27,6 +27,9 @@ TEST(WorkspaceDistanceTest, KnownPlanarLengthsOrientationsAndUnavailableEvidence
         ASSERT_TRUE(m.result) << m.error;
         EXPECT_NEAR(m.result->distanceMeters, std::hypot(b.world.x.value - 0.2, b.world.y.value - 0.1),
                     1e-15);
+        EXPECT_EQ(m.result->diagnosticPlane,"tabletop z=0");
+        EXPECT_EQ(m.result->frameId,d->profile.frameId);
+        EXPECT_FALSE(m.result->calibrationRevision.empty());
         EXPECT_FALSE(m.result->plusMinusMeters);
         EXPECT_FALSE(m.result->uncertaintyUnavailable.empty());
     }

@@ -1,4 +1,5 @@
 #include "calibration/WorkspaceDistance.hpp"
+#include "calibration/WorkspaceProfile.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -238,6 +239,8 @@ WorkspaceDistanceOutcome measureWorkspaceDistance(
         if (!workspaceDistanceDiskSupported(d, endpoint.world, 0))
             return {{}, "Endpoint centre is outside supported geometry or has an invalid mapping."};
     WorkspaceDistanceResult result;
+    result.frameId = d.profile.frameId;
+    result.calibrationRevision = serializeWorkspaceProfile(d.profile);
     result.distanceMeters = std::hypot(endpoints[1].world.x.value - endpoints[0].world.x.value,
                                        endpoints[1].world.y.value - endpoints[0].world.y.value);
     if (!std::isfinite(result.distanceMeters))

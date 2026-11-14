@@ -266,6 +266,8 @@ TEST(WorkspaceDistanceUiTest, DialogPicksEditsSwitchesViewsAndClearsWithExplicit
     auto* value = dialog.findChild<QLabel*>("distanceValue");
     ASSERT_NE(value, nullptr);
     EXPECT_TRUE(value->text().contains("33.541"));
+    EXPECT_TRUE(value->text().contains("Tabletop z=0"));
+    EXPECT_TRUE(dialog.findChild<QLabel*>("distanceIdentity")->text().contains("Calibration revision SHA-256"));
     auto* uncertainty = dialog.findChild<QLabel*>("distanceUncertainty");
     EXPECT_TRUE(uncertainty->text().contains("unavailable"));
     for (int i = 0; i < 2; ++i) {
