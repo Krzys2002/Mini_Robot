@@ -119,6 +119,10 @@ TEST(WorkspaceDiagnosticsUiTest, ExportRetainsSamplesIdentityEvidenceAndNullMask
     ASSERT_TRUE(file.open(QIODevice::ReadOnly));
     auto object = QJsonDocument::fromJson(file.readAll()).object();
     EXPECT_EQ(object["schema"].toString(), "mini-robot-workspace-diagnostics-v1");
+    EXPECT_EQ(object["diagnosticPlane"].toString(), "tabletop z=0");
+    EXPECT_EQ(object["worldFrameId"].toString().toStdString(), a->profile.frameId);
+    EXPECT_EQ(object["calibrationRevision"], object["profileCanonical"]);
+    EXPECT_DOUBLE_EQ(object["observedPerAxisToleranceMeters"].toDouble(),0.005);
     EXPECT_EQ(object["samples"].toArray().size(), 35);
     EXPECT_EQ(object["observations"].toArray().size(), 13);
     EXPECT_TRUE(object["samples"].toArray()[0].toObject()["predictionRadiusMeters"].isNull());
@@ -146,8 +150,15 @@ TEST(WorkspaceDiagnosticsUiTest, EvidenceControlsAreExplicitAndResetOnCalibratio
     QApplication::processEvents();
     auto* table = dialog.findChild<QTableView*>("surveyReferences");
     ASSERT_NE(table, nullptr);
+    EXPECT_TRUE(dialog.findChild<QLabel*>("mapIdentity")->text().contains("Tabletop z=0"));
+    EXPECT_TRUE(dialog.findChild<QLabel*>("mapIdentity")->text().contains("Calibration revision SHA-256"));
     auto* model = table->model();
     EXPECT_EQ(model->rowCount(), 13);
+    const auto residual=model->data(model->index(4,4)).toString();
+    EXPECT_TRUE(residual.contains("X "));
+    EXPECT_TRUE(residual.contains("Y "));
+    EXPECT_TRUE(residual.contains("observed only"));
+    EXPECT_TRUE(residual.contains("±5 mm"));
     EXPECT_FALSE(model->setData(model->index(0, 0), Qt::Checked, Qt::CheckStateRole));
     for (int row = 4; row < 13; ++row)
         ASSERT_TRUE(model->setData(model->index(row, 0), Qt::Checked, Qt::CheckStateRole));

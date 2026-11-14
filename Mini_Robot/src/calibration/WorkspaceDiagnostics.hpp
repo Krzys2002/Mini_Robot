@@ -12,6 +12,7 @@ inline constexpr double MinimumWorkspaceSurveyAreaFraction = 1e-4;
 inline constexpr double MaximumWorkspaceRegressionCondition = 1e8;
 inline constexpr double MinimumWorkspaceRelativeDenominatorMeters = 1e-9;
 inline constexpr double WorkspaceMapCentimetersPerMeter = 100;
+inline constexpr double WorkspaceObservedAxisToleranceMeters = 0.005;
 inline constexpr double WorkspacePointCoverage = 0.95;
 inline constexpr double WorkspaceEndpointCoverage = 0.975; // Two endpoints: union bound >=95%.
 inline constexpr double MaximumWorkspaceSurveyStandardUncertaintyMeters = 1000;
@@ -63,6 +64,7 @@ struct WorkspaceDiagnostics {
     std::optional<WorkspacePredictionModel> prediction;
     std::string uncertaintyUnavailable;
     std::vector<WorkspaceMapSample> samples; // Row-major, world +Y up (first row at minimum Y).
+    std::string diagnosticPlane{"tabletop z=0"}; // Never axle/body uncertainty without propagation and new evidence.
 };
 struct WorkspaceDiagnosticsOutcome {
     std::shared_ptr<const WorkspaceDiagnostics> result;

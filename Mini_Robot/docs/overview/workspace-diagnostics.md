@@ -187,3 +187,18 @@ acceptance remains separate from synthetic tests and from the broader
 [#63 benchmark](https://github.com/Krzys2002/Mini_Robot/issues/63) and
 [#224 metric pose acceptance](https://github.com/Krzys2002/Mini_Robot/issues/224).
 No physical accuracy or general 95% coverage is established by this implementation.
+
+### Plane identity and observed axis errors
+
+Maps and distances describe the active tabletop z=0 plane. Exports retain the
+world-frame identity and exact canonical calibration revision. Signed observed
+X/Y residuals are compared separately against ±0.005 m. Radial residuals,
+interpolation, unsupported cells and conditional 95% prediction coverage have
+different meanings: none establishes maximum robot-position error. A two-point
+distance interval does not certify independently-per-X/Y ±5 mm localization.
+Tabletop uncertainty cannot be reused as axle/body uncertainty without propagation
+and new height/extrinsic, mounting/heading, survey and temporal evidence.
+
+Plane/mount transforms belong to #270, reference/survey identity to #271 and timing
+to #272. These diagnostics are supporting work, not prerequisites for those issues.
+Physical model acceptance (#265) remains NOT RUN; body localization remains #224/#63.

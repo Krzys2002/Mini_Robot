@@ -1,3 +1,5 @@
+#include "calibration/WorkspaceProfile.hpp"
+#include <QCryptographicHash>
 #include "ui/WorkspaceDiagnosticsDialog.hpp"
 #include <QCheckBox>
 #include <QComboBox>
@@ -236,9 +238,12 @@ QVariant WorkspaceSurveyModel::data(const QModelIndex& index, int role) const
         if (!acquisition_->profile.homography)
             return {};
         auto p = projectWorkspacePoint(*acquisition_->profile.homography, r.point.image);
-        return p ? QVariant{1000 * std::hypot(p->x.value - r.point.world.x.value,
-                                              p->y.value - r.point.world.y.value)}
-                 : QVariant{};
+        if (!p) return {};
+        const double dx = p->x.value-r.point.world.x.value, dy = p->y.value-r.point.world.y.value;
+        return QStringLiteral("radial %1 mm; X %2 mm (%3); Y %4 mm (%5) · observed only")
+            .arg(1000*std::hypot(dx,dy)).arg(1000*dx)
+            .arg(std::abs(dx)<=WorkspaceObservedAxisToleranceMeters ? "within ±5 mm" : "exceeds ±5 mm")
+            .arg(1000*dy).arg(std::abs(dy)<=WorkspaceObservedAxisToleranceMeters ? "within ±5 mm" : "exceeds ±5 mm");
     }
     case 5: {
         if (!acquisition_->profile.homography)
@@ -409,7 +414,7 @@ void WorkspaceDiagnosticsDialog::refresh()
     export_->setEnabled(bool(controller_.snapshot()) && !controller_.busy());
     if (const auto& p = controller_.profile())
         identity_->setText(
-            QStringLiteral("Active workspace %1 · frame %2 · acquisition %3\nCamera %4 · %5×%6 native-K "
+            QStringLiteral("Tabletop z=0 · active workspace %1 · frame %2 · acquisition %3\nCamera %4 · %5×%6 native-K "
                            "undistorted pixels · grid %7×%8 · known fit coverage: %9")
                 .arg(QString::fromStdString(p->workspaceId))
                 .arg(QString::fromStdString(p->frameId))
@@ -420,6 +425,11 @@ void WorkspaceDiagnosticsDialog::refresh()
                 .arg(controller_.snapshot() ? controller_.snapshot()->columns : DefaultWorkspaceMapColumns)
                 .arg(controller_.snapshot() ? controller_.snapshot()->rows : DefaultWorkspaceMapRows)
                 .arg(controller_.acquisition() ? "yes" : "unavailable (geometric scale only)"));
+    if (const auto& profile = controller_.profile()) {
+        const auto canonical=QByteArray::fromStdString(serializeWorkspaceProfile(*profile));
+        identity_->setText(identity_->text()+"\nCalibration revision SHA-256: "+
+            QString::fromLatin1(QCryptographicHash::hash(canonical,QCryptographicHash::Sha256).toHex()));
+    }
     else
         identity_->setText("No active compatible workspace calibration. Maps and evidence cleared.");
 }
