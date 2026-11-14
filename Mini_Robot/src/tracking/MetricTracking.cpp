@@ -2,7 +2,11 @@
 namespace micro_robot {
 void ingestMetricBatch(RobotTracker& tracker, const MetricObservationBatchPtr& batch, Timestamp now)
 {
-    if (!batch || batch->status != MetricObservationStatus::Valid) {
+    if (!batch) {
+        tracker.clearMeasurements(now);
+        return;
+    }
+    if (batch->status != MetricObservationStatus::Valid) {
         tracker.invalidate(now);
         return;
     }
