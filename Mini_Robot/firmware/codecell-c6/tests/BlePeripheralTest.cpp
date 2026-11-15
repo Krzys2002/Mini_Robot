@@ -162,7 +162,7 @@ struct Rig {
     std::optional<RuntimeView> view;
     std::optional<PeripheralController> ble;
 
-    Rig()
+    explicit Rig(bool startAdvertising = true)
     {
         const auto config = provisioning::ValidatedRobotConfig::validated(provisioning::fakes::validConfig());
         EXPECT_TRUE(config);
@@ -173,7 +173,7 @@ struct Rig {
         EXPECT_EQ(runtime->start(), runtime::StartResult::Running);
         view.emplace(*runtime);
         ble.emplace(runtime->commands(), *view, commandLimits(provisioning::robotInfoValues(*config)), link, clock);
-        ble->start();
+        if (startAdvertising) ble->start();
     }
     void subscribe(ConnectionHandle h, Characteristic c, bool on = true) { ble->onSubscriptionChanged(h, c, on); }
     void makeReady(ConnectionHandle h = kOwner)
@@ -623,6 +623,90 @@ TEST(BlePeripheralTest, MtuExchangedBeforeTheConnectCallbackIsStillReported)
     rig.link.stackMtu = 0;  // Unknown to the stack: the default until an exchange is reported.
     rig.ble->onConnected(kOwner);
     EXPECT_EQ(rig.ble->status().mtu, kDefaultAttMtu);
+}
+
+// ---- Callback orderings around the connect callback (review findings) -------------------
+
+TEST(BlePeripheralTest, CccdsEnabledBeforeTheConnectCallbackMakeTheSessionReady)
+{
+    // NimBLE installs the connection before delivering the connect callback, so the central's
+    // CCCD writes can be reported first (as the MTU exchange is on the bench).
+    Rig rig;
+    rig.subscribe(kOwner, Characteristic::CommandResult);
+    rig.subscribe(kOwner, Characteristic::Telemetry);
+    EXPECT_EQ(rig.ble->state(), LinkState::Advertising);
+    EXPECT_FALSE(rig.status().sessionReady);
+    rig.ble->onConnected(kOwner);
+    EXPECT_EQ(rig.ble->state(), LinkState::Ready);
+    EXPECT_TRUE(rig.status().sessionReady);
+    EXPECT_TRUE(rig.ble->status().commandResultNotify && rig.ble->status().telemetryNotify);
+    rig.command(kOwner, headerFrame(MessageType::Stop, 0));
+    ASSERT_EQ(rig.link.notifications.size(), 1U);
+    EXPECT_EQ(rig.last().to, kOwner);
+    EXPECT_EQ(rig.last().code, ResultCode::Accepted);
+    EXPECT_EQ(rig.bleCount(BleCounter::EarlySubscriptions), 2U);
+    EXPECT_EQ(rig.bleCount(BleCounter::SessionsReady), 1U);
+}
+
+TEST(BlePeripheralTest, EarlyCccdStateIsTheLatestAndOnlyForItsOwnConnection)
+{
+    {
+        Rig rig;  // Enabled, then disabled again before the connect callback: not ready.
+        rig.subscribe(kOwner, Characteristic::CommandResult);
+        rig.subscribe(kOwner, Characteristic::Telemetry);
+        rig.subscribe(kOwner, Characteristic::CommandResult, false);
+        rig.ble->onConnected(kOwner);
+        EXPECT_EQ(rig.ble->state(), LinkState::Connected);
+        EXPECT_FALSE(rig.status().sessionReady);
+        rig.subscribe(kOwner, Characteristic::CommandResult);
+        EXPECT_EQ(rig.ble->state(), LinkState::Ready);
+    }
+    {
+        Rig rig;  // Another handle's early CCCDs never make the owner ready.
+        rig.subscribe(kSecond, Characteristic::CommandResult);
+        rig.subscribe(kSecond, Characteristic::Telemetry);
+        rig.ble->onConnected(kOwner);
+        EXPECT_EQ(rig.ble->state(), LinkState::Connected);
+        EXPECT_FALSE(rig.status().sessionReady);
+        rig.ble->onConnected(kSecond);  // Refused: its held CCCDs are dropped with it.
+        EXPECT_EQ(rig.link.terminated, std::vector<ConnectionHandle>{kSecond});
+        rig.ble->onDisconnected(kOwner, kRemoteUserTerminated);
+        rig.ble->onConnected(kSecond);
+        EXPECT_EQ(rig.ble->state(), LinkState::Connected);
+        EXPECT_FALSE(rig.status().sessionReady);
+    }
+}
+
+TEST(BlePeripheralTest, EarlyCccdsOfAConnectionThatClosedAreForgotten)
+{
+    Rig rig;
+    rig.subscribe(kOwner, Characteristic::CommandResult);
+    rig.subscribe(kOwner, Characteristic::Telemetry);
+    rig.ble->onDisconnected(kOwner, kRemoteUserTerminated);  // Closed before its connect callback.
+    rig.ble->onConnected(kOwner);  // A new connection on the reused handle.
+    EXPECT_EQ(rig.ble->state(), LinkState::Connected);
+    EXPECT_FALSE(rig.status().sessionReady);
+    rig.command(kOwner, headerFrame(MessageType::Stop, 0));
+    EXPECT_TRUE(rig.link.notifications.empty());
+}
+
+TEST(BlePeripheralTest, ConnectionDuringTheInitialAdvertisingStartIsNotOverwritten)
+{
+    // start() runs in setup() (loopTask); the higher-priority host task can process a
+    // connection and both CCCDs before startAdvertising() returns.
+    for (const bool failAdvertising : {false, true}) {
+        Rig rig{false};
+        rig.link.failAdvertising = failAdvertising;
+        rig.link.whileStartingAdvertising = [&rig] { rig.makeReady(); };
+        rig.ble->start();
+        rig.link.whileStartingAdvertising = nullptr;
+        EXPECT_EQ(rig.ble->state(), LinkState::Ready) << failAdvertising;
+        EXPECT_TRUE(rig.status().sessionReady) << failAdvertising;
+        rig.command(kOwner, headerFrame(MessageType::Stop, 0));
+        EXPECT_EQ(rig.link.notifications.size(), 1U) << failAdvertising;
+        rig.ble->start();  // Still a no-op once started.
+        EXPECT_EQ(rig.link.advertisingStarts, 1) << failAdvertising;
+    }
 }
 
 TEST(BlePeripheralTest, RefusedLinkParameterRequestIsReportedAndChangesNothingElse)

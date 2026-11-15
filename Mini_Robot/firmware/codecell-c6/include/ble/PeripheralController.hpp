@@ -26,11 +26,18 @@
 //   silently while the session continues.
 // - Link parameters are requested once per connection as hints (ble-gatt.md); the request
 //   outcome and the negotiated values are reported, and nothing depends on them.
+// - NimBLE installs a connection before it delivers the connect callback, so the central's
+//   ATT traffic (MTU exchange, CCCD writes) can be reported first. CCCD changes for a
+//   connection that is not the owner are held per handle and adopted if that handle becomes
+//   the owner; they are dropped when that handle disconnects or is refused. The stack reports
+//   subscriptions only for connections it holds, so a held entry is never from a closed link.
 //
-// Threading: every on*() and start() runs in the single BLE host callback context
-// (nimble_host, priority 21) and never blocks, allocates or logs. status() and diagnostics()
-// read atomics and may be called from any task; fields of one status() may come from
-// different moments, so it is diagnostic only.
+// Threading: every on*() runs in the single BLE host callback context (nimble_host,
+// priority 21) and never blocks, allocates or logs. start() runs once from setup() in
+// loopTask, after the host is running: it touches only the link and atomics, and publishes
+// Advertising before advertising starts, so a connection the host processes meanwhile is
+// never overwritten. status() and diagnostics() read atomics and may be called from any task;
+// fields of one status() may come from different moments, so it is diagnostic only.
 #include "FirmwareClock.hpp"
 #include "ble/GattProfile.hpp"
 #include "ble/SessionPolicy.hpp"
@@ -93,6 +100,7 @@ enum class BleCounter : std::uint8_t {
     UnansweredCommandWrites,  // Command writes while not ready: processed, no result (v1).
     EmergencyStopWrites,      // Every write to the Emergency Stop characteristic (each latched).
     ForeignEvents,            // Writes or subscriptions from a connection that does not own the link.
+    EarlySubscriptions,       // CCCD changes held because their connect callback had not arrived.
     AdvertisingStarts,
     AdvertisingFailures,      // Advertising could not be started or stopped when required.
     TerminateFailures,
@@ -132,6 +140,7 @@ public:
     PeripheralController& operator=(const PeripheralController&) = delete;
 
     // Once the GATT server is registered: start advertising. Later calls do nothing.
+    // Called from setup(), not the host context (see Threading above).
     void start() noexcept
     {
         if (state() != LinkState::Stopped) return;
@@ -143,6 +152,7 @@ public:
         if (owner_) {
             if (*owner_ == connection) return;  // Repeated event for the owner.
             count(BleCounter::RejectedCentrals);
+            forgetEarly(connection);
             if (!link_.terminate(connection)) count(BleCounter::TerminateFailures);
             return;
         }
@@ -150,8 +160,10 @@ public:
         // Legacy connectable advertising ends when a connection is created; stopping it
         // explicitly keeps the robot invisible to a second central whatever the stack does.
         if (!link_.stopAdvertising()) count(BleCounter::AdvertisingFailures);
-        resultNotify_ = false;
-        telemetryNotify_ = false;
+        // CCCDs the central enabled before this callback (see the rules above).
+        const auto early = takeEarly(connection);
+        resultNotify_ = early.resultNotify;
+        telemetryNotify_ = early.telemetryNotify;
         lastWrite_.reset();
         publishSubscriptions();
         // An MTU exchange can be reported before this callback (it is then not the owner's
@@ -165,11 +177,15 @@ public:
         linkRequest_.store(requested ? LinkRequestOutcome::Requested : LinkRequestOutcome::Refused,
                            std::memory_order_relaxed);
         if (!requested) count(BleCounter::LinkRequestsRefused);
+        updateReadiness();  // Both CCCDs may already be enabled.
     }
 
     void onDisconnected(ConnectionHandle connection, int reason) noexcept
     {
-        if (!owns(connection)) return;  // A refused newcomer, or already processed.
+        if (!owns(connection)) {  // A refused newcomer, one never reported as connected, or processed.
+            forgetEarly(connection);
+            return;
+        }
         endSession(runtime::SessionEndReason::Disconnected);
         disconnectReason_.store(reason, std::memory_order_relaxed);
         hasDisconnected_.store(true, std::memory_order_relaxed);
@@ -189,6 +205,7 @@ public:
     {
         if (!owns(connection)) {
             count(BleCounter::ForeignEvents);
+            holdEarly(connection, characteristic, notifications);
             return;
         }
         if (characteristic == Characteristic::CommandResult) resultNotify_ = notifications;
@@ -326,15 +343,67 @@ private:
         if (wasReady) count(BleCounter::SessionsEnded);
     }
 
+    // Advertising is published before it starts: once it runs, the host task can process a
+    // connection before startAdvertising() returns to start() in loopTask, and that Connected
+    // must stand. A failure replaces Advertising only if nothing changed it meanwhile.
     void advertise() noexcept
     {
+        setState(LinkState::Advertising);
         if (link_.startAdvertising()) {
             count(BleCounter::AdvertisingStarts);
-            setState(LinkState::Advertising);
             return;
         }
         count(BleCounter::AdvertisingFailures);
-        setState(LinkState::AdvertisingFailed);
+        auto expected = LinkState::Advertising;
+        state_.compare_exchange_strong(expected, LinkState::AdvertisingFailed, std::memory_order_acq_rel);
+    }
+
+    // ---- CCCD changes reported before the connect callback ----
+    struct EarlySubscription {
+        std::optional<ConnectionHandle> connection{};
+        bool resultNotify{false};
+        bool telemetryNotify{false};
+    };
+
+    void holdEarly(ConnectionHandle connection, Characteristic characteristic, bool notifications) noexcept
+    {
+        if (characteristic != Characteristic::CommandResult && characteristic != Characteristic::Telemetry) return;
+        EarlySubscription* entry = findEarly(connection);
+        if (!entry) {
+            for (auto& candidate : early_)
+                if (!candidate.connection) {
+                    entry = &candidate;
+                    entry->connection = connection;
+                    break;
+                }
+        }
+        // Full: dropped. That connection then stays unready until it subscribes again.
+        if (!entry) return;
+        if (characteristic == Characteristic::CommandResult) entry->resultNotify = notifications;
+        else entry->telemetryNotify = notifications;
+        count(BleCounter::EarlySubscriptions);
+    }
+
+    [[nodiscard]] EarlySubscription takeEarly(ConnectionHandle connection) noexcept
+    {
+        EarlySubscription out{};
+        if (auto* entry = findEarly(connection)) {
+            out = *entry;
+            *entry = {};
+        }
+        return out;
+    }
+
+    void forgetEarly(ConnectionHandle connection) noexcept
+    {
+        if (auto* entry = findEarly(connection)) *entry = {};
+    }
+
+    [[nodiscard]] EarlySubscription* findEarly(ConnectionHandle connection) noexcept
+    {
+        for (auto& entry : early_)
+            if (entry.connection == connection) return &entry;
+        return nullptr;
     }
 
     void publishSubscriptions() noexcept
@@ -355,6 +424,10 @@ private:
     protocol::v1::CommandSession session_;
 
     // Callback context only.
+    // One entry per connection the stack can hold beside the owner (NimBLE's limit is 3 in the
+    // pinned sdkconfig), plus margin.
+    static constexpr std::size_t kEarlySubscriptionSlots = 4;
+    std::array<EarlySubscription, kEarlySubscriptionSlots> early_{};
     std::optional<ConnectionHandle> owner_{};
     bool resultNotify_{false};
     bool telemetryNotify_{false};
@@ -411,6 +484,7 @@ private:
     case BleCounter::UnansweredCommandWrites: return "unanswered_writes";
     case BleCounter::EmergencyStopWrites: return "estop_writes";
     case BleCounter::ForeignEvents: return "foreign_events";
+    case BleCounter::EarlySubscriptions: return "early_subscriptions";
     case BleCounter::AdvertisingStarts: return "advertising_starts";
     case BleCounter::AdvertisingFailures: return "advertising_failures";
     case BleCounter::TerminateFailures: return "terminate_failures";

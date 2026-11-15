@@ -166,7 +166,7 @@ void reportBle(const ble::LinkStatus& link)
     using C = ble::BleCounter;
     Serial.printf("BLE state=%s cccd_result=%d cccd_telemetry=%d mtu=%u link_request=%s negotiated=%s "
                   "last_disconnect=%s connections=%lu rejected_centrals=%lu sessions=%lu results=%lu "
-                  "result_failures=%lu unanswered=%lu estop_writes=%lu foreign=%lu adv_failures=%lu "
+                  "result_failures=%lu unanswered=%lu estop_writes=%lu foreign=%lu early_cccd=%lu adv_failures=%lu "
                   "terminate_failures=%lu\n",
                   ble::toString(link.state), link.commandResultNotify ? 1 : 0, link.telemetryNotify ? 1 : 0,
                   static_cast<unsigned>(link.mtu), ble::toString(link.linkRequest), negotiated, disconnect,
@@ -175,6 +175,7 @@ void reportBle(const ble::LinkStatus& link)
                   static_cast<unsigned long>(c[C::ResultNotifyFailures]),
                   static_cast<unsigned long>(c[C::UnansweredCommandWrites]),
                   static_cast<unsigned long>(c[C::EmergencyStopWrites]), static_cast<unsigned long>(c[C::ForeignEvents]),
+                  static_cast<unsigned long>(c[C::EarlySubscriptions]),
                   static_cast<unsigned long>(c[C::AdvertisingFailures]),
                   static_cast<unsigned long>(c[C::TerminateFailures]));
 }

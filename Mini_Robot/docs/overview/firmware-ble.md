@@ -163,6 +163,10 @@ The boot line states both values: `BLE ... accepted_centrals=1 stack_max_connect
 - Every controller callback runs in `nimble_host` (priority 21, below the supervisor). It
   never logs, blocks or allocates. A host test counts zero allocations across 1,000 complete
   lifecycle cycles.
+- The initial `start()` runs from `setup()` in `loopTask`, after the host is running. It
+  publishes `advertising` before advertising starts, so a connection that the host task
+  processes before `startAdvertising()` returns keeps its `connected`/`ready` state; a
+  failure becomes `advertising_failed` only if nothing changed the state meanwhile.
 - All BLE heap is allocated in `setup()`: NimBLE initialization, the GATT database and the
   two written characteristics. The controller lives in static storage.
 - `loopTask` prints a `BLE` line on a link change (at most once per second) and with every
@@ -171,6 +175,11 @@ The boot line states both values: `BLE ... accepted_centrals=1 stack_max_connect
   partition) and uses 29,472 B of static RAM. That is NimBLE.
 - The ATT MTU is read from the stack at connect, because NimBLE can report the central's
   MTU exchange before the connect callback (seen on the bench in most connections).
+- For the same reason a CCCD write can be reported before the connect callback. The
+  controller holds such changes per connection handle (`early_cccd` in the `BLE` line, also
+  counted in `foreign`) and adopts them when that handle becomes the owner, so a central that
+  subscribed early is ready at connect. They are dropped when the handle disconnects or is
+  refused as a second central. NimBLE reports subscriptions only for connections it holds.
 
 ## Serial lines
 
