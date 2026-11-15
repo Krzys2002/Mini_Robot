@@ -101,8 +101,11 @@ Every successful build writes
 `.pio/build/esp32-c6-devkitc-1/firmware-provenance.json`: Core, platform and
 package versions with sources, resolved libraries with their Git commit or
 registry source, compiler version, C++ standard flag, SHA-256 of `firmware.bin`,
-source commit and whether tracked firmware files were modified, and host
-OS/architecture. It contains no user name or local path. Keep it, together with
+source commit, whether the image may differ from it (`source.modified`: a tracked
+project file changed, or an untracked, non-ignored file exists under a build input such
+as `src/`, `include/`, `scripts/` or `platformio.ini`; `source.untracked_inputs` says
+which), and host OS/architecture. Untracked files outside the build inputs, such as
+bench logs in the project directory, are not counted. It contains no user name or local path. Keep it, together with
 `pio pkg list` output and the build log, with every image used for a test.
 Release pins are source provenance, not a claim of bit-identical binaries
 across hosts.

@@ -26,7 +26,10 @@ REQUIREMENTS = PROJECT_DIR / "requirements.txt"
 INSTALL_HINT = ("python3 -m pip install -r Mini_Robot/firmware/codecell-c6/requirements.txt "
                 "(see Mini_Robot/firmware/codecell-c6/README.md, 'Clean installation')")
 RELEASE_URL = re.compile(r"/releases/download/v?(\d+)\.(\d+)\.(\d+)/")
-PROVENANCE_SCHEMA = 1
+PROVENANCE_SCHEMA = 2  # 2: `source.untracked_inputs`; `modified` includes untracked inputs.
+# Project-relative paths whose contents can change the image: PlatformIO configuration,
+# the pins, sources, headers, libraries, board definitions and the build scripts.
+BUILD_INPUTS = ("platformio.ini", "requirements.txt", "src", "include", "lib", "boards", "scripts")
 
 
 def fail(message):
@@ -80,12 +83,24 @@ def command_output(*command, **kwargs):
 
 
 def source_revision():
+    """Commit plus local changes that can reach the image.
+
+    `modified` is true when tracked project files differ from the commit or when an
+    untracked, non-ignored file sits under a build input (an extra `src/*.cpp` is
+    compiled without being committed). `untracked_inputs` says which of the two it
+    was. Untracked files elsewhere in the project, such as bench logs, are not inputs.
+    """
     commit = command_output("git", "-C", str(PROJECT_DIR), "rev-parse", "HEAD")
     if commit is None:
-        return {"commit": "unknown", "modified": None}
-    status = command_output("git", "-C", str(PROJECT_DIR), "status", "--porcelain",
-                            "--untracked-files=no", "--", ".")
-    return {"commit": commit, "modified": bool(status)}
+        return {"commit": "unknown", "modified": None, "untracked_inputs": None}
+    tracked = command_output("git", "-C", str(PROJECT_DIR), "status", "--porcelain",
+                             "--untracked-files=no", "--", ".")
+    untracked = command_output("git", "-C", str(PROJECT_DIR), "ls-files", "--others",
+                               "--exclude-standard", "--", *BUILD_INPUTS)
+    if tracked is None or untracked is None:
+        return {"commit": commit, "modified": None, "untracked_inputs": None}
+    return {"commit": commit, "modified": bool(tracked) or bool(untracked),
+            "untracked_inputs": bool(untracked)}
 
 
 def libraries():
