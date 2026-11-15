@@ -9,8 +9,11 @@ reconnects, and cross-checks the robot's serial status lines. Every line exchang
 written with host monotonic and wall-clock stamps to the output log.
 
 Motion: the only accepted Velocity it sends is 0 mm/s, 0 mrad/s, so the commanded drive
-output stays at zero. Use it USB-only with the battery and motors disconnected; it is
-not a powered or HIL test (#238/#166).
+output stays at zero. The shared vector velocity_seq258 (150 mm/s, -500 mrad/s, valid for
+250 ms) is nonzero, so it is sent only when the robot's Robot Info reports a validity
+ceiling below 250 ms, which guarantees InvalidValidity; otherwise it is skipped and the
+check fails. --max-validity-ms must therefore be below 250. Use it USB-only with the
+battery and motors disconnected; it is not a powered or HIL test (#238/#166).
 
 Example (from Mini_Robot/firmware/codecell-c6):
   scripts/gatt_conformance_host.py --port /dev/serial/by-id/usb-Espressif_* --robot-id 7 \
@@ -42,6 +45,7 @@ ACCEPTED, STALE, INVALID_VALIDITY, MALFORMED, UNSUPPORTED = 0x00, 0x04, 0x05, 0x
 IDLE, MOVING, LATCHED = 0, 1, 2
 # Shared vectors (docs/protocol/fixtures/v1-frames.txt).
 VECTOR_VELOCITY_258 = bytes.fromhex("0102020196000CFEFA00")
+VECTOR_VELOCITY_258_VALID_FOR_MS = 250  # Nonzero motion: sent only below this ceiling.
 VECTOR_STOP_259 = bytes.fromhex("01010301")
 VECTOR_ESTOP_260 = bytes.fromhex("01030401")
 DBUS_TIMEOUT_S = 30
@@ -287,6 +291,8 @@ def run(args, log, watch, checks):
                  info.hex())
     checks.check("C3 Robot Info robotId", ok and fields[3] == args.robot_id)
     checks.check("C3 Robot Info validity ceiling", ok and fields[9] == args.max_validity_ms)
+    # The robot's own ceiling decides whether the nonzero shared vector is certain to be refused.
+    vector_258_refused = ok and fields[9] < VECTOR_VELOCITY_258_VALID_FOR_MS
 
     results = []
     # Partial subscription: Command Result only. Velocity is ignored without a result.
@@ -315,15 +321,21 @@ def run(args, log, watch, checks):
                  and r["state"] == IDLE and r["seq"] == sequence, str(r))
     sequence += 1
 
-    r = exchange(central, results, COMMAND, VECTOR_VELOCITY_258)
-    expected = INVALID_VALIDITY if args.max_validity_ms < 250 else ACCEPTED
-    checks.check("C6 vector velocity_seq258", r is not None and r["cmd_seq"] == 258 and r["code"] == expected, str(r))
-    if expected == ACCEPTED:
-        central.write(COMMAND, VECTOR_STOP_259)  # Never leave a nonzero setpoint running.
+    if vector_258_refused:
+        r = exchange(central, results, COMMAND, VECTOR_VELOCITY_258)
+        checks.check("C6 vector velocity_seq258", r is not None and r["cmd_seq"] == 258
+                     and r["code"] == INVALID_VALIDITY, str(r))
+    else:
+        checks.check("C6 vector velocity_seq258 not sent: the robot's validity ceiling would accept "
+                     "its nonzero velocity", False, f"ceiling={fields[9] if ok else 'unknown'}")
     r = exchange(central, results, COMMAND, VECTOR_STOP_259)
-    checks.check("C6 vector stop_seq259", r is not None and r["cmd_seq"] == 259 and r["code"] == ACCEPTED, str(r))
-    r = exchange(central, results, COMMAND, VECTOR_VELOCITY_258)
-    checks.check("C6 older velocity is StaleSequence", r is not None and r["code"] == STALE, str(r))
+    stop_259 = r is not None and r["cmd_seq"] == 259 and r["code"] == ACCEPTED
+    checks.check("C6 vector stop_seq259", stop_259, str(r))
+    if vector_258_refused and stop_259:
+        r = exchange(central, results, COMMAND, VECTOR_VELOCITY_258)
+        checks.check("C6 older velocity is StaleSequence", r is not None and r["code"] == STALE, str(r))
+    else:
+        checks.check("C6 older velocity not sent: refusal is not guaranteed", False)
     r = exchange(central, results, ESTOP, VECTOR_ESTOP_260)
     checks.check("C6 vector estop_seq260 on Emergency Stop", r is not None and r["cmd_seq"] == 260
                  and r["cmd_type"] == EMERGENCY_STOP and r["code"] == ACCEPTED and r["state"] == LATCHED, str(r))
@@ -418,6 +430,9 @@ def main():
     parser.add_argument("--burst", type=int, default=50)
     parser.add_argument("--log", default="gatt-conformance.log")
     args = parser.parse_args()
+    if args.max_validity_ms >= VECTOR_VELOCITY_258_VALID_FOR_MS:
+        parser.error(f"--max-validity-ms must be below {VECTOR_VELOCITY_258_VALID_FOR_MS}: with a higher "
+                     "ceiling the robot would accept the nonzero shared vector velocity_seq258")
     log = Log(args.log)
     watch = SerialWatch(args.port, log)
     checks = Checks(log)
