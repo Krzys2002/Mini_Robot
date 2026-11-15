@@ -138,6 +138,58 @@ TEST(ActuatorRuntimeTest, ControlStallDuringTheStopRampFaultsAndDisables)
     EXPECT_EQ(rig.status().fault, FaultCode::ControlStalled);
 }
 
+// Review finding: a short-validity Velocity accepted just before every supervisor period
+// expires at each check. Expiry handling must not hide the heartbeat check, or a stalled
+// control task leaves the last duty applied indefinitely.
+TEST(ActuatorRuntimeTest, ControlStallIsEnforcedWhileShortCommandsKeepExpiring)
+{
+    constexpr milliseconds kShortValidity = 1ms;
+    Rig rig;
+    rig.accelerateFully();
+    const Instant lastControl = rig.clock.time;
+    while (!rig.motors.lastIsCoast() && rig.clock.time - lastControl < 1s) {
+        rig.clock.advance(Instant{timing::kSafetyCheckPeriod - kShortValidity});
+        ASSERT_EQ(rig.velocity(kFullForward, kShortValidity), CommandOutcome::Accepted);
+        rig.clock.advance(Instant{kShortValidity});
+        rig.runtime->safetyStep().step();  // Control is stalled; only the supervisor runs.
+    }
+    EXPECT_TRUE(rig.motors.lastIsCoast());
+    EXPECT_FALSE(rig.status().outputEnabled);
+    EXPECT_EQ(rig.status().fault, FaultCode::ControlStalled);
+    EXPECT_LE(rig.clock.time - lastControl, Instant{timing::kStalledControlToOutputOffBound});
+}
+
+// The same pattern with control running but a ramp that never reaches zero: the stop
+// enforcement must still fire although every check also sees an expiry.
+TEST(ActuatorRuntimeTest, StopRampEnforcementIsNotHiddenByRepeatedExpiry)
+{
+    constexpr milliseconds kShortValidity = 1ms;
+    FakeClock clock;
+    clock.time = 1s;
+    FakePlatform platform;
+    FakeDrive drive;
+    FakeConfiguration configuration;
+    FirmwareRuntime runtime{{clock, platform, drive, configuration, nullptr}};
+    ASSERT_EQ(runtime.start(), StartResult::Running);
+    drive.rampNeverEnds = true;
+    ASSERT_EQ(runtime.commands().velocity(kFullForward, kValid, clock.nowMicroseconds()), CommandOutcome::Accepted);
+    clock.advance(10ms);
+    runtime.controlStep().step();
+    ASSERT_TRUE(drive.enabled);
+    const Instant start = clock.time;
+    while (drive.enabled && clock.time - start < 1s) {
+        clock.advance(Instant{timing::kSafetyCheckPeriod - kShortValidity});
+        ASSERT_EQ(runtime.commands().velocity(kFullForward, kShortValidity, clock.nowMicroseconds()),
+                  CommandOutcome::Accepted);
+        clock.advance(Instant{kShortValidity});
+        runtime.safetyStep().step();
+        if ((clock.time / Instant{timing::kSafetyCheckPeriod}) % 2 == 0) runtime.controlStep().step();
+    }
+    EXPECT_FALSE(drive.enabled);
+    EXPECT_EQ(runtime.status().fault, FaultCode::StopRampOverrun);
+    EXPECT_LE(clock.time - start, Instant{timing::kStopEnforcementLimit} + Instant{timing::kSafetyCheckPeriod});
+}
+
 // Normal Stop and expiry follow the separate bounded deceleration contract (#156 B6):
 // the commanded output only shrinks and is zero, then disabled, within the budget.
 TEST(ActuatorRuntimeTest, StopAndExpiryRampToZeroWithinTheB6Budget)

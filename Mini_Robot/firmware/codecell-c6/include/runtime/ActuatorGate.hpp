@@ -146,10 +146,12 @@ public:
     bool supervise(Instant now, milliseconds controlStallLimit) noexcept
     {
         CriticalSectionGuard guard(section_);
-        if (safety_.expireIfDue(now)) {
+        // Expiry does not end the check: a short command accepted before every period would
+        // otherwise expire at each check and hide the ramp limit and the heartbeat below.
+        const bool expired = safety_.expireIfDue(now);
+        if (expired) {
             diagnostics_.count(Counter::CommandExpired);
             beginStopLocked(now);
-            return true;
         }
         if (stopping_ && now - stopDecision_ >= Instant{timing::kStopEnforcementLimit}) {
             faultLocked(FaultCode::StopRampOverrun);
@@ -159,7 +161,7 @@ public:
             faultLocked(FaultCode::ControlStalled);
             return true;
         }
-        return false;
+        return expired;
     }
 
     [[nodiscard]] RuntimeStatus status() const noexcept
