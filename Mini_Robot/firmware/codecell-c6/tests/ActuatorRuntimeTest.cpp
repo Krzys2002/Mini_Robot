@@ -42,9 +42,22 @@ struct Rig {
     }
     IMotionCommandSink& commands() { return runtime->commands(); }
     RuntimeStatus status() { return runtime->status(); }
+    // The ready session the commands belong to; opened on first use, as #163 will on CCCDs.
+    SessionToken session{};
+    SessionToken currentSession()
+    {
+        if (session.value == 0) session = commands().openSession();
+        return session;
+    }
+    void endSession(SessionEndReason reason)
+    {
+        commands().sessionEnded(session, reason);
+        session = {};
+    }
+    CommandOutcome clear() { return commands().clearEmergencyStop(currentSession()); }
     CommandOutcome velocity(const BodyVelocity& v, milliseconds validFor = kValid)
     {
-        return commands().velocity(v, validFor, clock.nowMicroseconds());
+        return commands().velocity(currentSession(), v, validFor, clock.nowMicroseconds());
     }
     // One 5 ms supervisor period; the control task runs every second period (10 ms).
     void tick()
@@ -291,7 +304,9 @@ TEST(ActuatorRuntimeTest, StopRampThatDoesNotReachZeroIsEnforcedByTheSupervisor)
     FirmwareRuntime runtime{{clock, platform, drive, configuration, nullptr}};
     ASSERT_EQ(runtime.start(), StartResult::Running);
     drive.rampNeverEnds = true;
-    ASSERT_EQ(runtime.commands().velocity(kFullForward, kValid, clock.nowMicroseconds()), CommandOutcome::Accepted);
+    const auto session = runtime.commands().openSession();
+    ASSERT_EQ(runtime.commands().velocity(session, kFullForward, kValid, clock.nowMicroseconds()),
+              CommandOutcome::Accepted);
     clock.advance(10ms);
     runtime.controlStep().step();
     ASSERT_TRUE(drive.enabled);

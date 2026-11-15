@@ -119,17 +119,28 @@ public:
 
 // BLE adapter boundary: the single motion-command authority. The BLE peripheral (#163)
 // passes each write through protocol::v1::CommandSession (#161), stamps receipt at
-// callback entry on the robot clock and calls at most one of these per frame. No other code may command motion.
+// callback entry on the robot clock and calls at most one of these per frame. No other code
+// may command motion.
+//
+// Session lifecycle (#162): openSession() when the session becomes ready (both CCCDs
+// enabled), sessionEnded() when it stops being ready. Velocity and ClearEmergencyStop
+// carry the token; any token other than the current one is refused with
+// RejectedSessionNotReady, so a frame from an ended or replaced session never moves the
+// robot. Stop and EmergencyStop need no token: they take effect before readiness too (v1).
 class IMotionCommandSink {
 public:
     virtual ~IMotionCommandSink() = default;
-    [[nodiscard]] virtual CommandOutcome velocity(const BodyVelocity& velocity, std::chrono::milliseconds validFor,
-                                                  Instant receipt) noexcept = 0;
+    // The session is ready. Ends any previous session as for Stop (replacement) and returns
+    // the token of the new one. The E-stop latch and faults are kept.
+    [[nodiscard]] virtual SessionToken openSession() noexcept = 0;
+    [[nodiscard]] virtual CommandOutcome velocity(SessionToken session, const BodyVelocity& velocity,
+                                                  std::chrono::milliseconds validFor, Instant receipt) noexcept = 0;
     [[nodiscard]] virtual CommandOutcome stop() noexcept = 0;
     // Disables the drive before returning. Never rejected (v1).
     [[nodiscard]] virtual CommandOutcome emergencyStop() noexcept = 0;
-    [[nodiscard]] virtual CommandOutcome clearEmergencyStop() noexcept = 0;
-    // Disconnect, notification disable or result overload: stop as for Stop, keep the latch.
-    virtual void sessionEnded(SessionEndReason reason) noexcept = 0;
+    [[nodiscard]] virtual CommandOutcome clearEmergencyStop(SessionToken session) noexcept = 0;
+    // Disconnect, notification disable or result overload of that session: stop as for Stop,
+    // keep the latch. A token that is no longer current is ignored.
+    virtual void sessionEnded(SessionToken session, SessionEndReason reason) noexcept = 0;
 };
 } // namespace codecell::runtime

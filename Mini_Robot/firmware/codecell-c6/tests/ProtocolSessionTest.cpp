@@ -33,6 +33,8 @@ struct Call {
     runtime::BodyVelocity velocity{};
     std::chrono::milliseconds validFor{};
     Instant receipt{};
+    runtime::SessionToken session{};
+    std::optional<runtime::SessionEndReason> reason{};
 };
 
 // Records every authority call and answers with configurable outcomes.
@@ -42,10 +44,12 @@ public:
     CommandOutcome velocityOutcome{CommandOutcome::Accepted};
     CommandOutcome clearOutcome{CommandOutcome::Accepted};
 
-    CommandOutcome velocity(const runtime::BodyVelocity& v, std::chrono::milliseconds validFor,
-                            Instant receipt) noexcept override
+    std::uint32_t opened{0};
+    runtime::SessionToken openSession() noexcept override { return {++opened}; }
+    CommandOutcome velocity(runtime::SessionToken session, const runtime::BodyVelocity& v,
+                            std::chrono::milliseconds validFor, Instant receipt) noexcept override
     {
-        calls.push_back({Call::Kind::Velocity, v, validFor, receipt});
+        calls.push_back({Call::Kind::Velocity, v, validFor, receipt, session});
         return velocityOutcome;
     }
     CommandOutcome stop() noexcept override
@@ -58,12 +62,15 @@ public:
         calls.push_back({Call::Kind::EmergencyStop});
         return CommandOutcome::Accepted;
     }
-    CommandOutcome clearEmergencyStop() noexcept override
+    CommandOutcome clearEmergencyStop(runtime::SessionToken session) noexcept override
     {
-        calls.push_back({Call::Kind::Clear});
+        calls.push_back({Call::Kind::Clear, {}, {}, {}, session});
         return clearOutcome;
     }
-    void sessionEnded(runtime::SessionEndReason) noexcept override { calls.push_back({Call::Kind::SessionEnded}); }
+    void sessionEnded(runtime::SessionToken session, runtime::SessionEndReason reason) noexcept override
+    {
+        calls.push_back({Call::Kind::SessionEnded, {}, {}, {}, session, reason});
+    }
 };
 
 class FixedStatus final : public IRuntimeStatusView {
@@ -112,6 +119,7 @@ struct FakeRig {
     RecordingCommands commands;
     FixedStatus runtime;
     CommandSession session{commands, runtime, kLimits};
+    FakeRig() { session.open(); }
     Result write(const std::vector<std::uint8_t>& bytes) { return parse(session.onCommandWrite(bytes, kReceipt)); }
 };
 } // namespace
@@ -121,6 +129,7 @@ TEST(ProtocolSessionTest, PublishedVelocityReachesTheAuthorityInSiWithReceiptTim
     FakeRig rig;
     const auto velocity = vectorNamed("velocity_seq258").bytes;  // 0.150 m/s, -0.500 rad/s, 250 ms.
     CommandSession wide{rig.commands, rig.runtime, CommandLimits{300, 6000, 500}};
+    wide.open();
     const auto result = parse(wide.onCommandWrite(velocity, kReceipt));
     EXPECT_EQ(result.code, ResultCode::Accepted);
     EXPECT_EQ(result.commandSequence, 258);
@@ -340,14 +349,23 @@ TEST(ProtocolSessionTest, TelemetryCarriesLastAcceptedAndResetStartsANewSession)
     EXPECT_NE((*telemetry)[kTelemetryFlagsAt] & kFlagHasAcceptedCommand, 0);
     EXPECT_EQ(readU16(*telemetry, kTelemetryLastAcceptedAt), 0x0000);
 
-    rig.session.reset();
+    const auto oldToken = rig.commands.calls.back().session;
+    rig.session.end(runtime::SessionEndReason::Disconnected);
+    ASSERT_EQ(rig.commands.calls.back().kind, Call::Kind::SessionEnded);
+    EXPECT_EQ(rig.commands.calls.back().session, oldToken);
+    EXPECT_EQ(rig.commands.calls.back().reason, runtime::SessionEndReason::Disconnected);
+    EXPECT_FALSE(rig.session.isOpen());
+    rig.session.end(runtime::SessionEndReason::Disconnected);  // Not open: no second end.
+    EXPECT_EQ(std::count_if(rig.commands.calls.begin(), rig.commands.calls.end(),
+                            [](const Call& c) { return c.kind == Call::Kind::SessionEnded; }),
+              1);
+    rig.session.open();
     EXPECT_FALSE(rig.session.lastAcceptedSequence());
     EXPECT_EQ(rig.session.nextTransmitSequence(), 0);
     const auto first = rig.write(velocityFrame(0x9000, 0, 0, 100));  // Older than before; new session.
     EXPECT_EQ(first.code, ResultCode::Accepted);
     EXPECT_EQ(first.sequence, 0);
-    EXPECT_TRUE(std::none_of(rig.commands.calls.begin(), rig.commands.calls.end(),
-                             [](const Call& c) { return c.kind == Call::Kind::SessionEnded; }));
+    EXPECT_NE(rig.commands.calls.back().session, oldToken) << "the new session has a new token";
 }
 
 // ---- The real runtime behind the session ----------------------------------------------
@@ -388,6 +406,7 @@ struct RuntimeRig {
         EXPECT_EQ(runtime->start(), runtime::StartResult::Running);
         view.emplace(*runtime);
         session.emplace(runtime->commands(), *view, commandLimits(info));
+        session->open();
     }
     Result write(const std::vector<std::uint8_t>& bytes)
     {

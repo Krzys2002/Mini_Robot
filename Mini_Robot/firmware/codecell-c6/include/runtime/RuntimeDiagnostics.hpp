@@ -16,7 +16,8 @@ enum class Counter : std::uint8_t {
     MailboxOverwrite,    // A newer setpoint replaced one the control task had not read (B12).
     CommandExpired,
     EmergencyStop,
-    SessionEnded,
+    SessionOpened,       // A session became ready (#162).
+    SessionEnded,        // The current session ended (a stale end is not counted).
     SessionOverload,     // SessionEndReason::ResultQueueExhausted.
     SensorUnavailable,   // An optional inertial read returned nothing.
     StaleSetpointBlocked,// The gate refused a snapshot from an older generation or past its deadline.
@@ -57,6 +58,7 @@ private:
     case Counter::MailboxOverwrite: return "mailbox_overwrite";
     case Counter::CommandExpired: return "command_expired";
     case Counter::EmergencyStop: return "emergency_stop";
+    case Counter::SessionOpened: return "session_opened";
     case Counter::SessionEnded: return "session_ended";
     case Counter::SessionOverload: return "session_overload";
     case Counter::SensorUnavailable: return "sensor_unavailable";

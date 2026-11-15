@@ -42,9 +42,23 @@ struct Boot {
         runtime.safetyStep().step();
         runtime.controlStep().step();
     }
+    IMotionCommandSink& commands() { return runtime.commands(); }
+    // The ready session the commands belong to; opened on first use, as #163 will on CCCDs.
+    SessionToken session{};
+    SessionToken currentSession()
+    {
+        if (session.value == 0) session = commands().openSession();
+        return session;
+    }
+    void endSession(SessionEndReason reason)
+    {
+        commands().sessionEnded(session, reason);
+        session = {};
+    }
+    CommandOutcome clear() { return commands().clearEmergencyStop(currentSession()); }
     CommandOutcome velocity(milliseconds validFor = 100ms)
     {
-        return runtime.commands().velocity(kForward, validFor, clock.nowMicroseconds());
+        return runtime.commands().velocity(currentSession(), kForward, validFor, clock.nowMicroseconds());
     }
 };
 
@@ -260,8 +274,8 @@ TEST(ProvisioningRuntimeTest, OrdinaryOperationPerformsNoFlashWrites)
         if (i % 50 == 0) (void)boot.runtime.commands().stop();
     }
     (void)boot.runtime.commands().emergencyStop();
-    (void)boot.runtime.commands().clearEmergencyStop();
-    boot.runtime.commands().sessionEnded(SessionEndReason::Disconnected);
+    (void)boot.clear();
+    boot.endSession(SessionEndReason::Disconnected);
     EXPECT_EQ(storage.mutations(), afterProvisioning);
 }
 
@@ -283,7 +297,7 @@ TEST(ProvisioningRuntimeTest, ProvisionedRecordConfiguresTheDriveProfile)
     EXPECT_FALSE(profile.leftReversed);
     EXPECT_TRUE(profile.rightReversed);
     EXPECT_EQ(drive::validate(profile), drive::DriveProfileError::None);
-    EXPECT_EQ(boot.runtime.commands().velocity({0.151, 0.0}, 100ms, boot.clock.nowMicroseconds()),
+    EXPECT_EQ(boot.runtime.commands().velocity(boot.currentSession(), {0.151, 0.0}, 100ms, boot.clock.nowMicroseconds()),
               CommandOutcome::RejectedOutOfRange);
     EXPECT_EQ(boot.velocity(), CommandOutcome::Accepted);
 }
