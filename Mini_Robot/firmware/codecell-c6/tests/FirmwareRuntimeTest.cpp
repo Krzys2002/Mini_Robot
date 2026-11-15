@@ -364,11 +364,12 @@ TEST(FirmwareRuntimeTest, CommandFloodBetweenControlCyclesKeepsOnlyTheNewestSetp
     Rig rig;
     ASSERT_EQ(rig.rt().start(), StartResult::Running);
     constexpr int kFrames = 1000;
+    constexpr double kStep = 0.0001;  // m/s per frame; the last frame stays within maxLinear.
     for (int i = 1; i <= kFrames; ++i)
-        ASSERT_EQ(rig.velocity({0.001 * i, 0.0}), CommandOutcome::Accepted);
+        ASSERT_EQ(rig.velocity({kStep * i, 0.0}), CommandOutcome::Accepted);
     rig.control();
     EXPECT_EQ(rig.drive.commandCount(), 1);
-    EXPECT_DOUBLE_EQ(rig.drive.lastCommand()->linearMetresPerSecond, 0.001 * kFrames);
+    EXPECT_DOUBLE_EQ(rig.drive.lastCommand()->linearMetresPerSecond, kStep * kFrames);
     const auto diagnostics = rig.rt().diagnostics();
     EXPECT_EQ(diagnostics[Counter::VelocityAccepted], static_cast<std::uint32_t>(kFrames));
     EXPECT_EQ(diagnostics[Counter::MailboxOverwrite], static_cast<std::uint32_t>(kFrames - 1));
@@ -381,8 +382,10 @@ TEST(FirmwareRuntimeTest, ResultQueueExhaustionStopsAndIsCounted)
     ASSERT_EQ(rig.velocity(kForward), CommandOutcome::Accepted);
     rig.control();
     rig.commands().sessionEnded(SessionEndReason::ResultQueueExhausted);
-    EXPECT_FALSE(rig.drive.enabled);
     EXPECT_EQ(rig.rt().status().state, MotionState::Idle);
+    EXPECT_TRUE(rig.rt().status().stopRamp) << "a session end is a normal stop (B6 ramp)";
+    rig.control();
+    EXPECT_FALSE(rig.drive.enabled);
     EXPECT_EQ(rig.rt().diagnostics()[Counter::SessionOverload], 1u);
     EXPECT_EQ(rig.rt().diagnostics()[Counter::SessionEnded], 1u);
 }

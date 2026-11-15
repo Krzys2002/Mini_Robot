@@ -94,8 +94,10 @@ private:
 // reset and boot is not established by this adapter (#238).
 class InhibitedDriveOutput final : public runtime::IDriveOutput {
 public:
+    bool configure(const drive::DriveProfile&, std::chrono::milliseconds) noexcept override { return true; }
     bool disable() noexcept override { return true; }
-    bool command(const runtime::BodyVelocity&) noexcept override { return false; }
+    bool command(const runtime::BodyVelocity&, runtime::Instant) noexcept override { return false; }
+    runtime::StopRampStep rampToStop(runtime::Instant) noexcept override { return runtime::StopRampStep::AtRest; }
 };
 
 // The configuration source is provisioning::ProvisionedConfiguration over

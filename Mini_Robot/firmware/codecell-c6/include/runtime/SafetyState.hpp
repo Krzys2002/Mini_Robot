@@ -5,7 +5,8 @@
 // Every transition that ends or replaces motion advances `generation`. A setpoint carries
 // the generation it was admitted with, and the gate only drives for the current one, so a
 // snapshot copied before Stop, expiry, E-stop, a fault or a session end can never turn the
-// outputs back on. The fuller watchdog, stop-ramp enforcement and fault recovery are #162.
+// outputs back on. The normal stop ramp and its enforcement live in ActuatorGate (#160);
+// the fuller watchdog and fault recovery are #162.
 #include "runtime/RuntimeTypes.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -42,12 +43,16 @@ public:
     }
 
     // Receipt-relative deadline, capped by the ceiling; replaces any previous deadline.
-    [[nodiscard]] CommandOutcome admitVelocity(Instant receipt, milliseconds validFor, milliseconds ceiling) noexcept
+    // Checks follow the v1 order (state, validity, range); a rejection changes nothing.
+    // `withinLimits` is the caller's body-limit check against the provisioned profile.
+    [[nodiscard]] CommandOutcome admitVelocity(Instant receipt, milliseconds validFor, milliseconds ceiling,
+                                               bool withinLimits) noexcept
     {
         if (state_ == MotionState::Fault) return CommandOutcome::RejectedFault;
         if (state_ == MotionState::EmergencyStop) return CommandOutcome::RejectedEmergencyStopLatched;
         if (!ready_) return CommandOutcome::RejectedNotReady;
         if (validFor <= milliseconds::zero()) return CommandOutcome::RejectedInvalid;
+        if (!withinLimits) return CommandOutcome::RejectedOutOfRange;
         deadline_ = receipt + Instant{std::min(validFor, ceiling)};
         state_ = MotionState::Moving;
         advance();

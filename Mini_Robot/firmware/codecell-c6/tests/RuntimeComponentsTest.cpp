@@ -11,10 +11,12 @@ using namespace codecell::runtime;
 using namespace std::chrono_literals;
 namespace timing = codecell::timing;
 
-TEST(RuntimeConfigTest, BudgetDefaultsAreValid)
+TEST(RuntimeConfigTest, BudgetDefaultsScheduleButCannotArmTheDrive)
 {
     const RuntimeConfig config;
-    EXPECT_EQ(validate(config), ConfigError::None);
+    EXPECT_EQ(validateScheduling(config), ConfigError::None);
+    EXPECT_EQ(validate(config), ConfigError::DriveProfileInvalid) << "no drive profile is invented (#160)";
+    EXPECT_EQ(validate(fakes::validRuntimeConfig()), ConfigError::None);
     EXPECT_EQ(config.safetyCheckPeriod, timing::kSafetyCheckPeriod);
     EXPECT_EQ(config.controlPeriod, timing::kControlPeriod);
     EXPECT_EQ(config.controlStallLimit, timing::kControlStallLimit);
@@ -24,7 +26,7 @@ TEST(RuntimeConfigTest, BudgetDefaultsAreValid)
 TEST(RuntimeConfigTest, EachRuleRejectsItsViolation)
 {
     auto with = [](auto mutate) {
-        RuntimeConfig config;
+        RuntimeConfig config = fakes::validRuntimeConfig();
         mutate(config);
         return validate(config);
     };
@@ -46,6 +48,22 @@ TEST(RuntimeConfigTest, EachRuleRejectsItsViolation)
     EXPECT_EQ(with([](auto& c) { c.controlTask.priority = timing::kLogDrainPriority; }),
               ConfigError::PriorityOrderViolated);
     EXPECT_EQ(with([](auto& c) { c.controlTask.stackBytes = 0; }), ConfigError::StackSizeZero);
+    EXPECT_EQ(with([](auto& c) { c.driveProfile.trackWidthMetres = 0.0; }), ConfigError::DriveProfileInvalid);
+}
+
+TEST(SafetyStateTest, OutOfRangeIsCheckedAfterStateAndValidityAndChangesNothing)
+{
+    SafetyState safety;
+    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, false), CommandOutcome::RejectedNotReady);
+    safety.markReady();
+    EXPECT_EQ(safety.admitVelocity(0us, 0ms, 250ms, false), CommandOutcome::RejectedInvalid);
+    const auto generation = safety.generation();
+    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, false), CommandOutcome::RejectedOutOfRange);
+    EXPECT_EQ(safety.state(), MotionState::Idle);
+    EXPECT_EQ(safety.generation(), generation) << "a rejected command never replaces intent";
+    EXPECT_FALSE(safety.deadline());
+    safety.latchEmergencyStop();
+    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, false), CommandOutcome::RejectedEmergencyStopLatched);
 }
 
 TEST(SafetyStateTest, StartsIdleNotReadyAndRefusesMotion)
@@ -53,7 +71,7 @@ TEST(SafetyStateTest, StartsIdleNotReadyAndRefusesMotion)
     SafetyState safety;
     EXPECT_EQ(safety.state(), MotionState::Idle);
     EXPECT_FALSE(safety.ready());
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms), CommandOutcome::RejectedNotReady);
+    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::RejectedNotReady);
     EXPECT_FALSE(safety.permits(safety.generation(), 0us));
 }
 
@@ -61,7 +79,7 @@ TEST(SafetyStateTest, DeadlineIsReceiptRelativeCappedAndExpiresExactlyAtIt)
 {
     SafetyState safety;
     safety.markReady();
-    ASSERT_EQ(safety.admitVelocity(1000us, 900ms, 250ms), CommandOutcome::Accepted);
+    ASSERT_EQ(safety.admitVelocity(1000us, 900ms, 250ms, true), CommandOutcome::Accepted);
     ASSERT_TRUE(safety.deadline());
     EXPECT_EQ(*safety.deadline(), 1000us + 250ms);
     const auto generation = safety.generation();
@@ -77,7 +95,7 @@ TEST(SafetyStateTest, EveryMotionEndingTransitionAdvancesTheGeneration)
 {
     SafetyState safety;
     safety.markReady();
-    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms), CommandOutcome::Accepted);
+    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::Accepted);
     auto previous = safety.generation();
     auto advanced = [&] {
         const bool changed = safety.generation() != previous;
@@ -86,7 +104,7 @@ TEST(SafetyStateTest, EveryMotionEndingTransitionAdvancesTheGeneration)
     };
     safety.stop();
     EXPECT_TRUE(advanced());
-    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms), CommandOutcome::Accepted);
+    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::Accepted);
     EXPECT_TRUE(advanced()) << "a new Velocity supersedes the previous one";
     safety.latchEmergencyStop();
     EXPECT_TRUE(advanced());
@@ -100,7 +118,7 @@ TEST(SafetyStateTest, PermissionNeedsTheExactAdmittedGeneration)
 {
     SafetyState safety;
     safety.markReady();
-    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms), CommandOutcome::Accepted);
+    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::Accepted);
     const auto admitted = safety.generation();
     EXPECT_TRUE(safety.permits(admitted, 1us));
     // Only equality is used, so unsigned wrap of the counter cannot grant permission.
@@ -120,7 +138,7 @@ TEST(SafetyStateTest, FaultIsStickyKeepsTheFirstCodeAndOutranksTheLatch)
     EXPECT_EQ(safety.clearEmergencyStop(), CommandOutcome::RejectedFault);
     safety.markReady();
     EXPECT_FALSE(safety.ready());
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms), CommandOutcome::RejectedFault);
+    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::RejectedFault);
 }
 
 TEST(SafetyStateTest, LatchRejectsVelocityUntilExplicitClear)
@@ -128,7 +146,7 @@ TEST(SafetyStateTest, LatchRejectsVelocityUntilExplicitClear)
     SafetyState safety;
     safety.markReady();
     safety.latchEmergencyStop();
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms), CommandOutcome::RejectedEmergencyStopLatched);
+    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::RejectedEmergencyStopLatched);
     safety.stop();
     EXPECT_EQ(safety.state(), MotionState::EmergencyStop) << "Stop has no effect while latched";
     EXPECT_EQ(safety.clearEmergencyStop(), CommandOutcome::Accepted);

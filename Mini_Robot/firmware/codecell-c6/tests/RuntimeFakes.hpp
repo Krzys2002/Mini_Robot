@@ -1,6 +1,7 @@
 #pragma once
-// Deterministic fakes for the #158 runtime ports. Nothing here sleeps, spawns a thread
+// Deterministic fakes for the #158 runtime ports (and the #160 drive port). Nothing here sleeps, spawns a thread
 // or reads a real clock: tests advance time and interleave the periodic steps by hand.
+#include "DriveTestProfile.hpp"
 #include "runtime/FirmwareRuntime.hpp"
 #include <algorithm>
 #include <functional>
@@ -42,35 +43,77 @@ public:
     void exit() noexcept override { --depth; }
 };
 
+using drive::fixtures::kTestDriveProfile;
+
+[[nodiscard]] inline RuntimeConfig validRuntimeConfig()
+{
+    RuntimeConfig config;
+    config.driveProfile = kTestDriveProfile;
+    return config;
+}
+
 struct DriveEvent {
-    enum class Kind { Disable, Command } kind;
+    enum class Kind { Disable, Command, RampToStop } kind;
     BodyVelocity velocity{};
+    Instant at{};
 };
 
+// Body-level drive fake. Its stop ramp reaches zero after `rampSteps` steps (0: the first
+// ramp step is already at rest); `rampNeverEnds` models an adapter stuck above zero.
 class FakeDrive final : public IDriveOutput {
 public:
     std::vector<DriveEvent> events;
     bool failDisable{false};
     bool failCommand{false};
+    bool failConfigure{false};
+    bool failRamp{false};
+    bool rampNeverEnds{false};
+    int rampSteps{0};
     bool enabled{false};
+    std::optional<drive::DriveProfile> configured;
     const FakeCriticalSection* section{nullptr};  // When set, every call must be inside it.
     bool calledOutsideSection{false};
 
+    bool configure(const drive::DriveProfile& profile, std::chrono::milliseconds) noexcept override
+    {
+        if (failConfigure) return false;
+        configured = profile;
+        return true;
+    }
     bool disable() noexcept override
     {
         checkSection();
-        events.push_back({DriveEvent::Kind::Disable, {}});
+        events.push_back({DriveEvent::Kind::Disable, {}, {}});
+        rampLeft_.reset();
         if (failDisable) return false;
         enabled = false;
         return true;
     }
-    bool command(const BodyVelocity& velocity) noexcept override
+    bool command(const BodyVelocity& velocity, Instant now) noexcept override
     {
         checkSection();
-        events.push_back({DriveEvent::Kind::Command, velocity});
+        events.push_back({DriveEvent::Kind::Command, velocity, now});
+        rampLeft_.reset();
         if (failCommand) return false;
         enabled = true;
         return true;
+    }
+    StopRampStep rampToStop(Instant now) noexcept override
+    {
+        checkSection();
+        events.push_back({DriveEvent::Kind::RampToStop, {}, now});
+        if (failRamp) return StopRampStep::Refused;
+        if (rampNeverEnds) return StopRampStep::Ramping;
+        if (!rampLeft_) rampLeft_ = rampSteps;
+        if (*rampLeft_ == 0) return StopRampStep::AtRest;
+        --*rampLeft_;
+        return StopRampStep::Ramping;
+    }
+    [[nodiscard]] int rampStepCount() const
+    {
+        int count = 0;
+        for (const auto& e : events) count += e.kind == DriveEvent::Kind::RampToStop ? 1 : 0;
+        return count;
     }
     [[nodiscard]] int commandCount() const
     {
@@ -90,6 +133,7 @@ private:
     {
         if (section && section->depth != 1) calledOutsideSection = true;
     }
+    std::optional<int> rampLeft_{};
 };
 
 class FakePlatform final : public IPlatform {
@@ -120,7 +164,7 @@ public:
 
 class FakeConfiguration final : public IConfigurationSource {
 public:
-    std::optional<RuntimeConfig> value{RuntimeConfig{}};
+    std::optional<RuntimeConfig> value{validRuntimeConfig()};
     std::optional<RuntimeConfig> load() noexcept override { return value; }
 };
 
