@@ -13,7 +13,12 @@ See [runtime and threading](../../docs/overview/firmware-runtime.md). The portab
 exists, but the image has no BLE peripheral or telemetry yet (#163, #164): nothing
 links the codec, so nothing commands motion. The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
 (#160). It wakes the H-bridges only with a valid provisioned profile, and it is not
-proof of safe electrical boot behaviour or of any physical motor limit (#238). The runtime becomes
+proof of safe electrical boot behaviour or of any physical motor limit (#238).
+[Safety enforcement](../../docs/overview/firmware-safety.md) (#162) admits Velocity
+only from the current ready session, expires commands in the supervisor whatever the
+control task does, powers the bridges down on every fault, shutdown and task-watchdog
+expiry, and keeps the supervisor on a 50 ms task watchdog. Every boot starts `Idle`
+with nothing restored, and the boot and status lines report the reset reason. The runtime becomes
 ready only with a validated, provisioned identity/configuration record (#159); an
 unprovisioned board stays in `Fault` with outputs disabled. Provision it over USB
 serial as described in [identity provisioning](../../docs/overview/firmware-provisioning.md). The separate
@@ -29,14 +34,14 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 | `scripts/toolchain_provenance.py` | Rejects an unpinned Core/platform; writes build provenance |
 | `scripts/production_image_policy.py`, `scripts/image_policy.py` | Fails the link if Wi-Fi/AP/HTTP/OTA code is in the image (#158) |
 | `include/FirmwareClock.hpp` | Portable C++20 clock contract and conversions, no SDK includes |
-| `include/runtime/` | Portable production runtime (#158): ports, safety state, actuator gate, command processor, mailbox, periodic steps and start-up orchestration |
+| `include/runtime/` | Portable production runtime (#158): ports, safety state, actuator gate, command processor, mailbox, periodic steps and start-up orchestration; session readiness, watchdog and fault recovery (#162) |
 | `include/provisioning/` | Portable identity/configuration record, A/B atomic store, runtime configuration source and USB maintenance console (#159) |
 | `include/protocol/` | Portable [v1 codec and command validation](../../docs/overview/firmware-protocol.md) (#161): wire constants, command decoder, Telemetry/CommandResult/Robot Info encoders, sequence rules and the per-session command handler |
 | `include/drive/` | Portable [bounded drive](../../docs/overview/firmware-drive.md) (#160): drive profile, kinematics and actuator map, rate limiter, motor HAL port and `BoundedDriveOutput` |
 | `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
 | `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
 | `pilot/`, `scripts/timing_pilot_host.py` | [#156 timing pilot](../../docs/testing/timing-pilot-156.md): bench measurement image and its Linux/BlueZ host driver; never a robot image |
-| `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp`, `src/CodeCellMotorDriver.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS/board adapters: clock, critical section, periodic tasks, DRV8837 motor HAL (LEDC), NVS record storage and bond erase |
+| `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp`, `src/CodeCellMotorDriver.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS/board adapters: clock, critical section, periodic tasks, task watchdog and its ISR hook, shutdown handler, reset reason, DRV8837 motor HAL (LEDC, bridge sleep), NVS record storage and bond erase |
 | `CMakeLists.txt`, `tests/` | Independent GoogleTest host entry point (no Arduino, Qt or OpenCV) |
 
 All commands below run from the repository root.
@@ -160,7 +165,7 @@ ESP timer value and the 32-bit millisecond wrap boundary. `TimingBudgetTest`
 replays representative stop timelines (command loss, deadline boundaries,
 stalled control, E-stop behind a parser flood, notification pressure, clock
 wrap points) through a test-only reference model of the #156 budget; it is a
-specification oracle, not the #162 supervisor. `LatencyHistogramTest` covers
+specification oracle, not the supervisor itself. `LatencyHistogramTest` covers
 the instrumentation histogram. `RuntimeComponentsTest` and `FirmwareRuntimeTest`
 run the #158 runtime with fake clock, platform, drive, configuration and sensor:
 injected start-up failures, stale snapshots, stop/new-command races, mailbox
@@ -174,6 +179,11 @@ the provisioning gate ([details](../../docs/overview/firmware-provisioning.md#ve
 [v1 byte vectors](../../docs/protocol/fixtures/v1-frames.txt), every truncation,
 version and type, the sequence rules, the validation order against the real runtime,
 and mutation and fuzz runs ([details](../../docs/overview/firmware-protocol.md#verification)).
+`SafetyEnforcementTest` covers #162: deadlines before, at and after expiry across
+clock wrap points, sessions and replacement, the full state transition table,
+E-stop/clear races, B5 and E-stop at the motor fake with the control task running,
+stalled or paused, fault power-down, shutdown and reset recovery
+([details](../../docs/overview/firmware-safety.md#verification)).
 None of these tests exercises a motor controller.
 
 ### Host sanitizers and fuzz run

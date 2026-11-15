@@ -101,8 +101,9 @@ real deceleration, slip and coasting are unmeasured. #167 refines them from cali
 
 | Event | Path | Output |
 | --- | --- | --- |
-| EmergencyStop, any fault, maintenance, boot, latch clear | Immediate `disable()` inside the gate call | Every bridge input low at once, **no ramp step**, ramp state reset |
-| Stop, expiry, session end (disconnect, notifications off, result overload), a refused stale snapshot | Normal stop ramp (#156 B6) | Each control step moves the output toward zero at the stop rate; at zero the drive is disabled |
+| EmergencyStop, any fault, maintenance, shutdown, boot, latch clear | Immediate `disable()` inside the gate call | Every bridge input low at once, **no ramp step**, ramp state reset |
+| Any fault, shutdown, task-watchdog expiry (after the disable, #162) | `powerDown()`: both bridges to sleep (GPIO18 low) | Outputs high-impedance whatever the inputs do; every later write refused until reset ([safety](firmware-safety.md#faults-and-task-failures)) |
+| Stop, expiry, session end or replacement (disconnect, notifications off, result overload), a refused stale snapshot | Normal stop ramp (#156 B6) | Each control step moves the output toward zero at the stop rate; at zero the drive is disabled |
 
 - The gate records the stop decision time. If the output is not at zero
   `kStopEnforcementLimit` (120 ms) after it, the supervisor faults (`StopRampOverrun`)
@@ -120,7 +121,9 @@ ramp. The status line also prints the last written duty (`duty_m1`, `duty_m2`).
 
 ## Motor HAL and board facts
 
-`drive::IMotorDriver` (`enable()`, `coast()`, `write(MotorDuty)`) is the hardware boundary.
+`drive::IMotorDriver` (`enable()`, `coast()`, `write(MotorDuty)`, `sleep()`) is the hardware boundary.
+`sleep()` (#162) drives GPIO18 low with one register write, which is also safe from the
+task-watchdog ISR.
 The production adapter is
 [`src/CodeCellMotorDriver.hpp`](../../firmware/codecell-c6/src/CodeCellMotorDriver.hpp).
 Board facts come from the vendor schematic in the pinned CodeCell 2.0.4 library
@@ -164,8 +167,8 @@ for it.
   [#166](https://github.com/Krzys2002/Mini_Robot/issues/166).
 - Calibrated wheel speed, deadband and rates: [#167](https://github.com/Krzys2002/Mini_Robot/issues/167).
 - Wheel feedback control: none. The board has no wheel encoders (#154).
-- The remaining watchdog and fault recovery: [#162](https://github.com/Krzys2002/Mini_Robot/issues/162).
-  Commands reach the drive only once the BLE peripheral exists ([#163](https://github.com/Krzys2002/Mini_Robot/issues/163)).
+- Commands reach the drive only once the BLE peripheral exists ([#163](https://github.com/Krzys2002/Mini_Robot/issues/163)).
+  Watchdog, E-stop and fault recovery: [safety enforcement](firmware-safety.md) (#162).
 
 ## Verification
 

@@ -42,6 +42,10 @@
 - [CodeCell C6 bounded drive](firmware-drive.md): actuator contract from body velocity
   to PWM duty, saturation, rate/reversal limits, the output bound, the stop ramp versus
   immediate disable, and the DRV8837 board facts (#160).
+- [CodeCell C6 safety: watchdog, E-stop, faults and recovery](firmware-safety.md): the
+  robot-local invariant, session readiness, the command watchdog and its bounds, the
+  E-stop latch, fault power-down, the supervisor task watchdog and reset/brownout
+  behaviour (#162).
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
   verified board/motor facts, unresolved safety blockers, and the bench envelope
   used before powered motion acceptance.

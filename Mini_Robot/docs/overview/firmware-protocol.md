@@ -81,11 +81,14 @@ before the authority sees it, and the authority's cap stays as defence in depth.
 | `RejectedNotReady` | `RobotFault` (v1 has no "not ready" code; see below) |
 | `RejectedInvalid` | `InvalidValidity` |
 | `RejectedOutOfRange` | `OutOfRange` |
+| `RejectedSessionNotReady` | `RobotFault` (never sent: v1 sends no result before the session is ready) |
 
 `RejectedNotReady` means the runtime has not finished start-up, or is in
-maintenance. The robot is refusing motion to protect itself, so it is reported as
+maintenance or shutting down. The robot is refusing motion to protect itself, so it is reported as
 `RobotFault`, which the desktop already treats as a rejection. This is a firmware
-mapping, not a protocol change.
+mapping, not a protocol change. `RejectedSessionNotReady` (#162) is the last state
+check: a Velocity or ClearEmergencyStop without the current session token. The session
+reports it in the same precedence position for invalid frames (`isOpen()`).
 
 ## Sequence rules
 
@@ -97,8 +100,10 @@ mapping, not a protocol change.
 - Stop is always executed. A stale Stop is `Accepted` but does not move `lastAccepted`.
 - EmergencyStop is never sequence-checked and never changes `lastAccepted`.
 - Telemetry and CommandResult share one robot counter, which starts at 0 per
-  session. `reset()` restarts both counters. Ending motion at session end is the
-  adapter's `sessionEnded()` call (#163).
+  session. `open()` and `end()` restart both counters (#162). `open()` also obtains the
+  session token from the authority, and `end()` reports the end of the session, which
+  stops as for Stop ([sessions](firmware-safety.md#sessions)). The BLE adapter calls
+  them on CCCD and connection events (#163).
 
 ## Emergency Stop characteristic and JSON
 
@@ -131,12 +136,13 @@ moves the robot. No serial JSON mirror is implemented. The USB maintenance conso
 
 ## Not in this issue
 
-- GATT characteristics, CCCDs, session readiness (Velocity ignored before both
-  CCCDs are enabled), advertising and disconnect handling: #163.
-- Telemetry scheduling, battery and diagnostics content, `commandExpired`
-  tracking and the firmware version bytes: #164.
-- The fuller watchdog and fault recovery: #162. Powered and radio checks:
-  #238 and #166.
+- GATT characteristics, CCCDs, detecting session readiness and calling `open()`/`end()`
+  (Velocity ignored before both CCCDs are enabled), advertising and disconnect
+  handling: #163.
+- Telemetry scheduling, battery and diagnostics content and the firmware version
+  bytes: #164. Since #162, `telemetry()` takes `state` and `commandExpired` from the
+  runtime status, so they always match the safety state.
+- Powered and radio checks: #238 and #166.
 
 ## Verification
 

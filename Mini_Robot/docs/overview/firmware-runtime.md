@@ -5,8 +5,10 @@ top of the #155 build and the proposed [#156 timing budgets](../protocol/timing-
 This page describes the structure of the production image in
 [`firmware/codecell-c6`](../../firmware/codecell-c6/README.md). It does **not**
 establish physical stopping, electrical boot behaviour or protocol interoperability:
-those remain with #161–#166 and the powered gate
-[#238](https://github.com/Krzys2002/Mini_Robot/issues/238).
+those remain with #163–#166 and the powered gate
+[#238](https://github.com/Krzys2002/Mini_Robot/issues/238). Session readiness, the
+command watchdog, the E-stop latch, fault power-down, the task watchdog and reset
+recovery (#162) are described in [safety enforcement](firmware-safety.md).
 
 ## What the production image does today
 
@@ -45,12 +47,12 @@ Provisioning logic is portable C++20 under
 | Boundary | Type | Production adapter | Owner of the real implementation |
 | --- | --- | --- | --- |
 | Clock | `IFirmwareClock` (monotonic µs since boot) | `EspFirmwareClock` (`esp_timer`) | #155 |
-| Scheduler / RTOS | `IPlatform`: critical section, periodic tasks; every creation checked | `FreeRtosPlatform` (`portMUX`, `xTaskCreate`, `xTaskDelayUntil`) | #158 |
-| Drive | `IDriveOutput`: `configure()`, `disable()`, `command(BodyVelocity, now)`, `rampToStop(now)` | `drive::BoundedDriveOutput` over `CodeCellMotorDriver` ([bounded drive](firmware-drive.md)) | #160 |
+| Scheduler / RTOS | `IPlatform`: critical section, periodic tasks, task-watchdog subscription and release; every creation checked | `FreeRtosPlatform` (`portMUX`, `xTaskCreate`, `xTaskDelayUntil`, `esp_task_wdt_*`) | #158, #162 |
+| Drive | `IDriveOutput`: `configure()`, `disable()`, `command(BodyVelocity, now)`, `rampToStop(now)`, `powerDown()` | `drive::BoundedDriveOutput` over `CodeCellMotorDriver` ([bounded drive](firmware-drive.md)) | #160, #162 |
 | Inertial sensor (optional) | `IInertialSensor` | none wired | Not approved yet |
 | Configuration | `IConfigurationSource` + `validate()` | `ProvisionedConfiguration` over `ConfigStore` and `NvsRecordStorage` ([provisioning](firmware-provisioning.md)) | #159 |
 | Maintenance | `FirmwareRuntime::enterMaintenance()`, `MaintenanceConsole` | USB serial line reader in `loopTask` | #159 |
-| BLE adapter | `IMotionCommandSink` (implemented by `CommandProcessor`) | not attached | #163 |
+| BLE adapter | `IMotionCommandSink` (implemented by `CommandProcessor`): `openSession()`, token-carrying Velocity and ClearEmergencyStop, Stop, EmergencyStop, `sessionEnded()` ([sessions](firmware-safety.md#sessions)) | not attached | #163 |
 | Diagnostics | `RuntimeDiagnostics` (atomic counters) + `RuntimeStatus` | serial status line from `loopTask` | #164 (telemetry) |
 
 Domain values cross these boundaries in SI units: `BodyVelocity` is metres per
@@ -76,31 +78,34 @@ flowchart LR
   only `SafetyState` and is the only holder of `IDriveOutput`. Every drive write and
   every safety transition runs inside one critical section.
 - **`SafetyState`** is a pure state machine: `Idle`, `Moving`, `EmergencyStop`,
-  `Fault`, plus an internal *ready* flag set only after start-up completed. It keeps
-  the receipt-relative deadline (capped by the configured ceiling, expiry at
-  `now >= deadline`) and a **generation** counter.
+  `Fault`, plus an internal *ready* flag set only after start-up completed and the
+  current session token (#162). It keeps the receipt-relative deadline (capped by the
+  configured ceiling, expiry at `now >= deadline`), the `commandExpired` flag and a
+  **generation** counter. See the [transition table](firmware-safety.md#transition-table).
 - **`CommandProcessor`** is the only `IMotionCommandSink`. It rejects non-finite
   values, non-positive validity windows and values above the provisioned body limits
   (`RejectedOutOfRange`, checked after state and validity), asks the gate to admit Velocity, and
-  publishes the admitted setpoint with its generation. Stop, E-stop, ClearEmergencyStop
-  and session ends go straight to the gate. It never writes the drive.
+  publishes the admitted setpoint with its generation. Stop, E-stop, ClearEmergencyStop,
+  session opens and session ends go straight to the gate, and every transition that
+  ends motion empties the mailbox. It never writes the drive.
 - **`SetpointMailbox`** holds one setpoint. The newest admitted setpoint wins and an
   unread one that is replaced is counted (`mailbox_overwrite`). Reads copy without
   consuming.
 - **`ControlLoop`** (the actuator update) reads the optional sensor, copies the
   setpoint, reads the clock, and calls `ActuatorGate::apply()` once per period.
 - **`SafetySupervisor`** calls `ActuatorGate::supervise()`: deadline expiry, the
-  stop-ramp enforcement (B6) and the control-stall check, independent of control progress.
+  stop-ramp enforcement (B6) and the control heartbeat (while driving, and while ready
+  at rest), independent of control progress. It is the only task on the task watchdog.
 - **`FirmwareRuntime`** wires these together and owns start-up.
 
 ### Why a stale copy cannot re-enable the outputs
 
 Every transition that ends or replaces motion advances the generation: Stop, expiry,
-EmergencyStop, ClearEmergencyStop, any fault, every session end and every newly
-admitted Velocity. The gate drives only if all of these hold, inside the critical
+EmergencyStop, ClearEmergencyStop, any fault, maintenance, shutdown, every session end
+or replacement and every newly admitted Velocity. The gate drives only if all of these hold, inside the critical
 section, at the moment of the write:
 
-- the runtime is ready and `Moving`;
+- the runtime is ready, a session is open, and the state is `Moving`;
 - the snapshot's generation equals the current one;
 - `now` is before the deadline.
 
@@ -125,7 +130,8 @@ and its write (`StopLikeEventBetweenSnapshotCopyAndWriteAlwaysWins`).
    profile; the other values are the budget defaults.
 3. Configure the drive with the profile; only then are the bridges woken (#160).
 4. Create the handoff critical section.
-5. Start the safety supervisor, then the control task.
+5. Start the safety supervisor (subscribed to the 50 ms task watchdog, #162), then the
+   control task.
 6. Mark ready.
 
 Commands before step 6 are rejected with `RejectedNotReady`. If any step fails, the
@@ -136,24 +142,29 @@ runtime enters `Fault` with the drive disabled, records the first `FaultCode`
 and never attempts normal motion. Later commands are rejected with `RejectedFault`,
 and a supervisor that already runs keeps the outputs off. A configuration error also
 keeps its `ConfigError`. Calling `start()` again returns the first result. Faults
-are not clearable by the desktop (v1); recovery beyond a reset is #162.
+are not clearable by the desktop (v1). Every fault also powers the drive down, and
+only a reset recovers ([faults and recovery](firmware-safety.md#faults-and-task-failures)).
 
 `enterMaintenance()` (the USB maintenance path, #159) is one-way until reset: inside the
 gate's critical section it ends motion as for Stop, advances the generation, disables
 the drive and clears readiness, so Velocity is rejected with `RejectedNotReady`. The
-E-stop latch and faults are kept, and `markReady()` has no effect afterwards.
+E-stop latch and faults are kept, and `markReady()` has no effect afterwards. Once the
+disable is confirmed it also releases the task watchdog, because the maintenance flash
+writes stall the chip for longer than its timeout (#162).
 
 At run time a refused drive write (`DriveWriteFailed`), a failed disable
-(`DriveDisableFailed`), a control task that stops updating while the drive is on
-(`ControlStalled`, B7) or a stop ramp that is not at zero within 120 ms of its
-decision (`StopRampOverrun`, B6) also enter `Fault`.
+(`DriveDisableFailed`), a control task that stops updating while the drive is on or
+while the runtime is ready (`ControlStalled`, B7) or a stop ramp that is not at zero
+within 120 ms of its decision (`StopRampOverrun`, B6) also enter `Fault`.
+`shutdown()`, run by `esp_restart()` through an ESP-IDF shutdown handler, ends motion
+and the session and powers the drive down before a deliberate restart.
 
 ## Scheduling model and handoffs (#156)
 
 | Context | Priority | Period | Work | Budget |
 | --- | --- | --- | --- | --- |
 | BLE controller (`ble_ll_task`) | 23 | — | Radio | Platform |
-| `mr_safety` (`SafetySupervisor`) | 22 | 5 ms | Expiry, stop-ramp enforcement, control stall | B3, B4, B6, B7, B18 |
+| `mr_safety` (`SafetySupervisor`) | 22 | 5 ms | Expiry, stop-ramp enforcement, control heartbeat; the only task on the 50 ms task watchdog | B3, B4, B6, B7, B17, B18 |
 | `nimble_host` (BLE callbacks, #163) | 21 | — | `IMotionCommandSink` calls, E-stop first | B8, B9 |
 | `mr_control` (`ControlLoop`) | 20 | 10 ms | Sensor, copy setpoint, one bounded drive step or stop-ramp step | B6, B7, B9 |
 | Arduino `loopTask` | 1 | 100 ms poll | Serial status line (log drain); USB maintenance console and its NVS writes (#159), only with outputs disabled | B13 |
