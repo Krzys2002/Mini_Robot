@@ -138,13 +138,15 @@ in [platform boundaries](platform-boundaries.md).
   used by Linux capture; [profile behavior](calibration-profiles.md#physical-camera-identity-and-review-corrections).
 - [Firmware clock contract](../../firmware/codecell-c6/include/FirmwareClock.hpp) and
   [production runtime](../../firmware/codecell-c6/include/runtime/FirmwareRuntime.hpp)
-  and [identity/configuration provisioning](../../firmware/codecell-c6/include/provisioning/ConfigStore.hpp):
+  and [identity/configuration provisioning](../../firmware/codecell-c6/include/provisioning/ConfigStore.hpp)
+  and [bounded drive](../../firmware/codecell-c6/include/drive/BoundedDriveOutput.hpp):
   portable C6 firmware logic with independent host tests; the ESP-IDF/FreeRTOS
   adapters are only in `firmware/codecell-c6/src/`, and embedded production
   sources are not linked into desktop targets. See the
   [firmware guide](../../firmware/codecell-c6/README.md) and
   [runtime and threading](firmware-runtime.md) and
-  [identity provisioning](firmware-provisioning.md).
+  [identity provisioning](firmware-provisioning.md) and
+  [bounded drive](firmware-drive.md).
 
 
 ## Implementation limits

@@ -36,6 +36,9 @@
 - [CodeCell C6 identity provisioning](firmware-provisioning.md): persistent RobotId,
   validated configuration record, atomic storage and rollback, USB maintenance path
   and the RobotId/AprilTag association (#159).
+- [CodeCell C6 bounded drive](firmware-drive.md): actuator contract from body velocity
+  to PWM duty, saturation, rate/reversal limits, the output bound, the stop ramp versus
+  immediate disable, and the DRV8837 board facts (#160).
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
   verified board/motor facts, unresolved safety blockers, and the bench envelope
   used before powered motion acceptance.

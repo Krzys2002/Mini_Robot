@@ -256,7 +256,7 @@ for #155: no HTTP controller or IMU-distance behavior is ported automatically.
 | --- | --- | --- |
 | Board revision, boot/reset pin evidence | No board photos/schematic revision captured in repository | Add top/bottom board photos with readable silkscreen and pin labels to issue evidence |
 | Approved supply voltage/current and enforced limiter configuration | No approved limits, reviewed wiring or limiter measurements exist | Complete section 5.1 supply record and independent limiter verification before any powered step |
-| Per-motor actuator-level output bound | Startup boost and heading correction invalidate small-command assumptions; no verified bench limiter exists | Implement/review enforcement and capture final-write and electrical evidence per section 5.1 before wheel motion |
+| Per-motor actuator-level output bound | Startup boost and heading correction invalidate small-command assumptions; no verified bench limiter exists | Firmware enforcement after every transformation exists since #160 ([bounded drive](../overview/firmware-drive.md)); review it and capture final-write and electrical evidence per section 5.1 before wheel motion |
 | Left/right polarity map on actual build | Not measured on physical robot in this issue update | Execute section 5 bounded wheels-raised test and attach video/logs |
 | Track width | Not selected yet | Measure wheel-center distance in mm after chassis selection and update profile |
 | Battery API accuracy/error bounds | No multimeter cross-check evidence captured | Record paired API vs multimeter samples at rest and under low load |
