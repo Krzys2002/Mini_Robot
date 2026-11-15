@@ -1,0 +1,161 @@
+# #156 timing pilot raw log (host monotonic s, UTC wall clock, source, line).
+# Board/adapter addresses are redacted. Load-generator payload lines (LOADLOG/LOGTEST)
+# are replaced by one count line per run; every PILOT line is kept verbatim.
+3699.549012 2026-11-15T11:51:05.248+00:00 host> info
+3699.549460 2026-11-15T11:51:05.249+00:00 robot Build:Sep 19 2022
+3699.549978 2026-11-15T11:51:05.249+00:00 robot rst:0x15 (USB_UART_HPSYS),boot:0x4c (SPI_FAST_FLASH_BOOT)
+3699.550197 2026-11-15T11:51:05.250+00:00 robot Saved PC:0x4080ad2c
+3699.550327 2026-11-15T11:51:05.250+00:00 robot SPIWP:0xee
+3699.551684 2026-11-15T11:51:05.251+00:00 robot mode:DIO, clock div:2
+3699.554268 2026-11-15T11:51:05.254+00:00 robot load:0x40875730,len:0x1278
+3699.556616 2026-11-15T11:51:05.256+00:00 robot load:0x4086b910,len:0xdd0
+3699.559241 2026-11-15T11:51:05.259+00:00 robot load:0x4086e610,len:0x3154
+3699.561181 2026-11-15T11:51:05.261+00:00 robot entry 0x4086b910
+3699.748365 2026-11-15T11:51:05.448+00:00 robot PILOT boot reset_reason=11 uptime_us=15810 (measurement image, no actuator/sensor access)
+3699.750688 2026-11-15T11:51:05.450+00:00 robot PILOT info chip_model=13 revision=2 cores=1 cpu_mhz=160 tick_hz=1000 idf=v5.5.2-729-g87912cd291 reset_reason=11 uptime_us=15972 ble=0
+3699.752184 2026-11-15T11:51:05.452+00:00 robot PILOT info heap free=351348 min_free=351196 largest_block=327668 unit=bytes
+3699.753758 2026-11-15T11:51:05.453+00:00 robot PILOT info task name=loopTask prio=1 stack_free_min_bytes=6376 cpu_pct=-1.00
+3699.755097 2026-11-15T11:51:05.454+00:00 robot PILOT info task name=IDLE prio=0 stack_free_min_bytes=2128 cpu_pct=-1.00
+3699.756361 2026-11-15T11:51:05.456+00:00 robot PILOT info task name=main prio=1 stack_free_min_bytes=3500 cpu_pct=-1.00
+3699.757652 2026-11-15T11:51:05.457+00:00 robot PILOT info task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=-1.00
+3699.758930 2026-11-15T11:51:05.458+00:00 robot PILOT info task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=-1.00
+3699.759192 2026-11-15T11:51:05.459+00:00 robot PILOT done
+3699.759255 2026-11-15T11:51:05.459+00:00 host> clock 100000
+3699.918679 2026-11-15T11:51:05.618+00:00 robot PILOT clock esp_timer_back_to_back n=100000 min=1 p50=2 p99=2 p999=8 max=12 neg=0 unit=us
+3699.919048 2026-11-15T11:51:05.618+00:00 robot PILOT done
+3699.919116 2026-11-15T11:51:05.618+00:00 host> handoff 2000 20
+3703.938574 2026-11-15T11:51:09.638+00:00 robot PILOT handoff config samples=2000 consumer_prio=20 producer_prio=1
+3703.940507 2026-11-15T11:51:09.640+00:00 robot PILOT handoff queue_overwrite_to_receive n=2000 min=9 p50=9 p99=9 p999=9 max=11 neg=0 unit=us
+3703.942105 2026-11-15T11:51:09.641+00:00 robot PILOT handoff task_notify_to_wake n=2000 min=8 p50=8 p99=8 p999=8 max=9 neg=0 unit=us
+3703.943578 2026-11-15T11:51:09.643+00:00 robot PILOT handoff critical_section_copy n=2000 min=1 p50=2 p99=2 p999=8 max=9 neg=0 unit=us
+3703.945185 2026-11-15T11:51:09.645+00:00 robot PILOT handoff mutex_take_give_uncontended n=2000 min=3 p50=4 p99=4 p999=10 max=11 neg=0 unit=us
+3703.945440 2026-11-15T11:51:09.645+00:00 robot PILOT done
+3703.945492 2026-11-15T11:51:09.645+00:00 host> jitter 5 20 20
+3723.956669 2026-11-15T11:51:29.656+00:00 robot PILOT jitter config period_ms=5 seconds=20 prio=20 overruns=0 log_lines=0
+3723.958389 2026-11-15T11:51:29.658+00:00 robot PILOT jitter wake_lateness_from_tick n=4001 min=2 p50=2 p99=2 p999=2 max=3 neg=0 unit=us
+3723.960119 2026-11-15T11:51:29.659+00:00 robot PILOT jitter wake_interval_abs_deviation n=4001 min=0 p50=0 p99=0 p999=0 max=142 neg=0 unit=us
+3723.961379 2026-11-15T11:51:29.661+00:00 robot PILOT jitter task name=loopTask prio=1 stack_free_min_bytes=5912 cpu_pct=0.01
+3723.962786 2026-11-15T11:51:29.662+00:00 robot PILOT jitter task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=99.79
+3723.965234 2026-11-15T11:51:29.665+00:00 robot PILOT jitter task name=pilot_probe prio=20 stack_free_min_bytes=3776 cpu_pct=0.20
+3723.966572 2026-11-15T11:51:29.666+00:00 robot PILOT jitter task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=0.00
+3723.968255 2026-11-15T11:51:29.668+00:00 robot PILOT jitter task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=0.00
+3723.969714 2026-11-15T11:51:29.669+00:00 robot PILOT jitter heap free=351596 min_free=346128 largest_block=327668 unit=bytes
+3723.970149 2026-11-15T11:51:29.669+00:00 robot PILOT done
+3723.970269 2026-11-15T11:51:29.670+00:00 host> jitter 10 20 20
+3743.986432 2026-11-15T11:51:49.686+00:00 robot PILOT jitter config period_ms=10 seconds=20 prio=20 overruns=0 log_lines=0
+3743.988297 2026-11-15T11:51:49.688+00:00 robot PILOT jitter wake_lateness_from_tick n=2001 min=3 p50=3 p99=3 p999=3 max=3 neg=0 unit=us
+3743.990256 2026-11-15T11:51:49.690+00:00 robot PILOT jitter wake_interval_abs_deviation n=2001 min=0 p50=0 p99=0 p999=0 max=135 neg=0 unit=us
+3743.991919 2026-11-15T11:51:49.691+00:00 robot PILOT jitter task name=loopTask prio=1 stack_free_min_bytes=5912 cpu_pct=0.01
+3743.993698 2026-11-15T11:51:49.693+00:00 robot PILOT jitter task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=99.89
+3743.995315 2026-11-15T11:51:49.695+00:00 robot PILOT jitter task name=pilot_probe prio=20 stack_free_min_bytes=3776 cpu_pct=0.10
+3743.996820 2026-11-15T11:51:49.696+00:00 robot PILOT jitter task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=0.00
+3743.998308 2026-11-15T11:51:49.698+00:00 robot PILOT jitter task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=0.00
+3743.999613 2026-11-15T11:51:49.699+00:00 robot PILOT jitter heap free=351596 min_free=346128 largest_block=327668 unit=bytes
+3743.999861 2026-11-15T11:51:49.699+00:00 robot PILOT done
+3743.999914 2026-11-15T11:51:49.699+00:00 host> jitter 1 20 20
+3764.006732 2026-11-15T11:52:09.706+00:00 robot PILOT jitter config period_ms=1 seconds=20 prio=20 overruns=0 log_lines=0
+3764.008614 2026-11-15T11:52:09.708+00:00 robot PILOT jitter wake_lateness_from_tick n=20001 min=3 p50=3 p99=3 p999=3 max=3 neg=0 unit=us
+3764.010538 2026-11-15T11:52:09.710+00:00 robot PILOT jitter wake_interval_abs_deviation n=20001 min=0 p50=0 p99=0 p999=0 max=135 neg=0 unit=us
+3764.011917 2026-11-15T11:52:09.711+00:00 robot PILOT jitter task name=loopTask prio=1 stack_free_min_bytes=5912 cpu_pct=0.01
+3764.013556 2026-11-15T11:52:09.713+00:00 robot PILOT jitter task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=98.99
+3764.015894 2026-11-15T11:52:09.715+00:00 robot PILOT jitter task name=pilot_probe prio=20 stack_free_min_bytes=3776 cpu_pct=1.00
+3764.017566 2026-11-15T11:52:09.717+00:00 robot PILOT jitter task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=0.00
+3764.018878 2026-11-15T11:52:09.718+00:00 robot PILOT jitter task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=0.00
+3764.020142 2026-11-15T11:52:09.719+00:00 robot PILOT jitter heap free=351596 min_free=346128 largest_block=327668 unit=bytes
+3764.020421 2026-11-15T11:52:09.720+00:00 robot PILOT done
+3764.020480 2026-11-15T11:52:09.720+00:00 host> jitter 5 20 20 cpu 19 7 3
+3784.047873 2026-11-15T11:52:29.747+00:00 robot PILOT jitter config period_ms=5 seconds=20 prio=20 overruns=0 log_lines=0
+3784.049483 2026-11-15T11:52:29.749+00:00 robot PILOT jitter wake_lateness_from_tick n=4001 min=3 p50=3 p99=3 p999=3 max=3 neg=0 unit=us
+3784.051775 2026-11-15T11:52:29.751+00:00 robot PILOT jitter wake_interval_abs_deviation n=4001 min=0 p50=0 p99=0 p999=0 max=391 neg=0 unit=us
+3784.054187 2026-11-15T11:52:29.754+00:00 robot PILOT jitter task name=loopTask prio=1 stack_free_min_bytes=5912 cpu_pct=0.01
+3784.055591 2026-11-15T11:52:29.755+00:00 robot PILOT jitter task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=29.82
+3784.056902 2026-11-15T11:52:29.756+00:00 robot PILOT jitter task name=pilot_cpu prio=19 stack_free_min_bytes=3868 cpu_pct=69.99
+3784.058207 2026-11-15T11:52:29.758+00:00 robot PILOT jitter task name=pilot_probe prio=20 stack_free_min_bytes=3776 cpu_pct=0.18
+3784.059426 2026-11-15T11:52:29.759+00:00 robot PILOT jitter task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=0.00
+3784.060794 2026-11-15T11:52:29.760+00:00 robot PILOT jitter task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=0.00
+3784.062677 2026-11-15T11:52:29.762+00:00 robot PILOT jitter heap free=356072 min_free=346128 largest_block=327668 unit=bytes
+3784.063213 2026-11-15T11:52:29.763+00:00 robot PILOT done
+3784.063319 2026-11-15T11:52:29.763+00:00 host> jitter 5 20 18 cpu 19 7 3
+3804.091335 2026-11-15T11:52:49.791+00:00 robot PILOT jitter config period_ms=5 seconds=20 prio=18 overruns=0 log_lines=0
+3804.093486 2026-11-15T11:52:49.793+00:00 robot PILOT jitter wake_lateness_from_tick n=4001 min=3 p50=4012 p99=4012 p999=4012 max=4012 neg=0 unit=us
+3804.095820 2026-11-15T11:52:49.795+00:00 robot PILOT jitter wake_interval_abs_deviation n=4001 min=3629 p50=4009 p99=4009 p999=4009 max=4009 neg=0 unit=us
+3804.097400 2026-11-15T11:52:49.797+00:00 robot PILOT jitter task name=loopTask prio=1 stack_free_min_bytes=5912 cpu_pct=0.01
+3804.098971 2026-11-15T11:52:49.798+00:00 robot PILOT jitter task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=29.71
+3804.100675 2026-11-15T11:52:49.800+00:00 robot PILOT jitter task name=pilot_cpu prio=19 stack_free_min_bytes=3868 cpu_pct=70.08
+3804.102261 2026-11-15T11:52:49.802+00:00 robot PILOT jitter task name=pilot_probe prio=18 stack_free_min_bytes=3776 cpu_pct=0.20
+3804.103598 2026-11-15T11:52:49.803+00:00 robot PILOT jitter task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=0.00
+3804.104892 2026-11-15T11:52:49.804+00:00 robot PILOT jitter task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=0.00
+3804.106203 2026-11-15T11:52:49.806+00:00 robot PILOT jitter heap free=356072 min_free=346128 largest_block=327668 unit=bytes
+3804.106459 2026-11-15T11:52:49.806+00:00 robot PILOT done
+3804.106509 2026-11-15T11:52:49.806+00:00 host> jitter 5 20 20 log 1 80
+# 37101 load-generator payload lines omitted here
+3824.147329 2026-11-15T11:53:09.847+00:00 robot PILOT jitter config period_ms=5 seconds=20 prio=20 overruns=0 log_lines=37101
+3824.147876 2026-11-15T11:53:09.847+00:00 robot PILOT jitter wake_lateness_from_tick n=4001 min=3 p50=3 p99=3 p999=10 max=18 neg=0 unit=us
+3824.148471 2026-11-15T11:53:09.848+00:00 robot PILOT jitter wake_interval_abs_deviation n=4001 min=0 p50=0 p99=0 p999=12 max=432 neg=0 unit=us
+3824.148957 2026-11-15T11:53:09.848+00:00 robot PILOT jitter task name=loopTask prio=1 stack_free_min_bytes=5912 cpu_pct=0.01
+3824.149460 2026-11-15T11:53:09.849+00:00 robot PILOT jitter task name=pilot_log prio=1 stack_free_min_bytes=3740 cpu_pct=4.67
+3824.149902 2026-11-15T11:53:09.849+00:00 robot PILOT jitter task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=95.14
+3824.150398 2026-11-15T11:53:09.850+00:00 robot PILOT jitter task name=pilot_probe prio=20 stack_free_min_bytes=3776 cpu_pct=0.18
+3824.150874 2026-11-15T11:53:09.850+00:00 robot PILOT jitter task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=0.00
+3824.151363 2026-11-15T11:53:09.851+00:00 robot PILOT jitter task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=0.00
+3824.151835 2026-11-15T11:53:09.851+00:00 robot PILOT jitter heap free=356072 min_free=346128 largest_block=327668 unit=bytes
+3824.151924 2026-11-15T11:53:09.851+00:00 robot PILOT done
+3824.151943 2026-11-15T11:53:09.851+00:00 host> jitter 5 20 20 log 21 80
+# 37310 load-generator payload lines omitted here
+3844.171385 2026-11-15T11:53:29.871+00:00 robot PILOT jitter config period_ms=5 seconds=20 prio=20 overruns=0 log_lines=37310
+3844.171991 2026-11-15T11:53:29.871+00:00 robot PILOT jitter wake_lateness_from_tick n=4001 min=12 p50=12 p99=115 p999=123 max=199 neg=0 unit=us
+3844.172713 2026-11-15T11:53:29.872+00:00 robot PILOT jitter wake_interval_abs_deviation n=4001 min=0 p50=0 p99=95 p999=111 max=548 neg=0 unit=us
+3844.173262 2026-11-15T11:53:29.873+00:00 robot PILOT jitter task name=loopTask prio=1 stack_free_min_bytes=5912 cpu_pct=0.01
+3844.173785 2026-11-15T11:53:29.873+00:00 robot PILOT jitter task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=95.24
+3844.174292 2026-11-15T11:53:29.874+00:00 robot PILOT jitter task name=pilot_log prio=21 stack_free_min_bytes=3740 cpu_pct=4.54
+3844.174797 2026-11-15T11:53:29.874+00:00 robot PILOT jitter task name=pilot_probe prio=20 stack_free_min_bytes=3728 cpu_pct=0.21
+3844.175531 2026-11-15T11:53:29.875+00:00 robot PILOT jitter task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=0.00
+3844.176046 2026-11-15T11:53:29.875+00:00 robot PILOT jitter task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=0.00
+3844.176543 2026-11-15T11:53:29.876+00:00 robot PILOT jitter heap free=356072 min_free=346128 largest_block=327668 unit=bytes
+3844.176636 2026-11-15T11:53:29.876+00:00 robot PILOT done
+3844.176656 2026-11-15T11:53:29.876+00:00 host> jitter 5 20 20 cpu 19 7 3 log 1 80
+# 23429 load-generator payload lines omitted here
+3864.203330 2026-11-15T11:53:49.903+00:00 robot PILOT jitter config period_ms=5 seconds=20 prio=20 overruns=0 log_lines=23481
+3864.204170 2026-11-15T11:53:49.903+00:00 robot PILOT jitter wake_lateness_from_tick n=4001 min=2 p50=2 p99=2 p999=2 max=3 neg=0 unit=us
+3864.205046 2026-11-15T11:53:49.904+00:00 robot PILOT jitter wake_interval_abs_deviation n=4001 min=0 p50=0 p99=0 p999=0 max=673 neg=0 unit=us
+3864.205694 2026-11-15T11:53:49.905+00:00 robot PILOT jitter task name=loopTask prio=1 stack_free_min_bytes=5912 cpu_pct=0.01
+3864.206344 2026-11-15T11:53:49.906+00:00 robot PILOT jitter task name=pilot_log prio=1 stack_free_min_bytes=3688 cpu_pct=2.68
+3864.206922 2026-11-15T11:53:49.906+00:00 robot PILOT jitter task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=27.14
+3864.207680 2026-11-15T11:53:49.907+00:00 robot PILOT jitter task name=pilot_cpu prio=19 stack_free_min_bytes=3868 cpu_pct=70.00
+3864.208339 2026-11-15T11:53:49.908+00:00 robot PILOT jitter task name=pilot_probe prio=20 stack_free_min_bytes=3776 cpu_pct=0.18
+3864.208928 2026-11-15T11:53:49.908+00:00 robot PILOT jitter task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=0.00
+3864.209582 2026-11-15T11:53:49.909+00:00 robot PILOT jitter task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=0.00
+3864.210216 2026-11-15T11:53:49.910+00:00 robot PILOT jitter heap free=356072 min_free=342644 largest_block=327668 unit=bytes
+3864.210339 2026-11-15T11:53:49.910+00:00 robot PILOT done
+3864.210363 2026-11-15T11:53:49.910+00:00 host> log 500 80 100 0 0
+# 500 load-generator payload lines omitted here
+3864.508302 2026-11-15T11:53:50.208+00:00 robot 
+3864.508794 2026-11-15T11:53:50.208+00:00 robot PILOT log config lines=500 bytes=80 tx_timeout_ms=100 short_writes=0
+3864.509427 2026-11-15T11:53:50.209+00:00 robot PILOT log serial_write_call n=500 min=10 p50=11 p99=959 p999=37976 max=37976 neg=0 unit=us
+3864.509529 2026-11-15T11:53:50.209+00:00 robot PILOT done
+3864.509550 2026-11-15T11:53:50.209+00:00 host> log 500 80 0 0 0
+# 110 load-generator payload lines omitted here
+3864.577187 2026-11-15T11:53:50.277+00:00 robot PILOT log serial_write_call n=500 min=9 p50=13 p99=944 p999=944 max=944 neg=0 unit=us
+3864.577294 2026-11-15T11:53:50.277+00:00 robot PILOT done
+3864.577317 2026-11-15T11:53:50.277+00:00 host> log 3000 80 100 1 25
+3864.577486 2026-11-15T11:53:50.277+00:00 host pause reading 15 s
+# 76 load-generator payload lines omitted here
+3890.738206 2026-11-15T11:54:16.438+00:00 robot 
+3890.739710 2026-11-15T11:54:16.439+00:00 robot PILOT log config lines=3000 bytes=80 tx_timeout_ms=100 short_writes=1
+3890.741522 2026-11-15T11:54:16.441+00:00 robot PILOT log serial_write_call n=3000 min=9 p50=13 p99=30 p999=959 max=99945 neg=0 unit=us
+3890.741832 2026-11-15T11:54:16.441+00:00 robot PILOT done
+3890.741903 2026-11-15T11:54:16.441+00:00 host> log 3000 80 0 1 25
+3890.742260 2026-11-15T11:54:16.442+00:00 host pause reading 15 s
+# 75 load-generator payload lines omitted here
+3916.797858 2026-11-15T11:54:42.497+00:00 robot 
+3916.800431 2026-11-15T11:54:42.500+00:00 robot PILOT log config lines=3000 bytes=80 tx_timeout_ms=0 short_writes=0
+3916.803398 2026-11-15T11:54:42.503+00:00 robot PILOT log serial_write_call n=3000 min=7 p50=11 p99=27 p999=959 max=960 neg=0 unit=us
+3916.803752 2026-11-15T11:54:42.503+00:00 robot PILOT done
+3916.803822 2026-11-15T11:54:42.503+00:00 host> info
+3916.807690 2026-11-15T11:54:42.507+00:00 robot PILOT info chip_model=13 revision=2 cores=1 cpu_mhz=160 tick_hz=1000 idf=v5.5.2-729-g87912cd291 reset_reason=11 uptime_us=217068631 ble=0
+3916.809243 2026-11-15T11:54:42.509+00:00 robot PILOT info heap free=356072 min_free=342644 largest_block=327668 unit=bytes
+3916.810729 2026-11-15T11:54:42.510+00:00 robot PILOT info task name=loopTask prio=1 stack_free_min_bytes=5576 cpu_pct=-1.00
+3916.812154 2026-11-15T11:54:42.511+00:00 robot PILOT info task name=IDLE prio=0 stack_free_min_bytes=2064 cpu_pct=-1.00
+3916.813684 2026-11-15T11:54:42.513+00:00 robot PILOT info task name=esp_timer prio=22 stack_free_min_bytes=8420 cpu_pct=-1.00
+3916.816076 2026-11-15T11:54:42.515+00:00 robot PILOT info task name=Tmr Svc prio=1 stack_free_min_bytes=1780 cpu_pct=-1.00
+3916.816676 2026-11-15T11:54:42.516+00:00 robot PILOT done

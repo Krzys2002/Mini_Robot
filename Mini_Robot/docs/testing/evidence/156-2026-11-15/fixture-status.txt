@@ -1,0 +1,1 @@
+[1327] fixture=0.1.0 id=1 profile=normal subscriptions=result:0 telemetry:0

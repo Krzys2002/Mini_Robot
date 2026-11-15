@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "project": "codecell-c6",
+  "environment": "timing-pilot",
+  "board": "esp32-c6-devkitc-1",
+  "source": {
+    "commit": "d8c0784275b3b3b37901b09c1a2d4df920c979e6",
+    "modified": false
+  },
+  "platformio_core": "6.1.19",
+  "platform": {
+    "name": "espressif32",
+    "version": "55.03.37",
+    "source": "https://github.com/pioarduino/platform-espressif32/releases/download/55.03.37/platform-espressif32.zip"
+  },
+  "packages": [
+    {
+      "name": "contrib-piohome",
+      "version": "3.4.4",
+      "src_url": "https://github.com/pioarduino/registry/releases/download/0.0.1/contrib-piohome-3.4.4.tar.gz"
+    },
+    {
+      "name": "framework-arduinoespressif32",
+      "version": "3.3.7",
+      "src_url": "https://github.com/espressif/arduino-esp32/releases/download/3.3.7/esp32-core-3.3.7.tar.xz"
+    },
+    {
+      "name": "framework-arduinoespressif32-libs",
+      "version": "5.5.0+sha.87912cd291",
+      "src_url": "https://github.com/espressif/arduino-esp32/releases/download/3.3.7/esp32-core-3.3.7-libs.tar.xz"
+    },
+    {
+      "name": "tool-esptoolpy",
+      "version": "5.1.2",
+      "src_url": "installed by the pinned platform release"
+    },
+    {
+      "name": "toolchain-riscv32-esp",
+      "version": "14.2.0+20251107",
+      "src_url": "installed by the pinned platform release"
+    }
+  ],
+  "libraries": [
+    {
+      "name": "NimBLE-Arduino",
+      "version": "2.3.6",
+      "source": "registry:h2zero/NimBLE-Arduino"
+    }
+  ],
+  "compiler": "riscv32-esp-elf-g++ (crosstool-NG esp-14.2.0_20251107) 14.2.0",
+  "cxx_standard": [
+    "-std=gnu++20"
+  ],
+  "image": {
+    "file": "firmware.bin",
+    "sha256": "a4ec71e1983f637b38788c43c1d3426b33f78721265db80fbb18ba6e1b32687d"
+  },
+  "host": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "python": "3.14.4"
+  }
+}
