@@ -142,11 +142,11 @@ TEST(ActuatorRuntimeTest, ControlStallDuringTheStopRampFaultsAndDisables)
     rig.run(10ms);
     ASSERT_TRUE(rig.status().stopRamp);
     const Instant lastControl = rig.clock.time;
-    while (!rig.motors.lastIsCoast() && rig.clock.time - lastControl < 1s) {
+    while (!rig.motors.asleep && rig.clock.time - lastControl < 1s) {
         rig.clock.advance(Instant{timing::kSafetyCheckPeriod});
         rig.runtime->safetyStep().step();  // Control is stalled; only the supervisor runs.
     }
-    EXPECT_TRUE(rig.motors.lastIsCoast());
+    EXPECT_TRUE(rig.motors.endsCoastThenSleep()) << "a fault coasts, then powers the bridges down";
     EXPECT_LE(rig.clock.time - lastControl, Instant{timing::kStalledControlToOutputOffBound});
     EXPECT_EQ(rig.status().fault, FaultCode::ControlStalled);
 }
@@ -290,7 +290,7 @@ TEST(ActuatorRuntimeTest, RefusedHalWriteFaultsAndCoasts)
     rig.motors.failWrite = true;
     rig.run(10ms);
     EXPECT_EQ(rig.status().fault, FaultCode::DriveWriteFailed);
-    EXPECT_TRUE(rig.motors.lastIsCoast());
+    EXPECT_TRUE(rig.motors.endsCoastThenSleep());
 }
 
 // Enforcement of B6 with an adapter whose ramp never reaches zero (body-level fake).

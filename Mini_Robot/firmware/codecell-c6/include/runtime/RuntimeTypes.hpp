@@ -49,7 +49,7 @@ enum class FaultCode : std::uint8_t {
     SupervisorTaskStartFailed,
     ControlTaskStartFailed,
     DriveWriteFailed,            // The drive adapter refused a permitted write.
-    ControlStalled,              // No control update within the stall limit while the drive was on.
+    ControlStalled,              // No control update within the stall limit while ready or driving (B7, #162).
     DriveConfigurationRejected,  // The drive adapter refused the validated profile or could not enable (#160).
     StopRampOverrun,             // A normal stop ramp was not at zero within the B6 enforcement limit (#160).
 };
@@ -58,7 +58,7 @@ enum class FaultCode : std::uint8_t {
 // to a v1 result code (#161).
 enum class CommandOutcome : std::uint8_t {
     Accepted,
-    RejectedNotReady,              // Startup has not completed (or never will: see FaultCode), or maintenance.
+    RejectedNotReady,              // Startup has not completed (or never will: see FaultCode), maintenance or shutdown.
     RejectedEmergencyStopLatched,
     RejectedFault,
     RejectedInvalid,               // Non-finite velocity, a non-positive validity window, or a deadline

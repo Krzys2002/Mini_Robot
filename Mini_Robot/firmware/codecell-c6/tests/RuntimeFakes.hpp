@@ -53,7 +53,7 @@ using drive::fixtures::kTestDriveProfile;
 }
 
 struct DriveEvent {
-    enum class Kind { Disable, Command, RampToStop } kind;
+    enum class Kind { Disable, Command, RampToStop, PowerDown } kind;
     BodyVelocity velocity{};
     Instant at{};
 };
@@ -98,6 +98,22 @@ public:
         enabled = true;
         return true;
     }
+    void powerDown() noexcept override
+    {
+        checkSection();
+        events.push_back({DriveEvent::Kind::PowerDown, {}, {}});
+        poweredDown = true;
+        enabled = false;
+    }
+    bool poweredDown{false};
+    // Index of the first event of `kind`, or -1.
+    [[nodiscard]] int firstIndexOf(DriveEvent::Kind kind) const
+    {
+        for (std::size_t i = 0; i < events.size(); ++i)
+            if (events[i].kind == kind) return static_cast<int>(i);
+        return -1;
+    }
+
     StopRampStep rampToStop(Instant now) noexcept override
     {
         checkSection();
@@ -154,6 +170,8 @@ public:
         tasks.push_back({spec, &body});
         return true;
     }
+    int watchdogReleases{0};
+    void releaseTaskWatchdog() noexcept override { ++watchdogReleases; }
     [[nodiscard]] IPeriodicStep* task(const char* name) const
     {
         for (const auto& t : tasks)

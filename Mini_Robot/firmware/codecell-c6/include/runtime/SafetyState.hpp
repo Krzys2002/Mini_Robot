@@ -5,7 +5,7 @@
 // Public states are the v1 Idle/Moving/EmergencyStop/Fault. Two internal readiness
 // conditions gate motion on top of them:
 // - start-up readiness (`ready`): set once start() completed with every task running; lost
-//   for good on a fault or maintenance;
+//   for good on a fault, maintenance or shutdown;
 // - session readiness: one current SessionToken, issued when the BLE session becomes ready
 //   and cleared when it ends. A new session replaces (and thereby ends) the previous one.
 // Velocity is admitted only when both hold and the token is the current one.
@@ -13,8 +13,8 @@
 // Every transition that ends or replaces motion advances `generation`. A setpoint carries
 // the generation it was admitted with, and the gate only drives for the current one, so a
 // snapshot copied before Stop, expiry, E-stop, a fault, a session end or a session
-// replacement can never turn the outputs back on. The normal stop ramp and its enforcement
-// live in ActuatorGate (#160); the task watchdog and fault power-down follow in #162.
+// replacement can never turn the outputs back on. The normal stop ramp, its enforcement and
+// the control-task heartbeat live in ActuatorGate (#160, #162).
 #include "runtime/RuntimeTypes.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -40,6 +40,7 @@ public:
     [[nodiscard]] FaultCode fault() const noexcept { return fault_; }
     [[nodiscard]] bool ready() const noexcept { return ready_; }
     [[nodiscard]] bool maintenance() const noexcept { return maintenance_; }
+    [[nodiscard]] bool isShutDown() const noexcept { return shutDown_; }
     [[nodiscard]] bool sessionReady() const noexcept { return session_ != 0; }
     [[nodiscard]] SessionToken session() const noexcept { return {session_}; }
     // v1 telemetry flag: set when the watchdog ended motion; cleared by the next accepted
@@ -49,10 +50,10 @@ public:
     [[nodiscard]] std::optional<Instant> deadline() const noexcept { return deadline_; }
 
     // Startup completed with every task running. A faulted runtime, or one that entered
-    // maintenance, never becomes ready.
+    // maintenance or shut down, never becomes ready.
     void markReady() noexcept
     {
-        if (state_ != MotionState::Fault && !maintenance_) ready_ = true;
+        if (state_ != MotionState::Fault && !maintenance_ && !shutDown_) ready_ = true;
     }
 
     // Local maintenance (#159): ends motion as for Stop and refuses new motion until a
@@ -62,6 +63,15 @@ public:
     {
         maintenance_ = true;
         ready_ = false;
+        endMotion();
+    }
+
+    // Shutdown before a deliberate restart (#162): like maintenance, and the session ends.
+    void shutDown() noexcept
+    {
+        shutDown_ = true;
+        ready_ = false;
+        session_ = 0;
         endMotion();
     }
 
@@ -174,7 +184,7 @@ private:
     {
         return token.value != 0 && token.value == session_;
     }
-    // Stop, expiry, session end and replacement, maintenance: Moving becomes Idle.
+    // Stop, expiry, session end and replacement, maintenance, shutdown: Moving becomes Idle.
     void endMotion() noexcept
     {
         if (state_ == MotionState::Moving) state_ = MotionState::Idle;
@@ -187,6 +197,7 @@ private:
     FaultCode fault_{FaultCode::None};
     bool ready_{false};
     bool maintenance_{false};
+    bool shutDown_{false};
     bool commandExpired_{false};
     std::uint32_t session_{0};
     std::uint32_t lastIssued_{0};

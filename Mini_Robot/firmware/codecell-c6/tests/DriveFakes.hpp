@@ -9,7 +9,7 @@
 namespace codecell::drive::fakes {
 
 struct MotorEvent {
-    enum class Kind { Enable, Coast, Write } kind;
+    enum class Kind { Enable, Coast, Write, Sleep } kind;
     MotorDuty duty{};
 };
 
@@ -40,6 +40,13 @@ public:
         events.push_back({MotorEvent::Kind::Write, duty});
         return !failWrite;
     }
+    void sleep() noexcept override
+    {
+        checkSection();
+        events.push_back({MotorEvent::Kind::Sleep, {}});
+        asleep = true;
+    }
+    bool asleep{false};
 
     [[nodiscard]] std::vector<MotorDuty> writes() const
     {
@@ -61,6 +68,12 @@ public:
         return n;
     }
     [[nodiscard]] bool lastIsCoast() const { return !events.empty() && events.back().kind == MotorEvent::Kind::Coast; }
+    // The fault path (#162): an immediate coast, then the bridges put to sleep, nothing after.
+    [[nodiscard]] bool endsCoastThenSleep() const
+    {
+        const auto n = events.size();
+        return n >= 2 && events[n - 2].kind == MotorEvent::Kind::Coast && events[n - 1].kind == MotorEvent::Kind::Sleep;
+    }
 
 private:
     void checkSection()

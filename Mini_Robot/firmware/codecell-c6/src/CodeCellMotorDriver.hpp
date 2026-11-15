@@ -18,12 +18,22 @@
 //
 // These are source facts, not measurements: pin levels during reset/boot, coasting,
 // output timing and the polarity of the installed motors are physical checks (#238).
+//
+// Power-down (#162): sleep() drives GPIO18 low, which switches the +3.3V_SENS LDO off and
+// puts both bridges to sleep (outputs high-impedance, whatever the PWM inputs do). It is
+// the last-resort path for faults, shutdown and the task-watchdog ISR, and it is what reset
+// and brownout do in hardware through the pull-down. Only enable() at the next boot wakes
+// the bridges. Sleeping also removes the sensors' supply; that is acceptable in a state
+// that only a reset leaves.
 #include "drive/MotorPorts.hpp"
 #include <Arduino.h>
 #include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <driver/gpio.h>
+#include <esp_attr.h>
+#include <hal/gpio_ll.h>
+#include <soc/gpio_struct.h>
 
 namespace codecell::esp {
 
@@ -79,6 +89,14 @@ public:
         const bool m2 = writeChannel(kM2In1Pin, kM2In2Pin, duty.m2);
         return m1 && m2;
     }
+
+    // Both bridges to sleep. Also valid before enable(): the pin is then not an output and
+    // the 10 kOhm pull-down already holds the bridges asleep.
+    void sleep() noexcept override { sleepBridgesFromIsr(); }
+
+    // The same register write, callable from an ISR (the task-watchdog hook in main.cpp):
+    // no driver call, no lock, IRAM-resident.
+    static void IRAM_ATTR sleepBridgesFromIsr() noexcept { gpio_ll_set_level(&GPIO, kBridgeWakePin, 0); }
 
 private:
     // The input that must be low is written first, so both inputs are never high together.

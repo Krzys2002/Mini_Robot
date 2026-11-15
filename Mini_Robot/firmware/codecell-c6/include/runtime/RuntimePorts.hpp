@@ -39,6 +39,12 @@ public:
     [[nodiscard]] virtual bool command(const BodyVelocity& velocity, Instant now) noexcept = 0;
     // One step of the normal stop ramp toward zero at `now` (Stop, expiry, session end).
     [[nodiscard]] virtual StopRampStep rampToStop(Instant now) noexcept = 0;
+    // Last-resort power-down (#162), after disable() on every fault and on shutdown: removes
+    // the drive's power stage independently of the output writes (CodeCell: both bridges to
+    // sleep). Idempotent and non-blocking; never undone before a reset, because faults are
+    // only cleared by a reset in v1. It has no result: it runs when the runtime is already in
+    // Fault (or shutting down), so there is no safer state left to report a failure into.
+    virtual void powerDown() noexcept = 0;
 };
 
 // Optional local inertial measurement (for example the CodeCell IMU). It is read by the
@@ -95,6 +101,10 @@ struct TaskSpec {
     int priority{0};
     std::size_t stackBytes{0};
     std::chrono::milliseconds period{};
+    // Subscribe this task to the task watchdog (#156 B17, #162): the platform feeds it after
+    // every completed step, and a task that stops completing steps for
+    // timing::kTaskWatchdogTimeout panics and resets the chip. Only the safety supervisor.
+    bool watchdog{false};
 };
 
 // Scheduler/RTOS boundary. Every creation is checked: a failure is returned, never
@@ -105,8 +115,15 @@ public:
     // The platform owns the returned object for the program lifetime; nullptr on failure.
     [[nodiscard]] virtual ICriticalSection* createCriticalSection() noexcept = 0;
     // Starts a task that calls `body.step()` every `spec.period` (absolute-time wake-ups,
-    // waits rounded up to whole ticks). `body` must outlive the task. False on failure.
+    // waits rounded up to whole ticks). `body` must outlive the task. With `spec.watchdog`
+    // the task watchdog is configured and the task subscribed before this returns; any
+    // failure of that is a failure of the call. False on failure.
     [[nodiscard]] virtual bool startPeriodicTask(const TaskSpec& spec, IPeriodicStep& body) noexcept = 0;
+    // Unsubscribes every watched task, waiting at most timing::kTaskWatchdogTimeout. Called
+    // only once motion is refused until reset (maintenance, #159) and the drive is disabled,
+    // so that flash writes, which stall the whole single-core chip, cannot trigger a reset
+    // in the middle of provisioning. Idempotent.
+    virtual void releaseTaskWatchdog() noexcept = 0;
 };
 
 // Configuration source: the validated provisioned record (#159). nullopt means no usable

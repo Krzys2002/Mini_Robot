@@ -411,7 +411,9 @@ TEST(FirmwareRuntimeTest, RefusedDriveWriteFaultsAndDisables)
     ASSERT_EQ(rig.velocity(kForward), CommandOutcome::Accepted);
     rig.control();
     EXPECT_EQ(rig.rt().status().fault, FaultCode::DriveWriteFailed);
-    EXPECT_EQ(rig.drive.events.back().kind, DriveEvent::Kind::Disable);
+    ASSERT_GE(rig.drive.events.size(), 2u);
+    EXPECT_EQ(rig.drive.events[rig.drive.events.size() - 2].kind, DriveEvent::Kind::Disable);
+    EXPECT_EQ(rig.drive.events.back().kind, DriveEvent::Kind::PowerDown) << "disable first, then power down";
     rig.drive.failCommand = false;
     EXPECT_EQ(rig.velocity(kForward), CommandOutcome::RejectedFault);
     const int writes = rig.drive.commandCount();

@@ -209,6 +209,7 @@ public:
     bool disable() noexcept override { return true; }
     bool command(const runtime::BodyVelocity&, Instant) noexcept override { return true; }
     runtime::StopRampStep rampToStop(Instant) noexcept override { return runtime::StopRampStep::AtRest; }
+    void powerDown() noexcept override {}
 };
 
 TEST(ProtocolMutationTest, DecoderSessionAndAuthorityNeverAllocate)

@@ -8,9 +8,15 @@
 // drive disabled, reports the first FaultCode and never starts normal motion:
 //   1. disable the drive;          2. load and validate the configuration;
 //   3. configure the drive with the validated profile (#160);
-//   4. create the critical section; 5. start the safety supervisor, then the control task;
+//   4. create the critical section; 5. start the safety supervisor (subscribed to the task
+//      watchdog, B17), then the control task;
 //   6. mark ready (commands are rejected with RejectedNotReady before this).
 // A supervisor that already runs when a later step fails keeps the outputs off.
+//
+// Recovery (#162): faults are sticky and keep the drive disabled and powered down; only a
+// reset clears them. Every boot, including after a task-watchdog reset or a brownout, starts
+// here with nothing restored: Idle, outputs off, no session, no setpoint, E-stop latch
+// cleared (it is RAM-only in v1).
 #include "runtime/ActuatorGate.hpp"
 #include "runtime/CommandProcessor.hpp"
 #include "runtime/RuntimeConfig.hpp"
@@ -62,8 +68,18 @@ public:
     [[nodiscard]] IMotionCommandSink& commands() noexcept { return commands_; }
     [[nodiscard]] RuntimeStatus status() const noexcept { return gate_.status(); }
     // Local maintenance path (#159): stop, clear intent, disable the drive and refuse
-    // motion until reset. Callable in any state, including Fault and before start().
-    [[nodiscard]] bool enterMaintenance() noexcept { return gate_.enterMaintenance(); }
+    // motion until reset. Callable in any state, including Fault and before start(). Once
+    // the drive is confirmed off, the task watchdog is released (IPlatform), because the
+    // maintenance flash writes stall the chip and there is no motion left to supervise.
+    [[nodiscard]] bool enterMaintenance() noexcept
+    {
+        if (!gate_.enterMaintenance()) return false;
+        platform_.releaseTaskWatchdog();
+        return true;
+    }
+    // Before a deliberate restart (production: the ESP-IDF shutdown handler run by
+    // esp_restart()): end motion and the session, disable and power down the drive.
+    void shutdown() noexcept { gate_.shutdown(); }
     [[nodiscard]] DiagnosticsSnapshot diagnostics() const noexcept { return diagnostics_.snapshot(); }
     [[nodiscard]] const std::optional<RuntimeConfig>& config() const noexcept { return config_; }
     [[nodiscard]] std::optional<ConfigError> configError() const noexcept { return configError_; }
@@ -103,7 +119,7 @@ private:
         mailbox_.bind(*section);
 
         const TaskSpec safety{kSafetyTaskName, config_->safetyTask.priority, config_->safetyTask.stackBytes,
-                              config_->safetyCheckPeriod};
+                              config_->safetyCheckPeriod, true};
         if (!platform_.startPeriodicTask(safety, supervisor_)) return fail(FaultCode::SupervisorTaskStartFailed);
         const TaskSpec control{kControlTaskName, config_->controlTask.priority, config_->controlTask.stackBytes,
                                config_->controlPeriod};
