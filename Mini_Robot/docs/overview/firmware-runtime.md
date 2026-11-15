@@ -4,8 +4,8 @@ Status: implemented by [#158](https://github.com/Krzys2002/Mini_Robot/issues/158
 top of the #155 build and the proposed [#156 timing budgets](../protocol/timing-budgets.md).
 This page describes the structure of the production image in
 [`firmware/codecell-c6`](../../firmware/codecell-c6/README.md). It does **not**
-establish physical stopping, electrical boot behaviour or protocol interoperability:
-those remain with #163–#166 and the powered gate
+establish physical stopping, electrical boot behaviour or interoperability with the
+desktop: those remain with #164–#166 and the powered gate
 [#238](https://github.com/Krzys2002/Mini_Robot/issues/238). Session readiness, the
 command watchdog, the E-stop latch, fault power-down, the task watchdog and reset
 recovery (#162) are described in [safety enforcement](firmware-safety.md).
@@ -20,10 +20,9 @@ recovery (#162) are described in [safety enforcement](firmware-safety.md).
 - Accepts only maintenance commands on USB serial (status, provisioning, factory
   reset). Entering maintenance ends motion, clears intent and refuses motion until
   restart.
-- Has exactly one motion-command entry point, `FirmwareRuntime::commands()`. No
-  code in the image calls it yet: the BLE peripheral that will is #163. The
-  portable [v1 codec and command validation](firmware-protocol.md) (#161) that
-  decodes frames for it exists, but it is not linked into the image yet.
+- Has exactly one motion-command entry point, `FirmwareRuntime::commands()`. Only the
+  v1 [BLE peripheral](firmware-ble.md) (#163) calls it, through the
+  [v1 codec and command validation](firmware-protocol.md) (#161).
 - Uses the [bounded drive](firmware-drive.md) (#160): body velocity to wheel intent,
   saturation, rate and reversal limits and the approved output bound, from the
   provisioned profile. It wakes the H-bridges only after a valid profile. Normal Stop
@@ -52,7 +51,7 @@ Provisioning logic is portable C++20 under
 | Inertial sensor (optional) | `IInertialSensor` | none wired | Not approved yet |
 | Configuration | `IConfigurationSource` + `validate()` | `ProvisionedConfiguration` over `ConfigStore` and `NvsRecordStorage` ([provisioning](firmware-provisioning.md)) | #159 |
 | Maintenance | `FirmwareRuntime::enterMaintenance()`, `MaintenanceConsole` | USB serial line reader in `loopTask` | #159 |
-| BLE adapter | `IMotionCommandSink` (implemented by `CommandProcessor`): `openSession()`, token-carrying Velocity and ClearEmergencyStop, Stop, EmergencyStop, `sessionEnded()` ([sessions](firmware-safety.md#sessions)) | not attached | #163 |
+| BLE adapter | `IMotionCommandSink` (implemented by `CommandProcessor`): `openSession()`, token-carrying Velocity and ClearEmergencyStop, Stop, EmergencyStop, `sessionEnded()` ([sessions](firmware-safety.md#sessions)) | `ble::PeripheralController` over `NimBlePeripheral` ([BLE peripheral](firmware-ble.md)) | #163 |
 | Diagnostics | `RuntimeDiagnostics` (atomic counters) + `RuntimeStatus` | serial status line from `loopTask` | #164 (telemetry) |
 
 Domain values cross these boundaries in SI units: `BodyVelocity` is metres per

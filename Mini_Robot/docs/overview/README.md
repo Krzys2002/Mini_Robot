@@ -46,6 +46,9 @@
   robot-local invariant, session readiness, the command watchdog and its bounds, the
   E-stop latch, fault power-down, the supervisor task watchdog and reset/brownout
   behaviour (#162).
+- [CodeCell C6 BLE peripheral and session lifecycle](firmware-ble.md): the v1 GATT server,
+  advertising, one central per robot, CCCD readiness, the E-stop path, one CommandResult
+  per frame and the overload policy, link-parameter hints and their reports (#163).
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
   verified board/motor facts, unresolved safety blockers, and the bench envelope
   used before powered motion acceptance.

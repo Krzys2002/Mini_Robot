@@ -10,8 +10,9 @@ one command authority (`CommandProcessor`) is the only way to request motion, an
 a 5 ms safety supervisor and a 10 ms control task follow the #156 scheduling model.
 See [runtime and threading](../../docs/overview/firmware-runtime.md). The portable
 [v1 codec and command validation](../../docs/overview/firmware-protocol.md) (#161)
-exists, but the image has no BLE peripheral or telemetry yet (#163, #164): nothing
-links the codec, so nothing commands motion. The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
+is served by the v1 [BLE peripheral](../../docs/overview/firmware-ble.md) (#163): one central,
+ready only while both CCCDs are enabled, restricted-lab profile (not authenticated).
+Telemetry is not published yet (#164). The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
 (#160). It wakes the H-bridges only with a valid provisioned profile, and it is not
 proof of safe electrical boot behaviour or of any physical motor limit (#238).
 [Safety enforcement](../../docs/overview/firmware-safety.md) (#162) admits Velocity
@@ -37,11 +38,14 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 | `include/runtime/` | Portable production runtime (#158): ports, safety state, actuator gate, command processor, mailbox, periodic steps and start-up orchestration; session readiness, watchdog and fault recovery (#162) |
 | `include/provisioning/` | Portable identity/configuration record, A/B atomic store, runtime configuration source and USB maintenance console (#159) |
 | `include/protocol/` | Portable [v1 codec and command validation](../../docs/overview/firmware-protocol.md) (#161): wire constants, command decoder, Telemetry/CommandResult/Robot Info encoders, sequence rules and the per-session command handler |
+| `include/ble/` | Portable [BLE peripheral](../../docs/overview/firmware-ble.md) (#163): GATT profile and advertising bytes, restricted-lab readiness policy, session lifecycle controller |
 | `include/drive/` | Portable [bounded drive](../../docs/overview/firmware-drive.md) (#160): drive profile, kinematics and actuator map, rate limiter, motor HAL port and `BoundedDriveOutput` |
 | `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
 | `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
 | `pilot/`, `scripts/timing_pilot_host.py` | [#156 timing pilot](../../docs/testing/timing-pilot-156.md): bench measurement image and its Linux/BlueZ host driver; never a robot image |
 | `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp`, `src/CodeCellMotorDriver.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS/board adapters: clock, critical section, periodic tasks, task watchdog and its ISR hook, shutdown handler, reset reason, DRV8837 motor HAL (LEDC, bridge sleep), NVS record storage and bond erase |
+| `src/NimBlePeripheral.hpp` | NimBLE-Arduino adapter of the v1 GATT peripheral (#163); the only production code that names NimBLE besides `main.cpp` |
+| `scripts/gatt_conformance_host.py` | BlueZ conformance run of the production image on a USB-only board (#163) |
 | `CMakeLists.txt`, `tests/` | Independent GoogleTest host entry point (no Arduino, Qt or OpenCV) |
 
 All commands below run from the repository root.
@@ -104,6 +108,7 @@ configure normally without it.
 | esptool | 5.1.2, fixed by the platform |
 | CodeCell | Git commit 795616b3fc6fa14c0e23fbdac8aed697d897d303 (2.0.4) |
 | DriveCell | Registry release 1.1.3 (pinned explicitly; CodeCell declares it unversioned) |
+| NimBLE-Arduino | Registry release 2.3.6 (the release the #156 pilot and #157 spike used); configured by the prebuilt Arduino `sdkconfig.h` |
 | Host GoogleTest fallback | 1.17.0 archive, SHA-256 checked |
 | C++ standard | `-std=gnu++20` for the cross-build (all framework defaults removed); C++20 for host tests |
 
@@ -184,6 +189,10 @@ clock wrap points, sessions and replacement, the full state transition table,
 E-stop/clear races, B5 and E-stop at the motor fake with the control task running,
 stalled or paused, fault power-down, shutdown and reset recovery
 ([details](../../docs/overview/firmware-safety.md#verification)).
+`BleGattProfileTest`, `BleSessionPolicyTest` and `BlePeripheralTest` cover #163: the GATT
+layout and advertising bytes, one central, CCCD readiness, one result per frame, the
+E-stop path for any payload, overload, disconnect and allocation-free reconnect cycles
+([details](../../docs/overview/firmware-ble.md#verification)).
 None of these tests exercises a motor controller.
 
 ### Host sanitizers and fuzz run
@@ -252,9 +261,9 @@ exists, the steps below are the procedure to follow, not verified results.
 Safe output state: the image never initializes CodeCell or DriveCell. At boot it sets
 the four bridge inputs low and wakes the bridges (GPIO18) only after a valid provisioned
 drive profile; an unprovisioned board never wakes them. No code in the image commands
-motion yet (no BLE peripheral, #163), and the USB console has no motion command. A
-**provisioned** board would drive within its record once commands exist, so keep motor
-power disconnected until #238 approves the supply and output bound.
+motion except a ready BLE session (#163), and the USB console has no motion command. A
+**provisioned** board drives within its record when a central sends Velocity, so keep
+motor power disconnected until #238 approves the supply and output bound.
 The electrical state of the drive outputs during reset, boot and download mode
 is not verified. Keep motor power disconnected while uploading or monitoring,
 and do not connect an unreviewed motor-power setup merely to upload.

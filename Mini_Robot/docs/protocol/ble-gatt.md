@@ -6,7 +6,8 @@ identity/service validation and notification setup. Desktop
 [message handling](../overview/ble-messages.md) implements command writes and
 validated notifications; physical command delivery remains unverified. The portable
 firmware [codec and command validation](../overview/firmware-protocol.md) (#161) is
-not yet attached to a GATT server (#163). A connection-only
+served by the [C6 BLE peripheral](../overview/firmware-ble.md) (#163), under the
+restricted-lab v1 profile (#157); telemetry publication is #164. A connection-only
 [CodeCell bench fixture](../../firmware/ble-lifecycle/README.md) supports #187;
 it does not implement the command/safety protocol below.
 
@@ -184,17 +185,18 @@ lost link.
 
 ## Implementation checklist
 
-ESP32-C6 firmware (the frame validation order, result codes, sequence rules and
-E-stop latch-on-any-write logic exist as portable, host-tested code in the
-[v1 codec](../overview/firmware-protocol.md), #161; the items stay open until the
-GATT server uses them, #163):
+ESP32-C6 firmware ([v1 codec](../overview/firmware-protocol.md), #161;
+[BLE peripheral](../overview/firmware-ble.md), #163; host-tested and checked on a USB-only
+board, not powered or HIL-tested, #166/#238):
 
-- [ ] GATT layout, properties, and CCCDs as in the table, with robotId from non-volatile storage.
-- [ ] Advertising with the service UUID and `MR-<robotId>` scan response; one accepted application-controller connection per robot, additional links promptly terminated without ordinary command/CCCD effects (dedicated E-stop still latches).
-- [ ] Frame validation order, result codes, and one CommandResult per received frame.
-- [ ] Sequence rules, ready-state gating, and Velocity deadline from receipt time.
-- [ ] Emergency Stop latch on any write; stop on expiry, disconnect, or CCCD disable.
-- [ ] Telemetry every `telemetryPeriodMs` and immediately after a state change.
+- [x] GATT layout, properties, and CCCDs as in the table, with robotId from non-volatile storage.
+- [x] Advertising with the service UUID and `MR-<robotId>` scan response; one connection at a time
+  (enforced by the firmware; the prebuilt stack allows 3, see [one central](../overview/firmware-ble.md#one-central-per-robot-f1-on-this-build)).
+- [x] Frame validation order, result codes, and one CommandResult per received frame.
+- [x] Sequence rules, ready-state gating, and Velocity deadline from receipt time.
+- [x] Emergency Stop latch on any write; stop on expiry, disconnect, or CCCD disable.
+- [ ] Telemetry every `telemetryPeriodMs` and immediately after a state change (#164).
+
 
 Desktop BLE adapter ([#65](https://github.com/Krzys2002/Mini_Robot/issues/65),
 [#66](https://github.com/Krzys2002/Mini_Robot/issues/66)):

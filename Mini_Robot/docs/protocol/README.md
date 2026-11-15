@@ -5,8 +5,8 @@ is specified here. The desktop [BLE lifecycle](../overview/ble-connection.md)
 implements service/identity/CCCD readiness; [message handling](../overview/ble-messages.md)
 implements command writes and validated telemetry/results. The robot-side
 [codec and command validation](../overview/firmware-protocol.md) (#161) is portable
-firmware code that is not yet linked to a BLE peripheral (#163); physical
-command-delivery acceptance remains outstanding.
+firmware code served by the [C6 BLE peripheral](../overview/firmware-ble.md) (#163); powered
+and desktop command-delivery acceptance remains outstanding (#166, #238).
 
 - [Robot message protocol](robot-protocol.md): identity, frame header, message
   types, units and scaling, byte order, sequence numbers, acknowledgements, result
