@@ -310,6 +310,34 @@ TEST(ConfigStoreTest, FactoryResetRefusesToEraseWhenBondsCannotBeRemoved)
     EXPECT_TRUE(store.load().armable());  // Retry is possible; nothing half-erased.
 }
 
+// Review finding: with one slot unreadable the reset cannot tell which slot is newest. If it
+// guessed (B last) and was cut after erasing A, the superseded record in B became armable.
+// It must refuse before erasing anything, including the bonds.
+TEST(ConfigStoreTest, FactoryResetRefusesWhenSlotOrderingIsUnknown)
+{
+    for (int cut = 0; cut < 3; ++cut) {
+        FakeRecordStorage storage;
+        storage.put(Slot::A, encode(validConfig(30), 3));  // Newest.
+        storage.put(Slot::B, encode(validConfig(20), 2));  // Superseded.
+        storage.bondsPresent = true;
+        storage.failRead[0] = true;
+        storage.mutationsBeforeCut = cut;
+        ConfigStore store{storage};
+        const auto reset = store.factoryReset();
+        EXPECT_EQ(reset.outcome, ResetOutcome::StorageUnavailable) << cut;
+        EXPECT_EQ(reset.after.state, ProvisioningState::StorageUnavailable) << cut;
+        EXPECT_EQ(storage.mutations(), 0) << cut;
+        EXPECT_TRUE(storage.bondsPresent) << cut;
+
+        storage.failRead[0] = false;
+        storage.reboot();
+        ConfigStore rebooted{storage};
+        const auto state = rebooted.load();
+        ASSERT_TRUE(state.armable()) << cut;
+        EXPECT_EQ(state.config->raw(), validConfig(30)) << cut;  // Never the superseded 20.
+    }
+}
+
 TEST(ConfigStoreTest, PowerCutDuringFactoryResetNeverResurrectsAnOlderRecord)
 {
     for (int cut = 0; cut < 3; ++cut) {

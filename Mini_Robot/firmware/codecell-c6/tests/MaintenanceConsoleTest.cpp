@@ -130,6 +130,22 @@ TEST(MaintenanceConsoleTest, MaintenanceIsRefusedWhenTheDriveDisableIsNotConfirm
     EXPECT_EQ(rig.output.last(), "ERR not in maintenance");
 }
 
+TEST(MaintenanceConsoleTest, FactoryResetWithAnUnreadableSlotErasesNothingAndStays)
+{
+    ConsoleRig rig;
+    ASSERT_EQ(rig.store.provision(validConfig(7)).outcome, WriteOutcome::Written);
+    rig.storage.bondsPresent = true;
+    rig.send("maintenance");
+    rig.storage.failRead[1] = true;
+    rig.send("factory-reset ERASE");
+    EXPECT_EQ(rig.output.last(),
+              "ERR factory-reset outcome=StorageUnavailable nothing erased; check the storage and run it again");
+    EXPECT_EQ(rig.target.restarts, 0);
+    EXPECT_TRUE(rig.storage.bondsPresent);
+    rig.storage.failRead[1] = false;
+    EXPECT_TRUE(rig.store.load().armable());
+}
+
 TEST(MaintenanceConsoleTest, FactoryResetNeedsConfirmationAndRestarts)
 {
     ConsoleRig rig;

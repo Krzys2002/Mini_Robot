@@ -82,7 +82,7 @@ struct LoadResult {
 };
 
 enum class WriteOutcome : std::uint8_t { Written, RejectedInvalid, StorageUnavailable, WriteFailed, VerifyFailed };
-enum class ResetOutcome : std::uint8_t { Reset, BondEraseFailed, StorageEraseFailed, VerifyFailed };
+enum class ResetOutcome : std::uint8_t { Reset, StorageUnavailable, BondEraseFailed, StorageEraseFailed, VerifyFailed };
 
 [[nodiscard]] constexpr const char* toString(WriteOutcome outcome) noexcept
 {
@@ -100,6 +100,7 @@ enum class ResetOutcome : std::uint8_t { Reset, BondEraseFailed, StorageEraseFai
 {
     switch (outcome) {
     case ResetOutcome::Reset: return "Reset";
+    case ResetOutcome::StorageUnavailable: return "StorageUnavailable";
     case ResetOutcome::BondEraseFailed: return "BondEraseFailed";
     case ResetOutcome::StorageEraseFailed: return "StorageEraseFailed";
     case ResetOutcome::VerifyFailed: return "VerifyFailed";
@@ -201,10 +202,15 @@ public:
 
     // Factory reset: bonds first, then the older slot, then the newest one. An
     // interruption therefore leaves either the unchanged newest record or nothing,
-    // never an older record; running the reset again completes it.
+    // never an older record; running the reset again completes it. The order needs the
+    // newest slot, so a slot that cannot be read refuses the reset before anything is
+    // erased (StorageUnavailable): guessing could erase the newest record first and leave
+    // a superseded one armable. Every other state either names the newest slot or has no
+    // intact record that could come back.
     [[nodiscard]] ResetResult factoryReset() noexcept
     {
         const auto before = load();
+        if (before.state == ProvisioningState::StorageUnavailable) return {ResetOutcome::StorageUnavailable, before};
         if (!storage_.eraseControllerBonds()) return {ResetOutcome::BondEraseFailed, before};
         const Slot last = before.newestSlot.value_or(Slot::B);
         if (!storage_.erase(otherSlot(last)) || !storage_.erase(last))

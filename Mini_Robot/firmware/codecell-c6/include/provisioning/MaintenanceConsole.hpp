@@ -337,6 +337,11 @@ private:
             return;
         }
         const auto result = store_.factoryReset();
+        if (result.outcome == ResetOutcome::StorageUnavailable) {
+            // Nothing was erased: the slot order is unknown while a slot cannot be read.
+            print("ERR factory-reset outcome=StorageUnavailable nothing erased; check the storage and run it again");
+            return;
+        }
         if (result.outcome != ResetOutcome::Reset) {
             printLine("ERR factory-reset outcome=%s stored=%s; run it again", toString(result.outcome),
                    toString(result.after.state));

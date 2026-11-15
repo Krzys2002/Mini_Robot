@@ -93,7 +93,9 @@ Writes follow these rules:
   `Unprovisioned` or `Invalid`, and neither can arm.
 - **Factory reset** erases BLE bonds first, then the older slot, then the newest one. An
   interruption leaves either the unchanged newest record or nothing, never an older record.
-  Running the reset again completes it.
+  Running the reset again completes it. While a slot cannot be read the newest slot is
+  unknown, so the reset is refused (`StorageUnavailable`) before anything, bonds included,
+  is erased.
 - **No resurrection.** A superseded record never becomes active again, even when the newer
   one is unusable (for example after a downgrade to an image that does not understand the
   newer schema).
