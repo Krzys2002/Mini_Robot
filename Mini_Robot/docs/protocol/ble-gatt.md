@@ -4,8 +4,9 @@ Status: specification for [issue #64](https://github.com/Krzys2002/Mini_Robot/is
 The desktop [BLE lifecycle](../overview/ble-connection.md) implements discovery,
 identity/service validation and notification setup. Desktop
 [message handling](../overview/ble-messages.md) implements command writes and
-validated notifications; physical command delivery remains unverified. No production
-firmware implementation is provided here. A connection-only
+validated notifications; physical command delivery remains unverified. The portable
+firmware [codec and command validation](../overview/firmware-protocol.md) (#161) is
+not yet attached to a GATT server (#163). A connection-only
 [CodeCell bench fixture](../../firmware/ble-lifecycle/README.md) supports #187;
 it does not implement the command/safety protocol below.
 
@@ -183,7 +184,10 @@ lost link.
 
 ## Implementation checklist
 
-ESP32-C6 firmware:
+ESP32-C6 firmware (the frame validation order, result codes, sequence rules and
+E-stop latch-on-any-write logic exist as portable, host-tested code in the
+[v1 codec](../overview/firmware-protocol.md), #161; the items stay open until the
+GATT server uses them, #163):
 
 - [ ] GATT layout, properties, and CCCDs as in the table, with robotId from non-volatile storage.
 - [ ] Advertising with the service UUID and `MR-<robotId>` scan response; one accepted application-controller connection per robot, additional links promptly terminated without ordinary command/CCCD effects (dedicated E-stop still latches).

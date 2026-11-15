@@ -38,7 +38,8 @@ constitute transport-independent operational safety.
   reported physical connection evidence and the full-discovery correction; this
   connection-only fixture does not establish motors, watchdog or E-stop behavior.
 - [Firmware](../../firmware/codecell-c6/README.md) owns the production runtime
-  ([structure](firmware-runtime.md), [provisioning](firmware-provisioning.md), [bounded drive](firmware-drive.md)); the drive bounds only the command, and no powered motor test has run;
+  ([structure](firmware-runtime.md), [provisioning](firmware-provisioning.md), [bounded drive](firmware-drive.md), [v1 codec](firmware-protocol.md)); the drive bounds only the command, and no powered motor test has run;
+  the portable v1 codec and command validation are host-tested but not yet linked to a BLE peripheral (#163);
   retired T1 prototype results do not validate this new runtime. Physical checks remain #238.
 - [Test/CI recipes](../development/testing.md) distinguish the affordable PR job,
   daily platform matrix, local tests and hardware checks. Billing/spending limits

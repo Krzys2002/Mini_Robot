@@ -6,8 +6,8 @@ Status: implemented by [#159](https://github.com/Krzys2002/Mini_Robot/issues/159
 `RobotId`, the validated configuration record, the USB maintenance path, and how robot
 identities relate to the desktop's AprilTag association. Nothing here establishes physical
 motion, stopping or calibration. The [bounded drive](firmware-drive.md) (#160) uses the
-calibrated actuator fields below, and BLE
-publication of Robot Info and advertising is #161/#163.
+calibrated actuator fields below. The Robot Info byte encoding is the
+[v1 codec](firmware-protocol.md) (#161), and its BLE publication and advertising are #163.
 
 ## What a robot stores
 
