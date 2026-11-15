@@ -7,6 +7,7 @@
 // nothing. The fuzz run is reproducible: std::mt19937 output is fixed by the standard,
 // and only its raw output is used (no implementation-defined distributions). Override the
 // bounded defaults with CODECELL_PROTOCOL_FUZZ_SEED and CODECELL_PROTOCOL_FUZZ_ITERATIONS.
+#include "AllocationCounter.hpp"
 #include "ProtocolVectors.hpp"
 #include "RuntimeFakes.hpp"
 #include "protocol/V1CommandSession.hpp"
@@ -31,30 +32,17 @@ using runtime::Instant;
 using runtime::MotionState;
 
 // ---- Allocation counter (replaces the global allocator for this test binary) ---------
-namespace {
-std::atomic<bool> gCounting{false};
-std::atomic<std::size_t> gAllocations{0};
-
-class AllocationCount {
-public:
-    AllocationCount() noexcept
-    {
-        gAllocations = 0;
-        gCounting = true;
-    }
-    ~AllocationCount() { gCounting = false; }
-    AllocationCount(const AllocationCount&) = delete;
-    AllocationCount& operator=(const AllocationCount&) = delete;
-    [[nodiscard]] std::size_t count() const noexcept { return gAllocations.load(); }
-};
-} // namespace
+// The counter itself is in AllocationCounter.hpp, so other tests can open a counting scope.
+using codecell::testing::AllocationCount;
+using codecell::testing::gAllocations;
+using codecell::testing::gCountingAllocations;
 
 // Every non-aligned form is replaced, so each allocation and its release use the same
 // malloc/free pair (a sanitizer build checks this). Aligned forms keep the defaults.
 namespace {
 void* countedAllocation(std::size_t size) noexcept
 {
-    if (gCounting.load(std::memory_order_relaxed)) gAllocations.fetch_add(1, std::memory_order_relaxed);
+    if (gCountingAllocations.load(std::memory_order_relaxed)) gAllocations.fetch_add(1, std::memory_order_relaxed);
     return std::malloc(size == 0 ? 1 : size);
 }
 void* countedAllocationOrThrow(std::size_t size)
