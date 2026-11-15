@@ -171,8 +171,9 @@ The boot line states both values: `BLE ... accepted_centrals=1 stack_max_connect
   two written characteristics. The controller lives in static storage.
 - `loopTask` prints a `BLE` line on a link change (at most once per second) and with every
   periodic status line, about 330 B (B13).
-- The production image grew from 355,362 B to 808,134 B of flash (61.7 % of the app
-  partition) and uses 29,472 B of static RAM. That is NimBLE.
+- The production image grew from 355,362 B to 808,662 B of flash (61.7 % of the app
+  partition) and uses 29,504 B of static RAM. That is NimBLE. (The bench image below was
+  808,134 B and 29,472 B, before the review fixes.)
 - The ATT MTU is read from the stack at connect, because NimBLE can report the central's
   MTU exchange before the connect callback (seen on the bench in most connections).
 - For the same reason a CCCD write can be reported before the connect callback. The
@@ -267,8 +268,17 @@ behaviour only. No pin was measured, and the only accepted Velocity was 0 mm/s, 
 7. Restored the original flash in 1 MB chunks. The 8 MB read-back matched the backup's
    SHA-256 (`3685aaf1…8fd1b5`), and the fixture boots again (`id=1 profile=normal`).
 
+**After the bench check**, a review found two callback orderings the image above mishandled:
+CCCDs enabled before the connect callback left the session unready, and a connection
+processed during the first `start()` could be overwritten by `advertising`. Both are fixed and
+covered by host tests with fake links (the second also with a re-entrant fake link), and the
+conformance script now refuses a validity ceiling of 250 ms or more, so `velocity_seq258` is
+always refused. The fixed image was built but has not been rerun on the bench; the results
+above are from the earlier image and its `BLE` line has no `early_cccd` field.
+
 **NOT RUN:**
 
+- the conformance script and soak on the image with the review fixes;
 - a second independent central (one adapter only): AT-03, owned by #165;
 - the Qt desktop (#65/#66) against this image, and macOS (#166, #187);
 - forcing the default 23-byte MTU on BlueZ: it negotiates 256. The 23-byte case is covered by

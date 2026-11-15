@@ -554,7 +554,9 @@ TEST(BlePeripheralTest, HostCallbackOrderAroundADisconnectEndsTheSessionOnce)
     rig.ble->onDisconnected(kOwner, kRemoteUserTerminated);
     EXPECT_EQ(rig.runtimeCount(Counter::SessionEnded), 1U);
     EXPECT_EQ(rig.bleCount(BleCounter::SessionsEnded), 1U);
-    // Late events for the closed handle are foreign: no session, no motion, no result.
+    // Late events for the closed handle are not the owner's: no session, no motion, no result.
+    // They are held like early events; NimBLE reports subscriptions only for connections it
+    // holds, so on the device such events cannot follow the disconnect.
     rig.subscribe(kOwner, Characteristic::CommandResult);
     rig.subscribe(kOwner, Characteristic::Telemetry);
     rig.command(kOwner, velocityFrame(9, kForward, kValidity));
