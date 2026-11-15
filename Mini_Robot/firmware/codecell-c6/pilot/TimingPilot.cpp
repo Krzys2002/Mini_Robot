@@ -194,6 +194,25 @@ struct BleStats {
     bool interArrivalArmed{false}; // False after a reset: the first gap spans the reset.
 };
 BleStats ble;
+// `ble` is written by the BLE host callbacks, the control consumer and the telemetry task,
+// and reset or printed by the console in loopTask. LatencyHistogram has one writer and no
+// locking, so every update, reset and snapshot of `ble` holds statsLock; the console
+// copies one histogram at a time under it and prints the copy outside. The C6 is
+// single-core: the critical section masks interrupts, so it also keeps the writer tasks
+// from preempting a reset or copy. Each hold is one record or one histogram copy.
+portMUX_TYPE statsLock = portMUX_INITIALIZER_UNLOCKED;
+class StatsGuard {
+public:
+    StatsGuard() { portENTER_CRITICAL(&statsLock); }
+    ~StatsGuard() { portEXIT_CRITICAL(&statsLock); }
+    StatsGuard(const StatsGuard&) = delete;
+    StatsGuard& operator=(const StatsGuard&) = delete;
+};
+void recordStat(LatencyHistogram& histogram, Microseconds value)
+{
+    StatsGuard guard;
+    histogram.record(value);
+}
 NimBLEServer* server = nullptr;
 NimBLECharacteristic* estopCharacteristic = nullptr;
 NimBLECharacteristic* resultCharacteristic = nullptr;
@@ -226,7 +245,9 @@ void notifyResult(const std::uint8_t* frame, std::size_t length, std::uint8_t ty
                                                   length >= 4 ? frame[3] : std::uint8_t{0}, type, 0, 0};
     const auto start = nowUs();
     const bool ok = resultCharacteristic->notify(result.data(), result.size());
-    ble.notify.record(us(nowUs() - start));
+    const auto duration = us(nowUs() - start);
+    StatsGuard guard;
+    ble.notify.record(duration);
     if (!ok) ++ble.notifyFailures;
 }
 class ServerCallbacks final : public NimBLEServerCallbacks {
@@ -251,8 +272,13 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
         resultSubscribed = false;
         telemetrySubscribed = false;
         // Robot-clock interval only; no desktop clock is involved.
+        std::int64_t lastWriteUs = -1;
+        {
+            StatsGuard guard;
+            lastWriteUs = ble.lastWriteUs;
+        }
         Serial.printf("PILOT ble disconnect reason=%d since_last_write_us=%lld\n", reason,
-                      ble.lastWriteUs < 0 ? -1LL : static_cast<long long>(t - ble.lastWriteUs));
+                      lastWriteUs < 0 ? -1LL : static_cast<long long>(t - lastWriteUs));
     }
 } serverCallbacks;
 class CharacteristicCallbacks final : public NimBLECharacteristicCallbacks {
@@ -263,19 +289,25 @@ class CharacteristicCallbacks final : public NimBLECharacteristicCallbacks {
         const bool estop = characteristic == estopCharacteristic;
         if (estop) {
             outputGateDisableStub();
-            ble.estopGate.record(us(gateStubUs - receipt));
+            const auto gate = us(gateStubUs - receipt);
+            StatsGuard guard;
+            ble.estopGate.record(gate);
             ++ble.estops;
+            ble.lastWriteUs = receipt;
         }
         const auto value = characteristic->getValue();
         if (!estop) {
-            if (ble.interArrivalArmed) ble.interArrival.record(us(receipt - ble.lastWriteUs));
-            ble.interArrivalArmed = true;
-            ++ble.writes;
+            {
+                StatsGuard guard;
+                if (ble.interArrivalArmed) ble.interArrival.record(us(receipt - ble.lastWriteUs));
+                ble.interArrivalArmed = true;
+                ++ble.writes;
+                ble.lastWriteUs = receipt;
+            }
             if (setpointMailbox) xQueueOverwrite(setpointMailbox, &receipt);
         }
-        ble.lastWriteUs = receipt;
         notifyResult(value.data(), value.size(), estop ? 0x03 : (value.size() >= 2 ? value.data()[1] : 0));
-        ble.callback.record(us(nowUs() - receipt));
+        recordStat(ble.callback, us(nowUs() - receipt));
     }
     void onSubscribe(NimBLECharacteristic* characteristic, NimBLEConnInfo&, std::uint16_t value) override
     {
@@ -290,7 +322,9 @@ void controlConsumerTask(void*)
     for (;;) {
         std::int64_t receipt = 0;
         if (xQueueReceive(setpointMailbox, &receipt, portMAX_DELAY) == pdTRUE) {
-            ble.handoff.record(us(nowUs() - receipt));
+            const auto handoff = us(nowUs() - receipt);
+            StatsGuard guard;
+            ble.handoff.record(handoff);
             ++ble.handoffs;
         }
     }
@@ -311,8 +345,8 @@ void telemetryLoop(void*)
         }
         xTaskDelayUntil(&last, pdMS_TO_TICKS(period));
         const auto t = nowUs();
-        ble.telemetryLateness.record(
-            us(std::llabs(t - previous - static_cast<std::int64_t>(period) * kMicrosecondsPerMillisecond)));
+        recordStat(ble.telemetryLateness,
+                   us(std::llabs(t - previous - static_cast<std::int64_t>(period) * kMicrosecondsPerMillisecond)));
         previous = t;
         if (!(connected.load() && telemetrySubscribed.load())) continue;
         std::array<std::uint8_t, kTelemetryBytes> frame{1, 0x80};
@@ -321,7 +355,9 @@ void telemetryLoop(void*)
         frame[3] = sequence >> 8;
         const auto start = nowUs();
         const bool ok = telemetryCharacteristic->notify(frame.data(), frame.size());
-        ble.telemetryNotify.record(us(nowUs() - start));
+        const auto duration = us(nowUs() - start);
+        StatsGuard guard;
+        ble.telemetryNotify.record(duration);
         ok ? ++ble.telemetrySent : ++ble.telemetryFailures;
     }
 }
@@ -358,20 +394,43 @@ bool startBle(UBaseType_t consumerPrio, UBaseType_t telemetryPrio)
     bleStarted = true;
     return true;
 }
+// Each histogram is copied under statsLock and printed from the copy (static: a histogram
+// is several KB, too large for loopTask's stack seven times over). Histograms are taken one
+// after another while the writers run, so two lines may cover slightly different moments;
+// each line is internally consistent.
+void printBleHistogram(const char* name, const LatencyHistogram& live)
+{
+    static LatencyHistogram copy;
+    {
+        StatsGuard guard;
+        copy = live;
+    }
+    printHistogram("ble", name, copy);
+}
 void printBle()
 {
-    printHistogram("ble", "write_interarrival", ble.interArrival);
-    printHistogram("ble", "write_callback_duration", ble.callback);
-    printHistogram("ble", "result_notify_call", ble.notify);
-    printHistogram("ble", "receipt_to_consumer", ble.handoff);
-    printHistogram("ble", "estop_receipt_to_gate_stub", ble.estopGate);
-    printHistogram("ble", "telemetry_notify_call", ble.telemetryNotify);
-    printHistogram("ble", "telemetry_period_abs_deviation", ble.telemetryLateness);
+    printBleHistogram("write_interarrival", ble.interArrival);
+    printBleHistogram("write_callback_duration", ble.callback);
+    printBleHistogram("result_notify_call", ble.notify);
+    printBleHistogram("receipt_to_consumer", ble.handoff);
+    printBleHistogram("estop_receipt_to_gate_stub", ble.estopGate);
+    printBleHistogram("telemetry_notify_call", ble.telemetryNotify);
+    printBleHistogram("telemetry_period_abs_deviation", ble.telemetryLateness);
+    std::uint32_t writes{}, estops{}, handoffs{}, notifyFailures{}, telemetrySent{}, telemetryFailures{};
+    {
+        StatsGuard guard;
+        writes = ble.writes;
+        estops = ble.estops;
+        handoffs = ble.handoffs;
+        notifyFailures = ble.notifyFailures;
+        telemetrySent = ble.telemetrySent;
+        telemetryFailures = ble.telemetryFailures;
+    }
     Serial.printf("PILOT ble counts writes=%lu estops=%lu handoffs=%lu result_notify_failures=%lu "
                   "telemetry_sent=%lu telemetry_failures=%lu connected=%u\n",
-                  (unsigned long)ble.writes, (unsigned long)ble.estops, (unsigned long)ble.handoffs,
-                  (unsigned long)ble.notifyFailures, (unsigned long)ble.telemetrySent,
-                  (unsigned long)ble.telemetryFailures, unsigned(connected.load()));
+                  (unsigned long)writes, (unsigned long)estops, (unsigned long)handoffs,
+                  (unsigned long)notifyFailures, (unsigned long)telemetrySent,
+                  (unsigned long)telemetryFailures, unsigned(connected.load()));
 }
 
 // ---- Commands ----
@@ -614,11 +673,18 @@ void handleLine(char* line)
         }
         if (sub && strcmp(sub, "reset") == 0) {
             // Reset in place: a temporary BleStats (seven histograms) would overflow loopTask's stack.
+            // One histogram per statsLock hold, so the writers wait at most one reset.
             for (auto* h : {&ble.interArrival, &ble.callback, &ble.notify, &ble.handoff, &ble.estopGate,
-                            &ble.telemetryNotify, &ble.telemetryLateness}) h->reset();
-            ble.writes = ble.estops = ble.notifyFailures = ble.telemetrySent = ble.telemetryFailures = 0;
-            ble.handoffs = 0;
-            ble.interArrivalArmed = false;
+                            &ble.telemetryNotify, &ble.telemetryLateness}) {
+                StatsGuard guard;
+                h->reset();
+            }
+            {
+                StatsGuard guard;
+                ble.writes = ble.estops = ble.notifyFailures = ble.telemetrySent = ble.telemetryFailures = 0;
+                ble.handoffs = 0;
+                ble.interArrivalArmed = false;
+            }
             Serial.println("PILOT ble reset");
             return;
         }

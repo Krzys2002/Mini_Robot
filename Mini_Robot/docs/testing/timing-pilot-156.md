@@ -166,3 +166,15 @@ detection by pointer instead of UUID parsing, and absolute deviations. One
 revision overflowed `loopTask`'s stack (a 13 KB temporary in the command
 handler) and panicked. That was a pilot defect, fixed before the archived image.
 Only the image and logs listed above are evidence.
+
+A later review found that the archived image reset and printed the BLE statistics from
+the console while the BLE callback, control consumer and telemetry task were still
+recording into them, without synchronization (`LatencyHistogram` has one writer and
+no locking). The S1 command sequence resets them while telemetry runs. On the
+single-core C6 a writer task could preempt a reset or print, which can lose a sample
+near that moment or give one printed line counts, extrema and percentiles from
+different moments. The pilot now records, resets and copies them under one critical
+section and prints the copies. The BLE figures above come from the unsynchronized image
+and have not been rerun; the possible error is limited to samples recorded around a
+reset or print, but a rerun with the current pilot is needed before they are cited as
+exact counts.
