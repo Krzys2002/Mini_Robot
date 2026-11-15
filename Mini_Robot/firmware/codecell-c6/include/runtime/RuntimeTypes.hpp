@@ -13,9 +13,9 @@ using std::chrono::milliseconds;
 
 // Supervisory body-frame setpoint in SI units: metres per second and radians per
 // second (positive = counter-clockwise seen from above). Range limits belong to the
-// codec (#161) and the actuator contract (#160: CommandProcessor rejects values above the
-// provisioned body limits, and drive::BoundedDriveOutput bounds the wheels); this type only
-// carries the value.
+// v1 codec (#161, protocol/V1CommandSession.hpp) and the actuator contract (#160:
+// CommandProcessor rejects values above the provisioned body limits, and
+// drive::BoundedDriveOutput bounds the wheels); this type only carries the value.
 struct BodyVelocity {
     double linearMetresPerSecond{0.0};
     double angularRadiansPerSecond{0.0};
@@ -44,7 +44,8 @@ enum class FaultCode : std::uint8_t {
     StopRampOverrun,             // A normal stop ramp was not at zero within the B6 enforcement limit (#160).
 };
 
-// Answer of the single motion-command authority. Mapping to v1 result codes is #161/#163.
+// Answer of the single motion-command authority. protocol::v1::resultCodeFor() maps it
+// to a v1 result code (#161).
 enum class CommandOutcome : std::uint8_t {
     Accepted,
     RejectedNotReady,              // Startup has not completed (or never will: see FaultCode).

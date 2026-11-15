@@ -118,8 +118,8 @@ public:
 };
 
 // BLE adapter boundary: the single motion-command authority. The BLE peripheral (#163)
-// decodes frames with the codec (#161), stamps receipt at callback entry on the robot
-// clock and calls exactly one of these per frame. No other code may command motion.
+// passes each write through protocol::v1::CommandSession (#161), stamps receipt at
+// callback entry on the robot clock and calls at most one of these per frame. No other code may command motion.
 class IMotionCommandSink {
 public:
     virtual ~IMotionCommandSink() = default;
