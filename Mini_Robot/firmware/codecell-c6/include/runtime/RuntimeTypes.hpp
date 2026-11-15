@@ -31,7 +31,7 @@ enum class MotionState : std::uint8_t { Idle = 0, Moving = 1, EmergencyStop = 2,
 enum class FaultCode : std::uint8_t {
     None = 0,
     DriveDisableFailed,          // The drive adapter could not confirm a disable.
-    ConfigurationUnavailable,    // The configuration source returned nothing.
+    ConfigurationUnavailable,    // No validated robot configuration (unprovisioned, invalid or unreadable, #159).
     ConfigurationInvalid,        // The configuration failed RuntimeConfig validation.
     SynchronizationUnavailable,  // The platform could not create the handoff critical section.
     SupervisorTaskStartFailed,

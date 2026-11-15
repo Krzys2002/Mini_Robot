@@ -2,7 +2,8 @@
 // Runtime scheduling configuration (#158). Defaults come from the #156 budget table in
 // TimingBudget.hpp; validation rejects any value that would break those bounds. A
 // configuration that fails validation never starts a task and never arms the drive.
-// Persistent provisioning and its storage belong to #159.
+// Persistent provisioning (#159) supplies commandValidityCeiling from the validated
+// record (provisioning/ProvisionedConfiguration.hpp); the other values stay budget defaults.
 #include "TimingBudget.hpp"
 #include <cstddef>
 #include <cstdint>

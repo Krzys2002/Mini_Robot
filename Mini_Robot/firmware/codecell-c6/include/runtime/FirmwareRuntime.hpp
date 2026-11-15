@@ -60,6 +60,9 @@ public:
     // The single motion-command authority, for the BLE adapter (#163).
     [[nodiscard]] IMotionCommandSink& commands() noexcept { return commands_; }
     [[nodiscard]] RuntimeStatus status() const noexcept { return gate_.status(); }
+    // Local maintenance path (#159): stop, clear intent, disable the drive and refuse
+    // motion until reset. Callable in any state, including Fault and before start().
+    [[nodiscard]] bool enterMaintenance() noexcept { return gate_.enterMaintenance(); }
     [[nodiscard]] DiagnosticsSnapshot diagnostics() const noexcept { return diagnostics_.snapshot(); }
     [[nodiscard]] const std::optional<RuntimeConfig>& config() const noexcept { return config_; }
     [[nodiscard]] std::optional<ConfigError> configError() const noexcept { return configError_; }

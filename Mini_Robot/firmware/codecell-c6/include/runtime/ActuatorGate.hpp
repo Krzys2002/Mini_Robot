@@ -19,6 +19,7 @@ struct RuntimeStatus {
     FaultCode fault{FaultCode::None};
     bool ready{false};
     bool outputEnabled{false};  // The last drive call was a permitted command, not a disable.
+    bool maintenance{false};    // Motion refused until reset (#159).
 };
 
 class ActuatorGate {
@@ -81,6 +82,16 @@ public:
         return outcome;
     }
 
+    // Maintenance (#159): clears intent and disables the drive in one critical section,
+    // before any configuration write. False when the disable could not be confirmed
+    // (the runtime is then in Fault and the caller must not write configuration).
+    [[nodiscard]] bool enterMaintenance() noexcept
+    {
+        CriticalSectionGuard guard(section_);
+        safety_.enterMaintenance();
+        return disableLocked();
+    }
+
     void fault(FaultCode code) noexcept
     {
         CriticalSectionGuard guard(section_);
@@ -125,7 +136,7 @@ public:
     [[nodiscard]] RuntimeStatus status() const noexcept
     {
         CriticalSectionGuard guard(section_);
-        return {safety_.state(), safety_.fault(), safety_.ready(), outputEnabled_};
+        return {safety_.state(), safety_.fault(), safety_.ready(), outputEnabled_, safety_.maintenance()};
     }
 
 private:

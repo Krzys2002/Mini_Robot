@@ -3,6 +3,7 @@
 // after a chosen number of mutating operations and tear the interrupted write at any
 // byte, which models the worst case (a partial value persisted) for every step.
 #include "provisioning/ConfigStore.hpp"
+#include "provisioning/MaintenanceConsole.hpp"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -114,4 +115,34 @@ private:
     }
 };
 
+class RecordingOutput final : public IMaintenanceOutput {
+public:
+    std::vector<std::string> lines;
+    void line(const char* text) noexcept override { lines.emplace_back(text); }
+    [[nodiscard]] const std::string& last() const { return lines.back(); }
+    [[nodiscard]] bool contains(const std::string& needle) const
+    {
+        for (const auto& l : lines)
+            if (l.find(needle) != std::string::npos) return true;
+        return false;
+    }
+};
+
+class FakeMaintenanceTarget final : public IMaintenanceTarget {
+public:
+    int entered{0};
+    int restarts{0};
+    bool refuse{false};
+    // Storage mutation count at the moment of the first entry (to prove ordering).
+    const FakeRecordStorage* storage{nullptr};
+    std::optional<int> mutationsAtEntry{};
+
+    bool enterMaintenance() noexcept override
+    {
+        ++entered;
+        if (storage && !mutationsAtEntry) mutationsAtEntry = storage->mutations();
+        return !refuse;
+    }
+    void restart() noexcept override { ++restarts; }
+};
 } // namespace codecell::provisioning::fakes
