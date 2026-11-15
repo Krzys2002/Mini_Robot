@@ -12,7 +12,7 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | Vision | AprilTag detection, RobotId association, pixel observations, calibrated metric measurement boundary and matched-frame debug overlays | Physical metric-pose acceptance (#224) |
 | World | One authoritative robot registry, signed metric workspace with guided corners/editable origin, flat-board acquisition/provenance and v1/v2/v3 profiles, directional scale/survey-error maps, conditional prediction and two-point planar distance diagnostics, tracked pose measurements and explicit observation age | Physical scale/error/prediction coverage (#265) and distance/selection acceptance (#268), tracking acceptance, filtering, obstacles and planning state |
 | Communication | Native BLE command/telemetry adapter, RobotManager sessions and deterministic simulation with shared pending Stop priority | Production command/safety interoperability, over-air measurements and remaining multi-link hardware checks |
-| Robot firmware | Fresh C6 build skeleton, pinned toolchain and portable clock host tests; proposed [timing budgets](../protocol/timing-budgets.md) with fake-clock timeline tests and a USB-only [timing pilot](../testing/timing-pilot-156.md); separate BLE connection fixture; [restricted-lab security profile](../protocol/security-profile.md) decided (unauthenticated v1) | Production BLE runtime/protocol, actuation and measured safety acceptance (#158–#166, #238); security-profile enforcement and attack tests (#165) |
+| Robot firmware | C6 production [runtime](firmware-runtime.md) (boots disabled, one safety/actuator gate, one command authority, budget-scheduled supervisor and control tasks, no Wi-Fi/HTTP in the image) with fake-driven host tests, pinned toolchain; proposed [timing budgets](../protocol/timing-budgets.md) with fake-clock timeline tests and a USB-only [timing pilot](../testing/timing-pilot-156.md); separate BLE connection fixture; [restricted-lab security profile](../protocol/security-profile.md) decided (unauthenticated v1) | Production BLE peripheral/protocol, validated actuation, the complete watchdog/fault recovery and measured safety acceptance (#159–#166, #238); security-profile enforcement and attack tests (#165) |
 | Control/planning | Pure differential-drive math and transport-level safety primitives | Domain operational safety, manual commands UI, closed-loop controller, paths, trajectories and coordination |
 | Recording | Human-readable application logs | Structured experiment records and validated end-to-end latency/error measurements |
 
@@ -37,7 +37,8 @@ constitute transport-independent operational safety.
   acceptance. PR [#213](https://github.com/Krzys2002/Mini_Robot/pull/213) retains
   reported physical connection evidence and the full-discovery correction; this
   connection-only fixture does not establish motors, watchdog or E-stop behavior.
-- [Firmware](../../firmware/codecell-c6/README.md) owns the fresh build skeleton;
+- [Firmware](../../firmware/codecell-c6/README.md) owns the production runtime
+  ([structure](firmware-runtime.md)); its drive adapter stays inhibited until #160;
   retired T1 prototype results do not validate this new runtime. Physical checks remain #238.
 - [Test/CI recipes](../development/testing.md) distinguish the affordable PR job,
   daily platform matrix, local tests and hardware checks. Billing/spending limits
