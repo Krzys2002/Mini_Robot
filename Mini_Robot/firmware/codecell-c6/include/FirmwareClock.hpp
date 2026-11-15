@@ -14,6 +14,9 @@ class IFirmwareClock {
 public:
     virtual ~IFirmwareClock() = default;
     [[nodiscard]] virtual Milliseconds now() const = 0;
+    // Full-resolution reading for deadlines (the #156 budgets use microseconds).
+    // Clocks that only have milliseconds may keep this default.
+    [[nodiscard]] virtual Microseconds nowMicroseconds() const { return now(); }
 };
 // Converts a signed 64-bit microsecond count since boot (the ESP timer contract)
 // to whole milliseconds, truncating toward zero. Negative counts are not valid
