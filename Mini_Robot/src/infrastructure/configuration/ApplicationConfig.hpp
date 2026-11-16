@@ -50,6 +50,8 @@ struct ManualControlConfig {
 };
 
 struct TrackingConfig {
+    double positionAlpha{1.0};
+    double headingAlpha{1.0};
     // Initial software thresholds; tune for camera cadence and experiment conditions.
     std::chrono::milliseconds staleAfter{250};
     std::chrono::milliseconds lostAfter{1000};
