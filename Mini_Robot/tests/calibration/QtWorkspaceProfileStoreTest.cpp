@@ -11,10 +11,17 @@ TEST(QtWorkspaceProfileStoreTest, SurvivesRecreationAndRejectsAnotherOpticalMode
 {
     QTemporaryDir directory; ASSERT_TRUE(directory.isValid());
     auto p = homographyInput().profile; p.workspaceId = "../table żółć"; p.homography = knownHomography();
+    p.bounds = WorkspaceBounds{Meters{1},Meters{0.6},{Meters{-0.25},Meters{-0.3}}};
+    p.frameId = "persisted-signed-frame";
+    p.boundary = WorkspaceBoundary{{{100,700},{900,700},{900,100},{100,100}}};
     { QtWorkspaceProfileStore writer{directory.path()}; EXPECT_TRUE(writer.save(p).empty()); }
     QtWorkspaceProfileStore reader{directory.path()};
     auto result = reader.load(p.workspaceId, p.intrinsics); ASSERT_TRUE(result.profile) << result.error;
     EXPECT_EQ(result.profile->homography->imageToWorld, p.homography->imageToWorld);
+    EXPECT_TRUE(result.profile->bounds == p.bounds);
+    EXPECT_EQ(result.profile->frameId,p.frameId);
+    ASSERT_TRUE(result.profile->boundary);
+    EXPECT_DOUBLE_EQ((*result.profile->boundary)[2].v,100);
     auto optical = p.intrinsics; optical.cameraMatrix[0] += 1;
     EXPECT_EQ(reader.load(p.workspaceId, optical).state, ProfileLoadState::Rejected);
     optical = p.intrinsics; optical.sourceId += "other";

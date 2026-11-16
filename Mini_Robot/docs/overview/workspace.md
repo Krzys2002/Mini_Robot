@@ -1,122 +1,101 @@
 # Tabletop workspace and calibration model
 
-Issue [#56](https://github.com/Krzys2002/Mini_Robot/issues/56) defines the shared
-physical frame for localization, planning and supervisory control. It extends the
-[authoritative world model](world-model.md) without changing pose-update semantics.
+The authoritative `WorldModel` owns metric robot state and optional workspace
+bounds. The guided calibration introduced by [#246](https://github.com/Krzys2002/Mini_Robot/issues/246)
+extends the original #56/#57 lower-left frame without changing existing physical
+coordinates when old profiles are loaded.
 
-![Tabletop axes, rectangular bounds, origin and positive heading](workspace-frame.svg)
+## Physical frame
 
-## Physical coordinate convention
+Select four physical corners in this explicit order: **C1 base, C2 adjacent along
++X, C3 opposite, C4 adjacent along +Y**. Enter the measured C1→C2 length W and
+C1→C4 length H in metres. The workspace is rectangular in physical space; its
+camera projection can be a rotated or oblique convex quadrilateral. Screen order
+never determines physical axes. Both image windings are accepted. Duplicate,
+crossed, concave, collinear, non-finite and out-of-image boundaries are rejected.
+A wrong physical label can still produce a mathematical fit: verify the labels
+and signs against independent references.
 
-- Mark and measure the **lower-left corner in the intended top-down world view**
-  as the physical origin `(0, 0)` metres. “Lower-left” refers to this world view,
-  not to a camera image: a rotated or oblique camera does not redefine the table.
-- +X runs along the bottom edge to the right; +Y runs along the left edge upward.
-  The tabletop is `z = 0`; +Z points out of the table. This is right-handed.
-- Heading is zero along +X and positive counterclockwise toward +Y: right = 0,
-  up = π/2, left = π (or equivalent −π), down = −π/2 radians.
-- Internal positions and dimensions use `Meters`; headings use `Radians`.
-  `Pose2D` permits unwrapped angles; `normalizeAngle` supplies (−π, π] when needed.
-  Display-only conversions may use millimetres/degrees at the UI boundary.
-- The workspace is the closed rectangle `[0, W] × [0, H]`. W and H must be finite
-  and strictly positive metres. No assumed/default table size is supplied.
+Choose an origin at any corner or enter its measured offsets `(ox, oy)` from C1
+along the labelled +X/+Y edges. Offsets must lie in `[0,W] × [0,H]`. Coordinates
+then occupy `[-ox, W-ox] × [-oy, H-oy]`. An interior origin produces negative X
+to its left and negative Y below it in the intended world view. A preliminary
+calculation also allows picking an origin on the frozen image; that mapped pick
+is an estimate, not an independently measured reference.
 
-`WorkspaceBounds` validates dimensions on construction and includes the border in
-`contains(WorldPoint2D)`. Non-finite and outside points are rejected. A bounds check
-is not robot-footprint clearance, obstacle inflation or a control safety policy.
-Poses outside the table may still be stored as measurements; changing bounds does
-not clamp/reinterpret robot poses or silently move the physical origin.
+Heading remains zero along +X and positive counterclockwise toward +Y. Internal
+units are metres/radians; image coordinates are native-K undistorted pixels.
+The table is a plane; no elevated-object or robot-motion accuracy follows from
+this coordinate contract.
 
-Sources: [Workspace.hpp](../../src/world/Workspace.hpp),
-[Workspace.cpp](../../src/world/Workspace.cpp),
-[Pose2D.hpp](../../src/common/Pose2D.hpp).
+`WorkspaceBounds(width,height)` preserves the legacy zero-minimum rectangle.
+The three-argument overload stores an explicit minimum plus positive dimensions;
+finite, representable extents are required. `contains()` includes the boundary.
+Profile validation additionally requires `(0,0)` to lie inside that rectangle.
+A bounds check is not robot-footprint clearance or a motion safety policy.
 
-## Authoritative state and UI/overlay convention
+## World state and presentation
 
-`WorldModel::setWorkspaceBounds(optionalBounds)` sets or clears the current table
-bounds on the model's owning thread. `WorldSnapshot::workspace` is a detached
-optional copy; absence explicitly means **dimensions not configured**. No second
-workspace registry is created. `workspaceBounds()` reads those dimensions without
-copying the robot registry.
+`WorldModel::setWorkspaceBounds()` configures dimensions only and does not clamp
+or reinterpret poses. `setWorkspaceFrame(bounds, frameId)` explicitly installs an
+active frame and clears old measurements/timestamps/tracking metadata while
+preserving registered robot identities. Detached snapshots carry the bounds and
+optional frame identity. The desktop uses this operation on explicit calibration
+activation; camera/optical invalidation clears active bounds and measurements.
+The vision controller separately fences pending results, clears previews/batches,
+and invalidates its tracker through the existing bridge.
 
-A profile is saved calibration data, not a second live world authority. The #57
-application service installs accepted `profile.bounds` in WorldModel on the owning
-thread. Dimension/input changes invalidate the transform and clear active bounds;
-a loaded transform is never paired with another table size. The calibration
-service retains H; conversion of robot observations remains #58.
+Draft corner, dimension, origin or workspace-identity edits clear draft fit/check
+references and results, allocate a new frame identity, and reject late worker
+completion. The previous active calibration remains installed until explicit
+replacement or camera/optical invalidation. Additional fitting-reference edits
+invalidate draft H; Check-only edits retain H for independent verification.
 
-The main window always shows the lower-left origin, +X/+Y, SI units, zero heading
-and CCW convention. `DesktopController::setWorkspaceBounds` publishes measured
-width/height from the same authoritative world model; the UI continues to say
-camera-to-world calibration is not established. Dimension configuration is not a
-camera calibration. This issue supplies the model/service boundary, not a table
-measurement wizard or guessed production dimensions.
+World-view fractions use `u=(x-minX)/W`, `v=1-(y-minY)/H`, with top-left `(0,0)`
+and bottom-right `(1,1)`. Apply viewport scale and padding at the UI boundary.
+Preserve physical aspect ratio. Out-of-bounds inputs are rejected, never clamped.
+`workspaceToView` and `viewToWorkspace` are presentation conversions, not camera
+calibration. Image +v points down; camera overlays must project the physical axes
+rather than treating world +Y as screen up.
 
-For future world-view overlays, draw +X right and +Y up, with origin at the
-lower-left of the viewport. Use `workspaceToView` / `viewToWorkspace` for normalized
-presentation coordinates: top-left = `(u=0, v=0)`, bottom-right = `(1,1)`.
-`u = x/W`, `v = 1 − y/H`; scale/offset into the viewport after conversion. Preserve
-aspect ratio with padding; a physical metre must have the same display scale on
-both axes. Inputs outside the bounds are rejected rather than clamped. These
-functions do **not** map camera pixels to metres.
+## Profile v2 and compatibility
 
-Raw images keep their own top-left pixel origin, +u right and +v down. A world-axis
-legend over a camera image must use its calibrated transform; do not simply draw
-world +Y along image up or treat a world-view fraction as a detector pixel.
+`WorkspaceCalibrationProfile` owns workspace identity, explicit metric bounds,
+exact camera/resolution/K/distortion binding, optional image→world H, frame ID and
+optional ordered native-K boundary references. Guided frames receive UUIDs; frame
+IDs must be interpreted together with the workspace/optical binding and H, not as
+a global promise of unchanged physical placement. Recalculating H in the same
+physical frame still requires diagnostic invalidation on activation.
 
-## Version 1 workspace-calibration structure
+The strict `micro_robot_workspace 2` format adds `minimum`, quoted `frame`, and
+`boundary` fields after dimensions. Optional boundary storage is four ordered
+`u v` pairs. H maps directly to signed world coordinates; the origin is not an
+extra presentation-only translation. Doubles round-trip with `max_digits10` and
+the classic locale. The existing 128 KiB file bound remains sufficient; this
+schema does not add correspondence datasets or chessboard-placement provenance.
 
-[WorkspaceCalibration.hpp](../../src/calibration/WorkspaceCalibration.hpp) and
-[WorkspaceCalibration.cpp](../../src/calibration/WorkspaceCalibration.cpp) define
-`WorkspaceCalibrationProfile`, separately from the existing lens
-[intrinsic calibration/profile](calibration-profiles.md):
+The reader also accepts strict v1 files: minimums become exactly zero, H and
+intrinsics remain unchanged, frame ID becomes `legacy-lower-left`, and boundary
+references remain absent. Saving writes v2. Nothing is silently recentered or
+mirrored. Unknown versions, missing v2 frame fields, malformed/oversized data,
+invalid bounds/boundaries, incompatible optical models, singular/non-finite H and
+trailing data remain rejected. Older software cannot read v2: retain a v1 backup
+if rollback to that software is required. Storage keys and atomic replacement
+are unchanged.
 
-| Field | Meaning |
-| --- | --- |
-| `version` | `WorkspaceCalibrationProfileVersion`, currently 1; unknown versions rejected |
-| `workspaceId` | Non-empty identity of the physical table/frame |
-| `bounds` | Validated metric W/H and the fixed origin/axes above |
-| `intrinsics` | Owned intrinsic snapshot: camera/device identity, delivered width/height, K, distortion and quality metadata |
-| `imageCoordinates` | Only `UndistortedNativeCameraMatrix`: undistorted pixels using the bound K, native size, no crop/resize/mirroring |
-| `homography` | Optional row-major 3×3 image-to-world matrix; absent means no workspace transform |
+See [the operator procedure](tabletop-homography.md),
+[Workspace.hpp](../../src/world/Workspace.hpp),
+[WorkspaceCalibration.hpp](../../src/calibration/WorkspaceCalibration.hpp), and
+[WorkspaceProfile.cpp](../../src/calibration/WorkspaceProfile.cpp).
 
-For an estimated H, `[x′, y′, w′] = H [u, v, 1]`, with world metres
-`(x′/w′, y′/w′)`. Profile validation checks finite, numerically nonsingular optional
-matrix storage and valid intrinsic metadata. It does not solve correspondences,
-check mapping accuracy or authorize robot control. Compatibility rejects any
-camera identity, resolution, K or distortion change without silently resizing a
-transform. Moving a camera/lens/table also requires new workspace calibration;
-identity/metadata equality cannot detect physical motion.
+## Verification limits
 
-Profiles intentionally require explicit bounds at construction. A #57 loader
-should parse and validate dimensions first, then construct the aggregate; it must
-not introduce guessed default dimensions. K and distortion compare exactly, so
-persistence must preserve doubles losslessly (for decimal text, use
-`std::numeric_limits<double>::max_digits10`) and test save/load compatibility.
-
-Workspace serialization, filesystem storage and estimation are now implemented by
-[tabletop homography calibration](tabletop-homography.md) (#57). The application
-installs accepted profile bounds in WorldModel and clears them on invalidation.
-Metric robot pose conversion and tracking remain #58 and later issues. A draft profile with
-no H remains uncalibrated; lens intrinsics alone never establish a table transform.
-
-## Verification
-
-[WorkspaceTest](../../tests/world/WorkspaceTest.cpp) covers metric dimensions,
-closed borders, invalid values, corner and aspect-ratio round trips, CCW heading
-presentation, authoritative ownership and unchanged robot poses.
-[WorkspaceCalibrationTest](../../tests/calibration/WorkspaceCalibrationTest.cpp)
-covers versions, pixel-domain enums, camera/resolution/optical compatibility,
-uncalibrated drafts, matrix finiteness/singularity and homogeneous scaling. Both
-suites run without Qt/OpenCV. Desktop integration tests verify visible convention,
-measured dimensions and explicit uncalibrated status; GUI scaling checks include
-the new labels.
-
-Before physical use, mark the origin and axes on the measured table, verify W/H in
-metres, and commission image-to-world calibration with independent points under
-#57/#58. No physical camera/table accuracy is established by this issue's tests.
-
-Homography estimation, point acquisition, residuals and workspace-profile persistence
-are implemented by [tabletop homography calibration](tabletop-homography.md) (#57).
-Physical placement/accuracy still require commissioning; detection-to-pose conversion
-remains #58.
+Core tests cover signed extents/view round trips, boundary validation in both
+windings, strict profile migration and downstream metric consistency. OpenCV tests
+cover solving with signed origins and reversed physical axis assignment. Offscreen
+UI tests cover guidance, edits, picking, save/load and stale-work invalidation.
+They establish software behavior, not physical camera accuracy or native-display
+acceptance. Physical reference and printed-tag evidence belongs to the separate
+[#259](https://github.com/Krzys2002/Mini_Robot/issues/259) (corner/origin workflow) and
+[#224](https://github.com/Krzys2002/Mini_Robot/issues/224) (metric tags); all new physical
+checks remain NOT RUN until executed.

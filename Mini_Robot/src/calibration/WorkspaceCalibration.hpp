@@ -8,8 +8,21 @@
 #include <optional>
 #include <string>
 
+// Boundary/origin selection defines the tabletop z=0 world frame, not camera
+// extrinsics or elevated robot poses. #270 owns height/mount conversion; #271
+// owns reference monitoring outside robot travel bounds. Bounds remain travel geometry.
 namespace micro_robot {
-inline constexpr std::uint32_t WorkspaceCalibrationProfileVersion = 1;
+inline constexpr std::uint32_t WorkspaceCalibrationProfileVersion = 2;
+inline constexpr std::uint32_t MinimumWorkspaceImageDimensionPixels = 2;
+inline constexpr std::size_t WorkspaceCornerCount = 4;
+inline constexpr double WorkspaceBoundaryCrossTolerance = 1e-8; // Normalized image area.
+inline constexpr std::size_t MaximumWorkspaceFrameIdBytes = 128;
+using WorkspaceBoundary = std::array<ImageCorner, WorkspaceCornerCount>;
+// Ordered physical base, +X neighbour, opposite, +Y neighbour. Both image
+// windings are valid; screen positions never determine physical labels.
+[[nodiscard]] std::string validateWorkspaceBoundary(const WorkspaceBoundary& boundary,
+                                                    std::uint32_t imageWidth, std::uint32_t imageHeight);
+[[nodiscard]] std::array<WorldPoint2D, WorkspaceCornerCount> workspaceCorners(const WorkspaceBounds& bounds);
 enum class WorkspaceImageCoordinates { UndistortedNativeCameraMatrix };
 // Row-major H, [x',y',w'] = H*[u,v,1], world metres = (x'/w', y'/w').
 // Input is undistorted pixels using the bound intrinsic K, at its native size,
@@ -30,6 +43,10 @@ struct WorkspaceCalibrationProfile {
     IntrinsicCalibration intrinsics;
     WorkspaceImageCoordinates imageCoordinates{WorkspaceImageCoordinates::UndistortedNativeCameraMatrix};
     std::optional<WorkspaceHomography> homography{}; // Absent means uncalibrated.
+    // Legacy v1 migration preserves H/coordinates and explicitly labels its frame.
+    // New guided frames use a persistent unique ID; edits allocate a new identity.
+    std::string frameId{"legacy-lower-left"};
+    std::optional<WorkspaceBoundary> boundary{}; // Ordered native-K acquisition references.
 };
 // Empty error means structurally valid metadata (including an optional finite,
 // numerically nonsingular H), not physical accuracy or permission to control a robot.

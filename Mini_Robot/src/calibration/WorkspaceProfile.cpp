@@ -13,9 +13,13 @@ std::string serializeWorkspaceProfile(const WorkspaceCalibrationProfile& p)
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out << std::setprecision(std::numeric_limits<double>::max_digits10)
-        << "micro_robot_workspace 1\nworkspace " << std::quoted(p.workspaceId) << "\ndimensions "
+        << "micro_robot_workspace 2\nworkspace " << std::quoted(p.workspaceId) << "\ndimensions "
         << p.bounds.width().value << ' ' << p.bounds.height().value
-        << "\nimage_coordinates undistorted_native_k\nhomography " << (p.homography ? 1 : 0);
+        << "\nminimum " << p.bounds.minimum().x.value << ' ' << p.bounds.minimum().y.value
+        << "\nframe " << std::quoted(p.frameId) << "\nboundary " << (p.boundary ? 1 : 0);
+    if (p.boundary)
+        for (const auto& corner : *p.boundary) out << ' ' << corner.u << ' ' << corner.v;
+    out << "\nimage_coordinates undistorted_native_k\nhomography " << (p.homography ? 1 : 0);
     if (p.homography)
         for (double value : p.homography->imageToWorld)
             out << ' ' << value;
@@ -36,16 +40,29 @@ WorkspaceProfileLoadOutcome parseWorkspaceProfile(std::string_view text)
     std::istringstream in{std::string{text}};
     in.imbue(std::locale::classic());
     std::string token, version, id, convention, flag, intrinsicText;
-    double width{}, height{};
+    double width{}, height{}, minX{}, minY{};
+    std::string frameId{"legacy-lower-left"};
+    std::optional<WorkspaceBoundary> boundary;
     auto keyword = [&](const char* expected) { return static_cast<bool>(in >> token) && token == expected; };
     auto quoted = [&](std::string& value) {
         in >> std::ws;
         return in.peek() == '"' && static_cast<bool>(in >> std::quoted(value));
     };
     try {
-        if (!keyword("micro_robot_workspace") || !(in >> version) || version != "1" ||
-            !keyword("workspace") || !quoted(id) || !keyword("dimensions") || !(in >> width >> height) ||
-            !keyword("image_coordinates") || !(in >> convention) || convention != "undistorted_native_k" ||
+        if (!keyword("micro_robot_workspace") || !(in >> version) || (version != "1" && version != "2") ||
+            !keyword("workspace") || !quoted(id) || !keyword("dimensions") || !(in >> width >> height))
+            return reject("Invalid workspace profile header, version or dimensions.");
+        if (version == "2") {
+            if (!keyword("minimum") || !(in >> minX >> minY) || !keyword("frame") || !quoted(frameId)
+                || !keyword("boundary") || !(in >> flag) || (flag != "0" && flag != "1"))
+                return reject("Invalid workspace frame descriptor.");
+            if (flag == "1") {
+                boundary.emplace();
+                for (auto& corner : *boundary)
+                    if (!(in >> corner.u >> corner.v)) return reject("Invalid workspace boundary.");
+            }
+        }
+        if (!keyword("image_coordinates") || !(in >> convention) || convention != "undistorted_native_k" ||
             !keyword("homography") || !(in >> flag) || (flag != "0" && flag != "1"))
             return reject("Invalid workspace profile header, version or coordinate convention.");
         std::optional<WorkspaceHomography> transform;
@@ -65,10 +82,10 @@ WorkspaceProfileLoadOutcome parseWorkspaceProfile(std::string_view text)
             return reject("Invalid bound intrinsic profile: " + optical.error);
         WorkspaceCalibrationProfile p{WorkspaceCalibrationProfileVersion,
                                       std::move(id),
-                                      WorkspaceBounds{Meters{width}, Meters{height}},
+                                      WorkspaceBounds{Meters{width}, Meters{height}, {Meters{minX}, Meters{minY}}},
                                       std::move(*optical.result),
                                       WorkspaceImageCoordinates::UndistortedNativeCameraMatrix,
-                                      transform};
+                                      transform, std::move(frameId), boundary};
         if (auto error = validateWorkspaceCalibrationProfile(p); !error.empty())
             return reject(error);
         return {ProfileLoadState::Loaded, std::move(p), {}};

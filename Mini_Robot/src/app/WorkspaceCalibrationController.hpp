@@ -20,7 +20,17 @@ public:
     ~WorkspaceCalibrationController() override;
     void setInput(std::optional<IntrinsicCalibration> intrinsics, bool persistent);
     void receiveFrame(FramePtr frame);
-    void configure(QString workspaceId, double widthMeters, double heightMeters);
+    void configure(QString workspaceId, double widthMeters, double heightMeters,
+                   double originFromBaseXMeters = 0, double originFromBaseYMeters = 0);
+    void selectCorner(ImageCorner point, std::optional<std::size_t> replace = {});
+    void undoCorner();
+    void clearCorners();
+    void confirmBoundary();
+    void setOriginFromImage(ImageCorner point);
+    [[nodiscard]] const auto& corners() const { return corners_; }
+    [[nodiscard]] std::uint64_t referencesRevision() const { return referencesRevision_; }
+    [[nodiscard]] bool boundaryConfirmed() const { return boundaryConfirmed_; }
+    [[nodiscard]] bool canAddReferences() const { return boundaryConfirmed_ || (draft_ && draft_->homography); }
     void setPoints(std::vector<WorkspaceCorrespondence> fit, std::vector<WorkspaceCorrespondence> check);
 
     [[nodiscard]] const std::optional<WorkspaceCalibrationProfile>& profile() const { return profile_; }
@@ -55,7 +65,7 @@ public:
 
     [[nodiscard]] bool canCalculate() const
     {
-        return !shuttingDown_ && !busy_ && frozen_ && intrinsics_ && bounds_ && !workspaceId_.isEmpty();
+        return !shuttingDown_ && !busy_ && frozen_ && intrinsics_ && bounds_ && !workspaceId_.isEmpty() && boundaryConfirmed_;
     }
 
     [[nodiscard]] bool canSave() const
@@ -85,6 +95,7 @@ signals:
 
 private:
     void invalidate(bool clearFrame);
+    void geometryChanged();
     void publish(QString message);
     std::shared_ptr<IWorkspaceHomographySolver> solver_;
     std::shared_ptr<ICalibrationUndistorter> undistorter_;
@@ -97,11 +108,15 @@ private:
     std::optional<WorkspaceCalibrationProfile> profile_; // Active, explicitly installed calibration.
     std::optional<WorkspaceCalibrationProfile> draft_;
     QString workspaceId_;
+    std::string frameId_;
+    std::vector<ImageCorner> corners_;
+    bool boundaryConfirmed_{};
     FramePtr latest_, frozen_;
     std::vector<WorkspaceCorrespondence> fit_, check_;
     QString message_{
         QStringLiteral("Load or calculate compatible intrinsics, then freeze an undistorted frame.")};
-    std::uint64_t generation_{};
+    std::uint64_t generation_{}, referencesRevision_{};
+    static constexpr auto MaximumFrozenFrameAge = std::chrono::seconds{2};
     bool persistent_{}, busy_{}, shuttingDown_{}, resolutionMismatch_{};
 };
 } // namespace micro_robot

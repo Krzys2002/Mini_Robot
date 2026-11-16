@@ -17,6 +17,8 @@ public:
                                         std::optional<double> quality = {});
     // Input/calibration invalidation makes all poses from this tracker lost.
     void invalidate(Timestamp now);
+    // Exclusive camera/frame owner: discard raw/tracked coordinates while retaining robot identities.
+    void clearMeasurements(Timestamp now);
 private:
     WorldModel& world_;
     TrackingThresholds thresholds_;

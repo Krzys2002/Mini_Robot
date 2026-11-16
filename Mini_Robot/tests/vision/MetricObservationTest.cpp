@@ -110,6 +110,21 @@ TEST(MetricObservationTest, NearHorizonFiniteMappingAndSingularRejection)
     EXPECT_EQ(metricObservation({}, corners, profile).status, MetricObservationStatus::InvalidGeometry);
 }
 
+TEST(MetricObservationTest, InteriorOriginProducesNegativePositionsWithoutChangingHeading)
+{
+    auto p = homographyInput().profile;
+    p.bounds = WorkspaceBounds{Meters{1}, Meters{0.6}, {Meters{-0.75}, Meters{-0.4}}};
+    p.homography = knownHomography();
+    p.homography->imageToWorld[2] -= 0.75;
+    p.homography->imageToWorld[5] -= 0.4;
+    const std::array<MarkerCorner, 4> corners{{{400,300}, {600,300}, {600,500}, {400,500}}};
+    const auto result = metricObservation({}, corners, p);
+    ASSERT_TRUE(result.measurement);
+    EXPECT_NEAR(result.measurement->pose.x.value, -0.25, 1e-12);
+    EXPECT_NEAR(result.measurement->pose.y.value, -0.1, 1e-12);
+    EXPECT_NEAR(result.measurement->pose.heading.value, std::numbers::pi / 2, 1e-12);
+}
+
 TEST(MetricObservationTest, ProjectiveMetricMappingIsInvariantToLargeFiniteHomogeneousScale)
 {
     auto profile = homographyInput().profile;
@@ -148,5 +163,32 @@ TEST(MetricObservationObliqueTest, NearFarTagsHaveKnownMetricPositionAndWorldHea
         EXPECT_NEAR(result.measurement->pose.x.value,0.4,1e-12);
         EXPECT_NEAR(result.measurement->pose.y.value,y,1e-12);
         EXPECT_NEAR(std::remainder(result.measurement->pose.heading.value-heading,2*std::numbers::pi),0,1e-12);
+    }
+}
+
+TEST(MetricObservationTest, SignedOriginAndLargeFiniteHomogeneousScaleWorkTogether)
+{
+    auto profile=homographyInput().profile;
+    profile.bounds=WorkspaceBounds{Meters{1},Meters{0.6},{Meters{-0.75},Meters{-0.4}}};
+    profile.frameId="combined-signed-oblique";
+    WorkspaceHomography h{{0.001,0,0, 0,0.001,0, 0,0.001,1}};
+    for (std::size_t i=0;i<3;++i) {
+        h.imageToWorld[i]-=0.75*h.imageToWorld[i+6];
+        h.imageToWorld[i+3]-=0.4*h.imageToWorld[i+6];
+    }
+    profile.homography=h;
+    const std::array<MarkerCorner,4> corners{{{400,300},{600,300},{600,500},{400,500}}};
+    const auto expected=metricObservation({},corners,profile);
+    ASSERT_TRUE(expected.measurement);
+    EXPECT_LT(expected.measurement->pose.x.value,0);
+    EXPECT_LT(expected.measurement->pose.y.value,0);
+    for (double scale:{1.7e308,-1.7e308,1e-200}) {
+        profile.homography=h;
+        for (auto& value:profile.homography->imageToWorld) value*=scale;
+        const auto actual=metricObservation({},corners,profile);
+        ASSERT_TRUE(actual.measurement)<<scale;
+        EXPECT_NEAR(actual.measurement->pose.x.value,expected.measurement->pose.x.value,1e-12);
+        EXPECT_NEAR(actual.measurement->pose.y.value,expected.measurement->pose.y.value,1e-12);
+        EXPECT_NEAR(actual.measurement->pose.heading.value,expected.measurement->pose.heading.value,1e-12);
     }
 }
