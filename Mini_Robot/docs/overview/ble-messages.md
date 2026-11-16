@@ -75,6 +75,48 @@ uptime and last accepted command are adapter diagnostics, as specified in the
 [domain mapping](../protocol/robot-protocol.md#domain-mapping). Telemetry does
 not fabricate or update a visual world pose. Silence monitoring belongs to #70.
 
+## Session security extension points (#157)
+
+v1 has no authenticated controller ownership and no guaranteed encryption
+([security profile](../protocol/security-profile.md)). The review of #274 requires the
+eventual implementation to have real interfaces and call sites now.
+[`BleSessionSecurity.hpp`](../../src/transport/ble/BleSessionSecurity.hpp) defines
+`IBleSessionSecurity`, and `BleTransport` requires one at construction:
+
+| Path | Call | Refusal |
+| --- | --- | --- |
+| Backend `ready` (identity and CCCDs validated) | `beginSession()` before `Connected` | `Fault`; never `Connected`. A latched E-stop is re-asserted first |
+| Velocity dispatch | `authorize(Velocity)` | Not written; `InvalidCommand` error |
+| `requestEmergencyClear` | `authorize(EmergencyClear)` | Returns false; nothing written |
+| Every Stop, Velocity and Clear frame | `protectOutgoing()` in the backend, just before the native write (`BleWriteRequest::protect`) | Not dispatched |
+| Every notification | `verifyIncoming()` before decoding | Not delivered; counts as an invalid notification |
+| Disconnect, fault, reconnect | `endSession()` | — |
+| Dedicated E-stop | none | Never refused or delayed |
+
+Stop is protected but not authorized: it only removes motion. Planning, `WorldModel` and
+widgets see only the transport-neutral `TransportSecurityStatus`. They never see BLE or
+cryptographic types.
+
+The only implementation is `RestrictedLabPassThroughSecurity`. It permits every operation,
+leaves the bytes unchanged and reports `bypassed`, never authenticated or encrypted. It is
+scaffolding, not security. `BleTransportConfig::securityMode` defaults to `SecureRequired`,
+which refuses the pass-through (construction throws): it fails closed and never falls back.
+The application selects `RestrictedLabPassThrough` explicitly in `main.cpp`. The insecure mode
+is reported:
+
+- at start-up and for every session, as a log warning: `TODO: authentication and encryption
+  are not implemented; restricted-lab pass-through security is active.`;
+- as `BLE session security: profile=… authenticated=no encrypted=no`;
+- to the operator, where the connection status reads `Connected — INSECURE:
+  restricted-lab-pass-through (unauthenticated, unencrypted)`.
+
+The firmware has the matching hooks for #163 (`ble/SessionSecurity.hpp`). The tests
+`BleSessionSecurityTest.*` (BLE build) and
+`DesktopIntegrationTest.ConnectedStatusLabelsAnUnauthenticatedUnencryptedSession` prove that
+the hooks run on the real paths, that the pass-through is unchanged and reports insecurity,
+that refusals stop motion, Clear and delivery, and that E-stop bypasses them. They are not
+cryptographic security validation.
+
 ## Configuration and diagnostic logs
 
 Additional `BleTransportConfig` defaults (injected at construction):
@@ -86,6 +128,7 @@ Additional `BleTransportConfig` defaults (injected at construction):
 | `maximumTrackedCommands` | 128 | Bounded sequence/type/time correlation history; must be below 32768 |
 | `maximumInvalidNotifications` | 3 | Consecutive malformed notifications before Fault |
 | `phaseTimeout` | 10 s | Also bounds native write confirmation waits |
+| `securityMode` | `SecureRequired` | Refuses the restricted-lab pass-through; the application selects `RestrictedLabPassThrough` explicitly (#157) |
 
 Enable `[logging] level=debug` in the existing configuration file for robot-tagged
 records with session token, wire/domain sequence pairing, handoff/receipt

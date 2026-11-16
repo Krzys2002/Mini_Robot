@@ -359,7 +359,13 @@ void DesktopController::receiveConnectionState(RobotId id, ConnectionState state
     }
     const bool active = state == ConnectionState::Connecting || state == ConnectionState::Connected
         || state == ConnectionState::Disconnecting;
-    const auto text = connectionStateText(state);
+    auto text = connectionStateText(state);
+    // A session without authentication or encryption is labelled as such (#157).
+    if (state == ConnectionState::Connected) {
+        if (const auto security = robots_.securityStatus(id); security && security->bypassed)
+            text += QStringLiteral(" — INSECURE: %1 (unauthenticated, unencrypted)")
+                        .arg(QString::fromStdString(security->profile));
+    }
     if (state == ConnectionState::Fault) {
         log_.error("Connection state: " + text.toStdString(), id);
     } else {

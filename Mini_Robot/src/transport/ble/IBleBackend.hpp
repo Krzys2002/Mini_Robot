@@ -2,18 +2,37 @@
 #include "transport/TransportTypes.hpp"
 #include "transport/ble/BleTypes.hpp"
 #include "transport/ble/BleProtocol.hpp"
+#include "transport/ble/BleSessionSecurity.hpp"
 
 #include <QObject>
 #include <QString>
 #include <QByteArray>
 
+#include <functional>
+
 namespace micro_robot {
+// Outgoing session-security step (#157), applied by the backend to the final frame
+// bytes immediately before the native write. Empty only for the dedicated E-stop.
+using BleOutgoingProtection = std::function<BleProtectedPayload(BleEndpoint, std::span<const std::uint8_t>)>;
 struct BleWriteRequest {
     std::uint16_t sequence{};
     bool emergencyStop{};
     RobotCommand command; // Owned intent; re-encode remaining validity at native dispatch.
     bool emergencyClear{};
+    BleOutgoingProtection protect;
 };
+// Applies request.protect to `frame` in place. nullopt: write it; otherwise the reason it
+// must not be written. The E-stop request carries no protection and is never refused here.
+[[nodiscard]] inline std::optional<std::string> applyBleOutgoingProtection(const BleWriteRequest& request,
+                                                                          EncodedBleCommand& frame)
+{
+    if (request.emergencyStop || !request.protect) return std::nullopt;
+    auto protectedPayload = request.protect(frame.endpoint, frame.bytes);
+    if (!protectedPayload.bytes)
+        return "BLE outgoing protection rejected the frame: " + protectedPayload.reason;
+    frame.bytes = std::move(*protectedPayload.bytes);
+    return std::nullopt;
+}
 struct BleWriteOutcome {
     bool dispatched{};
     Timestamp dispatchedAt{}; // Qt handoff, not a remote acknowledgement.

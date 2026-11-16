@@ -22,6 +22,10 @@ enum class BlePhase {
     DiscoveringCharacteristics, ReadingIdentity, EnablingNotifications,
     Ready, Disconnecting, Fault
 };
+// Which session-security policy the adapter must run with (#157). SecureRequired rejects
+// the restricted-lab pass-through and fails closed; no secure policy exists yet, so the
+// restricted-lab mode must be selected explicitly by the composition root.
+enum class BleSecurityMode { SecureRequired, RestrictedLabPassThrough };
 struct BleTransportConfig {
     std::chrono::milliseconds scanTimeout{10000};
     std::chrono::milliseconds phaseTimeout{10000};
@@ -31,6 +35,7 @@ struct BleTransportConfig {
     std::chrono::milliseconds minimumVelocityInterval{100};
     std::size_t maximumTrackedCommands{128};
     std::size_t maximumInvalidNotifications{3};
+    BleSecurityMode securityMode{BleSecurityMode::SecureRequired};
 };
 struct BleRobotInfo {
     RobotId robotId{0};
