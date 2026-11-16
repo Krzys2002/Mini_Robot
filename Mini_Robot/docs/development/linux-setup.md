@@ -331,7 +331,8 @@ Runtime requirements for the desktop as a BLE central:
 
 The robot protocol uses no pairing or bonding
 ([link parameters](../protocol/ble-gatt.md#link-parameters)), so no BlueZ agent
-setup is needed.
+setup is needed. Do not pair robots with `bluetoothctl pair`: pairing grants no
+authorization under the [restricted-lab security profile](../protocol/security-profile.md).
 
 Diagnosis:
 

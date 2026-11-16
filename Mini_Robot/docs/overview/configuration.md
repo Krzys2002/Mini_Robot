@@ -126,3 +126,6 @@ Both accept 1–10000 ms and the stale threshold must be strictly below the lost
 threshold; an invalid ordering resets both to defaults with a warning. These are
 initial software settings, not measured safety limits. Tune them to the camera
 and experiment and verify physical behavior before relying on them.
+
+Tracking smoothing: `position_alpha` and `heading_alpha` in `[tracking]` accept
+finite values in (0,1], defaulting to 1. See [tracker behavior](robot-tracking.md#pose-smoothing).
