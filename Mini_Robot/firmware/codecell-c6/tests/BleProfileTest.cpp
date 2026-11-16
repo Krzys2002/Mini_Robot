@@ -138,15 +138,15 @@ TEST(BleGattProfileTest, LinkParameterRequestIsTheDocumentedHint)
     EXPECT_FALSE(withinRequest({24, 0, 500}, kLinkParameterRequest));
 }
 
-TEST(BleGattProfileTest, RobotInfoIsTheProvisionedRecordWithAnExplicitUnversionedFirmware)
+TEST(BleGattProfileTest, RobotInfoIsTheProvisionedRecordWithTheImageFirmwareVersion)
 {
     const auto config = provisioning::ValidatedRobotConfig::validated(provisioning::fakes::validConfig(7));
     ASSERT_TRUE(config);
     const auto info = provisioning::robotInfoValues(*config);
     const auto record = protocol::v1::encodeRobotInfo(info, kRobotInfoFirmwareVersion);
     ASSERT_TRUE(record);
-    // 01 01 01 | id 7 | firmware 0.0.0 | 150 mm/s | 3000 mrad/s | 200 ms | 100 ms
-    const std::vector<std::uint8_t> expected{0x01, 0x01, 0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 01 01 01 | id 7 | firmware 0.1.0 | 150 mm/s | 3000 mrad/s | 200 ms | 100 ms
+    const std::vector<std::uint8_t> expected{0x01, 0x01, 0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x01,
                                              0x00, 0x96, 0x00, 0xB8, 0x0B, 0xC8, 0x00, 0x64, 0x00};
     EXPECT_EQ(std::vector<std::uint8_t>(record->begin(), record->end()), expected);
 }

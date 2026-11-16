@@ -49,6 +49,9 @@
 - [CodeCell C6 BLE peripheral and session lifecycle](firmware-ble.md): the v1 GATT server,
   advertising, one central per robot, CCCD readiness, the E-stop path, one CommandResult
   per frame and the overload policy, link-parameter hints and their reports (#163).
+- [CodeCell C6 telemetry and local diagnostics](firmware-telemetry.md): v1 Telemetry fields,
+  units and availability, the schedule and congestion policy, the battery policy, and the
+  bounded serial diagnostics with task jitter, stack and heap (#164).
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
   verified board/motor facts, unresolved safety blockers, and the bench envelope
   used before powered motion acceptance.

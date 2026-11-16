@@ -14,8 +14,8 @@
 namespace codecell::provisioning {
 
 // Robot Info fields that the configuration owns, in v1 wire units. The format byte and
-// protocol range are fixed by the v1 codec (#161); the firmware version is a build
-// input (#164).
+// protocol range are fixed by the v1 codec (#161); the firmware version is the image's
+// (ble::kRobotInfoFirmwareVersion, #164).
 struct RobotInfoValues {
     RobotId robotId{0};
     std::uint16_t maxLinearMillimetresPerSecond{0};

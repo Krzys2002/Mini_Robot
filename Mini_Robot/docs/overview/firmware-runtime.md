@@ -5,7 +5,7 @@ top of the #155 build and the proposed [#156 timing budgets](../protocol/timing-
 This page describes the structure of the production image in
 [`firmware/codecell-c6`](../../firmware/codecell-c6/README.md). It does **not**
 establish physical stopping, electrical boot behaviour or interoperability with the
-desktop: those remain with #164–#166 and the powered gate
+desktop: those remain with #165–#166 and the powered gate
 [#238](https://github.com/Krzys2002/Mini_Robot/issues/238). Session readiness, the
 command watchdog, the E-stop latch, fault power-down, the task watchdog and reset
 recovery (#162) are described in [safety enforcement](firmware-safety.md).
@@ -52,7 +52,7 @@ Provisioning logic is portable C++20 under
 | Configuration | `IConfigurationSource` + `validate()` | `ProvisionedConfiguration` over `ConfigStore` and `NvsRecordStorage` ([provisioning](firmware-provisioning.md)) | #159 |
 | Maintenance | `FirmwareRuntime::enterMaintenance()`, `MaintenanceConsole` | USB serial line reader in `loopTask` | #159 |
 | BLE adapter | `IMotionCommandSink` (implemented by `CommandProcessor`): `openSession()`, token-carrying Velocity and ClearEmergencyStop, Stop, EmergencyStop, `sessionEnded()` ([sessions](firmware-safety.md#sessions)) | `ble::PeripheralController` over `NimBlePeripheral` ([BLE peripheral](firmware-ble.md)) | #163 |
-| Diagnostics | `RuntimeDiagnostics` (atomic counters) + `RuntimeStatus` | serial status line from `loopTask` | #164 (telemetry) |
+| Diagnostics | `RuntimeDiagnostics` (atomic counters), `RuntimeStatus`, `TaskTiming` (wake lateness, step time) | Report lines through the bounded log ring, drained by `loopTask` ([telemetry and diagnostics](firmware-telemetry.md#local-diagnostics)) | #164 |
 
 Domain values cross these boundaries in SI units: `BodyVelocity` is metres per
 second and radians per second (positive counter-clockwise), and time is the robot's
@@ -134,14 +134,15 @@ and its write (`StopLikeEventBetweenSnapshotCopyAndWriteAlwaysWins`).
 4. Configure the drive with the profile; only then are the bridges woken (#160).
 5. Create the handoff critical section.
 6. Start the safety supervisor (subscribed to the 50 ms task watchdog, #162), then the
-   control task.
+   control task, then the telemetry task (`RuntimeDependencies::telemetryTask`, #164). A
+   robot whose telemetry cannot run never becomes motion-ready (#283 review).
 7. Mark ready.
 
 Commands before step 7 are rejected with `RejectedNotReady`. If any step fails, the
 runtime enters `Fault` with the drive disabled, records the first `FaultCode`
 (`DriveDisableFailed`, `ShutdownHookUnavailable`, `ConfigurationUnavailable`,
 `ConfigurationInvalid`, `DriveConfigurationRejected`, `SynchronizationUnavailable`,
-`SupervisorTaskStartFailed`, `ControlTaskStartFailed`),
+`SupervisorTaskStartFailed`, `ControlTaskStartFailed`, `TelemetryTaskStartFailed`),
 and never attempts normal motion. Later commands are rejected with `RejectedFault`,
 and a supervisor that already runs keeps the outputs off. A configuration error also
 keeps its `ConfigError`. Calling `start()` again returns the first result. Faults
@@ -171,7 +172,8 @@ boot line reports `shutdown_handler=registered` or `failed`.
 | `mr_safety` (`SafetySupervisor`) | 22 | 5 ms | Expiry, stop-ramp enforcement, control heartbeat; the only task on the 50 ms task watchdog | B3, B4, B6, B7, B17, B18 |
 | `nimble_host` (BLE callbacks, #163) | 21 | — | `IMotionCommandSink` calls, E-stop first | B8, B9 |
 | `mr_control` (`ControlLoop`) | 20 | 10 ms | Sensor, copy setpoint, one bounded drive step or stop-ramp step | B6, B7, B9 |
-| Arduino `loopTask` | 1 | 100 ms poll | Serial status line (log drain); USB maintenance console and its NVS writes (#159), only with outputs disabled | B13 |
+| `mr_telemetry` (#164) | 5 | 1 ms check | Posts one coalesced telemetry tick to the BLE host every 5 ms, and in between when a frame could be due; the host builds and queues the frame ([telemetry](firmware-telemetry.md)) | B10, B18 |
+| Arduino `loopTask` | 1 | 100 ms poll | Report lines and the log drain (bounded ring, ≤ 2048 B/s); USB maintenance console and its NVS writes (#159), only with outputs disabled | B12, B13 |
 
 - Priorities, periods and the stall limit come from `TimingBudget.hpp`. `validate()`
   rejects a configuration slower than the budget periods, a stall limit outside
@@ -192,12 +194,15 @@ boot line reports `shutdown_handler=registered` or `failed`.
   queued. A CommandResult queue exhaustion is reported by the BLE adapter as
   `sessionEnded(ResultQueueExhausted)`, which stops as for Stop and is counted
   (`session_overload`).
-- Diagnostics are lock-free 32-bit counters. Only `loopTask` prints, which keeps
-  serial output off the supervisor, control and callback paths (B13). The status
-  line is about 160 B every 5 s.
-- Heap is allocated only by `xTaskCreate` during start-up (B15). Production
-  stack high-water marks (B16), CPU share (B14) and heap minimum have not been
-  measured on this image yet (#166).
+- Diagnostics are lock-free 32-bit counters. Only `loopTask` formats and prints, through a
+  2048 B ring drained at ≤ 2048 B/s without waiting on the host, which keeps serial output off
+  the supervisor, control and callback paths (B12, B13). A report round is about 2.3 kB every
+  5 s ([local diagnostics](firmware-telemetry.md#local-diagnostics)).
+- Heap is allocated only by `xTaskCreate` and the BLE stack during start-up (B15). Since #164
+  the image reports stack high-water marks, heap minimum and task wake lateness. The USB-only
+  bench run measured at least 60 % free stack in every task, a flat minimum free heap of about
+  329 kB and a worst supervisor wake lateness of 1.45 ms ([bench check](firmware-telemetry.md#bench-check-2026-11-16)).
+  CPU share (B14) and powered HIL loads remain #166.
 
 ## Local IMU use
 

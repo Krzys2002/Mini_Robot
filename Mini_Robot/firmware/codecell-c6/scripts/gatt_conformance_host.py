@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""On-device v1 GATT conformance check for the production C6 image (#163).
+"""On-device v1 GATT conformance check for the production C6 image (#163, #164).
 
 Linux/BlueZ only. Needs pyserial and the system D-Bus bindings (python3-dbus); it
 downloads nothing. It connects to `MR-<robot id>` as a generic central, checks the
 GATT layout, Robot Info, readiness, CommandResult counting, the shared #64 vectors,
 the dedicated Emergency Stop path with malformed payloads, CCCD disable and repeated
-reconnects, and cross-checks the robot's serial status lines. Every line exchanged is
-written with host monotonic and wall-clock stamps to the output log.
+reconnects, and cross-checks the robot's serial status lines. Since #164 it also reads
+Telemetry: v1 bytes and unknown sentinels, the periodic schedule on the robot clock,
+state-change frames after E-stop and expiry, the Read value, and the robot counter shared
+with CommandResults. A write flood and a paused serial reader stress notifications and
+logging; the robot's TELEMETRY, TASK and RESOURCES lines are then checked against the #156
+bounds. Every line exchanged is written with host monotonic and wall-clock stamps to the
+output log.
 
 Motion: the only accepted Velocity it sends is 0 mm/s, 0 mrad/s, so the commanded drive
 output stays at zero. The shared vector velocity_seq258 (150 mm/s, -500 mrad/s, valid for
@@ -41,6 +46,18 @@ EXPECTED_FLAGS = {
     RESULT: {"notify"},
 }
 STOP, VELOCITY, EMERGENCY_STOP, CLEAR = 0x01, 0x02, 0x03, 0x04
+TELEMETRY_TYPE, RESULT_TYPE = 0x80, 0x81
+FLAG_EXPIRED, FLAG_BATTERY_LOW, FLAG_HAS_ACCEPTED = 0x01, 0x02, 0x04
+UNKNOWN_BATTERY, UNKNOWN_VELOCITY = 0xFFFF, -32768
+EXPECTED_FIRMWARE = (0, 1, 0)
+# #156 budgets the robot reports on (docs/protocol/timing-budgets.md).
+TELEMETRY_PERIOD_MS = 100
+PERIOD_DEVIATION_MS = 2 + 1        # B10 robot-side deviation, plus 1 ms of uptime truncation.
+STATE_SPACING_MS = 20              # B10 state-change spacing.
+SILENCE_PERIODS = 3                # Desktop telemetry-silence threshold.
+SAFETY_LATENESS_US = 2000          # B3.
+MIN_FREE_HEAP = 64 * 1024          # B15.
+MIN_STACK_FREE_PCT = 25            # B16.
 ACCEPTED, STALE, INVALID_VALIDITY, MALFORMED, UNSUPPORTED = 0x00, 0x04, 0x05, 0x03, 0x01
 IDLE, MOVING, LATCHED = 0, 1, 2
 # Shared vectors (docs/protocol/fixtures/v1-frames.txt).
@@ -78,11 +95,15 @@ class SerialWatch:
         self.lines = []
         self.lock = threading.Lock()
         self.stop = threading.Event()
+        self.paused = threading.Event()
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
         buffer = b""
         while not self.stop.is_set():
+            if self.paused.is_set():  # The host stops reading; the port stays open (#156 S5).
+                time.sleep(0.05)
+                continue
             buffer += self.device.read(256)
             while b"\n" in buffer:
                 raw, buffer = buffer.split(b"\n", 1)
@@ -91,6 +112,12 @@ class SerialWatch:
                     self.log.write("robot", line)
                     with self.lock:
                         self.lines.append((time.monotonic(), line))
+
+    def all_since(self, prefix, since):
+        """key=value fields of every line with the prefix read after `since`, oldest first."""
+        with self.lock:
+            lines = [(at, line) for at, line in self.lines if at >= since and line.startswith(prefix)]
+        return [dict(p.split("=", 1) for p in line.split()[1:] if "=" in p) for _, line in lines]
 
     def wait_for(self, prefix, fields, since, timeout=SERIAL_WAIT_S):
         """Newest line after `since` with the prefix and every key=value in `fields`."""
@@ -218,6 +245,18 @@ class Central:
         self.device.Disconnect(timeout=DBUS_TIMEOUT_S)
 
 
+class TimedSink(list):
+    """Notification payloads with their host receive times."""
+
+    def __init__(self):
+        super().__init__()
+        self.times = []
+
+    def append(self, data):
+        self.times.append(time.monotonic())
+        super().append(data)
+
+
 def reader(fd, sink, stop):
     while not stop.is_set():
         try:
@@ -238,10 +277,53 @@ def velocity(sequence, linear, angular, valid_for_ms):
 
 
 def parse_result(data):
-    if len(data) != 9 or data[0] != 1 or data[1] != 0x81:
+    if len(data) != 9 or data[0] != 1 or data[1] != RESULT_TYPE:
         return None
     seq, cmd_seq, cmd_type, code, state = struct.unpack("<HHBBB", data[2:9])
     return {"seq": seq, "cmd_seq": cmd_seq, "cmd_type": cmd_type, "code": code, "state": state}
+
+
+def parse_telemetry(data):
+    if len(data) != 18 or data[0] != 1 or data[1] != TELEMETRY_TYPE:
+        return None
+    seq, state, flags, last, uptime, battery, linear, angular = struct.unpack("<HBBHIHhh", data[2:18])
+    return {"seq": seq, "state": state, "flags": flags, "last": last, "uptime": uptime, "battery": battery,
+            "linear": linear, "angular": angular}
+
+
+def robot_sequences(*sinks):
+    """Every robot frame sequence seen on the notification sinks (results and telemetry)."""
+    out = []
+    for sink in sinks:
+        for data in sink:
+            frame = parse_result(data) or parse_telemetry(data)
+            out.append(frame["seq"] if frame else None)
+    return out
+
+
+def gap_free_from_zero(sequences):
+    return None not in sequences and sorted(sequences) == list(range(len(sequences)))
+
+
+def wait_telemetry(sink, predicate, start, timeout=RESULT_WAIT_S):
+    """First telemetry frame at index >= start that satisfies `predicate`, with its index."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for i in range(start, len(sink)):
+            t = parse_telemetry(sink[i])
+            if t and predicate(t):
+                return i, t
+        time.sleep(0.02)
+    return None, None
+
+
+def periodic_deltas(frames):
+    """Robot-clock gaps (ms) between consecutive frames that carry the same state and flags."""
+    out = []
+    for a, b in zip(frames, frames[1:]):
+        if a and b and (a["state"], a["flags"]) == (b["state"], b["flags"]):
+            out.append((b["uptime"] - a["uptime"]) & 0xFFFFFFFF)
+    return out
 
 
 class Checks:
@@ -291,6 +373,10 @@ def run(args, log, watch, checks):
                  info.hex())
     checks.check("C3 Robot Info robotId", ok and fields[3] == args.robot_id)
     checks.check("C3 Robot Info validity ceiling", ok and fields[9] == args.max_validity_ms)
+    checks.check("C3 Robot Info firmware version", ok and tuple(fields[4:7]) == EXPECTED_FIRMWARE,
+                 str(tuple(fields[4:7]) if ok else None))
+    checks.check("C3 Robot Info telemetry period", ok and fields[10] == TELEMETRY_PERIOD_MS)
+    checks.check("C3 Telemetry Read is empty outside a session", len(central.read(TELEMETRY)) == 0)
     # The robot's own ceiling decides whether the nonzero shared vector is certain to be refused.
     vector_258_refused = ok and fields[9] < VECTOR_VELOCITY_258_VALID_FOR_MS
 
@@ -312,14 +398,42 @@ def run(args, log, watch, checks):
     checks.check("C4 still no result before readiness", not results)
 
     since = time.monotonic()
-    central.start_notify(TELEMETRY)
+    session_start = since
+    telemetry = TimedSink()
+    central.subscribe(TELEMETRY, telemetry)
     checks.check("C5 both CCCDs make the session ready", watch.wait_for(
         "RUNTIME", {"session": "1"}, since) is not None)
-    sequence = 0
+
+    # T1: the session's first Telemetry frame, while still latched from C4.
+    index, first = wait_telemetry(telemetry, lambda t: True, 0)
+    checks.check("T1 first telemetry is sequence 0 of the session", first is not None and first["seq"] == 0,
+                 str(first))
+    checks.check("T1 telemetry state and flags (latched, nothing accepted)", first is not None
+                 and first["state"] == LATCHED and first["flags"] == 0 and first["last"] == 0, str(first))
+    checks.check("T1 battery and measured velocity are the unknown sentinels", first is not None
+                 and first["battery"] == UNKNOWN_BATTERY and first["linear"] == UNKNOWN_VELOCITY
+                 and first["angular"] == UNKNOWN_VELOCITY, str(first))
+    # T2: periodic frames on the robot clock while nothing changes.
+    time.sleep(2.0)
+    frames = [parse_telemetry(d) for d in telemetry]
+    deltas = periodic_deltas(frames)
+    checks.check("T2 periodic telemetry every telemetryPeriodMs on the robot clock", len(deltas) >= 15 and all(
+        abs(d - TELEMETRY_PERIOD_MS) <= PERIOD_DEVIATION_MS for d in deltas), f"n={len(deltas)} deltas={sorted(set(deltas))}")
+    host_gaps = [b - a for a, b in zip(telemetry.times, telemetry.times[1:])]
+    checks.check("T2 host never sees a telemetry silence of 3 periods", host_gaps and max(host_gaps)
+                 < SILENCE_PERIODS * TELEMETRY_PERIOD_MS / 1000.0, f"max_gap_s={max(host_gaps) if host_gaps else None}")
+    value = central.read(TELEMETRY)
+    latest = parse_telemetry(value)
+    newest = max(f["seq"] for f in frames if f)
+    checks.check("T3 Telemetry Read returns a recent frame with its own sequence", latest is not None
+                 and newest - 1 <= latest["seq"] <= newest + 2, f"read={latest} newest_notified={newest}")
+
     r = exchange(central, results, COMMAND, header(CLEAR, 1))
     checks.check("C5 explicit clear in the ready session", r is not None and r["code"] == ACCEPTED
-                 and r["state"] == IDLE and r["seq"] == sequence, str(r))
-    sequence += 1
+                 and r["state"] == IDLE, str(r))
+    index, cleared = wait_telemetry(telemetry, lambda t: t["state"] == IDLE and t["seq"] > r["seq"], 0) if r else (None, None)
+    checks.check("T4 state change after the clear is published", cleared is not None
+                 and cleared["flags"] & FLAG_HAS_ACCEPTED and cleared["last"] == 1, str(cleared))
 
     if vector_258_refused:
         r = exchange(central, results, COMMAND, VECTOR_VELOCITY_258)
@@ -339,14 +453,28 @@ def run(args, log, watch, checks):
     r = exchange(central, results, ESTOP, VECTOR_ESTOP_260)
     checks.check("C6 vector estop_seq260 on Emergency Stop", r is not None and r["cmd_seq"] == 260
                  and r["cmd_type"] == EMERGENCY_STOP and r["code"] == ACCEPTED and r["state"] == LATCHED, str(r))
+    index, latched = (wait_telemetry(telemetry, lambda t: t["state"] == LATCHED and t["seq"] > r["seq"], 0)
+                      if r else (None, None))
+    checks.check("T4 E-stop result first, then telemetry showing EmergencyStop", latched is not None, str(latched))
     r = exchange(central, results, COMMAND, header(CLEAR, 261))
     checks.check("C6 clear after vector E-stop", r is not None and r["state"] == IDLE, str(r))
+    start = len(telemetry)
     r = exchange(central, results, COMMAND, velocity(262, 0, 0, args.max_validity_ms))
     checks.check("C6 zero Velocity accepted and Moving", r is not None and r["code"] == ACCEPTED
                  and r["state"] == MOVING, str(r))
     since = time.monotonic()
     checks.check("C6 watchdog expiry sets the flag", watch.wait_for(
         "RUNTIME", {"state": "Idle", "expired_flag": "1"}, since) is not None)
+    _, moving = wait_telemetry(telemetry, lambda t: t["state"] == MOVING, start)
+    checks.check("T5 Moving telemetry reports velocity unknown, not the commanded zero", moving is not None
+                 and moving["linear"] == UNKNOWN_VELOCITY and moving["angular"] == UNKNOWN_VELOCITY, str(moving))
+    _, expired = wait_telemetry(telemetry, lambda t: t["state"] == IDLE and t["flags"] & FLAG_EXPIRED, start)
+    checks.check("T5 expiry is published with commandExpired", expired is not None and expired["last"] == 262,
+                 str(expired))
+    if moving and expired:
+        checks.check("T5 expiry frame within the state spacing of the robot deadline", 0 < (
+            (expired["uptime"] - moving["uptime"]) & 0xFFFFFFFF) <= args.max_validity_ms + STATE_SPACING_MS
+            + TELEMETRY_PERIOD_MS, f"moving_uptime={moving['uptime']} expired_uptime={expired['uptime']}")
 
     # Dedicated E-stop: any payload latches and is answered with seq 0 unless well-formed.
     payloads = [b"", b"\x01", b"\x02\x03\x04\x01", b'{"v":1}', bytes(range(20)), bytes(64)]
@@ -373,26 +501,36 @@ def run(args, log, watch, checks):
         central.write(COMMAND, header(STOP, 400 + i), request=False)
     burst = wait_results(results, before + args.burst, timeout=RESULT_WAIT_S + args.burst * 0.05)[before:]
     time.sleep(QUIET_S)
-    sequences = [r["seq"] for r in burst if r]
     checks.check("C8 exactly one result per write-without-response frame",
                  len(results) - before == args.burst, f"{len(results) - before}/{args.burst}")
-    all_seqs = [parse_result(d)["seq"] for d in results]
-    checks.check("C8 shared counter has no gap or repeat", all_seqs == list(range(len(all_seqs))),
-                 f"first={all_seqs[:3]} last={all_seqs[-3:]}")
-    del sequences
+    all_seqs = robot_sequences(results, telemetry)
+    checks.check("C8 results and telemetry share one counter with no gap or repeat", gap_free_from_zero(all_seqs),
+                 f"frames={len(all_seqs)} telemetry={len(telemetry)}")
+
+    stress_notifications(args, log, watch, checks, central, results, telemetry, session_start)
 
     # CCCD disable ends the session; re-enable starts a new one at sequence 0.
+    # Closing the acquired Telemetry descriptor makes BlueZ write the CCCD off at the next
+    # notification it cannot deliver, at most one telemetry period later.
     since = time.monotonic()
-    central.stop_notify(TELEMETRY)
+    central.unsubscribe(TELEMETRY)
     checks.check("C9 Telemetry CCCD disable ends the session", watch.wait_for(
         "RUNTIME", {"session": "0"}, since) is not None)
+    time.sleep(QUIET_S)
     before = len(results)
     central.write(COMMAND, header(STOP, 500))
     time.sleep(QUIET_S)
     checks.check("C9 no result after CCCD disable", len(results) == before)
-    central.start_notify(TELEMETRY)
+    # Command Result stays acquired (BlueZ would refuse a second AcquireNotify); only the
+    # results after the re-enable belong to the new session.
+    first_new = len(results)
+    telemetry = TimedSink()
+    central.subscribe(TELEMETRY, telemetry)
     r = exchange(central, results, COMMAND, header(STOP, 7))
-    checks.check("C9 re-enable starts a new session at sequence 0", r is not None and r["seq"] == 0, str(r))
+    time.sleep(QUIET_S)
+    seqs = robot_sequences(results[first_new:], telemetry)
+    checks.check("C9 re-enable starts a new session: its frames count from sequence 0",
+                 r is not None and gap_free_from_zero(seqs), f"result={r} sequences={sorted(s for s in seqs if s is not None)[:6]}")
     central.disconnect()
     since = time.monotonic()
     checks.check("C10 disconnect ends the session and advertises again", watch.wait_for(
@@ -402,13 +540,15 @@ def run(args, log, watch, checks):
     for cycle in range(args.cycles):
         try:
             central.connect()
-            sink = []
+            sink, telemetry_sink = TimedSink(), TimedSink()
             central.subscribe(RESULT, sink)
-            central.start_notify(TELEMETRY)
+            central.subscribe(TELEMETRY, telemetry_sink)
             r = exchange(central, sink, COMMAND, header(STOP, 1000 + cycle))
-            if r is None or r["seq"] != 0 or r["code"] != ACCEPTED:
+            time.sleep(0.2)
+            seqs = robot_sequences(sink, telemetry_sink)
+            if r is None or r["code"] != ACCEPTED or not gap_free_from_zero(seqs) or not telemetry_sink:
                 failures += 1
-                log.write("host", f"cycle {cycle} result {r}")
+                log.write("host", f"cycle {cycle} result {r} sequences {sorted(s for s in seqs if s is not None)}")
             central.disconnect()
             time.sleep(0.5)
         except central.dbus.exceptions.DBusException as error:
@@ -421,6 +561,70 @@ def run(args, log, watch, checks):
         "RUNTIME", {"state": "Idle", "session": "0"}, since - 5.0, timeout=SERIAL_WAIT_S * 3) is not None)
 
 
+def stress_notifications(args, log, watch, checks, central, results, telemetry, session_start):
+    """C12/C13: notification and logging pressure, then the robot's own timing and resources.
+
+    C12 floods Command with write-without-response Stops while telemetry flows. C13 stops
+    reading the serial port for a while (the port stays open), as #156 S5. Neither moves the
+    robot: Stop only. Afterwards the TELEMETRY, TASK and RESOURCES lines are checked against
+    B3, B10, B15 and B16."""
+    before_results, before_telemetry = len(results), len(telemetry)
+    since = time.monotonic()
+    for i in range(args.flood):
+        central.write(COMMAND, header(STOP, 2000 + i), request=False)
+    wait_results(results, before_results + args.flood, timeout=RESULT_WAIT_S + args.flood * 0.05)
+    time.sleep(QUIET_S)
+    flood_s = time.monotonic() - since
+    answered = len(results) - before_results
+    log.write("host", f"flood writes={args.flood} results={answered} telemetry={len(telemetry) - before_telemetry} "
+                      f"duration_s={flood_s:.2f}")
+    checks.check("C12 every flood frame answered, or the overload policy ended the session",
+                 answered == args.flood or watch.wait_for("BLE", {"state": "closing"}, since, timeout=0.1) is not None,
+                 f"{answered}/{args.flood}")
+    times = telemetry.times[before_telemetry:]
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    checks.check("C12 telemetry keeps flowing during the flood", len(times) >= flood_s * 1000 / TELEMETRY_PERIOD_MS / 2,
+                 f"frames={len(times)} max_host_gap_s={max(gaps) if gaps else None}")
+    checks.check("C12 shared counter still gap-free after the flood",
+                 gap_free_from_zero(robot_sequences(results, telemetry)))
+
+    watch.paused.set()
+    log.write("host", f"serial reading paused for {args.serial_pause_s} s")
+    before_telemetry = len(telemetry)
+    for i in range(int(args.serial_pause_s * 10)):  # Keep the radio side busy meanwhile.
+        central.write(COMMAND, header(STOP, 6000 + i), request=False)
+        time.sleep(0.1)
+    watch.paused.clear()
+    log.write("host", "serial reading resumed")
+    paused_times = telemetry.times[before_telemetry:]
+    gaps = [b - a for a, b in zip(paused_times, paused_times[1:])]
+    checks.check("C13 telemetry unaffected while the serial host does not read", gaps and max(gaps)
+                 < SILENCE_PERIODS * TELEMETRY_PERIOD_MS / 1000.0, f"max_host_gap_s={max(gaps) if gaps else None}")
+
+    # The next report round after both stresses (one every 5 s).
+    since = time.monotonic()
+    report = watch.wait_for("TELEMETRY", {}, since, timeout=12.0)
+    safety = watch.wait_for("TASK", {"name": "mr_safety"}, since, timeout=12.0)
+    resources = watch.wait_for("RESOURCES", {}, since, timeout=12.0)
+    tasks = [watch.wait_for("TASK", {"name": n}, since, timeout=1.0)
+             for n in ("mr_safety", "mr_control", "mr_telemetry", "nimble_host", "loopTask")]
+    log.write("host", f"robot report telemetry={report} safety={safety} resources={resources}")
+    checks.check("C14 robot TELEMETRY line reports unknown battery and velocity", report is not None
+                 and report.get("battery_mv") == "unknown" and report.get("velocity") == "unknown", str(report))
+    # Every 5 s report window of this session, not only the last: B10 is a bound under each load.
+    windows = [int(v["periodic_dev_max_us"]) for v in watch.all_since("TELEMETRY", session_start)
+               if v.get("periodic_dev_max_us", "none") != "none"]
+    checks.check("C14 robot-side periodic deviation within B10 in every report window", windows and max(windows)
+                 <= 2000, f"windows={len(windows)} max_us={max(windows) if windows else None} all_us={windows}")
+    checks.check("C14 supervisor wake lateness within B3 (worst since boot)", safety is not None and int(
+        safety.get("late_worst_us", 10 ** 9)) <= SAFETY_LATENESS_US, str(safety))
+    checks.check("C14 minimum free heap within B15", resources is not None and int(
+        resources.get("heap_min_free", 0)) >= MIN_FREE_HEAP, str(resources))
+    for name, task in zip(("mr_safety", "mr_control", "mr_telemetry", "nimble_host", "loopTask"), tasks):
+        checks.check(f"C14 {name} stack free within B16", task is not None and int(
+            task.get("stack_free_pct", 0)) >= MIN_STACK_FREE_PCT, str(task))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", required=True)
@@ -428,6 +632,8 @@ def main():
     parser.add_argument("--max-validity-ms", type=int, required=True, help="provisioned maxCommandValidityMs")
     parser.add_argument("--cycles", type=int, default=20)
     parser.add_argument("--burst", type=int, default=50)
+    parser.add_argument("--flood", type=int, default=500, help="write-without-response Stops in the C12 flood")
+    parser.add_argument("--serial-pause-s", type=float, default=30.0, help="C13: seconds without reading serial")
     parser.add_argument("--log", default="gatt-conformance.log")
     args = parser.parse_args()
     if args.max_validity_ms >= VECTOR_VELOCITY_258_VALID_FOR_MS:

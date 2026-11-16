@@ -8,7 +8,7 @@ the [production runtime](firmware-runtime.md) (#158), [identity provisioning](fi
 defined by [#157](https://github.com/Krzys2002/Mini_Robot/issues/157)
 ([security profile](../protocol/security-profile.md), merged in PR #274).
 Final security enforcement is [#165](https://github.com/Krzys2002/Mini_Robot/issues/165),
-telemetry publication is [#164](https://github.com/Krzys2002/Mini_Robot/issues/164), the HIL
+[telemetry publication](firmware-telemetry.md) is [#164](https://github.com/Krzys2002/Mini_Robot/issues/164), the HIL
 suite is [#166](https://github.com/Krzys2002/Mini_Robot/issues/166) and powered checks are
 [#238](https://github.com/Krzys2002/Mini_Robot/issues/238).
 
@@ -40,10 +40,10 @@ Exactly the [v1 table](../protocol/ble-gatt.md#service-and-characteristic-layout
 
 | Characteristic | Properties | Maximum value | Notes |
 | --- | --- | --- | --- |
-| Robot Info `4d520002` | Read | 18 B | Provisioned record; firmware version `0.0.0` until #164 assigns a build version |
+| Robot Info `4d520002` | Read | 18 B | Provisioned record; firmware version `0.1.0` (#164) |
 | Command `4d520003` | Write, Write Without Response | 512 B | Oversized frames get `MalformedLength`, never an ATT error |
 | Emergency Stop `4d520004` | Write, Write Without Response | 512 B | Any write latches |
-| Telemetry `4d520005` | Read, Notify (CCCD) | 18 B | Empty until #164 publishes telemetry; no frame is invented |
+| Telemetry `4d520005` | Read, Notify (CCCD) | 18 B | Periodic and state-change frames on the shared counter while ready ([telemetry](firmware-telemetry.md), #164); Read returns the latest frame of the session, empty outside one |
 | Command Result `4d520006` | Notify (CCCD) | 9 B | One per written frame while ready |
 
 - The written characteristics accept the ATT maximum (512 bytes). A longer write would be
@@ -282,10 +282,9 @@ until reset, with its outputs unaffected.
 
 ## Not in this issue
 
-- Telemetry publication, its rate limits and the shared counter's use from the telemetry
-  task: #164. The Telemetry characteristic exists, can be subscribed and is read empty.
-  `CommandSession` is not thread-safe, so #164 must produce telemetry in the host context
-  or synchronize with it.
+- Telemetry publication, its rate limits and the shared counter's use: [#164](firmware-telemetry.md).
+  The controller builds and queues Telemetry in the same host context as CommandResults, so
+  `CommandSession` stays single-threaded.
 - Final F1–F11 enforcement and the AT-01…AT-15 attack tests, a second physical central:
   #165.
 - HIL conformance with stopping measurements: #166. Powered checks: #238.

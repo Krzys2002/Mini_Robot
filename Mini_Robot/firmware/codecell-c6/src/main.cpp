@@ -13,13 +13,26 @@
 // watchdog. A watchdog expiry first sleeps both bridges from the ISR, then panics and resets;
 // esp_restart() runs the runtime's shutdown first. Every boot starts Idle with outputs off
 // and nothing restored; the boot and status lines report the reset reason.
-// USB serial carries status output and the maintenance console only, never motion.
+// Telemetry (#164): a priority-5 telemetry task ticks every 5 ms and the BLE host decides
+// and queues Telemetry frames on the shared robot counter. Battery and measured velocity are
+// reported as unknown: no battery conversion is validated and no velocity sensor exists.
+// USB serial carries status output and the maintenance console only, never motion. Every line
+// goes through a bounded ring drained without blocking at <= 2048 B/s (#156 B12/B13).
 #include <Arduino.h>
+#include <esp_app_desc.h>
 #include <esp_attr.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
+#include <cstdarg>
 #include <cstddef>
+#include <cstdio>
 #include <optional>
 #include <string_view>
 #include "EspProvisioningAdapters.hpp"
@@ -27,24 +40,41 @@
 #include "EspRuntimeAdapters.hpp"
 #include "NimBlePeripheral.hpp"
 #include "ble/PeripheralController.hpp"
+#include "diagnostics/LogRing.hpp"
+#include "diagnostics/StatusReport.hpp"
 #include "drive/BoundedDriveOutput.hpp"
 #include "protocol/V1Codec.hpp"
 #include "provisioning/MaintenanceConsole.hpp"
 #include "provisioning/ProvisionedConfiguration.hpp"
 #include "runtime/FirmwareRuntime.hpp"
+#include "telemetry/BatteryMonitor.hpp"
+#include "telemetry/TelemetryInputs.hpp"
 
 namespace {
 using namespace codecell;
 
 // Matches `monitor_speed` in platformio.ini.
 constexpr unsigned long kSerialBaudRate = 115200;
-// Status lines from loopTask (priority 1, the B13 log drain), never from timing paths.
-// About 160 B every 5 s, well inside the 2048 B/s budget.
+// One report round (IDENTITY, RUNTIME, BLE, TELEMETRY, TASK lines, RESOURCES), one line per
+// loop pass and only once the ring has drained, so the ring never holds more than one report
+// line and a maintenance reply always finds room. About 2.3 kB per round every 5 s, well
+// inside the 2048 B/s budget. RUNTIME also prints at once on a status change, BLE on a link
+// change at most once per second.
 constexpr std::chrono::milliseconds kStatusReportPeriod{5000};
 constexpr std::chrono::milliseconds kReporterPollPeriod{100};
-// A BLE line (about 330 B) every status period and on a link change, at most once per
-// second: at most 330 B/s, inside the 2048 B/s budget even while a central toggles CCCDs.
 constexpr std::chrono::milliseconds kBleReportMinSpacing{1000};
+// USB CDC write timeout. Not 0: in Arduino-ESP32 3.3.7 HWCDC::write() counts its retries down
+// from this value, so 0 underflows and a write that makes no progress would spin for ~49 days
+// (found by reading the driver while chasing the console stall fixed in SerialLogSink). With
+// 1 ms a stalled write gives up after one tick, so a drain pass blocks loopTask for at most a
+// few milliseconds; the drain only offers what availableForWrite() reported anyway.
+constexpr std::uint32_t kSerialTxTimeoutMs = 1;
+// Before a deliberate restart the ring is written out with a blocking write of at most this
+// per call, so that the maintenance confirmation reaches the host.
+constexpr std::uint32_t kRestartFlushTimeoutMs = 100;
+constexpr const char* kTelemetryTaskName = "mr_telemetry";
+// The ELF SHA-256 prefix that names the running image (matches firmware-provenance.json).
+constexpr std::size_t kBuildIdHexDigits = 16;
 
 esp::EspFirmwareClock firmwareClock;
 esp::FreeRtosPlatform platform;
@@ -54,7 +84,28 @@ bool motorsAttached{false};
 esp::NvsRecordStorage recordStorage;
 provisioning::ConfigStore configStore{recordStorage};
 provisioning::ProvisionedConfiguration configuration{configStore};
-runtime::FirmwareRuntime firmwareRuntime{{firmwareClock, platform, driveOutput, configuration, nullptr}};
+// The telemetry task's step (priority 5, every 5 ms): sample the battery port once per
+// telemetry period (no sensor is wired, so nothing is read), then ask the host to evaluate
+// the schedule. It never touches the session or the drive. Defined below, once the BLE
+// peripheral exists; until the peripheral is running a tick does nothing.
+class TelemetryTick final : public runtime::IPeriodicStep {
+public:
+    void step() noexcept override;
+
+private:
+    std::optional<runtime::Instant> lastSample_{};
+    std::uint32_t checks_{0};
+};
+TelemetryTick telemetryTick;
+
+// The telemetry task is part of the runtime's checked start-up (#164 review): if it cannot
+// start, the runtime faults (TelemetryTaskStartFailed) and never accepts motion. Nothing
+// relies on the desktop noticing the missing telemetry.
+runtime::FirmwareRuntime firmwareRuntime{{firmwareClock, platform, driveOutput, configuration, nullptr,
+                                          runtime::PeriodicTask{{kTelemetryTaskName, timing::kTelemetryPriority,
+                                                                 runtime::kDefaultTaskStackBytes,
+                                                                 timing::kTelemetryTickPeriod, false},
+                                                                &telemetryTick}}};
 
 class RuntimeStatusView final : public protocol::v1::IRuntimeStatusView {
 public:
@@ -62,10 +113,79 @@ public:
 };
 RuntimeStatusView runtimeStatusView;
 
+// ---- Bounded log (loopTask only) ----
+class SerialLogSink final : public diagnostics::ILogSink {
+public:
+    std::size_t writable() noexcept override
+    {
+        // Without a host the CDC driver discards what it is given; keep the lines in the ring
+        // instead (bounded, newest dropped and counted), so a monitor attached later still
+        // sees the boot lines.
+        if (!Serial) return 0;
+        int free = Serial.availableForWrite();
+        if (free <= 0) {
+            // HWCDC (Arduino-ESP32 3.3.7) disables its TX interrupt when the connection flag
+            // drops with bytes queued, and only write() or flush() enable it again. A drain that
+            // offers bytes only when there is room would then wait forever (seen on the bench:
+            // the console went silent while everything else ran). flush() re-arms it and waits
+            // only while bytes move, plus kSerialTxTimeoutMs; without a reading host it discards
+            // the driver's own queue (at most its 256 B), never this ring.
+            Serial.flush();
+            free = Serial.availableForWrite();
+        }
+        return free > 0 ? static_cast<std::size_t>(free) : 0;
+    }
+    std::size_t write(std::span<const char> bytes) noexcept override
+    {
+        return Serial.write(reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size());
+    }
+};
+diagnostics::LogRing logRing;
+diagnostics::ByteBudget logBudget{timing::kLogBytesPerSecondMax, diagnostics::kLogBurstBytes};
+SerialLogSink logSink;
+
+void logLine(std::string_view text) { (void)logRing.push(text); }
+void logLine(const diagnostics::ReportLine& line) { logLine(line.view()); }
+#if defined(__GNUC__)
+__attribute__((format(printf, 1, 2)))
+#endif
+void logf(const char* format, ...)
+{
+    diagnostics::ReportLine line;
+    std::va_list args;
+    va_start(args, format);
+    const int written = std::vsnprintf(line.text.data(), line.text.size(), format, args);
+    va_end(args);
+    if (written < 0) return;
+    line.length = std::min(static_cast<std::size_t>(written), line.text.size() - 1);
+    logLine(line);
+}
+void drainLog() { (void)diagnostics::drainLog(logRing, logBudget, logSink, firmwareClock.nowMicroseconds()); }
+
+// Restart path only: write out what the ring holds, then the USB buffer.
+void flushLogBlocking()
+{
+    Serial.setTxTimeoutMs(kRestartFlushTimeoutMs);
+    for (int pass = 0; pass < 2 && !logRing.empty(); ++pass) {
+        const auto run = logRing.readable();
+        logRing.consume(Serial.write(reinterpret_cast<const std::uint8_t*>(run.data()), run.size()));
+    }
+    Serial.flush();
+}
+
+// ---- Telemetry inputs (#164) ----
+// No battery sensor is wired and no evidence is approved: the CodeCell API conversion and the
+// pack's thresholds are unverified (#154, #238 NOT RUN). Telemetry therefore sends 0xFFFF and
+// never sets batteryLow; there is no low-battery protection in this image.
+telemetry::BatteryMonitor battery{std::nullopt, nullptr};
+telemetry::RobotTelemetryInputs telemetryInputs{battery};
+
 // v1 BLE peripheral (#163). The controller is constructed in setup() only with a validated
 // identity (static storage, no heap); every callback runs in nimble_host.
 esp::NimBlePeripheral blePeripheral;
 std::optional<ble::PeripheralController> bleController;
+// Published once the controller runs, for the telemetry task (which starts before BLE does).
+std::atomic<const ble::PeripheralController*> bleControllerRunning{nullptr};
 // Session security (#157 review): the explicitly selected restricted-lab pass-through. It
 // permits everything and provides no authentication or encryption (ble/SessionSecurity.hpp).
 ble::RestrictedLabPassThroughSecurity bleSecurity;
@@ -96,16 +216,40 @@ BleStart startBle()
     const auto record = protocol::v1::encodeRobotInfo(*info, ble::kRobotInfoFirmwareVersion);
     if (!record) return BleStart::RobotInfoUnencodable;
     bleController.emplace(firmwareRuntime.commands(), runtimeStatusView, protocol::v1::commandLimits(*info),
-                          blePeripheral, firmwareClock, bleSecurity, ble::kSecurityMode);
+                          blePeripheral, firmwareClock, telemetryInputs,
+                          std::chrono::milliseconds{info->telemetryPeriodMilliseconds}, bleSecurity,
+                          ble::kSecurityMode);
     if (!blePeripheral.begin(info->robotId, *record, *bleController)) return BleStart::StackFailed;
     bleController->start();
+    bleControllerRunning.store(&*bleController, std::memory_order_release);
     if (bleController->state() == ble::LinkState::SecurityRefused) return BleStart::SecurityRefused;
     return BleStart::Started;
 }
 
+void TelemetryTick::step() noexcept
+{
+    const auto now = firmwareClock.nowMicroseconds();
+    if (battery.hasSensor() && (!lastSample_ || now - *lastSample_ >= runtime::Instant{timing::kTelemetryPeriod})) {
+        battery.sample(now);
+        lastSample_ = now;
+    }
+    // Every millisecond: wake the host when a frame could be due (the controller decides
+    // exactly), and every 5 ms regardless. Ticks are dropped until the peripheral is running.
+    constexpr std::uint32_t kChecksPerRoutinePost =
+        static_cast<std::uint32_t>(timing::kTelemetryRoutinePostPeriod / timing::kTelemetryTickPeriod);
+    const bool routine = checks_++ % kChecksPerRoutinePost == 0;
+    if (!routine) {
+        const auto* controller = bleControllerRunning.load(std::memory_order_acquire);
+        if (!controller) return;
+        const auto status = firmwareRuntime.status();
+        if (!controller->telemetryMayBeDue(now, status.state, status.commandExpired)) return;
+    }
+    blePeripheral.requestTelemetryTick();
+}
+
 class SerialMaintenanceOutput final : public provisioning::IMaintenanceOutput {
 public:
-    void line(const char* text) noexcept override { Serial.println(text); }
+    void line(const char* text) noexcept override { logLine(text); }
 };
 
 class RuntimeMaintenanceTarget final : public provisioning::IMaintenanceTarget {
@@ -113,7 +257,7 @@ public:
     bool enterMaintenance() noexcept override { return firmwareRuntime.enterMaintenance(); }
     void restart() noexcept override
     {
-        Serial.flush();
+        flushLogBlocking();
         esp_restart();
     }
 };
@@ -124,6 +268,77 @@ provisioning::MaintenanceConsole console{configStore, maintenanceTarget, mainten
 
 runtime::StartResult startResult{runtime::StartResult::Faulted};
 const char* resetReason{"unknown"};
+std::array<char, kBuildIdHexDigits + 1> buildId{};
+
+std::uint32_t uptimeMilliseconds() { return telemetry::uptimeMilliseconds(firmwareClock.nowMicroseconds()); }
+std::optional<std::uint32_t> robotId()
+{
+    if (const auto info = configuration.robotInfo()) return info->robotId;
+    return std::nullopt;
+}
+std::uint32_t sessionNumber() { return bleController ? bleController->diagnostics()[ble::BleCounter::SessionsReady] : 0; }
+
+// The running image's ELF SHA-256 prefix (written into the app descriptor by the image tool),
+// or "unavailable" if the descriptor carries none. Read from the descriptor bytes, because
+// esp_app_get_elf_sha256() stops at CONFIG_APP_RETRIEVE_LEN_ELF_SHA (9) characters.
+void readBuildId()
+{
+    const esp_app_desc_t* app = esp_app_get_description();
+    bool allZero = true;
+    for (std::size_t i = 0; app && i < kBuildIdHexDigits / 2; ++i) allZero = allZero && app->app_elf_sha256[i] == 0;
+    if (!app || allZero) {
+        std::snprintf(buildId.data(), buildId.size(), "unavailable");
+        return;
+    }
+    for (std::size_t i = 0; i < kBuildIdHexDigits / 2; ++i)
+        std::snprintf(buildId.data() + 2 * i, buildId.size() - 2 * i, "%02x", app->app_elf_sha256[i]);
+}
+
+diagnostics::ReportLine identityLine()
+{
+    return diagnostics::identityLine({robotId(), ble::kRobotInfoFirmwareVersion, std::string_view{buildId.data()},
+                                      resetReason, sessionNumber(), uptimeMilliseconds()});
+}
+
+diagnostics::ReportLine runtimeLine(const runtime::RuntimeStatus& status)
+{
+    const auto duty = driveOutput.lastDuty();
+    return diagnostics::runtimeLine({uptimeMilliseconds(), startResult == runtime::StartResult::Running, status,
+                                     duty.m1, duty.m2, resetReason,
+                                     provisioning::toString(configuration.bootState().state), robotId(),
+                                     firmwareRuntime.diagnostics()});
+}
+
+diagnostics::ReportLine telemetryLine()
+{
+    diagnostics::TelemetryReport report;
+    report.session = sessionNumber();
+    report.taskRunning = firmwareRuntime.telemetryTaskStarted();
+    report.ticksCoalesced = blePeripheral.ticksCoalesced();
+    if (const auto info = configuration.robotInfo())
+        report.period = std::chrono::milliseconds{info->telemetryPeriodMilliseconds};
+    if (bleController) {
+        report.counters = bleController->telemetryCounters();
+        report.window = bleController->takeTelemetryWindow();
+    }
+    report.battery = battery.assess(firmwareClock.nowMicroseconds());
+    report.batterySensor = battery.hasSensor();
+    report.batteryRawMillivolts = battery.lastRawMillivolts();
+    report.batteryReadFailures = battery.readFailures();
+    return diagnostics::telemetryLine(report);
+}
+
+// Tasks outside the runtime's platform: the BLE host and this loop.
+std::size_t stackFree(TaskHandle_t task) { return static_cast<std::size_t>(uxTaskGetStackHighWaterMark(task)); }
+
+diagnostics::ReportLine resourcesLine()
+{
+    return diagnostics::resourcesLine({heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                                       heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT),
+                                       heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)},
+                                      logRing.stats());
+}
+
 std::chrono::milliseconds lastReport{};
 runtime::RuntimeStatus lastStatus{};
 bool reported{false};
@@ -131,62 +346,66 @@ ble::LinkStatus lastBle{};
 std::chrono::milliseconds lastBleReport{};
 bool bleReported{false};
 
-void reportStatus(const runtime::RuntimeStatus& status)
+void reportBle()
 {
-    const auto counters = firmwareRuntime.diagnostics();
-    const auto& boot = configuration.bootState();
-    char robotId[16] = "none";
-    if (const auto info = configuration.robotInfo())
-        snprintf(robotId, sizeof robotId, "%lu", static_cast<unsigned long>(info->robotId));
-    const auto duty = driveOutput.lastDuty();
-    const char* output = status.stopRamp ? "stop_ramp" : (status.outputEnabled ? "enabled" : "disabled");
-    Serial.printf("RUNTIME uptime_ms=%lu start=%s ready=%d state=%s output=%s duty_m1=%d duty_m2=%d fault=%s "
-                  "maintenance=%d session=%d expired_flag=%d reset=%s provisioning=%s robot_id=%s accepted=%lu "
-                  "rejected=%lu expired=%lu overwrites=%lu\n",
-                  static_cast<unsigned long>(firmwareClock.now().count()),
-                  startResult == runtime::StartResult::Running ? "running" : "faulted", status.ready ? 1 : 0,
-                  runtime::toString(status.state), output, static_cast<int>(duty.m1), static_cast<int>(duty.m2),
-                  runtime::toString(status.fault), status.maintenance ? 1 : 0, status.sessionReady ? 1 : 0,
-                  status.commandExpired ? 1 : 0, resetReason, provisioning::toString(boot.state), robotId,
-                  static_cast<unsigned long>(counters[runtime::Counter::VelocityAccepted]),
-                  static_cast<unsigned long>(counters[runtime::Counter::CommandRejected]),
-                  static_cast<unsigned long>(counters[runtime::Counter::CommandExpired]),
-                  static_cast<unsigned long>(counters[runtime::Counter::MailboxOverwrite]));
+    lastBle = bleController->status();
+    logLine(diagnostics::bleLine(lastBle, bleController->diagnostics()));
+    lastBleReport = firmwareClock.now();
+    bleReported = true;
 }
 
-// One line with the link state, the negotiated values and failures, and the BLE counters.
-void reportBle(const ble::LinkStatus& link)
-{
-    const auto c = bleController->diagnostics();
-    char negotiated[64] = "none";
-    if (link.negotiated)
-        snprintf(negotiated, sizeof negotiated, "interval_us=%ld latency=%u timeout_ms=%ld in_request=%d",
-                 static_cast<long>(ble::connectionInterval(*link.negotiated).count()),
-                 static_cast<unsigned>(link.negotiated->latency),
-                 static_cast<long>(ble::supervisionTimeout(*link.negotiated).count()),
-                 ble::withinRequest(*link.negotiated, ble::kLinkParameterRequest) ? 1 : 0);
-    char disconnect[48] = "none";
-    if (link.lastDisconnectReason)
-        snprintf(disconnect, sizeof disconnect, "%d since_write_ms=%ld", *link.lastDisconnectReason,
-                 link.lastWriteBeforeDisconnect ? static_cast<long>(link.lastWriteBeforeDisconnect->count()) : -1L);
-    using C = ble::BleCounter;
-    Serial.printf("BLE state=%s cccd_result=%d cccd_telemetry=%d mtu=%u link_request=%s negotiated=%s "
-                  "last_disconnect=%s connections=%lu rejected_centrals=%lu sessions=%lu results=%lu "
-                  "result_failures=%lu unanswered=%lu estop_writes=%lu foreign=%lu early_cccd=%lu adv_failures=%lu "
-                  "terminate_failures=%lu security=%s security_sessions=%lu security_refusals=%lu\n",
-                  ble::toString(link.state), link.commandResultNotify ? 1 : 0, link.telemetryNotify ? 1 : 0,
-                  static_cast<unsigned>(link.mtu), ble::toString(link.linkRequest), negotiated, disconnect,
-                  static_cast<unsigned long>(c[C::Connections]), static_cast<unsigned long>(c[C::RejectedCentrals]),
-                  static_cast<unsigned long>(c[C::SessionsReady]), static_cast<unsigned long>(c[C::ResultsSent]),
-                  static_cast<unsigned long>(c[C::ResultNotifyFailures]),
-                  static_cast<unsigned long>(c[C::UnansweredCommandWrites]),
-                  static_cast<unsigned long>(c[C::EmergencyStopWrites]), static_cast<unsigned long>(c[C::ForeignEvents]),
-                  static_cast<unsigned long>(c[C::EarlySubscriptions]),
-                  static_cast<unsigned long>(c[C::AdvertisingFailures]),
-                  static_cast<unsigned long>(c[C::TerminateFailures]),
-                  !link.securitySession ? "none" : link.securityBypassed ? "bypassed" : "established",
-                  static_cast<unsigned long>(c[C::SecuritySessions]), static_cast<unsigned long>(c[C::SecurityRefusals]));
-}
+// One report round, spread over loop passes: stage k prints line k.
+class ReportRound {
+public:
+    void begin() noexcept { stage_ = 0; }
+    [[nodiscard]] bool active() const noexcept { return stage_ < stageCount(); }
+    void next() noexcept
+    {
+        if (!active()) return;
+        emit(stage_++);
+    }
+
+private:
+    static constexpr std::size_t kFixedStages = 4;  // IDENTITY, RUNTIME, BLE, TELEMETRY.
+    static constexpr std::size_t kOtherTasks = 2;   // nimble_host, loopTask.
+    [[nodiscard]] std::size_t stageCount() const noexcept
+    {
+        return kFixedStages + platform.startedTasks() + kOtherTasks + 1;  // + RESOURCES.
+    }
+    void emit(std::size_t stage) noexcept
+    {
+        if (stage == 0) return logLine(identityLine());
+        if (stage == 1) return logLine(runtimeLine(firmwareRuntime.status()));
+        if (stage == 2) {
+            if (bleController) reportBle();
+            return;
+        }
+        if (stage == 3) return logLine(telemetryLine());
+        std::size_t task = stage - kFixedStages;
+        if (task < platform.startedTasks()) {
+            if (const auto r = platform.report(task))
+                logLine(diagnostics::taskLine({r->name, r->priority, r->period, r->stackBytes, r->stackFreeBytes,
+                                               r->timing}));
+            return;
+        }
+        task -= platform.startedTasks();
+        if (task == 0) {
+            const TaskHandle_t host = xTaskGetHandle("nimble_host");
+            logLine(diagnostics::taskLine({"nimble_host", timing::kNimbleHostPriority, {},
+                                           static_cast<std::size_t>(CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE),
+                                           host ? std::optional<std::size_t>{stackFree(host)} : std::nullopt, {}}));
+            return;
+        }
+        if (task == 1) {
+            logLine(diagnostics::taskLine({"loopTask", static_cast<int>(uxTaskPriorityGet(nullptr)), kReporterPollPeriod,
+                                           getArduinoLoopTaskStackSize(), stackFree(nullptr), {}}));
+            return;
+        }
+        logLine(resourcesLine());
+    }
+    std::size_t stage_{static_cast<std::size_t>(-1)};
+};
+ReportRound reportRound;
 
 bool changed(const ble::LinkStatus& a, const ble::LinkStatus& b)
 {
@@ -217,7 +436,7 @@ void pollMaintenanceInput()
             else overflow = true;
             continue;
         }
-        if (overflow) Serial.println("ERR line too long");
+        if (overflow) logLine("ERR line too long");
         else console.handleLine(std::string_view{line, length});
         length = 0;
         overflow = false;
@@ -241,26 +460,34 @@ void setup()
     motorsAttached = motors.begin();
     startResult = firmwareRuntime.start();
     bleStart = startBle();
+    readBuildId();
     Serial.begin(kSerialBaudRate);
-    Serial.println("CodeCell C6 production runtime (#158-#163): v1 BLE peripheral, restricted-lab profile "
-                   "(unauthenticated); bounded drive from the provisioned profile, powered checks blocked (#238); "
-                   "type help for maintenance");
-    Serial.printf("BOOT reset_reason=%s shutdown_handler=%s\n", resetReason,
-                  firmwareRuntime.shutdownHookRegistered() ? "registered" : "failed");
+    // Bounded writes: the drain offers only what the USB buffer has room for (B13).
+    Serial.setTxTimeoutMs(kSerialTxTimeoutMs);
+    logLine("CodeCell C6 production runtime (#158-#164): v1 BLE peripheral and telemetry, restricted-lab profile "
+            "(unauthenticated); bounded drive from the provisioned profile, powered checks blocked (#238); "
+            "type help for maintenance");
+    logf("BOOT reset_reason=%s shutdown_handler=%s firmware=%u.%u.%u build=%s", resetReason,
+         firmwareRuntime.shutdownHookRegistered() ? "registered" : "failed", ble::kRobotInfoFirmwareVersion.major,
+         ble::kRobotInfoFirmwareVersion.minor, ble::kRobotInfoFirmwareVersion.patch, buildId.data());
     const auto identity = configuration.robotInfo();
     const auto name = provisioning::advertisedName(identity ? identity->robotId : 0);
-    Serial.printf("BLE start=%s profile=%s accepted_centrals=1 stack_max_connections=%d name=%s\n", toString(bleStart),
-                  ble::toString(ble::kSecurityProfile), CONFIG_BT_NIMBLE_MAX_CONNECTIONS,
-                  bleStart == BleStart::Started ? name.data() : "none");
-    Serial.printf("SECURITY mode=%s policy=%s authenticated=no encrypted=no %s\n", ble::toString(ble::kSecurityMode),
-                  bleSecurity.profile(), ble::kRestrictedLabSecurityWarning);
-    if (!motorsAttached) Serial.println("DRIVE attach=failed");
+    logf("BLE start=%s profile=%s accepted_centrals=1 stack_max_connections=%d name=%s", toString(bleStart),
+         ble::toString(ble::kSecurityProfile), CONFIG_BT_NIMBLE_MAX_CONNECTIONS,
+         bleStart == BleStart::Started ? name.data() : "none");
+    logf("SECURITY mode=%s policy=%s authenticated=no encrypted=no %s", ble::toString(ble::kSecurityMode),
+         bleSecurity.profile(), ble::kRestrictedLabSecurityWarning);
+    logf("TELEMETRY start=%s tick_ms=%ld period_ms=%u battery=unknown battery_low=unsupported velocity=unknown",
+         firmwareRuntime.telemetryTaskStarted() ? "started" : "failed",
+         static_cast<long>(timing::kTelemetryTickPeriod.count()),
+         identity ? static_cast<unsigned>(identity->telemetryPeriodMilliseconds) : 0U);
+    if (!motorsAttached) logLine("DRIVE attach=failed");
     const auto& boot = configuration.bootState();
-    Serial.printf("PROVISIONING state=%s reason=%s generation=%lu pending=%s\n", provisioning::toString(boot.state),
-                  provisioning::toString(boot.reason), static_cast<unsigned long>(boot.generation.value_or(0)),
-                  provisioning::toString(boot.pending));
+    logf("PROVISIONING state=%s reason=%s generation=%lu pending=%s", provisioning::toString(boot.state),
+         provisioning::toString(boot.reason), static_cast<unsigned long>(boot.generation.value_or(0)),
+         provisioning::toString(boot.pending));
     if (const auto error = firmwareRuntime.configError())
-        Serial.printf("RUNTIME config_error=%u\n", static_cast<unsigned>(*error));
+        logf("RUNTIME config_error=%u", static_cast<unsigned>(*error));
 }
 
 void loop()
@@ -268,28 +495,27 @@ void loop()
     pollMaintenanceInput();
     const auto now = firmwareClock.now();
     const auto status = firmwareRuntime.status();
-    if (!reported || changed(status, lastStatus) || now - lastReport >= kStatusReportPeriod) {
-        reportStatus(status);
-        lastStatus = status;
+    if (!reported || now - lastReport >= kStatusReportPeriod) {
+        reportRound.begin();
         lastReport = now;
+        lastStatus = status;
         reported = true;
+    } else if (changed(status, lastStatus)) {
+        logLine(runtimeLine(status));
+        lastStatus = status;
     }
     if (bleController) {
-        // One warning per new pass-through session, printed here and never from the BLE callback.
+        // One warning per new pass-through session, logged here and never from the BLE callback.
         const auto bypassed = bleController->diagnostics()[ble::BleCounter::BypassedSecuritySessions];
         if (bypassed != warnedBypassedSessions) {
             warnedBypassedSessions = bypassed;
-            Serial.printf("SECURITY session=%lu %s\n", static_cast<unsigned long>(bypassed),
-                          ble::kRestrictedLabSecurityWarning);
-        }
-        const auto link = bleController->status();
-        const bool due = !bleReported || now - lastBleReport >= kStatusReportPeriod;
-        if (due || (changed(link, lastBle) && now - lastBleReport >= kBleReportMinSpacing)) {
-            reportBle(link);
-            lastBle = link;
-            lastBleReport = now;
-            bleReported = true;
+            logf("SECURITY session=%lu %s", static_cast<unsigned long>(bypassed), ble::kRestrictedLabSecurityWarning);
         }
     }
+    if (bleController && !reportRound.active() && bleReported && changed(bleController->status(), lastBle)
+        && now - lastBleReport >= kBleReportMinSpacing)
+        reportBle();
+    if (logRing.size() <= diagnostics::kReportBackpressureBytes) reportRound.next();
+    drainLog();
     delay(static_cast<std::uint32_t>(kReporterPollPeriod.count()));
 }

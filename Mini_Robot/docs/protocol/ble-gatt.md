@@ -7,7 +7,7 @@ identity/service validation and notification setup. Desktop
 validated notifications; physical command delivery remains unverified. The portable
 firmware [codec and command validation](../overview/firmware-protocol.md) (#161) is
 served by the [C6 BLE peripheral](../overview/firmware-ble.md) (#163), under the
-restricted-lab v1 profile (#157); telemetry publication is #164. A connection-only
+restricted-lab v1 profile (#157), which also publishes [telemetry](../overview/firmware-telemetry.md) (#164). A connection-only
 [CodeCell bench fixture](../../firmware/ble-lifecycle/README.md) supports #187;
 it does not implement the command/safety protocol below.
 
@@ -200,7 +200,8 @@ board, not powered or HIL-tested, #166/#238):
 - [x] Frame validation order, result codes, and one CommandResult per received frame.
 - [x] Sequence rules, ready-state gating, and Velocity deadline from receipt time.
 - [x] Emergency Stop latch on any write; stop on expiry, disconnect, or CCCD disable.
-- [ ] Telemetry every `telemetryPeriodMs` and immediately after a state change (#164).
+- [x] Telemetry every `telemetryPeriodMs` and after a state change, within the B10 spacing (#164;
+  [telemetry](../overview/firmware-telemetry.md), including the open B10 deviation finding under write bursts).
 
 Desktop BLE adapter ([#65](https://github.com/Krzys2002/Mini_Robot/issues/65),
 [#66](https://github.com/Krzys2002/Mini_Robot/issues/66)):

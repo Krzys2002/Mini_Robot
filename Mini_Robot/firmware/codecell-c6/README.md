@@ -17,7 +17,10 @@ newcomers are promptly terminated without ordinary command/CCCD effects, but the
 dedicated E-stop still latches. No observers are supported. The restricted-lab mock is
 unauthenticated and unencrypted. The policy from #274 is included; desktop companion
 #287 remains an integration dependency.
-Telemetry is not published yet (#164). The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
+It publishes v1 [telemetry](../../docs/overview/firmware-telemetry.md) (#164) periodically and on
+state change, on the counter it shares with CommandResults, with battery and measured velocity
+reported as unknown, and prints bounded diagnostics (task jitter, stack, heap, drops) on USB
+serial. Robot Info reports firmware 0.1.0. The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
 (#160). It wakes the H-bridges only with a valid provisioned profile, and it is not
 proof of safe electrical boot behaviour or of any physical motor limit (#238).
 [Safety enforcement](../../docs/overview/firmware-safety.md) (#162) admits Velocity
@@ -43,14 +46,16 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 | `include/runtime/` | Portable production runtime (#158): ports, safety state, actuator gate, command processor, mailbox, periodic steps and start-up orchestration; session readiness, watchdog and fault recovery (#162) |
 | `include/provisioning/` | Portable identity/configuration record, A/B atomic store, runtime configuration source and USB maintenance console (#159) |
 | `include/protocol/` | Portable [v1 codec and command validation](../../docs/overview/firmware-protocol.md) (#161): wire constants, command decoder, Telemetry/CommandResult/Robot Info encoders, sequence rules and the per-session command handler |
-| `include/ble/` | Portable [BLE peripheral](../../docs/overview/firmware-ble.md) (#163): GATT profile and advertising bytes, restricted-lab readiness policy, session lifecycle controller |
+| `include/ble/` | Portable [BLE peripheral](../../docs/overview/firmware-ble.md) (#163): GATT profile and advertising bytes, restricted-lab readiness policy, session lifecycle controller, telemetry publication (#164) |
+| `include/telemetry/` | Portable [telemetry](../../docs/overview/firmware-telemetry.md) (#164): schedule, battery policy, measurement availability, publication counters |
+| `include/diagnostics/` | Portable bounded log ring, byte budget and drain, and the diagnostic report lines (#164) |
 | `include/drive/` | Portable [bounded drive](../../docs/overview/firmware-drive.md) (#160): drive profile, kinematics and actuator map, rate limiter, motor HAL port and `BoundedDriveOutput` |
 | `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
 | `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
 | `pilot/`, `scripts/timing_pilot_host.py` | [#156 timing pilot](../../docs/testing/timing-pilot-156.md): bench measurement image and its Linux/BlueZ host driver; never a robot image |
 | `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp`, `src/CodeCellMotorDriver.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS/board adapters: clock, critical section, periodic tasks, task watchdog and its ISR hook, shutdown handler, reset reason, DRV8837 motor HAL (LEDC, bridge sleep), NVS record storage and bond erase |
 | `src/NimBlePeripheral.hpp` | NimBLE-Arduino adapter of the v1 GATT peripheral (#163); the only production code that names NimBLE besides `main.cpp` |
-| `scripts/gatt_conformance_host.py` | BlueZ conformance run of the production image on a USB-only board (#163) |
+| `scripts/gatt_conformance_host.py` | BlueZ conformance and notification/logging stress run of the production image on a USB-only board (#163, #164) |
 | `CMakeLists.txt`, `tests/` | Independent GoogleTest host entry point (no Arduino, Qt or OpenCV) |
 
 All commands below run from the repository root.
@@ -198,6 +203,11 @@ stalled or paused, fault power-down, shutdown and reset recovery
 layout and advertising bytes, one central, CCCD readiness, one result per frame, the
 E-stop path for any payload, overload, disconnect and allocation-free reconnect cycles
 ([details](../../docs/overview/firmware-ble.md#verification)).
+`TelemetrySchedulerTest`, `TelemetryDiagnosticsTest`, `BatteryMonitorTest`,
+`TelemetryPublicationTest`, `LogRingTest`, `TaskTimingTest` and `StatusReportTest` cover #164:
+the v1 Telemetry bytes and the shared counter, B10 spacing and rate under lateness, congestion,
+unknown measurements, the battery policy, the bounded log against congested sinks, and the
+report lines ([details](../../docs/overview/firmware-telemetry.md#verification)).
 None of these tests exercises a motor controller.
 
 ### Host sanitizers and fuzz run
@@ -318,7 +328,10 @@ firmware state must keep one serial session open. Upload rebuilds if needed, the
 application images to their regions; it does not erase the whole flash, so a stored
 identity survives an upload. On a provisioned board the monitor should show
 `RUNTIME uptime_ms=... start=running ready=1 state=Idle output=disabled fault=None maintenance=0 provisioning=Provisioned robot_id=<id> ...`
-every 5 s (the boot banner is printed before USB CDC reconnects and is often not seen).
+in every report round, every 5 s, with `IDENTITY`, `BLE`, `TELEMETRY`, `TASK` and `RESOURCES`
+lines ([local diagnostics](../../docs/overview/firmware-telemetry.md#local-diagnostics)). Lines
+wait in a bounded ring until a host reads the port, but the first ~256 B of the boot output are
+held by the USB driver and usually lost when the port opens.
 An unprovisioned board shows `start=faulted state=Fault output=disabled
 fault=ConfigurationUnavailable provisioning=Unprovisioned robot_id=none`; provision it
 with the [maintenance console](../../docs/overview/firmware-provisioning.md#usb-maintenance-path)

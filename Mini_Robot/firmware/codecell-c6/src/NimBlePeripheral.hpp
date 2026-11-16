@@ -9,12 +9,22 @@
 // takes its configuration from that header, so a -D build flag cannot lower it (it is
 // redefined). One central per robot (#157 F1) is therefore enforced by the controller:
 // advertising stops when the owner connects and any other connection is terminated unapplied.
+//
+// Telemetry (#164): the telemetry task calls requestTelemetryTick(), which posts one static
+// event to the NimBLE host's own event queue, so ble::PeripheralController::onTelemetryTick()
+// runs in nimble_host like every other callback. One event is pending at most (a flag here,
+// besides NimBLE's own "queued" mark), so ticks coalesce while the host is busy and add no
+// backlog. The post never comes from the host task itself (NimBLE's put waits for queue
+// space, which would deadlock there), nor from the supervisor or control task.
 #include "ble/GattProfile.hpp"
 #include "ble/PeripheralController.hpp"
 #include "protocol/V1Codec.hpp"
 #include "provisioning/RobotIdentity.hpp"
 #include <NimBLEDevice.h>
+#include <nimble/nimble_npl.h>
+#include <nimble/nimble_port.h>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <new>
@@ -88,7 +98,7 @@ public:
         result_ = createPlain(*service, C::CommandResult);
         if (!info || !command_ || !estop_ || !telemetry_ || !result_) return false;
         info->setValue(robotInfo.data(), robotInfo.size());
-        // Telemetry stays empty until telemetry publication (#164) writes a frame: no frame is
+        // Telemetry's Read value is empty until a session's first frame (#164); no frame is
         // invented here. CommandResult values are sent as notifications only.
         telemetry_->setCallbacks(this);
         result_->setCallbacks(this);
@@ -105,13 +115,46 @@ public:
         advertising_ = NimBLEDevice::getAdvertising();
         if (!advertising_) return false;
         advertising_->enableScanResponse(true);
-        return advertising_->setAdvertisementData(advertisement) && advertising_->setScanResponseData(response);
+        if (!advertising_->setAdvertisementData(advertisement) || !advertising_->setScanResponseData(response))
+            return false;
+        // The tick event's storage is taken from NimBLE's event pool here, once (B15).
+        ble_npl_event_init(&tickEvent_, &NimBlePeripheral::onTickEvent, this);
+        tickReady_.store(true, std::memory_order_release);
+        return true;
     }
+
+    // Telemetry task only (#164): ask the host to evaluate the telemetry schedule. Coalesces
+    // with a tick that is still pending; may wait while the host's event queue is full, which
+    // delays only this low-priority task.
+    void requestTelemetryTick() noexcept
+    {
+        if (!tickReady_.load(std::memory_order_acquire)) return;
+        if (tickPending_.exchange(true, std::memory_order_acq_rel)) {
+            ticksCoalesced_.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &tickEvent_);
+    }
+
+    [[nodiscard]] std::uint32_t ticksCoalesced() const noexcept { return ticksCoalesced_.load(std::memory_order_relaxed); }
 
     // ---- ble::IPeripheralLink ----
     bool notifyCommandResult(ble::ConnectionHandle connection, std::span<const std::uint8_t> frame) noexcept override
     {
         return result_ && result_->notify(frame.data(), frame.size(), connection);
+    }
+    bool publishTelemetry(ble::ConnectionHandle connection, std::span<const std::uint8_t> frame) noexcept override
+    {
+        if (!telemetry_) return false;
+        // The value's buffer was sized at creation (NimBLE's 20-byte initial length >= 18 bytes),
+        // so setValue() only copies. Reads are served in this same host context.
+        (void)telemetry_->setValue(frame.data(), static_cast<std::uint16_t>(frame.size()));
+        return telemetry_->notify(frame.data(), frame.size(), connection);
+    }
+    void clearTelemetry() noexcept override
+    {
+        static constexpr std::uint8_t kNoValue = 0;
+        if (telemetry_) (void)telemetry_->setValue(&kNoValue, 0);
     }
     bool terminate(ble::ConnectionHandle connection) noexcept override
     {
@@ -161,6 +204,15 @@ private:
         return p;
     }
 
+    // Runs in nimble_host. The pending flag is cleared first, so a tick posted while this
+    // evaluation runs is queued again rather than lost.
+    static void onTickEvent(ble_npl_event* event)
+    {
+        auto* self = static_cast<NimBlePeripheral*>(ble_npl_event_get_arg(event));
+        self->tickPending_.store(false, std::memory_order_release);
+        self->controller_->onTelemetryTick();
+    }
+
     // ---- NimBLEServerCallbacks ----
     void onConnect(NimBLEServer*, NimBLEConnInfo& connection) override
     {
@@ -197,5 +249,9 @@ private:
     DirectWriteCharacteristic* estop_{nullptr};
     NimBLECharacteristic* telemetry_{nullptr};
     NimBLECharacteristic* result_{nullptr};
+    ble_npl_event tickEvent_{};
+    std::atomic<bool> tickReady_{false};
+    std::atomic<bool> tickPending_{false};
+    std::atomic<std::uint32_t> ticksCoalesced_{0};
 };
 } // namespace codecell::esp

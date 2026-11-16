@@ -7,7 +7,7 @@ Runs while PlatformIO reads the build scripts, before anything is compiled:
 
 Every default build then writes `$BUILD_DIR/firmware-provenance.json` with the
 resolved Core, platform, packages, libraries, compiler, C++ standard, firmware
-image digest and source revision. It contains no host user name or path.
+image and ELF digests and source revision. It contains no host user name or path.
 """
 import hashlib
 import json
@@ -26,7 +26,9 @@ REQUIREMENTS = PROJECT_DIR / "requirements.txt"
 INSTALL_HINT = ("python3 -m pip install -r Mini_Robot/firmware/codecell-c6/requirements.txt "
                 "(see Mini_Robot/firmware/codecell-c6/README.md, 'Clean installation')")
 RELEASE_URL = re.compile(r"/releases/download/v?(\d+)\.(\d+)\.(\d+)/")
-PROVENANCE_SCHEMA = 2  # 2: `source.untracked_inputs`; `modified` includes untracked inputs.
+# 2: `source.untracked_inputs`; `modified` includes untracked inputs.
+# 3: `elf.sha256`, which the running image prints as `build=` (its first 16 hex digits, #164).
+PROVENANCE_SCHEMA = 3
 # Project-relative paths whose contents can change the image: PlatformIO configuration,
 # the pins, sources, headers, libraries, board definitions and the build scripts.
 BUILD_INPUTS = ("platformio.ini", "requirements.txt", "src", "include", "lib", "boards", "scripts", "pilot")
@@ -152,6 +154,7 @@ def write_provenance(target, source, env):
         "cxx_standard": [flag for flag in env.Flatten(env.get("CXXFLAGS", []))
                          if str(flag).startswith("-std=")],
         "image": {"file": f"{program}.bin", "sha256": sha256(build_dir / f"{program}.bin")},
+        "elf": {"file": f"{program}.elf", "sha256": sha256(build_dir / f"{program}.elf")},
         "host": {"system": host_platform.system(), "machine": host_platform.machine(),
                  "python": host_platform.python_version()},
     }

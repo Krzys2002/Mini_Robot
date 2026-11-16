@@ -276,6 +276,7 @@ observable without instruments and remain NOT RUN.
 
 - The GATT server, CCCD callbacks and advertising that call `open()` and `end()`: the
   [BLE peripheral](firmware-ble.md) (#163).
-- Telemetry publication and scheduling, and the reset or fault reason in telemetry: #164.
+- Telemetry publication and scheduling: [#164](firmware-telemetry.md). v1 Telemetry has no
+  reset or fault field; both reasons are in the local `RUNTIME` and `IDENTITY` lines.
 - Security and authorization of the controller: #165.
 - Any persistent E-stop or recovery beyond v1.

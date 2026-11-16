@@ -4,6 +4,7 @@
 // include/runtime/ is host-tested with fakes.
 #include "TimingBudget.hpp"
 #include "runtime/RuntimePorts.hpp"
+#include "runtime/TaskTiming.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -13,6 +14,7 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <optional>
 
 namespace codecell::esp {
 
@@ -40,8 +42,18 @@ private:
     portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
 };
 
-// The production image needs exactly the supervisor and the control task.
-inline constexpr std::size_t kMaxPeriodicTasks = 2;
+// The production image needs the supervisor, the control task and the telemetry tick (#164).
+inline constexpr std::size_t kMaxPeriodicTasks = 3;
+
+// One started periodic task, for the diagnostic report (#164).
+struct PeriodicTaskReport {
+    const char* name{""};
+    int priority{0};
+    std::chrono::milliseconds period{};
+    std::size_t stackBytes{0};
+    std::size_t stackFreeBytes{0};  // ESP-IDF FreeRTOS reports the high-water mark in bytes.
+    runtime::TaskTimingSnapshot timing{};
+};
 
 // Task watchdog (#156 B17, #162): only the subscribed task (the supervisor) is watched. The
 // idle task is not (the pinned sdkconfig does not watch it either), so a busy low-priority
@@ -91,6 +103,10 @@ public:
         auto& task = tasks_[started_];
         task.body = &body;
         task.periodTicks = static_cast<TickType_t>(timing::ticksAtLeast(spec.period));
+        task.name = spec.name;
+        task.priority = spec.priority;
+        task.period = spec.period;
+        task.stackBytes = spec.stackBytes;
         // The stack is allocated here, during initialization only (B15). Checked result.
         if (xTaskCreate(&FreeRtosPlatform::run, spec.name, static_cast<std::uint32_t>(spec.stackBytes), &task,
                         static_cast<UBaseType_t>(spec.priority), &task.handle)
@@ -134,6 +150,18 @@ public:
         for (std::uint32_t waited = 0; waited < limit && anyWatched(); ++waited) vTaskDelay(1);
     }
 
+    [[nodiscard]] std::size_t startedTasks() const noexcept { return started_; }
+
+    // Reporter (loopTask only): timing window and stack high-water of the i-th started task.
+    [[nodiscard]] std::optional<PeriodicTaskReport> report(std::size_t index) noexcept
+    {
+        if (index >= started_ || !tasks_[index].handle) return std::nullopt;
+        auto& task = tasks_[index];
+        return PeriodicTaskReport{task.name, task.priority, task.period, task.stackBytes,
+                                  static_cast<std::size_t>(uxTaskGetStackHighWaterMark(task.handle)),
+                                  task.timing.takeWindow()};
+    }
+
 private:
     // Runs inside esp_restart(), in the caller's task.
     static void runShutdownHook()
@@ -148,6 +176,11 @@ private:
         TaskHandle_t handle{nullptr};
         std::atomic<bool> watched{false};
         std::atomic<bool> releaseRequested{false};
+        const char* name{""};
+        int priority{0};
+        std::chrono::milliseconds period{};
+        std::size_t stackBytes{0};
+        runtime::TaskTiming timing{};  // Recorded by the task itself, read by the reporter.
     };
 
     // The TWDT is initialized by ESP-IDF at boot (CONFIG_ESP_TASK_WDT_INIT, 5 s); the
@@ -168,10 +201,15 @@ private:
 
     static void run(void* context)
     {
+        constexpr std::int64_t kTickUs = 1'000'000 / configTICK_RATE_HZ;
         auto& task = *static_cast<Task*>(context);
         TickType_t lastWake = xTaskGetTickCount();
+        task.timing.woke(esp_timer_get_time(), static_cast<std::uint32_t>(lastWake), kTickUs);
         for (;;) {
+            // Diagnostics only (#164): two clock reads and a few atomic stores per step.
+            const std::int64_t stepStart = esp_timer_get_time();
             task.body->step();
+            task.timing.stepCompleted(runtime::Instant{esp_timer_get_time() - stepStart});
             // Fed only after a completed step: a step that never returns stops the feed.
             if (task.watched.load(std::memory_order_acquire)) {
                 if (task.releaseRequested.load(std::memory_order_acquire)) {
@@ -182,7 +220,12 @@ private:
                 }
             }
             // Absolute-time wake-ups; an overrun resynchronizes instead of bursting.
-            if (xTaskDelayUntil(&lastWake, task.periodTicks) == pdFALSE) lastWake = xTaskGetTickCount();
+            if (xTaskDelayUntil(&lastWake, task.periodTicks) == pdFALSE) {
+                lastWake = xTaskGetTickCount();
+                task.timing.overrun();
+            } else {
+                task.timing.woke(esp_timer_get_time(), static_cast<std::uint32_t>(lastWake), kTickUs);
+            }
         }
     }
 

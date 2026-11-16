@@ -2,7 +2,8 @@
 // Diagnostic counters of the runtime (#158). Lock-free 32-bit atomics: callable from any
 // task or callback without blocking, allocation or serial output. Only the lowest-
 // priority reporter (Arduino loopTask, the B13 log drain) formats and prints them.
-// Telemetry publication of diagnostics is #164.
+// v1 telemetry has no counter fields (#164 does not extend the frozen frames): the counters are
+// reported in the local RUNTIME line (diagnostics/StatusReport.hpp).
 #include <array>
 #include <atomic>
 #include <cstddef>

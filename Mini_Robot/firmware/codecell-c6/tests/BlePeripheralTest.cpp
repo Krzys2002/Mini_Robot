@@ -5,218 +5,17 @@
 // host produces (CCCD-off events before the disconnect, events for a stale handle, a second
 // central) are injected directly.
 #include "AllocationCounter.hpp"
+#include "BleTestRig.hpp"
 #include "ProtocolVectors.hpp"
-#include "ProvisioningFakes.hpp"
-#include "RuntimeFakes.hpp"
-#include "ble/PeripheralController.hpp"
-#include "protocol/V1CommandSession.hpp"
-#include "provisioning/ProvisionedConfiguration.hpp"
-#include "runtime/FirmwareRuntime.hpp"
 #include <gtest/gtest.h>
-#include <algorithm>
-#include <array>
 #include <cstdint>
-#include <functional>
-#include <optional>
 #include <string>
 #include <vector>
 
 using namespace codecell;
 using namespace codecell::ble;
-using namespace codecell::protocol::v1;
-using namespace codecell::runtime::fakes;
-using namespace std::chrono_literals;
+using namespace codecell::ble::testrig;
 using codecell::protocol::fixtures::vectorNamed;
-using runtime::Counter;
-using runtime::Instant;
-using runtime::MotionState;
-
-namespace {
-constexpr ConnectionHandle kOwner = 1;
-constexpr ConnectionHandle kSecond = 2;
-constexpr int kRemoteUserTerminated = 0x13;
-
-// Fixed-size records, so that recording allocates nothing once the vectors are reserved.
-struct Notification {
-    ConnectionHandle to{};
-    std::array<std::uint8_t, kMaxAttPayload> bytes{};
-    std::size_t length{0};
-};
-
-class FakeLink final : public IPeripheralLink {
-public:
-    std::vector<Notification> notifications;
-    std::vector<ConnectionHandle> terminated;
-    int notifyAttempts{0};
-    int advertisingStarts{0};
-    int advertisingStops{0};
-    int linkRequests{0};
-    std::optional<ConnectionHandle> lastLinkRequestTo{};
-    LinkParameterRequest lastLinkRequest{};
-    bool advertising{false};
-    std::uint16_t stackMtu{0};  // What the stack reports for a connection (0: unknown).
-    bool failNotify{false};
-    bool failAdvertising{false};
-    bool failTerminate{false};
-    bool refuseLinkRequest{false};
-    std::function<void()> whileStartingAdvertising;
-    std::function<void()> whileTerminating;
-
-    bool notifyCommandResult(ConnectionHandle to, std::span<const std::uint8_t> frame) noexcept override
-    {
-        ++notifyAttempts;
-        if (failNotify || frame.size() > kMaxAttPayload) return false;
-        Notification n{to, {}, frame.size()};
-        std::copy(frame.begin(), frame.end(), n.bytes.begin());
-        notifications.push_back(n);
-        return true;
-    }
-    bool terminate(ConnectionHandle connection) noexcept override
-    {
-        if (whileTerminating) whileTerminating();
-        terminated.push_back(connection);
-        return !failTerminate;
-    }
-    bool startAdvertising() noexcept override
-    {
-        if (whileStartingAdvertising) whileStartingAdvertising();
-        ++advertisingStarts;
-        advertising = !failAdvertising;
-        return !failAdvertising;
-    }
-    bool stopAdvertising() noexcept override
-    {
-        ++advertisingStops;
-        advertising = false;
-        return true;
-    }
-    std::uint16_t attMtu(ConnectionHandle) const noexcept override { return stackMtu; }
-    bool requestLinkParameters(ConnectionHandle connection, const LinkParameterRequest& request) noexcept override
-    {
-        ++linkRequests;
-        lastLinkRequestTo = connection;
-        lastLinkRequest = request;
-        return !refuseLinkRequest;
-    }
-};
-
-struct Result {
-    ConnectionHandle to;
-    std::uint16_t sequence;
-    std::uint16_t commandSequence;
-    std::uint8_t commandType;
-    ResultCode code;
-    std::uint8_t state;
-};
-Result parse(const Notification& n)
-{
-    EXPECT_EQ(n.length, kCommandResultLength);
-    EXPECT_EQ(n.bytes[kVersionAt], kProtocolVersion);
-    EXPECT_EQ(n.bytes[kTypeAt], static_cast<std::uint8_t>(MessageType::CommandResult));
-    const std::span<const std::uint8_t> b{n.bytes.data(), n.length};
-    return {n.to, readU16(b, kSequenceAt), readU16(b, kResultCommandSequenceAt), n.bytes[kResultCommandTypeAt],
-            static_cast<ResultCode>(n.bytes[kResultCodeAt]), n.bytes[kResultStateAt]};
-}
-
-std::vector<std::uint8_t> velocityFrame(std::uint16_t sequence, std::int16_t linear, std::uint16_t validFor)
-{
-    std::vector<std::uint8_t> b(kVelocityLength, 0);
-    b[kVersionAt] = kProtocolVersion;
-    b[kTypeAt] = static_cast<std::uint8_t>(MessageType::Velocity);
-    const auto put = [&b](std::size_t at, std::uint16_t v) {
-        b[at] = static_cast<std::uint8_t>(v & 0xFFU);
-        b[at + 1] = static_cast<std::uint8_t>(v >> 8);
-    };
-    put(kSequenceAt, sequence);
-    put(kVelocityLinearAt, static_cast<std::uint16_t>(linear));
-    put(kVelocityValidForAt, validFor);
-    return b;
-}
-std::vector<std::uint8_t> headerFrame(MessageType type, std::uint16_t sequence)
-{
-    return {kProtocolVersion, static_cast<std::uint8_t>(type), static_cast<std::uint8_t>(sequence & 0xFFU),
-            static_cast<std::uint8_t>(sequence >> 8)};
-}
-
-class RuntimeView final : public IRuntimeStatusView {
-public:
-    explicit RuntimeView(const runtime::FirmwareRuntime& runtime) : runtime_(runtime) {}
-    runtime::RuntimeStatus status() const noexcept override { return runtime_.status(); }
-
-private:
-    const runtime::FirmwareRuntime& runtime_;
-};
-
-// The provisioned record (fixture values, not CodeCell calibration) gives both the runtime
-// configuration and the advertised limits, as in production: 150 mm/s, 3000 mrad/s, 200 ms.
-constexpr std::int16_t kForward = 100;
-constexpr std::uint16_t kValidity = 200;
-
-struct Rig {
-    FakeClock clock;
-    FakePlatform platform;
-    FakeDrive drive;
-    FakeConfiguration configuration;
-    FakeLink link;
-    std::optional<runtime::FirmwareRuntime> runtime;
-    std::optional<RuntimeView> view;
-    RestrictedLabPassThroughSecurity passThrough;
-    ISessionSecurity* security{&passThrough};
-    SecurityMode securityMode{SecurityMode::RestrictedLabPassThrough};
-    std::optional<PeripheralController> ble;
-
-    // Default: the explicitly selected restricted-lab pass-through, as in the image.
-    explicit Rig(bool startAdvertising = true, ISessionSecurity* custom = nullptr,
-                 SecurityMode mode = SecurityMode::RestrictedLabPassThrough)
-    {
-        if (custom) security = custom;
-        securityMode = mode;
-        const auto config = provisioning::ValidatedRobotConfig::validated(provisioning::fakes::validConfig());
-        EXPECT_TRUE(config);
-        configuration.value = provisioning::runtimeConfigFor(*config);
-        clock.time = 1s;
-        drive.section = &platform.section;
-        runtime.emplace(runtime::RuntimeDependencies{clock, platform, drive, configuration, nullptr});
-        EXPECT_EQ(runtime->start(), runtime::StartResult::Running);
-        view.emplace(*runtime);
-        ble.emplace(runtime->commands(), *view, commandLimits(provisioning::robotInfoValues(*config)), link, clock,
-                    *security, securityMode);
-        if (startAdvertising) ble->start();
-    }
-    void subscribe(ConnectionHandle h, Characteristic c, bool on = true) { ble->onSubscriptionChanged(h, c, on); }
-    void makeReady(ConnectionHandle h = kOwner)
-    {
-        ble->onConnected(h);
-        subscribe(h, Characteristic::CommandResult);
-        subscribe(h, Characteristic::Telemetry);
-    }
-    void command(ConnectionHandle h, const std::vector<std::uint8_t>& bytes) { ble->onCommandWrite(h, bytes); }
-    void estop(ConnectionHandle h, const std::vector<std::uint8_t>& bytes) { ble->onEmergencyStopWrite(h, bytes); }
-    [[nodiscard]] Result last() const { return parse(link.notifications.back()); }
-    [[nodiscard]] runtime::RuntimeStatus status() const { return runtime->status(); }
-    [[nodiscard]] std::uint32_t runtimeCount(Counter c) const { return runtime->diagnostics()[c]; }
-    [[nodiscard]] std::uint32_t bleCount(BleCounter c) const { return ble->diagnostics()[c]; }
-    void run(Instant duration)
-    {
-        const Instant end = clock.time + duration;
-        while (clock.time < end) {
-            clock.advance(Instant{timing::kSafetyCheckPeriod});
-            runtime->safetyStep().step();
-            if ((clock.time / Instant{timing::kSafetyCheckPeriod}) % 2 == 0) runtime->controlStep().step();
-        }
-    }
-    // A ready session with an accepted Velocity that has reached the drive.
-    void makeMoving(std::uint16_t sequence = 0)
-    {
-        makeReady();
-        command(kOwner, velocityFrame(sequence, kForward, kValidity));
-        EXPECT_EQ(last().code, ResultCode::Accepted);
-        run(30ms);
-        EXPECT_EQ(status().state, MotionState::Moving);
-        EXPECT_TRUE(drive.enabled);
-    }
-};
-} // namespace
 
 // ---- Advertising and connection ownership ---------------------------------------------
 
@@ -981,4 +780,21 @@ TEST(BleSessionSecurityTest, EmergencyStopBypassesVerificationAndAuthorization)
     EXPECT_FALSE(rig.status().sessionReady);
     EXPECT_EQ(rig.ble->state(), LinkState::Closing);
     EXPECT_EQ(rig.status().state, MotionState::EmergencyStop);
+}
+
+TEST(BleSessionSecurityTest, TelemetryFramesAreProtectedAndARefusedOneIsDropped)
+{
+    SpySecurity spy;
+    Rig rig{true, &spy, SecurityMode::SecureRequired};
+    rig.makeReady();
+    const int before = spy.protectedFrames;
+    rig.ble->onTelemetryTick();
+    EXPECT_EQ(spy.protectedFrames, before + 1);
+    ASSERT_EQ(rig.link.telemetryAttempts, 1);
+    spy.refuseOutgoing = true;
+    rig.clock.advance(200ms);
+    rig.ble->onTelemetryTick();
+    EXPECT_EQ(spy.protectedFrames, before + 2);
+    EXPECT_EQ(rig.link.telemetryAttempts, 1) << "a refused frame never reaches the stack";
+    EXPECT_EQ(rig.ble->state(), LinkState::Ready) << "telemetry loss alone does not end the session";
 }
