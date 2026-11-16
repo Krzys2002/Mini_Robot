@@ -36,8 +36,8 @@ class SourceChecksTest(unittest.TestCase):
             self.assertFalse(report["rejected_calls"])
 
     def test_application_and_fixture_do_not_bind_to_host_fakes(self):
-        for source in ("Mini_Robot/src/ui/view.cpp", "T1-ESP-C6/src/main.cpp",
-                       "T1-ESP-S3/src/main.cpp", "Mini_Robot/firmware/ble-lifecycle/src/main.cpp"):
+        for source in ("Mini_Robot/src/ui/view.cpp", "Mini_Robot/firmware/codecell-c6/src/main.cpp",
+                       "Mini_Robot/firmware/ble-lifecycle/src/main.cpp"):
             data, report = self.check("millis();", "millis()",
                                       "Mini_Robot/tests/firmware/fakes/Arduino.h", source)
             self.assertFalse(data["links"])
