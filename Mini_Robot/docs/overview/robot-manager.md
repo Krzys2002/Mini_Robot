@@ -162,4 +162,6 @@ A session-fenced request remains inhibited until a matching accepted robot resul
 reports Idle. Rejection, timeout, reconnect, or a newer E-stop keeps inhibition;
 late clear results trigger reassertion. A newly issued velocity is required after
 clear. ATT confirmation alone is not robot acceptance or physical proof. Physical
-integration remains #228; independent firmware enforcement remains #162.
+integration remains #228. The independent firmware enforcement is implemented and
+host-tested ([safety enforcement](firmware-safety.md), #162); its hardware measurements
+remain #238/#166.

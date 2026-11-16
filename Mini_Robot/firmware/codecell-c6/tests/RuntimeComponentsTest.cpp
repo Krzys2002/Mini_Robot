@@ -54,32 +54,35 @@ TEST(RuntimeConfigTest, EachRuleRejectsItsViolation)
 TEST(SafetyStateTest, OutOfRangeIsCheckedAfterStateAndValidityAndChangesNothing)
 {
     SafetyState safety;
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, false), CommandOutcome::RejectedNotReady);
+    const auto session = safety.openSession();
+    EXPECT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, false), CommandOutcome::RejectedNotReady);
     safety.markReady();
-    EXPECT_EQ(safety.admitVelocity(0us, 0ms, 250ms, false), CommandOutcome::RejectedInvalid);
+    EXPECT_EQ(safety.admitVelocity(session, 0us, 0us, 0ms, 250ms, false), CommandOutcome::RejectedInvalid);
     const auto generation = safety.generation();
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, false), CommandOutcome::RejectedOutOfRange);
+    EXPECT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, false), CommandOutcome::RejectedOutOfRange);
     EXPECT_EQ(safety.state(), MotionState::Idle);
     EXPECT_EQ(safety.generation(), generation) << "a rejected command never replaces intent";
     EXPECT_FALSE(safety.deadline());
     safety.latchEmergencyStop();
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, false), CommandOutcome::RejectedEmergencyStopLatched);
+    EXPECT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, false), CommandOutcome::RejectedEmergencyStopLatched);
 }
 
 TEST(SafetyStateTest, StartsIdleNotReadyAndRefusesMotion)
 {
     SafetyState safety;
+    const auto session = safety.openSession();
     EXPECT_EQ(safety.state(), MotionState::Idle);
     EXPECT_FALSE(safety.ready());
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::RejectedNotReady);
+    EXPECT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, true), CommandOutcome::RejectedNotReady);
     EXPECT_FALSE(safety.permits(safety.generation(), 0us));
 }
 
 TEST(SafetyStateTest, DeadlineIsReceiptRelativeCappedAndExpiresExactlyAtIt)
 {
     SafetyState safety;
+    const auto session = safety.openSession();
     safety.markReady();
-    ASSERT_EQ(safety.admitVelocity(1000us, 900ms, 250ms, true), CommandOutcome::Accepted);
+    ASSERT_EQ(safety.admitVelocity(session, 1000us, 1000us, 900ms, 250ms, true), CommandOutcome::Accepted);
     ASSERT_TRUE(safety.deadline());
     EXPECT_EQ(*safety.deadline(), 1000us + 250ms);
     const auto generation = safety.generation();
@@ -94,8 +97,9 @@ TEST(SafetyStateTest, DeadlineIsReceiptRelativeCappedAndExpiresExactlyAtIt)
 TEST(SafetyStateTest, EveryMotionEndingTransitionAdvancesTheGeneration)
 {
     SafetyState safety;
+    const auto session = safety.openSession();
     safety.markReady();
-    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::Accepted);
+    ASSERT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, true), CommandOutcome::Accepted);
     auto previous = safety.generation();
     auto advanced = [&] {
         const bool changed = safety.generation() != previous;
@@ -104,11 +108,11 @@ TEST(SafetyStateTest, EveryMotionEndingTransitionAdvancesTheGeneration)
     };
     safety.stop();
     EXPECT_TRUE(advanced());
-    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::Accepted);
+    ASSERT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, true), CommandOutcome::Accepted);
     EXPECT_TRUE(advanced()) << "a new Velocity supersedes the previous one";
     safety.latchEmergencyStop();
     EXPECT_TRUE(advanced());
-    EXPECT_EQ(safety.clearEmergencyStop(), CommandOutcome::Accepted);
+    EXPECT_EQ(safety.clearEmergencyStop(session), CommandOutcome::Accepted);
     EXPECT_TRUE(advanced());
     safety.enterFault(FaultCode::ControlStalled);
     EXPECT_TRUE(advanced());
@@ -117,8 +121,9 @@ TEST(SafetyStateTest, EveryMotionEndingTransitionAdvancesTheGeneration)
 TEST(SafetyStateTest, PermissionNeedsTheExactAdmittedGeneration)
 {
     SafetyState safety;
+    const auto session = safety.openSession();
     safety.markReady();
-    ASSERT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::Accepted);
+    ASSERT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, true), CommandOutcome::Accepted);
     const auto admitted = safety.generation();
     EXPECT_TRUE(safety.permits(admitted, 1us));
     // Only equality is used, so unsigned wrap of the counter cannot grant permission.
@@ -129,27 +134,29 @@ TEST(SafetyStateTest, PermissionNeedsTheExactAdmittedGeneration)
 TEST(SafetyStateTest, FaultIsStickyKeepsTheFirstCodeAndOutranksTheLatch)
 {
     SafetyState safety;
+    const auto session = safety.openSession();
     safety.markReady();
     safety.enterFault(FaultCode::ControlStalled);
     safety.enterFault(FaultCode::DriveWriteFailed);
     EXPECT_EQ(safety.fault(), FaultCode::ControlStalled);
     safety.latchEmergencyStop();
     EXPECT_EQ(safety.state(), MotionState::Fault);
-    EXPECT_EQ(safety.clearEmergencyStop(), CommandOutcome::RejectedFault);
+    EXPECT_EQ(safety.clearEmergencyStop(session), CommandOutcome::RejectedFault);
     safety.markReady();
     EXPECT_FALSE(safety.ready());
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::RejectedFault);
+    EXPECT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, true), CommandOutcome::RejectedFault);
 }
 
 TEST(SafetyStateTest, LatchRejectsVelocityUntilExplicitClear)
 {
     SafetyState safety;
+    const auto session = safety.openSession();
     safety.markReady();
     safety.latchEmergencyStop();
-    EXPECT_EQ(safety.admitVelocity(0us, 100ms, 250ms, true), CommandOutcome::RejectedEmergencyStopLatched);
+    EXPECT_EQ(safety.admitVelocity(session, 0us, 0us, 100ms, 250ms, true), CommandOutcome::RejectedEmergencyStopLatched);
     safety.stop();
     EXPECT_EQ(safety.state(), MotionState::EmergencyStop) << "Stop has no effect while latched";
-    EXPECT_EQ(safety.clearEmergencyStop(), CommandOutcome::Accepted);
+    EXPECT_EQ(safety.clearEmergencyStop(session), CommandOutcome::Accepted);
     EXPECT_EQ(safety.state(), MotionState::Idle);
     EXPECT_FALSE(safety.deadline());
 }

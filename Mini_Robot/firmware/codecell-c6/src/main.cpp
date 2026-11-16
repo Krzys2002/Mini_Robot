@@ -8,9 +8,15 @@
 // nothing in this image commands motion. The drive is the bounded actuator contract
 // (#160): it wakes the H-bridges only after a valid provisioned profile, and no powered
 // motor acceptance exists yet (#238).
+// Independent enforcement (#162): the safety supervisor is the only task on the 50 ms task
+// watchdog. A watchdog expiry first sleeps both bridges from the ISR, then panics and resets;
+// esp_restart() runs the runtime's shutdown first. Every boot starts Idle with outputs off
+// and nothing restored; the boot and status lines report the reset reason.
 // USB serial carries status output and the maintenance console only, never motion.
 #include <Arduino.h>
+#include <esp_attr.h>
 #include <esp_system.h>
+#include <esp_task_wdt.h>
 #include <chrono>
 #include <cstddef>
 #include <string_view>
@@ -62,6 +68,7 @@ RuntimeMaintenanceTarget maintenanceTarget;
 provisioning::MaintenanceConsole console{configStore, maintenanceTarget, maintenanceOutput};
 
 runtime::StartResult startResult{runtime::StartResult::Faulted};
+const char* resetReason{"unknown"};
 std::chrono::milliseconds lastReport{};
 runtime::RuntimeStatus lastStatus{};
 bool reported{false};
@@ -76,12 +83,14 @@ void reportStatus(const runtime::RuntimeStatus& status)
     const auto duty = driveOutput.lastDuty();
     const char* output = status.stopRamp ? "stop_ramp" : (status.outputEnabled ? "enabled" : "disabled");
     Serial.printf("RUNTIME uptime_ms=%lu start=%s ready=%d state=%s output=%s duty_m1=%d duty_m2=%d fault=%s "
-                  "maintenance=%d provisioning=%s robot_id=%s accepted=%lu rejected=%lu expired=%lu overwrites=%lu\n",
+                  "maintenance=%d session=%d expired_flag=%d reset=%s provisioning=%s robot_id=%s accepted=%lu "
+                  "rejected=%lu expired=%lu overwrites=%lu\n",
                   static_cast<unsigned long>(firmwareClock.now().count()),
                   startResult == runtime::StartResult::Running ? "running" : "faulted", status.ready ? 1 : 0,
                   runtime::toString(status.state), output, static_cast<int>(duty.m1), static_cast<int>(duty.m2),
-                  runtime::toString(status.fault), status.maintenance ? 1 : 0, provisioning::toString(boot.state),
-                  robotId, static_cast<unsigned long>(counters[runtime::Counter::VelocityAccepted]),
+                  runtime::toString(status.fault), status.maintenance ? 1 : 0, status.sessionReady ? 1 : 0,
+                  status.commandExpired ? 1 : 0, resetReason, provisioning::toString(boot.state), robotId,
+                  static_cast<unsigned long>(counters[runtime::Counter::VelocityAccepted]),
                   static_cast<unsigned long>(counters[runtime::Counter::CommandRejected]),
                   static_cast<unsigned long>(counters[runtime::Counter::CommandExpired]),
                   static_cast<unsigned long>(counters[runtime::Counter::MailboxOverwrite]));
@@ -90,7 +99,8 @@ void reportStatus(const runtime::RuntimeStatus& status)
 bool changed(const runtime::RuntimeStatus& a, const runtime::RuntimeStatus& b)
 {
     return a.state != b.state || a.fault != b.fault || a.ready != b.ready || a.outputEnabled != b.outputEnabled
-        || a.maintenance != b.maintenance || a.stopRamp != b.stopRamp;
+        || a.maintenance != b.maintenance || a.stopRamp != b.stopRamp || a.sessionReady != b.sessionReady
+        || a.commandExpired != b.commandExpired;
 }
 
 // Fixed-size, non-blocking line reader; an overlong line is discarded whole.
@@ -115,18 +125,27 @@ void pollMaintenanceInput()
 }
 } // namespace
 
+// Task-watchdog ISR hook (ESP-IDF weak symbol, called before the TWDT panic): the outputs are
+// otherwise left as they were for the ~0.41 s panic dump and the reset (#156 B17). Sleeping
+// the bridges is one register write; nothing else is safe in this context.
+extern "C" void IRAM_ATTR esp_task_wdt_isr_user_handler(void) { esp::CodeCellMotorDriver::sleepBridgesFromIsr(); }
+
 void setup()
 {
-    // Bridge inputs are attached low first (bridges still asleep); the runtime then disables
-    // the drive before loading the configuration and wakes the bridges only with a valid
-    // profile. A failed attach makes the boot disable fail, so the runtime faults. Serial
-    // comes after.
+    resetReason = esp::resetReasonName(esp_reset_reason());
+    // Bridge inputs are attached low first (bridges still asleep); the runtime then registers
+    // the pre-restart shutdown hook (a checked start step: without it the runtime faults and
+    // never becomes ready), disables the drive, loads the configuration and wakes the
+    // bridges only with a valid profile. A failed attach makes the boot disable fail, so the
+    // runtime faults. Serial comes after.
     motorsAttached = motors.begin();
     startResult = firmwareRuntime.start();
     Serial.begin(kSerialBaudRate);
-    Serial.println("CodeCell C6 production runtime (#158/#159/#160): BLE commands not yet available (#163); "
+    Serial.println("CodeCell C6 production runtime (#158-#162): BLE commands not yet available (#163); "
                    "bounded drive from the provisioned profile, powered checks blocked (#238); "
                    "type help for maintenance");
+    Serial.printf("BOOT reset_reason=%s shutdown_handler=%s\n", resetReason,
+                  firmwareRuntime.shutdownHookRegistered() ? "registered" : "failed");
     if (!motorsAttached) Serial.println("DRIVE attach=failed");
     const auto& boot = configuration.bootState();
     Serial.printf("PROVISIONING state=%s reason=%s generation=%lu pending=%s\n", provisioning::toString(boot.state),

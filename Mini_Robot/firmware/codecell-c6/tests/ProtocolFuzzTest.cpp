@@ -209,6 +209,7 @@ public:
     bool disable() noexcept override { return true; }
     bool command(const runtime::BodyVelocity&, Instant) noexcept override { return true; }
     runtime::StopRampStep rampToStop(Instant) noexcept override { return runtime::StopRampStep::AtRest; }
+    void powerDown() noexcept override {}
 };
 
 TEST(ProtocolMutationTest, DecoderSessionAndAuthorityNeverAllocate)
@@ -225,6 +226,7 @@ TEST(ProtocolMutationTest, DecoderSessionAndAuthorityNeverAllocate)
         runtime::RuntimeStatus status() const noexcept override { return r.status(); }
     } view{rt};
     CommandSession session(rt.commands(), view, kLimits);
+    session.open();
     const auto vectors = commandVectors();
     const std::vector<std::uint8_t> oversized(kOversizedLength, 0x01);
     std::size_t allocations = 0;
@@ -268,6 +270,7 @@ TEST(ProtocolFuzzTest, RandomInputCannotOverreadCrashOrChangeMotionWhenRejected)
         runtime::RuntimeStatus status() const noexcept override { return r.status(); }
     } view{rt};
     CommandSession session(rt.commands(), view, kLimits);
+    session.open();
 
     std::uint64_t accepted = 0;
     std::uint64_t latches = 0;

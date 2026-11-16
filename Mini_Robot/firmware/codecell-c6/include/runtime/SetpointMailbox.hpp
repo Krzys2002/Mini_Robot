@@ -29,6 +29,16 @@ public:
         return overwrote;
     }
 
+    // Drops the setpoint (#162): Stop, E-stop, session end and replacement leave no old
+    // command buffered. The generation check stays the guarantee; this is hygiene, so that
+    // nothing a later transition could ever revive is kept.
+    void clear() noexcept
+    {
+        CriticalSectionGuard guard(section_);
+        slot_.reset();
+        unread_ = false;
+    }
+
     [[nodiscard]] std::optional<SetpointSnapshot> latest() noexcept
     {
         CriticalSectionGuard guard(section_);

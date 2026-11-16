@@ -3,7 +3,7 @@ add_executable(codecell_firmware_host_tests FirmwareClockTest.cpp LatencyHistogr
     RuntimeComponentsTest.cpp FirmwareRuntimeTest.cpp RobotConfigRecordTest.cpp ConfigStoreTest.cpp
     MaintenanceConsoleTest.cpp ProvisioningRuntimeTest.cpp DriveKinematicsTest.cpp WheelRateLimiterTest.cpp
     BoundedDriveOutputTest.cpp ActuatorRuntimeTest.cpp ProtocolCodecTest.cpp ProtocolSequenceTest.cpp
-    ProtocolSessionTest.cpp ProtocolFuzzTest.cpp)
+    ProtocolSessionTest.cpp ProtocolFuzzTest.cpp SafetyEnforcementTest.cpp)
 target_include_directories(codecell_firmware_host_tests PRIVATE ../include)
 target_compile_features(codecell_firmware_host_tests PRIVATE cxx_std_20)
 # Shared v1 byte vectors (#161), also read by the desktop codec tests.

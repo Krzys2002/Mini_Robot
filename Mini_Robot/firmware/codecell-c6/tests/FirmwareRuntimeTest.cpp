@@ -45,9 +45,22 @@ struct Rig {
             if ((clock.time / Instant{timing::kSafetyCheckPeriod}) % 2 == 0) control();
         }
     }
+    // The ready session the commands belong to; opened on first use, as #163 will on CCCDs.
+    SessionToken session{};
+    SessionToken currentSession()
+    {
+        if (session.value == 0) session = commands().openSession();
+        return session;
+    }
+    void endSession(SessionEndReason reason)
+    {
+        commands().sessionEnded(session, reason);
+        session = {};
+    }
+    CommandOutcome clear() { return commands().clearEmergencyStop(currentSession()); }
     CommandOutcome velocity(const BodyVelocity& v, milliseconds validFor = kValid)
     {
-        return commands().velocity(v, validFor, clock.nowMicroseconds());
+        return commands().velocity(currentSession(), v, validFor, clock.nowMicroseconds());
     }
 };
 
@@ -124,7 +137,7 @@ TEST_P(StartupFailureTest, LeavesDrivesOffReportsTheFaultAndNeverMoves)
     // Normal motion is never attempted: commands are refused and any task that did start
     // keeps the outputs off.
     EXPECT_EQ(rig.velocity(kForward), CommandOutcome::RejectedFault);
-    EXPECT_EQ(rig.commands().clearEmergencyStop(), CommandOutcome::RejectedFault);
+    EXPECT_EQ(rig.clear(), CommandOutcome::RejectedFault);
     for (int i = 0; i < 20; ++i) {
         rig.clock.advance(Instant{timing::kSafetyCheckPeriod});
         for (const auto& task : rig.platform.tasks) task.body->step();
@@ -137,6 +150,8 @@ INSTANTIATE_TEST_SUITE_P(
     InjectedInitialization, StartupFailureTest,
     testing::Values(
         InjectedFailure{"DriveDisable", [](Rig& r) { r.drive.failDisable = true; }, FaultCode::DriveDisableFailed, 0},
+        InjectedFailure{"ShutdownHookRegistration", [](Rig& r) { r.platform.failShutdownHook = true; },
+                        FaultCode::ShutdownHookUnavailable, 0},
         InjectedFailure{"ConfigMissing", [](Rig& r) { r.configuration.value.reset(); },
                         FaultCode::ConfigurationUnavailable, 0},
         InjectedFailure{"ConfigInvalid",
@@ -149,6 +164,48 @@ INSTANTIATE_TEST_SUITE_P(
         InjectedFailure{"ControlTask", [](Rig& r) { r.platform.failTaskNamed = kControlTaskName; },
                         FaultCode::ControlTaskStartFailed, 1}),
     [](const testing::TestParamInfo<InjectedFailure>& info) { return std::string{info.param.name}; });
+
+// Review finding (#281): a failed shutdown-hook registration was only printed, and the image
+// still became motion-ready without its deliberate-restart protection.
+TEST(FirmwareRuntimeTest, FailedShutdownHookRegistrationStopsStartupBeforeTheDriveIsConfigured)
+{
+    Rig rig;
+    rig.platform.failShutdownHook = true;
+    ASSERT_EQ(rig.rt().start(), StartResult::Faulted);
+    EXPECT_FALSE(rig.rt().shutdownHookRegistered());
+    EXPECT_EQ(rig.rt().status().fault, FaultCode::ShutdownHookUnavailable);
+    EXPECT_FALSE(rig.drive.configured) << "the bridges are never woken";
+    EXPECT_FALSE(rig.rt().config().has_value());
+    EXPECT_TRUE(rig.platform.tasks.empty());
+    EXPECT_FALSE(rig.drive.enabled);
+    EXPECT_TRUE(rig.drive.poweredDown) << "the fault powers the drive down";
+    EXPECT_EQ(rig.velocity(kForward), CommandOutcome::RejectedFault);
+    EXPECT_EQ(rig.clear(), CommandOutcome::RejectedFault);
+    EXPECT_FALSE(everCommandedNonzero(rig.drive));
+}
+
+TEST(FirmwareRuntimeTest, ShutdownHookIsRegisteredBeforeAnyOtherStartupStep)
+{
+    // Every later step can fail and the hook is already in place, including a boot disable
+    // that could not be confirmed, where the drive state is least certain.
+    for (const bool failDisable : {true, false}) {
+        Rig rig;
+        rig.drive.failDisable = failDisable;
+        rig.drive.failConfigure = !failDisable;
+        ASSERT_EQ(rig.rt().start(), StartResult::Faulted);
+        EXPECT_EQ(rig.rt().status().fault,
+                  failDisable ? FaultCode::DriveDisableFailed : FaultCode::DriveConfigurationRejected);
+        EXPECT_TRUE(rig.rt().shutdownHookRegistered()) << failDisable;
+        ASSERT_NE(rig.platform.shutdownHook, nullptr) << failDisable;
+        rig.platform.shutdownHook->beforeRestart();
+        EXPECT_TRUE(rig.drive.poweredDown) << failDisable;
+    }
+
+    Rig ok;
+    ASSERT_EQ(ok.rt().start(), StartResult::Running);
+    EXPECT_TRUE(ok.rt().shutdownHookRegistered());
+    ASSERT_NE(ok.platform.shutdownHook, nullptr);
+}
 
 TEST(FirmwareRuntimeTest, InvalidConfigurationReportsWhichRuleFailed)
 {
@@ -290,11 +347,11 @@ TEST(FirmwareRuntimeTest, StopLikeEventBetweenSnapshotCopyAndWriteAlwaysWins)
     const std::vector<Case> cases{
         {"Stop", [](Rig& r) { (void)r.commands().stop(); }, MotionState::Idle},
         {"EmergencyStop", [](Rig& r) { (void)r.commands().emergencyStop(); }, MotionState::EmergencyStop},
-        {"Disconnect", [](Rig& r) { r.commands().sessionEnded(SessionEndReason::Disconnected); }, MotionState::Idle},
+        {"Disconnect", [](Rig& r) { r.endSession(SessionEndReason::Disconnected); }, MotionState::Idle},
         {"NotificationsOff",
-         [](Rig& r) { r.commands().sessionEnded(SessionEndReason::NotificationsDisabled); }, MotionState::Idle},
+         [](Rig& r) { r.endSession(SessionEndReason::NotificationsDisabled); }, MotionState::Idle},
         {"ResultOverload",
-         [](Rig& r) { r.commands().sessionEnded(SessionEndReason::ResultQueueExhausted); }, MotionState::Idle},
+         [](Rig& r) { r.endSession(SessionEndReason::ResultQueueExhausted); }, MotionState::Idle},
     };
     for (const bool alreadyMoving : {false, true}) {
         for (const auto& c : cases) {
@@ -344,17 +401,17 @@ TEST(FirmwareRuntimeTest, ClearingTheLatchDoesNotResumeTheSetpointLeftInTheMailb
     EXPECT_FALSE(rig.drive.enabled) << "disabled before emergencyStop() returns";
     EXPECT_EQ(rig.velocity(kTurn), CommandOutcome::RejectedEmergencyStopLatched);
     EXPECT_EQ(rig.commands().stop(), CommandOutcome::Accepted);
-    rig.commands().sessionEnded(SessionEndReason::Disconnected);
+    rig.endSession(SessionEndReason::Disconnected);
     EXPECT_EQ(rig.rt().status().state, MotionState::EmergencyStop) << "the latch survives a session end";
     const int writes = rig.drive.commandCount();
-    ASSERT_EQ(rig.commands().clearEmergencyStop(), CommandOutcome::Accepted);
+    ASSERT_EQ(rig.clear(), CommandOutcome::Accepted);
     EXPECT_EQ(rig.rt().status().state, MotionState::Idle);
     rig.run(50ms);
     EXPECT_EQ(rig.drive.commandCount(), writes) << "a new Velocity is required after clear";
     ASSERT_EQ(rig.velocity(kTurn), CommandOutcome::Accepted);
     rig.control();
     EXPECT_TRUE(rig.drive.enabled);
-    EXPECT_EQ(rig.commands().clearEmergencyStop(), CommandOutcome::Accepted);
+    EXPECT_EQ(rig.clear(), CommandOutcome::Accepted);
     rig.control();
     EXPECT_TRUE(rig.drive.enabled) << "clear is a no-op when not latched";
 }
@@ -381,7 +438,7 @@ TEST(FirmwareRuntimeTest, ResultQueueExhaustionStopsAndIsCounted)
     ASSERT_EQ(rig.rt().start(), StartResult::Running);
     ASSERT_EQ(rig.velocity(kForward), CommandOutcome::Accepted);
     rig.control();
-    rig.commands().sessionEnded(SessionEndReason::ResultQueueExhausted);
+    rig.endSession(SessionEndReason::ResultQueueExhausted);
     EXPECT_EQ(rig.rt().status().state, MotionState::Idle);
     EXPECT_TRUE(rig.rt().status().stopRamp) << "a session end is a normal stop (B6 ramp)";
     rig.control();
@@ -398,7 +455,9 @@ TEST(FirmwareRuntimeTest, RefusedDriveWriteFaultsAndDisables)
     ASSERT_EQ(rig.velocity(kForward), CommandOutcome::Accepted);
     rig.control();
     EXPECT_EQ(rig.rt().status().fault, FaultCode::DriveWriteFailed);
-    EXPECT_EQ(rig.drive.events.back().kind, DriveEvent::Kind::Disable);
+    ASSERT_GE(rig.drive.events.size(), 2u);
+    EXPECT_EQ(rig.drive.events[rig.drive.events.size() - 2].kind, DriveEvent::Kind::Disable);
+    EXPECT_EQ(rig.drive.events.back().kind, DriveEvent::Kind::PowerDown) << "disable first, then power down";
     rig.drive.failCommand = false;
     EXPECT_EQ(rig.velocity(kForward), CommandOutcome::RejectedFault);
     const int writes = rig.drive.commandCount();

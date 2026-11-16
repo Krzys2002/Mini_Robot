@@ -20,5 +20,9 @@ public:
     // Writes both channels. |duty| <= kDutyFullScale; the caller has already enforced the
     // profile's tighter bound. Never brakes (both inputs high). False means refused.
     [[nodiscard]] virtual bool write(const MotorDuty& duty) noexcept = 0;
+    // Puts both bridges to sleep (#162): outputs high-impedance whatever the inputs are,
+    // independent of the PWM peripheral. Last resort for faults and shutdown; only a reset
+    // (and a new enable()) wakes them again. Idempotent, a plain register write.
+    virtual void sleep() noexcept = 0;
 };
 } // namespace codecell::drive

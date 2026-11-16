@@ -147,7 +147,8 @@ in [platform boundaries](platform-boundaries.md).
   [firmware guide](../../firmware/codecell-c6/README.md) and
   [runtime and threading](firmware-runtime.md) and
   [identity provisioning](firmware-provisioning.md) and
-  [bounded drive](firmware-drive.md) and [v1 codec](firmware-protocol.md).
+  [bounded drive](firmware-drive.md) and [v1 codec](firmware-protocol.md) and
+  [safety enforcement](firmware-safety.md).
 - [Shared v1 byte vectors](../protocol/fixtures/v1-frames.txt): the #64 example frames
   plus derived sentinel/extrema frames, read by both the desktop and firmware codec tests.
 

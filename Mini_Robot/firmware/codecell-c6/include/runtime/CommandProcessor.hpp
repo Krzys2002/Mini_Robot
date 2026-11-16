@@ -2,7 +2,9 @@
 // Command processing (#158): the only implementation of IMotionCommandSink. It turns
 // decoded commands into safety transitions on the gate and, for accepted Velocity, a
 // generation-tagged setpoint in the depth-1 mailbox. It runs in the caller's context
-// (the BLE write callback in production), never blocks and never allocates.
+// (the BLE callbacks in production, one context), never blocks and never allocates.
+// Every transition that ends motion also empties the mailbox (#162): no old command
+// stays buffered across Stop, E-stop, a session end or a session replacement.
 #include "runtime/ActuatorGate.hpp"
 #include "runtime/RuntimeDiagnostics.hpp"
 #include "runtime/RuntimePorts.hpp"
@@ -29,7 +31,15 @@ public:
         maxAngular_ = maxAngularRadiansPerSecond;
     }
 
-    [[nodiscard]] CommandOutcome velocity(const BodyVelocity& velocity, milliseconds validFor,
+    [[nodiscard]] SessionToken openSession() noexcept override
+    {
+        const auto token = gate_.openSession();
+        mailbox_.clear();
+        diagnostics_.count(Counter::SessionOpened);
+        return token;
+    }
+
+    [[nodiscard]] CommandOutcome velocity(SessionToken session, const BodyVelocity& velocity, milliseconds validFor,
                                           Instant receipt) noexcept override
     {
         if (!velocity.isFinite()) return reject(CommandOutcome::RejectedInvalid);
@@ -37,7 +47,7 @@ public:
         const bool withinLimits = std::abs(velocity.linearMetresPerSecond) <= maxLinear_
             && std::abs(velocity.angularRadiansPerSecond) <= maxAngular_;
         std::uint32_t generation = 0;
-        const auto outcome = gate_.admitVelocity(receipt, validFor, ceiling_, withinLimits, generation);
+        const auto outcome = gate_.admitVelocity(session, receipt, validFor, ceiling_, withinLimits, generation);
         if (outcome != CommandOutcome::Accepted) return reject(outcome);
         // A Stop/E-stop/fault between admission and publication advances the generation,
         // so this snapshot is then refused by the gate instead of driving.
@@ -49,26 +59,32 @@ public:
     [[nodiscard]] CommandOutcome stop() noexcept override
     {
         gate_.stop();
+        mailbox_.clear();
         return CommandOutcome::Accepted;
     }
 
+    // The gate disables first; the mailbox is emptied only afterwards, off the critical path.
     [[nodiscard]] CommandOutcome emergencyStop() noexcept override
     {
         gate_.emergencyStop();
+        mailbox_.clear();
         diagnostics_.count(Counter::EmergencyStop);
         return CommandOutcome::Accepted;
     }
 
-    [[nodiscard]] CommandOutcome clearEmergencyStop() noexcept override
+    // The mailbox is already empty while latched: E-stop emptied it and every Velocity is
+    // refused until this clear. A no-op clear while Moving must not touch the setpoint.
+    [[nodiscard]] CommandOutcome clearEmergencyStop(SessionToken session) noexcept override
     {
-        const auto outcome = gate_.clearEmergencyStop();
+        const auto outcome = gate_.clearEmergencyStop(session);
         if (outcome != CommandOutcome::Accepted) diagnostics_.count(Counter::CommandRejected);
         return outcome;
     }
 
-    void sessionEnded(SessionEndReason reason) noexcept override
+    void sessionEnded(SessionToken session, SessionEndReason reason) noexcept override
     {
-        gate_.stop();
+        if (!gate_.endSession(session)) return;  // Already ended or replaced: nothing left to stop.
+        mailbox_.clear();
         diagnostics_.count(Counter::SessionEnded);
         if (reason == SessionEndReason::ResultQueueExhausted) diagnostics_.count(Counter::SessionOverload);
     }

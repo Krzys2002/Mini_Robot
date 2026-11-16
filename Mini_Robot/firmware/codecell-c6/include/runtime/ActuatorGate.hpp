@@ -7,14 +7,19 @@
 // older setpoint. Local safety therefore overrides every actuator write.
 //
 // Two ways to end motion (#160, #156 B6), kept separate:
-// - immediate disable (E-stop, faults, maintenance, boot, latch clear): the drive is
-//   switched off inside the call, without a ramp, before the call returns;
-// - normal stop (Stop, expiry, session end, a refused snapshot): the gate records the
+// - immediate disable (E-stop, faults, maintenance, shutdown, boot, latch clear): the drive
+//   is switched off inside the call, without a ramp, before the call returns. Faults and
+//   shutdown also power the drive stage down (IDriveOutput::powerDown, #162);
+// - normal stop (Stop, expiry, session end or replacement, a refused snapshot): the gate records the
 //   stop decision and each later control step can only move the commanded output toward
 //   zero (IDriveOutput::rampToStop); at zero it disables. The supervisor faults and
 //   disables if the output is not at zero within kStopEnforcementLimit of the decision,
 //   and a stalled control task faults as before (B7). No ramp step ever uses an old
 //   setpoint, and an immediate disable during a ramp ends it at once.
+//
+// Independent enforcement (#162): the supervisor task, not the control task, decides expiry,
+// the stop-ramp limit and the control heartbeat. The supervisor itself is watched by the
+// task watchdog (B17), so a stalled supervisor resets the chip into its hardware-safe boot.
 #include "FirmwareClock.hpp"
 #include "runtime/RuntimeDiagnostics.hpp"
 #include "runtime/RuntimePorts.hpp"
@@ -28,10 +33,12 @@ namespace codecell::runtime {
 struct RuntimeStatus {
     MotionState state{MotionState::Idle};
     FaultCode fault{FaultCode::None};
-    bool ready{false};
-    bool outputEnabled{false};  // The drive is enabled: a permitted command or a stop ramp, not a disable.
-    bool maintenance{false};    // Motion refused until reset (#159).
-    bool stopRamp{false};       // A normal stop ramp is in progress (#160).
+    bool ready{false};           // Start-up readiness; false again after a fault, maintenance or shutdown.
+    bool outputEnabled{false};   // The drive is enabled: a permitted command or a stop ramp, not a disable.
+    bool maintenance{false};     // Motion refused until reset (#159).
+    bool stopRamp{false};        // A normal stop ramp is in progress (#160).
+    bool sessionReady{false};    // A session is open (#162); Velocity needs its token.
+    bool commandExpired{false};  // v1 telemetry flag (#162): the watchdog ended motion.
 };
 
 class ActuatorGate {
@@ -67,22 +74,49 @@ public:
         safety_.markReady();
     }
 
-    // Returns the admission generation for the mailbox when accepted.
-    [[nodiscard]] CommandOutcome admitVelocity(Instant receipt, milliseconds validFor, milliseconds ceiling,
-                                               bool withinLimits, std::uint32_t& generation) noexcept
+    // Returns the admission generation for the mailbox when accepted. The clock is read
+    // before the critical section; a later reading could only shorten the window. A command
+    // whose receipt-relative deadline has already passed supersedes the previous one and
+    // expires at once (now >= deadline): Idle, commandExpired, normal stop.
+    [[nodiscard]] CommandOutcome admitVelocity(SessionToken session, Instant receipt, milliseconds validFor,
+                                               milliseconds ceiling, bool withinLimits,
+                                               std::uint32_t& generation) noexcept
     {
+        const Instant now = clock_.nowMicroseconds();
         CriticalSectionGuard guard(section_);
-        const auto outcome = safety_.admitVelocity(receipt, validFor, ceiling, withinLimits);
+        const auto outcome = safety_.admitVelocity(session, receipt, now, validFor, ceiling, withinLimits);
+        if (outcome == CommandOutcome::Accepted && safety_.expireIfDue(now)) {
+            diagnostics_.count(Counter::CommandExpired);
+            beginStopLocked(now);
+        }
         generation = safety_.generation();
         return outcome;
     }
 
-    // Normal stop (Stop, session end): bounded ramp to zero, see the header.
+    // Normal stop (the Stop command): bounded ramp to zero, see the header.
     void stop() noexcept
     {
         CriticalSectionGuard guard(section_);
         safety_.stop();
         beginStopLocked(clock_.nowMicroseconds());
+    }
+
+    // A ready session; the previous one ends as for Stop.
+    [[nodiscard]] SessionToken openSession() noexcept
+    {
+        CriticalSectionGuard guard(section_);
+        const auto token = safety_.openSession();
+        beginStopLocked(clock_.nowMicroseconds());
+        return token;
+    }
+
+    // The current session ended: normal stop. False (nothing changed) for any other token.
+    [[nodiscard]] bool endSession(SessionToken session) noexcept
+    {
+        CriticalSectionGuard guard(section_);
+        if (!safety_.endSession(session)) return false;
+        beginStopLocked(clock_.nowMicroseconds());
+        return true;
     }
 
     // Immediate: the drive is disabled before the latch is visible to anyone else,
@@ -94,12 +128,13 @@ public:
         safety_.latchEmergencyStop();
     }
 
-    [[nodiscard]] CommandOutcome clearEmergencyStop() noexcept
+    [[nodiscard]] CommandOutcome clearEmergencyStop(SessionToken session) noexcept
     {
         CriticalSectionGuard guard(section_);
         const bool latched = safety_.state() == MotionState::EmergencyStop;
-        const auto outcome = safety_.clearEmergencyStop();
-        if (latched) disableLocked();  // Idle with zero output; a new Velocity is required.
+        const auto outcome = safety_.clearEmergencyStop(session);
+        // Idle with zero output; a new Velocity is required.
+        if (latched && outcome == CommandOutcome::Accepted) disableLocked();
         return outcome;
     }
 
@@ -117,6 +152,16 @@ public:
     {
         CriticalSectionGuard guard(section_);
         faultLocked(code);
+    }
+
+    // Before a deliberate restart (#162): ends motion and the session, refuses motion and
+    // disables and powers down the drive. One-way; the next boot starts from scratch.
+    void shutdown() noexcept
+    {
+        CriticalSectionGuard guard(section_);
+        safety_.shutDown();
+        disableLocked();
+        drive_.powerDown();
     }
 
     // Control task: the only path that can turn the outputs on. A permitted snapshot gets
@@ -140,9 +185,11 @@ public:
         if (stopping_) rampStepLocked(now);
     }
 
-    // Safety supervisor: deadline expiry, stop-ramp enforcement (B6) and control-stall
-    // detection (B7), independent of control progress. Returns true when it ended motion
-    // (an expiry started the stop ramp, or a fault disabled the drive).
+    // Safety supervisor: deadline expiry, stop-ramp enforcement (B6) and the control
+    // heartbeat (B7), independent of control progress. The heartbeat is checked while the
+    // drive is on (B7) and also whenever the runtime is ready (#162): a dead control task is
+    // a task failure even at rest, because commands would otherwise be accepted that can
+    // never be executed. Returns true when it ended motion or faulted.
     bool supervise(Instant now, milliseconds controlStallLimit) noexcept
     {
         CriticalSectionGuard guard(section_);
@@ -157,7 +204,7 @@ public:
             faultLocked(FaultCode::StopRampOverrun);
             return true;
         }
-        if (outputEnabled_ && now - lastControlUpdate_ > Instant{controlStallLimit}) {
+        if ((outputEnabled_ || safety_.ready()) && now - lastControlUpdate_ > Instant{controlStallLimit}) {
             faultLocked(FaultCode::ControlStalled);
             return true;
         }
@@ -167,7 +214,9 @@ public:
     [[nodiscard]] RuntimeStatus status() const noexcept
     {
         CriticalSectionGuard guard(section_);
-        return {safety_.state(), safety_.fault(), safety_.ready(), outputEnabled_, safety_.maintenance(), stopping_};
+        return {safety_.state(),        safety_.fault(),        safety_.ready(),
+                outputEnabled_,         safety_.maintenance(),  stopping_,
+                safety_.sessionReady(), safety_.commandExpired()};
     }
 
 private:
@@ -194,19 +243,24 @@ private:
         faultLocked(FaultCode::DriveWriteFailed);  // Unknown step result: fail safe.
     }
 
-    // Immediate disable: no ramp, ends any running stop ramp.
+    // Immediate disable: no ramp, ends any running stop ramp. An unconfirmed disable is a
+    // fault, and the power stage goes down as the last resort.
     bool disableLocked() noexcept
     {
         outputEnabled_ = false;
         stopping_ = false;
         if (drive_.disable()) return true;
         safety_.enterFault(FaultCode::DriveDisableFailed);
+        drive_.powerDown();
         return false;
     }
+    // Every fault: disable, then power down. Faults are cleared only by a reset (v1), so the
+    // power stage stays down until the next boot.
     void faultLocked(FaultCode code) noexcept
     {
         safety_.enterFault(code);
         disableLocked();
+        drive_.powerDown();
     }
 
     IDriveOutput& drive_;

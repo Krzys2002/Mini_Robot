@@ -1,8 +1,9 @@
 #pragma once
 // The two periodic activities of the runtime (#158), scheduled by IPlatform:
 //
-// - SafetySupervisor, priority 22 every 5 ms (B3/B18): deadline expiry and the control
-//   stall check, independent of control progress.
+// - SafetySupervisor, priority 22 every 5 ms (B3/B18): deadline expiry, stop-ramp
+//   enforcement and the control heartbeat, independent of control progress. It is the only
+//   task subscribed to the task watchdog (B17, #162).
 // - ControlLoop (actuator update), priority 20 every 10 ms: optional local sensor read,
 //   newest setpoint, one gated drive write.
 //

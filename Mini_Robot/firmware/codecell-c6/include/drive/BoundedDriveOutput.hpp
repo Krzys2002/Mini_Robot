@@ -9,8 +9,8 @@
 // limited intent maps to. disable() is the immediate path (coast, no ramp) and resets the
 // ramps, so re-enabling always starts from zero.
 //
-// Thread contract: ActuatorGate calls command(), rampToStop() and disable() inside its
-// critical section; configure() runs once in start() before any task. lastDuty() may be
+// Thread contract: ActuatorGate calls command(), rampToStop(), disable() and powerDown()
+// inside its critical section; configure() runs once in start() before any task. lastDuty() may be
 // read from any task (lock-free atomics) for status reporting.
 #include "drive/DriveKinematics.hpp"
 #include "drive/DriveProfile.hpp"
@@ -53,9 +53,21 @@ public:
         return motors_.coast();
     }
 
+    // Faults and shutdown (#162): sleep the bridges. Every later write is refused, so the
+    // runtime cannot wake them before a reset even if it tried.
+    void powerDown() noexcept override
+    {
+        poweredDown_ = true;
+        left_.reset();
+        right_.reset();
+        lastStep_.reset();
+        record({});
+        motors_.sleep();
+    }
+
     [[nodiscard]] bool command(const runtime::BodyVelocity& velocity, runtime::Instant now) noexcept override
     {
-        if (!configured_ || !velocity.isFinite()) return false;
+        if (!configured_ || poweredDown_ || !velocity.isFinite()) return false;
         const auto wheels = saturate(wheelSpeedsFor(velocity, profile_.trackWidthMetres),
                                      profile_.maxWheelSpeedMetresPerSecond);
         return stepToward(wheels, now, normal_);
@@ -63,7 +75,7 @@ public:
 
     [[nodiscard]] runtime::StopRampStep rampToStop(runtime::Instant now) noexcept override
     {
-        if (!configured_ || !stepToward({}, now, stop_)) return runtime::StopRampStep::Refused;
+        if (!configured_ || poweredDown_ || !stepToward({}, now, stop_)) return runtime::StopRampStep::Refused;
         return left_.current() == 0.0 && right_.current() == 0.0 ? runtime::StopRampStep::AtRest
                                                                   : runtime::StopRampStep::Ramping;
     }
@@ -114,6 +126,7 @@ private:
     IMotorDriver& motors_;
     DriveProfile profile_{};
     bool configured_{false};
+    bool poweredDown_{false};
     runtime::Instant maxStep_{};
     RampRates normal_{};
     RampRates stop_{};
