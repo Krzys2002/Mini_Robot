@@ -19,16 +19,18 @@ ExtrinsicSolveOutcome OpenCvExtrinsicsSolver::solve(const WorkspaceCalibrationPr
     try {
         std::vector<cv::Point3d> object;
         std::vector<cv::Point2d> image;
+        std::optional<double> plane; bool parallel=true;
+        for(const auto& p:input.survey.references) if(!p.check) { const double z=p.heightMeters.value_or(input.survey.surfaceHeightMeters); if(plane && z!=*plane) parallel=false; else if(!plane) plane=z; }
         for (const auto& p:input.survey.references) if (!p.check) {
             // Solve on canonical z=0, then translate the measured surface back to world z.
-            object.emplace_back(p.world.x.value,p.world.y.value,0);
+            object.emplace_back(p.world.x.value,p.world.y.value,parallel?0:p.heightMeters.value_or(input.survey.surfaceHeightMeters));
             image.emplace_back(p.image.u,p.image.v);
         }
         const auto& k=profile.intrinsics.cameraMatrix;
         cv::Mat camera(3,3,CV_64F,const_cast<double*>(k.data()));
         std::vector<cv::Mat> rotations,translations;
         // Native pixels were already undistorted; never apply distortion twice.
-        cv::solvePnPGeneric(object,image,camera,cv::noArray(),rotations,translations,false,cv::SOLVEPNP_IPPE);
+        cv::solvePnPGeneric(object,image,camera,cv::noArray(),rotations,translations,false,parallel?cv::SOLVEPNP_IPPE:cv::SOLVEPNP_SQPNP);
         struct Candidate { ElevatedLocalization value; double fitRms; };
         std::vector<Candidate> candidates;
         for (std::size_t i=0;i<rotations.size();++i) {
@@ -38,13 +40,13 @@ ExtrinsicSolveOutcome OpenCvExtrinsicsSolver::solve(const WorkspaceCalibrationPr
             cv::Mat rotation; cv::Rodrigues(rotations[i],rotation);
             for (std::size_t j=0;j<e.worldToCamera.size();++j) e.worldToCamera[j]=rotation.ptr<double>()[j];
             for (std::size_t j=0;j<e.translationMeters.size();++j) e.translationMeters[j]=translations[i].ptr<double>()[j];
-            for (std::size_t j=0;j<3;++j) e.translationMeters[j]-=e.worldToCamera[j*3+2]*input.survey.surfaceHeightMeters;
+            for (std::size_t j=0;j<3;++j) e.translationMeters[j]-=e.worldToCamera[j*3+2]*(parallel?*plane:0);
             const auto centre=cameraWorldPosition(e);
             if (!centre || (*centre)[2]<=input.survey.surfaceHeightMeters+RayTolerance) continue;
             double squares=0; bool supported=true;
             for (const auto& p:input.survey.references) {
-                const auto projected=projectReference(e,profile.intrinsics,p.world,input.survey.surfaceHeightMeters);
-                if (!projected || !intersectTagPlane(e,profile.intrinsics,p.image,input.survey.surfaceHeightMeters)) { supported=false; break; }
+                const auto projected=projectReference(e,profile.intrinsics,p.world,p.heightMeters.value_or(input.survey.surfaceHeightMeters));
+                if (!projected || !intersectTagPlane(e,profile.intrinsics,p.image,p.heightMeters.value_or(input.survey.surfaceHeightMeters))) { supported=false; break; }
                 if (!p.check) squares+=std::pow(projected->u-p.image.u,2)+std::pow(projected->v-p.image.v,2);
             }
             const double rms=std::sqrt(squares/static_cast<double>(object.size()));

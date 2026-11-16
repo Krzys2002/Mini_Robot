@@ -2,6 +2,7 @@
 
 #include "calibration/IntrinsicCalibration.hpp"
 #include "calibration/ElevatedLocalization.hpp"
+#include "calibration/ReferenceMarkers.hpp"
 #include "world/Workspace.hpp"
 
 #include <array>
@@ -13,7 +14,7 @@
 // extrinsics or elevated robot poses. The optional v4 extension owns height/mount conversion; #271
 // owns reference monitoring outside robot travel bounds. Bounds remain travel geometry.
 namespace micro_robot {
-inline constexpr std::uint32_t WorkspaceCalibrationProfileVersion = 4;
+inline constexpr std::uint32_t WorkspaceCalibrationProfileVersion = 5;
 inline constexpr std::uint32_t MinimumWorkspaceImageDimensionPixels = 2;
 inline constexpr std::size_t WorkspaceCornerCount = 4;
 inline constexpr double WorkspaceBoundaryCrossTolerance = 1e-8; // Normalized image area.
@@ -50,6 +51,7 @@ struct WorkspaceCalibrationProfile {
     std::optional<WorkspaceBoundary> boundary{}; // Ordered native-K acquisition references.
     std::string acquisitionId{}; // Optional immutable sidecar link; large acquisition arrays stay in the sidecar.
     std::optional<ElevatedLocalization> localization{}; // Explicit v4 upgrade; legacy stays tabletop-only.
+    std::optional<ReferenceConfiguration> references{}; // v5 surveyed references; independent of travel bounds.
 };
 // Empty error means structurally valid metadata (including an optional finite,
 // numerically nonsingular H), not physical accuracy or permission to control a robot.

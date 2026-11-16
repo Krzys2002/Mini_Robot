@@ -200,6 +200,10 @@ int main(int argc, char* argv[])
                      &vision, &VisionController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
                      &vision, &VisionController::receiveFrame);
+    QObject::connect(&workspace,&WorkspaceCalibrationController::changed,&vision,[&] {
+        vision.setReferenceDraft(workspace.draftProfile());
+    });
+    QObject::connect(&vision,&VisionController::referenceObservationsAvailable,&workspace,&WorkspaceCalibrationController::receiveReferenceFrame);
     // Native discovery mapping stays in composition; the UI receives only IDs,
     // names and ambiguity, never radio addresses or BLE device objects.
 #if defined(MICRO_ROBOT_HAS_BLE)

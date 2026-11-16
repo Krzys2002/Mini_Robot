@@ -19,7 +19,7 @@ struct MetricPoseMeasurement {
     std::string cameraId{}, worldFrameId{}, calibrationRevision{}, mountingRevision{};
 };
 
-enum class MetricObservationStatus { Valid, Uncalibrated, InvalidCalibration, InvalidGeometry, OutsideWorkspace, UnknownMount, UnsupportedRay };
+enum class MetricObservationStatus { Valid, Uncalibrated, InvalidCalibration, InvalidGeometry, OutsideWorkspace, UnknownMount, UnsupportedRay, PlacementUnverified, PlacementDrift };
 struct MetricObservationResult {
     MetricObservationStatus status{MetricObservationStatus::Uncalibrated};
     std::optional<MetricPoseMeasurement> measurement;
@@ -42,11 +42,14 @@ struct MetricObservationBatch {
     std::vector<MetricPoseMeasurement> measurements;
     std::string error;
     MetricRejections rejected{};
+    std::optional<PlacementReport> placement{};
+    ReferenceFramePtr references{};
 };
 using MetricObservationBatchPtr = std::shared_ptr<const MetricObservationBatch>;
 class IMetricObservationConverter {
 public:
     virtual ~IMetricObservationConverter() = default;
+    virtual ReferenceFramePtr referenceObservations(const MarkerDetections&, const std::string&, const RobotMarkerMap&, const WorkspaceCalibrationProfile&) { return {}; }
     virtual MetricObservationBatch convert(const MarkerDetections&, const std::string& sourceId,
         const RobotMarkerMap&, const std::optional<WorkspaceCalibrationProfile>&) = 0;
 };

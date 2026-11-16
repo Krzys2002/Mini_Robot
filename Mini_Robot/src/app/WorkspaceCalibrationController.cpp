@@ -37,6 +37,7 @@ void WorkspaceCalibrationController::publish(QString message)
 
 void WorkspaceCalibrationController::invalidate(bool clearFrame)
 {
+    latestReferenceFrame_.reset(); pendingReferenceRevision_.clear();
     ++generation_;
     draft_.reset();
     if (clearFrame) {

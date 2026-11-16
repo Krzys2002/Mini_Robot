@@ -1,4 +1,5 @@
 #include "vision/OpenCvMetricObservation.hpp"
+#include "vision/OpenCvReferenceMarkers.hpp"
 #include <opencv2/core/version.hpp>
 #if CV_VERSION_MAJOR >= 5
 #include <opencv2/geometry/3d.hpp>
@@ -8,6 +9,8 @@
 #include <exception>
 
 namespace micro_robot {
+ReferenceFramePtr OpenCvMetricObservationConverter::referenceObservations(const MarkerDetections& d,const std::string& source,
+    const RobotMarkerMap& map,const WorkspaceCalibrationProfile& p) { return acquireReferenceFrame(d,source,map,p); }
 MetricObservationBatch OpenCvMetricObservationConverter::convert(const MarkerDetections& detections,
     const std::string& sourceId, const RobotMarkerMap& map,
     const std::optional<WorkspaceCalibrationProfile>& profile)
@@ -21,7 +24,26 @@ MetricObservationBatch OpenCvMetricObservationConverter::convert(const MarkerDet
     if (!detections.error.empty())
         return {MetricObservationStatus::InvalidGeometry, {}, detections.error};
     MetricObservationBatch batch{MetricObservationStatus::Valid, {}, {}};
-    const auto observations = observeRobots(detections, map);
+    if(profile->references) {
+        const auto& config=*profile->references;
+        if(auto error=validateReferenceConfiguration(config,*profile,map.profile()); !error.empty())
+            return {MetricObservationStatus::InvalidCalibration,{},error};
+        monitor_.configure(config,profile->localization?profile->localization->revision:std::string{},detections.inputGeneration);
+        if(monitor_.due(detections.capturedAt)) {
+            batch.references=referenceObservations(detections,sourceId,map,*profile);
+            if(batch.references) batch.placement=monitor_.observe(*batch.references,config,*profile);
+        }
+        if(!batch.placement) batch.placement=monitor_.status(detections.capturedAt,config.policy);
+        if(!batch.placement->permitsMeasurements) {
+            batch.status=batch.placement->state==PlacementConsistency::ConfirmedDrift?MetricObservationStatus::PlacementDrift:MetricObservationStatus::PlacementUnverified;
+            batch.error=batch.placement->message; return batch;
+        }
+    }
+    auto robotDetections=detections;
+    if(profile->references) std::erase_if(robotDetections.markers,[&](const auto& observation) {
+        return std::any_of(profile->references->markers.begin(),profile->references->markers.end(),[&](const auto& marker) { return marker.family==observation.family && marker.id==observation.id; });
+    });
+    const auto observations = observeRobots(robotDetections, map);
     for (const auto& rejected : observations.rejected) {
         switch (rejected.reason) {
         case MarkerRejection::UnsupportedFamily: ++batch.rejected.unsupportedFamily; break;

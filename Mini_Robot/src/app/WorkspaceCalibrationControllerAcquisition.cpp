@@ -20,6 +20,7 @@ std::shared_ptr<WorkspaceAcquisitionRecord> WorkspaceCalibrationController::acqu
     const WorkspaceCalibrationProfile& profile) const
 {
     auto tabletop = profile;
+    tabletop.references.reset();
     tabletop.localization.reset(); // Immutable legacy evidence never acquires derived runtime geometry.
     return std::make_shared<WorkspaceAcquisitionRecord>(WorkspaceAcquisitionRecord{
         profile.acquisitionId,std::move(tabletop),references_,placements_});

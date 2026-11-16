@@ -40,6 +40,7 @@ void WorkspaceCalibrationController::calculateLocalization(ExtrinsicSolveInput i
             }
     }
     auto profile=*draft_; profile.localization.reset();
+    profile.references.reset(); // Solver consumes the frozen measured input, not a stale registry activation.
     const auto solver=extrinsicsSolver_;
     const auto generation=++generation_; busy_=true;
     draft_->localization.reset();
@@ -67,6 +68,9 @@ void WorkspaceCalibrationController::calculateLocalization(ExtrinsicSolveInput i
                 return;
             }
             draft_->localization=std::move(outcome.calibration);
+            if(draft_->references && pendingReferenceRevision_==draft_->localization->revision)
+                draft_->references->validatedLocalizationRevision=draft_->localization->revision;
+            pendingReferenceRevision_.clear();
             lastLocalizationDraft_=draft_->localization;
             publish(QStringLiteral("Height-aware draft passed reference/cheirality/ambiguity checks. Review the survey and mounts, then explicitly Activate and Save. Physical ±5 mm/body-centre acceptance is NOT RUN (#224/#63)."));
         },Qt::QueuedConnection);
