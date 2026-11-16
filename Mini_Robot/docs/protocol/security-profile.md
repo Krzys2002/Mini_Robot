@@ -82,7 +82,7 @@ O = operating rule in [section 4](#4-operating-restrictions)). Test IDs refer to
 | --- | --- | --- | --- | --- | --- |
 | TM-01 | Unauthorized central connects while the robot advertises (no session) | Full control: Velocity, Stop, E-stop, ClearEmergencyStop | O1–O4 (supervision, powered only when needed, keep the operator session connected); F1, F2 (only the single session may command) | Any central that connects first controls the robot (R1) | AT-01, AT-02 |
 | TM-02 | Second central during an active session | Cannot discover or connect: the robot stops advertising and accepts one connection | F1 enforces one link and no advertising while connected | None beyond TM-08 (forced disconnect, then reconnect race) | AT-03 |
-| TM-03 | Spoofed robot (impostor advertises the service UUID, `MR-<id>` and the same Robot Info `robotId`) | Desktop may connect to the impostor; the operator's commands and E-stop do not reach the real robot | D: duplicate advertisers in one scan are reported as ambiguous and refused; O5 (operator checks that the physical robot reacts) and O6 (physical power cut is the authoritative stop) | Undetectable if the real robot is off, out of range or silent (R3) | AT-09 |
+| TM-03 | Spoofed robot (impostor advertises the service UUID, `MR-<id>` and the same Robot Info `robotId`) | Desktop may connect to the impostor; the operator's commands and E-stop do not reach the real robot | D: duplicate advertisers in one scan are reported as ambiguous and refused; O6 (physical power cut is the authoritative stop). O5's watched wheel-motion check applies only under the powered bench gates and is not a demonstrated mitigation | Undetectable if the real robot is off, out of range or silent (R3) | AT-09 |
 | TM-04 | Spoofed controller identity | Not applicable: v1 has no controller identity, every central is equivalent | Same as TM-01 | Same as R1 | AT-01 |
 | TM-05 | Passive observation | All frames, `robotId`, limits, telemetry and battery values are readable in clear | F7: no secrets are ever sent over v1; nothing sent is confidential | Traffic analysis and recording (R4) | AT-11 |
 | TM-06 | Replay across sessions | A recorded Velocity or ClearEmergencyStop replayed in a *new* session is accepted, because the first frame of a session is accepted without sequence comparison and sequences restart at 0 | F2: each replayed Velocity runs only until its own `validForMs`, capped by `maxCommandValidityMs`; nothing carries over between sessions | Replay gives no more than TM-01 already gives: an attacker who can connect can command directly (R1, R2) | AT-04 |
@@ -113,9 +113,16 @@ operator and the person responsible for the bench must.
 - **O4** Connect the operator's desktop immediately after power-up, keep the
   session connected for the experiment, and confirm `Connected` for the expected
   `robotId` before any motion.
-- **O5** Confirm physically that the robot reacts to Stop/E-stop at the start of
-  each session (for example, an E-stop before the first motion). A robot that does
-  not react is treated as possibly impersonated.
+- **O5** Physical identity is not established by any pre-motion check. A Stop or
+  E-stop sent to a stationary robot produces nothing to observe. Telemetry or a
+  Command Result can come from an impostor peripheral, so neither is physical proof.
+  The only observable check is to watch the robot in front of you start a short,
+  low-speed wheel motion that you commanded, and stop on E-stop. That is a powered
+  test: it is allowed only with the wheels raised and under the powered bench gates
+  (O10). Until those gates permit powered tests, the profile has **no** physical
+  identity check. O5 is therefore not counted as a demonstrated impersonation
+  mitigation (TM-03, R3). A robot that does not react to the watched check is treated
+  as possibly impersonated.
 - **O6** The physical power disconnect is the authoritative emergency stop. BLE
   E-stop is the primary *software* path, but it is not trusted against an active
   radio attacker (R5).
@@ -149,14 +156,40 @@ by this profile and does not implement it.
   reading or applying its writes. A peripheral that is not advertising cannot
   receive a new connection, so this is what prevents an active session from
   being taken over.
+
+  **Proposed F1 amendment (2026-11-16, pending maintainer review on this PR).**
+  #163 found that the stack limit of one cannot be configured on the pinned
+  toolchain. The prebuilt Arduino-ESP32 3.3.7 libraries fix
+  `CONFIG_BT_NIMBLE_MAX_CONNECTIONS` at 3, and NimBLE-Arduino reads that header,
+  so a build flag has no effect. Meeting F1 literally would need a custom sdkconfig
+  and a rebuilt framework. The proposed amendment replaces the stack limit with
+  this application rule:
+  - the stack may hold up to three links, and the boot log states both values
+    (`accepted_centrals=1 stack_max_connections=3`);
+  - the robot accepts exactly one owning central;
+  - any other link the stack reports is terminated from its connect callback,
+    and its writes and CCCD changes are never applied;
+  - advertising stays off while the owner is connected;
+  - AT-03 remains the acceptance test, with a second independent central on the
+    bench and a host fake that injects a second connection.
+
+  Until the maintainer accepts this amendment, the production image does not meet
+  F1 literally, and no document may claim it does on the strength of the
+  application gate.
 - **F2 Session-bound intent.** Motion and ClearEmergencyStop are processed only
   from the current, ready session (both CCCDs enabled, as specified in
   [BLE session establishment](ble-gatt.md#session-establishment)). Sequence state,
   `lastAccepted`, pending Velocity, deadlines and queued frames belong to that
   session and are discarded when it ends. No frame received before a session
   started can act after it.
-- **F3 Disconnect stops.** Any disconnect or CCCD disable stops motion as for
-  Stop, keeps the RAM E-stop latch, and never resumes motion automatically.
+- **F3 Disconnect and readiness loss stop.** Any disconnect, and any loss of
+  readiness (either CCCD disabled), stops motion as for Stop, keeps the RAM E-stop
+  latch, and never resumes motion automatically. Readiness loss ends the session
+  (F2): its sequence state, pending Velocity, deadline and any ClearEmergencyStop
+  in flight are discarded. The link stays connected and unready, and the robot does
+  not advertise (F1). Only an actual disconnect restarts advertising. Re-enabling
+  both CCCDs opens a new session on the same link. Nothing moves until that
+  session sends a fresh Velocity.
 - **F4 Prompt and permissive E-stop.** Any write to the Emergency Stop
   characteristic, from the connected central, latches before parsing, before
   queueing, and before any session, readiness, sequence or authorization check.
@@ -220,8 +253,9 @@ stateDiagram-v2
     Advertising --> Connected: first central connects (F1)
     Connected --> Ready: both CCCDs enabled
     Ready --> Ready: Velocity / Stop / Clear (F2)
+    Ready --> Connected: either CCCD disabled (F3, stop, session ended, no advertising)
     Connected --> Advertising: disconnect (F3)
-    Ready --> Advertising: disconnect or CCCD disable (F3)
+    Ready --> Advertising: disconnect (F3)
     note right of Ready
         E-stop write latches in every
         state with a connection (F4)
@@ -284,7 +318,7 @@ must stay labelled restricted-lab.
 | --- | --- | --- | --- |
 | R1 | Any central that connects first can command an advertising robot | v1 has no authentication | O1–O4; only one session; watchdog ceiling |
 | R2 | After a forced disconnect, an attacker's new session can send ClearEmergencyStop and Velocity | v1 allows clear in any ready session; same-session-only clear would be a protocol semantic change | O7; robot stops on every disconnect; desktop never auto-clears |
-| R3 | A spoofed robot can absorb the operator's commands and E-stop | Robot Info identity is not authenticated | Duplicate detection; O5, O6 |
+| R3 | A spoofed robot can absorb the operator's commands and E-stop | Robot Info identity is not authenticated | Duplicate detection; O6. O5 only once powered checks are permitted, and not demonstrated |
 | R4 | All traffic is observable | No encryption in v1 | Nothing confidential is transmitted |
 | R5 | An active relay can suppress BLE E-stop | No integrity protection | O6 physical power cut; watchdog stops when forwarding stops |
 | R6 | Radio denial of service | Inherent to radio | Fails safe: disconnect stops the robot |
@@ -306,7 +340,8 @@ firmware. Expected results are the acceptance criteria for those issues.
 | AT-03 | Second central scans and tries to connect while the operator session is active | HIL | Robot not visible in scans; no second connection; operator session unaffected. A fake that injects a second connection callback must see it dropped without applying writes. |
 | AT-04 | Replay a recorded Velocity frame (and a ClearEmergencyStop) from a new session | Host + HIL | Accepted as the session's first frame (documents R1/R2); motion ends at `validForMs` ≤ `maxCommandValidityMs`; nothing from the recorded session's state carries over |
 | AT-05 | Replay an older/equal sequence inside one session | Host | Velocity/Clear rejected `StaleSequence`; Stop accepted |
-| AT-06 | Force the operator disconnect during motion, then connect a different central first | HIL | Robot stops on disconnect, latch preserved, no auto-resume; the operator desktop reports failure; the new session needs explicit Clear and fresh Velocity to move |
+| AT-06a | Force the operator disconnect during motion, with no E-stop latched, then connect a different central first | HIL | Robot stops on disconnect, no auto-resume, no latch created; the operator desktop reports failure. The new ready session moves with a fresh Velocity and needs no Clear (documents R2). |
+| AT-06b | As AT-06a, but with the E-stop latched before the disconnect | HIL | Robot stops, the latch is preserved and no auto-resume. The new session's Velocity is rejected until an explicit ClearEmergencyStop, then a fresh Velocity moves it. |
 | AT-07 | Flood Command with malformed, oversized and max-rate frames, then write a zero-length E-stop | Host + HIL | Latch applied within the #156 bound regardless of backlog; bounded memory; one result per frame or the #156 overload policy |
 | AT-08 | Central requests pairing/bonding; repeated pairing and connection attempts | HIL | No bond stored (bond count stays 0); no state or readiness change; robot remains stoppable; behavior identical with or without link encryption |
 | AT-09 | Impostor peripheral with the same `robotId` advertises alongside the real robot | HIL | Desktop reports ambiguity and does not connect (existing desktop behavior) |
@@ -316,6 +351,7 @@ firmware. Expected results are the acceptance criteria for those issues.
 | AT-13 | Inspect the production image for Wi-Fi/HTTP/OTA components | Build | Linker map / symbol check shows no WiFi, WebServer, SoftAP or Update symbols |
 | AT-14 | Build from a clean checkout twice | Build | Same pinned versions resolved; image hash recorded |
 | AT-15 | Corrupt or interrupt the config record; factory reset | Host + HIL | No armed outputs; reset leaves no bonds and no motion |
+| AT-16 | Disable one CCCD during motion (and with a Clear in flight), then re-enable it | Host + HIL | Robot stops as for Stop, the latch is kept, the link stays connected and the robot does not advertise; pending Velocity and Clear are discarded. After re-enabling, a new session starts at a fresh sequence and nothing moves until a fresh Velocity. |
 
 ### 8.1 Traced scenarios
 
@@ -395,7 +431,7 @@ compatibility decision and approval; nothing in v1 or #165 may anticipate it.
 
 ## 10. Hand-off to #165
 
-#165 implements F1–F11 and AT-01…AT-15 for the restricted-lab profile:
+#165 implements F1–F11 and AT-01…AT-16 for the restricted-lab profile:
 
 - **Desktop integration scope:** none required. Existing desktop behavior is
   sufficient for this profile. Labelling the session "restricted-lab
