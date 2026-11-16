@@ -5,6 +5,10 @@
 The main application is `Mini_Robot/`. Read `Mini_Robot/AGENTS.md` before editing
 that subtree; its architecture, safety, C++ and issue-workflow rules also apply
 when changing the root desktop build integration. Preserve unrelated user edits.
+The `micro-robot-swarm-desktop` skill is stored locally at
+[`Mini_Robot/.codex/skills/micro-robot-swarm/SKILL.md`](Mini_Robot/.codex/skills/micro-robot-swarm/SKILL.md).
+Read it and the relevant references for issue implementation.
+
 For a direct maintenance request without an assigned issue, implement that request
 without inventing issue dependencies or publishing a PR unless requested.
 
@@ -28,10 +32,11 @@ and `core arhiteture.md` do not establish implemented functionality.
   than assuming `CMAKE_SOURCE_DIR` is the application directory.
 - Root builds place application artifacts under `build/<preset>/Mini_Robot/`;
   standalone builds place them under `Mini_Robot/build/<preset>/`.
-- `T1-ESP-C6/`, `T1-ESP-S3/`, and `Mini_Robot/firmware/ble-lifecycle/` are separate
-  PlatformIO projects. Do not link embedded sources into desktop production
-  targets. Existing host-side firmware safety tests deliberately compile the
-  legacy controller against fakes.
+- Firmware lives under `Mini_Robot/firmware/`. `codecell-c6/` is the new C6
+  production build skeleton; `ble-lifecycle/` is a separate connection fixture.
+  The outdated T1 projects and HTTP/browser controller have been retired.
+  Never link embedded production sources into desktop targets. Firmware host
+  tests compile portable headers/logic through an independent CMake entry point.
 - Do not commit build trees, local CMake presets, secrets, or IDE state.
   Do not modify tracked IDE files just to make the project load on one machine.
 
@@ -49,7 +54,7 @@ For desktop changes use the host preset (`macos`, `linux-gcc`, `linux-clang`,
 `windows-msvc`) and build/test it. Root integration changes must also configure
 and test the standalone Mini_Robot entry point, since CI uses it. Use separate
 build directories. Follow `Mini_Robot/docs/development/testing.md` for additional
-affected suites, including browser-control tests when touching legacy firmware.
+affected suites, including firmware host tests when touching firmware contracts.
 
 The core preset avoids Qt/OpenCV and physical hardware, but tests require an
 installed GTest package or the pinned download. Supply an existing GoogleTest

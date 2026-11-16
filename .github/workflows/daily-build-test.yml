@@ -50,3 +50,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.build == 'true'
     uses: ./.github/workflows/windows-build-test.yml
+
+  firmware:
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    uses: ./.github/workflows/firmware-build-test.yml

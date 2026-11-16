@@ -145,7 +145,7 @@ Missing/rejected edges do not prove independence. Source-less names are not
 confirmed definitions. Impact suggestions do not replace required tests.
 
 Keep backend `none`, AST extraction and explicit technical-document links.
-Desktop and all three firmware projects are included. Exclude GitHub
+Desktop and both firmware projects are included. Exclude GitHub
 administration, plans, archives, reports, presentations, evidence records and
 generated/private state. Do not enable upstream skill installation, semantic
 extraction, saved answers, hosted uploads or hooks. Live GitHub data establishes
