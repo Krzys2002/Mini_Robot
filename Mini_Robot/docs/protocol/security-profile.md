@@ -44,6 +44,52 @@ desktop work ([section 9](#9-future-secure-profile-not-approved)). Approval of
 the backlog that created #157/#165 is not approval of an insecure deployment
 outside the conditions below.
 
+### 1.1 Requested extension: security extension points (2026-11-16)
+
+The maintainer's review of PR #274 on 2026-11-16 requested an extension to the
+2026-11-07 decision. The old decision did **not** approve this; it is recorded here
+as a new requirement. Authentication and encryption become an explicit architectural
+requirement **now**, as injectable interfaces with real call sites, backed for the
+time being by a clearly named restricted-lab mock:
+
+| | Current: restricted-lab pass-through | Eventual: secure implementation (not designed or approved) |
+| --- | --- | --- |
+| Session establishment | Always established, reported `bypassed` | Mutual peer authentication |
+| Velocity, ClearEmergencyStop | Permitted without any check | Authorized for the authenticated controller |
+| Outgoing/incoming frames | Bytes unchanged, reported `bypassed` | Confidentiality plus integrity, session-bound replay protection |
+| Reported state | `authenticated=no encrypted=no bypassed=yes`, with a TODO warning | Authenticated and encrypted, verified |
+| Selection | Explicit restricted-lab mode only | Secure-required mode, which refuses the mock and fails closed |
+
+The pass-through is scaffolding. It is **unauthenticated and unencrypted**, and a
+successful call to it is not authenticated ownership. The hooks and their tests
+prove only that the call sites exist and that refusals act; they are not
+cryptographic validation. Rule [F12](#5-enforceable-firmware-rules) states the
+requirements. The implementations are split across:
+
+- the desktop companion PR on branch `feat/157-security-scaffolding`, a dependency
+  of this correction: `IBleSessionSecurity` in the BLE transport;
+- the production firmware, #163 (PR #282): `ble::ISessionSecurity` in the
+  peripheral controller, with telemetry protection added by #164 (PR #283);
+- #165 for enforcement on the production image and its attack tests.
+
+The connection-only `ble-lifecycle` fixture stays connection-only and has no hooks.
+Any actual wire, GATT or security behaviour change still needs a coordinated
+compatibility and protocol-version decision. The mock changes no frame.
+
+### 1.2 Architectural limits that remain
+
+- The command watchdog bounds motion after the **last accepted command**. It does
+  not bound the total time an attacker can control a robot while continuously
+  sending fresh commands.
+- Session exclusivity is not authentication. `robotId`, sequence counters, optional
+  Just Works pairing and successful mock security calls must never be described as
+  authenticated ownership.
+- Public or unattended use, the aggregate radio and timing capacity of several
+  robots, and future gateway security are not validated by this profile.
+- Production-firmware enforcement and the attack tests in section 8 are not yet
+  run. Neither the 2026-11-14 fixture spike nor the component tests establishes
+  physical stopping or production security.
+
 ## 2. Assets, actors and trust boundaries
 
 | Asset | Why it matters |
@@ -228,9 +274,34 @@ by this profile and does not implement it.
   fall back from or to. Platform and library versions are pinned (#155).
 - **F11 Configuration failure is safe.** Missing, corrupt or out-of-version
   configuration cannot arm outputs and cannot change this profile (#159).
+- **F12 Security extension points (requested extension, [section 1.1](#11-requested-extension-security-extension-points-2026-11-16)).**
+  Desktop and firmware each provide an injectable session-security interface behind
+  the transport/protocol and firmware adapter boundaries. Planning, `WorldModel` and
+  widgets never acquire BLE or cryptographic responsibilities. The interface is
+  called on the real paths:
+  - session establishment before readiness;
+  - authorization of Velocity and ClearEmergencyStop, but not Stop;
+  - protection of every outgoing frame and verification of every incoming frame;
+  - session end on every teardown or readiness loss, together with all pending
+    intent.
 
-Existing desktop behavior that this profile relies on (no desktop edits are
-part of #157): service-UUID filtering, authoritative Robot Info identity check,
+  The dedicated E-stop path never calls it: v1 latch-on-any-write must not be
+  blocked, queued or rejected by authentication or encryption work. Further rules:
+  - The restricted-lab pass-through runs only when explicitly selected.
+  - A secure-required mode refuses it and fails closed, and nothing falls back to it
+    after an authentication, encryption, key, configuration or verification failure.
+  - The pass-through reports bypassed, never authenticated or encrypted, and emits
+    a startup and per-session warning: "TODO: authentication and encryption are not
+    implemented; restricted-lab pass-through security is active." Firmware warnings
+    are bounded and never printed from a BLE callback.
+  - Diagnostics and the operator status show the insecure mode.
+  - Tests prove the hooks are called, the mock is unchanged and reports insecurity, a
+    rejecting fake prevents motion, Clear and delivery, readiness loss invalidates
+    the session, and E-stop bypasses the hooks. Such tests are not presented as
+    cryptographic security validation.
+
+Existing desktop behavior that this profile relies on (the only desktop edit is
+the F12 scaffolding in the companion PR): service-UUID filtering, authoritative Robot Info identity check,
 refusal of ambiguous duplicate advertisers, E-stop on the dedicated
 characteristic with retries, re-assertion of E-stop before `Connected` after a
 reconnect, and clear only on an explicit operator action
@@ -427,16 +498,35 @@ authentication (for example a provisioned per-controller key and a per-session
 challenge with authenticated frames). v1 frames are fixed-length and frozen, so
 that is a new protocol version with desktop and firmware changes, NVS
 encryption for the key, and a revocation path. It needs its own issue,
-compatibility decision and approval; nothing in v1 or #165 may anticipate it.
+compatibility decision and approval. The F12 extension points are where it will
+plug in, but nothing in v1 or #165 may implement it under the v1 version.
+
+Requirements for the eventual real implementation behind the F12 interfaces:
+
+- mutual peer authentication of controller and robot;
+- confidentiality plus integrity of every frame, using a reviewed construction
+  (no ad-hoc cryptography);
+- session-bound replay protection;
+- controller enrollment and protected key storage on both sides;
+- controller replacement, revocation and recovery;
+- downgrade prevention: a secure-required robot or desktop must refuse the
+  restricted-lab pass-through and any unprotected v1 session;
+- a coordinated protocol-version and GATT compatibility decision, because the
+  frozen v1 frames must not change under the same version.
 
 ## 10. Hand-off to #165
 
 #165 implements F1–F11 and AT-01…AT-16 for the restricted-lab profile:
 
-- **Desktop integration scope:** none required. Existing desktop behavior is
-  sufficient for this profile. Labelling the session "restricted-lab
-  (unauthenticated)" in the UI is a recommended, separately approved desktop
-  change; it is not a prerequisite.
+- **Desktop integration scope:** only the F12 scaffolding, in the companion PR
+  (branch `feat/157-security-scaffolding`). It also labels the session
+  `INSECURE: restricted-lab-pass-through (unauthenticated, unencrypted)` in the
+  operator status. Otherwise the existing desktop behavior is sufficient.
+- **Security extension points:** #163 (PR #282) integrates F12 into the production
+  peripheral, and #164 (PR #283) protects telemetry. #165 runs the attack tests on
+  the production image, including that the hooks are called there. The real
+  implementation belongs to a separate secure-profile issue
+  ([section 9](#9-future-secure-profile-not-approved)).
 - **Provisioning mechanism:** identity/config only, through the #159 USB
   maintenance path with outputs disabled; no controller enrollment.
 - **Revocation:** not available; procedural (power off, custody review).
@@ -448,4 +538,5 @@ compatibility decision and approval; nothing in v1 or #165 may anticipate it.
   first frame and is bounded only by its validity window.
 
 Pairing/encryption, bonding and controller keys are explicitly **not** in #165's
-scope while this profile is selected.
+scope while this profile is selected. The F12 pass-through stays in place until a
+secure profile replaces it.

@@ -159,6 +159,10 @@ lost link.
   operating restrictions, firmware rules and accepted residual risks. `robotId`,
   advertised names and sequence numbers are not authentication. A secure profile
   requires a separate compatibility decision and protocol/GATT change.
+- Desktop and firmware run version 1 behind session-security extension points
+  ([F12](security-profile.md#5-enforceable-firmware-rules)). The only implementation is
+  a restricted-lab pass-through: it changes no byte of these frames, and it reports
+  every session as unauthenticated and unencrypted.
 
 ## Implementation checklist
 
