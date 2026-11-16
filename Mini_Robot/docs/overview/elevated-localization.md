@@ -157,3 +157,7 @@ independent x/y errors. No ±5 mm guarantee, current-time prediction guarantee,
 complete perception-to-motion loop or production motor-safety claim follows from
 this implementation. Reference monitoring and timing instrumentation remain
 #271/#272.
+
+## Surveyed reference successor
+
+[Reference-marker acquisition and monitoring](reference-markers.md) adds explicit v5 per-reference heights, a separate surveyed support domain and strict drift/expiry gating. The manual/common-plane workflow and immutable old sidecars retain their existing meanings. Runtime monitoring does not refit geometry or certify physical accuracy.

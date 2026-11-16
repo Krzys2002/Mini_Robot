@@ -14,7 +14,8 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | Communication | Native BLE command/telemetry adapter, RobotManager sessions and deterministic simulation with shared pending Stop priority | Production command/safety interoperability, over-air measurements and remaining multi-link hardware checks |
 | Robot firmware | Legacy HTTP prototype; independent actuator expiry and generation gate, clear-to-idle semantics and ordered browser intent | Production BLE runtime/protocol, hardware-safe boot/disable, bounded deceleration and measured watchdog/E-stop acceptance (#158/#162) |
 | Control/planning | Pure differential-drive math and transport-level safety primitives | Domain operational safety, manual commands UI, closed-loop controller, paths, trajectories and coordination |
-| Height-aware localization | Measured-reference camera extrinsics, parallel tag-plane ray intersection, per-RobotId mounting transforms and explicit v4 profile upgrade | Physical per-axis accuracy, throughput and mounting survey acceptance (#224/#63); reference monitoring and timing (#271/#272) |
+| Height-aware localization | Measured-reference camera extrinsics, parallel tag-plane ray intersection, per-RobotId mounting transforms and explicit v4 profile upgrade | Physical per-axis accuracy, throughput and mounting survey acceptance (#224/#63); physical reference monitoring and timing quality (#261/#272) |
+| Surveyed references | Separate reference registry and v5 evidence, mixed-height acquisition, strict placement consistency/drift/expiry gating and explicit revalidation | Physical reference commissioning, detection/support/accuracy and camera-loaded performance (#261/#224/#63); timing quality (#272) |
 | Recording | Human-readable application logs | Structured experiment records and validated end-to-end latency/error measurements |
 
 The running desktop routes frames to calibration/detection/debug presentation.
