@@ -58,12 +58,12 @@ Preserve physical aspect ratio. Out-of-bounds inputs are rejected, never clamped
 calibration. Image +v points down; camera overlays must project the physical axes
 rather than treating world +Y as screen up.
 
-## Profile v2 and compatibility
+## Profile versions and compatibility
 
 `WorkspaceCalibrationProfile` owns workspace identity, explicit metric bounds,
 exact camera/resolution/K/distortion binding, optional image→world H, frame ID and
-optional ordered native-K boundary references. Guided frames receive UUIDs; frame
-IDs must be interpreted together with the workspace/optical binding and H, not as
+optional ordered native-K boundary references and a lightweight acquisition ID.
+Guided frames receive UUIDs; frame IDs must be interpreted together with the workspace/optical binding and H, not as
 a global promise of unchanged physical placement. Recalculating H in the same
 physical frame still requires diagnostic invalidation on activation.
 
@@ -71,17 +71,21 @@ The strict `micro_robot_workspace 2` format adds `minimum`, quoted `frame`, and
 `boundary` fields after dimensions. Optional boundary storage is four ordered
 `u v` pairs. H maps directly to signed world coordinates; the origin is not an
 extra presentation-only translation. Doubles round-trip with `max_digits10` and
-the classic locale. The existing 128 KiB file bound remains sufficient; this
-schema does not add correspondence datasets or chessboard-placement provenance.
+the classic locale. The active profile retains its 128 KiB bound. V3 adds a quoted
+`acquisition` ID
+linking a separate bounded record of references/placements; no acquisition arrays
+are copied into runtime profiles. See [flat-board acquisition](workspace-chessboard.md).
 
 The reader also accepts strict v1 files: minimums become exactly zero, H and
 intrinsics remain unchanged, frame ID becomes `legacy-lower-left`, and boundary
-references remain absent. Saving writes v2. Nothing is silently recentered or
-mirrored. Unknown versions, missing v2 frame fields, malformed/oversized data,
+references remain absent. V2 files retain their exact frame and H; neither older
+version invents acquisition
+provenance. Saving writes v3. Nothing is silently recentered or
+mirrored. Unknown versions, missing frame/acquisition fields, malformed/oversized data,
 invalid bounds/boundaries, incompatible optical models, singular/non-finite H and
-trailing data remain rejected. Older software cannot read v2: retain a v1 backup
-if rollback to that software is required. Storage keys and atomic replacement
-are unchanged.
+trailing data remain rejected. Older software cannot read v3: retain original
+v1/v2 files compatible with the intended rollback version. Profile storage keys
+and atomic replacement remain unchanged; v3 also requires its linked sidecar.
 
 See [the operator procedure](tabletop-homography.md),
 [Workspace.hpp](../../src/world/Workspace.hpp),

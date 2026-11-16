@@ -106,7 +106,7 @@ TEST(WorkspaceProfileTest, RejectsUnknownVersionsTruncationGarbageOversizeAndInv
     p.homography = knownHomography();
     const auto text = serializeWorkspaceProfile(p);
     for (const auto& [from, to] :
-         std::vector<std::pair<std::string, std::string>>{{"workspace 2", "workspace -1"},
+         std::vector<std::pair<std::string, std::string>>{{"workspace 3", "workspace -1"},
                                                           {"dimensions 1", "dimensions nan"},
                                                           {"undistorted_native_k", "raw_distorted"},
                                                           {"homography 1", "homography -1"}}) {
@@ -147,7 +147,7 @@ TEST(WorkspaceProfileTest, VersionTwoPreservesFrameAndVersionOneMigratesWithoutM
     auto p = homographyInput().profile;
     p.homography = knownHomography();
     auto old = serializeWorkspaceProfile(p);
-    old.replace(old.find("workspace 2"), std::string("workspace 2").size(), "workspace 1");
+    old.replace(old.find("workspace 3"), std::string("workspace 3").size(), "workspace 1");
     old.erase(old.find("minimum "), old.find("image_coordinates") - old.find("minimum "));
     const auto migrated = parseWorkspaceProfile(old);
     ASSERT_TRUE(migrated.profile) << migrated.error;

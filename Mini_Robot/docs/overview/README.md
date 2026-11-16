@@ -25,6 +25,8 @@
 - [Manual robot control](manual-robot-control.md): discovery/selection, connection, bounded hold-to-drive, Stop/E-stop, validation and physical limits.
 - [Robot communication](robot-communication.md): platform-neutral robot discovery,
   Qt Bluetooth review for Linux/macOS, control isolation, and mock transport tests.
+- [Workspace chessboard acquisition](workspace-chessboard.md): flat-board anchors/orientation, repeated placements, 1,525-location coverage, capacity and v3 provenance.
+
 - [Side-mounted tabletop audit](oblique-tabletop.md): known oblique geometry, fit coverage, recovery advice and plane/parallax limits.
 - [Tabletop homography](tabletop-homography.md): paired undistorted image/world points, residuals, workspace profile save/load and commissioning.
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):

@@ -38,7 +38,10 @@ WorkspaceHomographyOutcome OpenCvWorkspaceHomographySolver::solve(const Workspac
             r[8] = y;
         }
         cv::Mat w, u, vt;
-        cv::SVD::compute(a, w, u, vt, cv::SVD::FULL_UV);
+        // Four points produce an 8x9 matrix: retain the complete right nullspace.
+        // For >=5 points the thin U is (2N)x9 instead of quadratic (2N)x(2N).
+        const int flags = input.fitPoints.size() == MinimumWorkspaceFitPoints ? cv::SVD::FULL_UV : 0;
+        cv::SVD::compute(a, w, u, vt, flags);
         if (w.at<double>(7) <= w.at<double>(0) * WorkspaceMinimumSingularValueRatio)
             return {{}, "Correspondences are ill-conditioned or nearly edge-on. Spread visible references across "
                         "near/far edges and both axes, raise the camera, and recheck measured pairs."};

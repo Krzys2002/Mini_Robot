@@ -33,6 +33,7 @@ std::string validateWorkspaceCalibrationProfile(const WorkspaceCalibrationProfil
 {
     if (profile.version != WorkspaceCalibrationProfileVersion) return "Unsupported workspace profile version.";
     if (!profile.bounds.contains({})) return "Workspace origin must lie inside the measured rectangle.";
+    if (profile.acquisitionId.size() > MaximumWorkspaceFrameIdBytes) return "Oversized workspace acquisition identity.";
     if (profile.frameId.empty() || profile.frameId.size() > MaximumWorkspaceFrameIdBytes)
         return "Workspace frame identity is missing or oversized.";
     if (profile.boundary) {
