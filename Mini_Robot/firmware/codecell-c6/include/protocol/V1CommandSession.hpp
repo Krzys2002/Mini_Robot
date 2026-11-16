@@ -22,7 +22,8 @@
 // SessionToken, and only its Velocity and ClearEmergencyStop can be admitted. Before
 // open() and after end(), Stop and EmergencyStop still take effect (v1); Velocity and Clear
 // are refused (RobotFault), and per v1 the adapter sends no result while not ready.
-// Detecting readiness and scheduling telemetry are #163/#164.
+// Detecting readiness is #163; scheduling and publishing telemetry is #164 (the peripheral
+// controller calls telemetry() from the same host context).
 #include "protocol/V1Codec.hpp"
 #include "protocol/V1Sequence.hpp"
 #include "runtime/ActuatorGate.hpp"
@@ -138,7 +139,15 @@ public:
     // measurements. nullopt (and no sequence used) when a value is not representable.
     [[nodiscard]] std::optional<TelemetryBytes> telemetry(TelemetryValues values) noexcept
     {
-        const auto status = runtime_.status();
+        return telemetry(runtime_.status(), values);
+    }
+
+    // The same, with a runtime status the caller read just now in this context (the BLE
+    // peripheral reads it once per telemetry tick to decide whether a frame is due, #164, and
+    // the frame must carry exactly the state that decision saw).
+    [[nodiscard]] std::optional<TelemetryBytes> telemetry(const runtime::RuntimeStatus& status,
+                                                          TelemetryValues values) noexcept
+    {
         values.state = status.state;
         values.commandExpired = status.commandExpired;
         values.lastAcceptedSequence = sequence_.lastAccepted();

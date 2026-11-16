@@ -62,6 +62,18 @@ inline constexpr milliseconds kTelemetryPeriod{100};       // advertised telemet
 inline constexpr milliseconds kStateTelemetryMinSpacing{20};
 inline constexpr int kTelemetryNotificationsPerSecondMax =
     static_cast<int>(std::chrono::seconds{1} / kTelemetryPeriod + std::chrono::seconds{1} / kStateTelemetryMinSpacing);
+// Telemetry publication (#164). The telemetry task (kTelemetryPriority) wakes every tick and
+// asks the BLE host to evaluate the schedule; the frame itself is built and queued in the
+// host context, so it shares the robot transmit counter with CommandResults without
+// reordering. Every spacing check allows half a tick for scheduling lateness, so the nominal
+// spacing is kept on the tick grid and no frame ever follows another by less than
+// kTelemetryMinFrameSpacing, which bounds the rate below kTelemetryNotificationsPerSecondMax.
+inline constexpr milliseconds kTelemetryTickPeriod{5};
+inline constexpr microseconds kTelemetryTickTolerance{microseconds{kTelemetryTickPeriod} / 2};
+inline constexpr microseconds kTelemetryMinFrameSpacing{microseconds{kStateTelemetryMinSpacing} - kTelemetryTickTolerance};
+// One telemetry frame in the host context does the work of one CommandResult (encode and one
+// notify), so it gets the same allowance. At most one telemetry event is pending at a time.
+inline constexpr microseconds kTelemetryHandlerAllowance{kWriteCallbackAllowance};
 inline constexpr int kCommandResultsPerReceivedFrame = 1;  // While the session is ready (v1).
 inline constexpr std::size_t kSetpointMailboxDepth = 1;    // Newest accepted setpoint wins.
 inline constexpr std::size_t kLogRingBytes = 2048;
@@ -112,6 +124,16 @@ static_assert(kCommandValidityCeiling >= 2 * kDesktopVelocityRefresh + kRequeste
 static_assert(lastValidCommandToOutputOff(kCommandValidityCeiling) <= kLastValidCommandToOutputOffBound);
 static_assert(kControlStallLimit + kExpiryDetectionBound + kOutputDisableAllowance <= kStalledControlToOutputOffBound);
 static_assert(kRobotStackQueueAllowance + kEstopCallbackToDisableBound <= kEstopStackReceiptToDisableBound);
+// An E-stop write can also wait behind the one pending telemetry event in the host (#164).
+static_assert(kRobotStackQueueAllowance + kTelemetryHandlerAllowance + kEstopCallbackToDisableBound
+                  <= kEstopStackReceiptToDisableBound,
+              "telemetry in the host context must not break the E-stop bound");
+static_assert(kTelemetryPeriod % kTelemetryTickPeriod == milliseconds::zero()
+                  && kStateTelemetryMinSpacing % kTelemetryTickPeriod == milliseconds::zero(),
+              "telemetry spacing and period are whole ticks");
+static_assert(std::chrono::seconds{1} / kTelemetryMinFrameSpacing <= kTelemetryNotificationsPerSecondMax,
+              "the tolerated spacing still bounds the telemetry rate");
+static_assert(kTelemetryTickPeriod <= kStateTelemetryMinSpacing, "a change is seen before its spacing passes");
 static_assert(kReceiptToSetpointBound + kControlPeriod + kSchedulingAllowance <= kReceiptToActuatorWriteBound);
 static_assert(kSafetyCheckPeriod % kSchedulerTick == milliseconds::zero(), "periods are whole ticks");
 static_assert(kControlPeriod % kSchedulerTick == milliseconds::zero(), "periods are whole ticks");

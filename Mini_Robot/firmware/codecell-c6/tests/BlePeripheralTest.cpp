@@ -59,6 +59,10 @@ public:
     bool failAdvertising{false};
     bool failTerminate{false};
     bool refuseLinkRequest{false};
+    bool failTelemetry{false};
+    int telemetryAttempts{0};
+    int telemetryClears{0};
+    std::optional<Notification> telemetryValue{};  // The Telemetry characteristic's Read value.
     std::function<void()> whileStartingAdvertising;
     std::function<void()> whileTerminating;
 
@@ -70,6 +74,21 @@ public:
         std::copy(frame.begin(), frame.end(), n.bytes.begin());
         notifications.push_back(n);
         return true;
+    }
+    bool publishTelemetry(ConnectionHandle to, std::span<const std::uint8_t> frame) noexcept override
+    {
+        ++telemetryAttempts;
+        if (failTelemetry || frame.size() > kMaxAttPayload) return false;
+        Notification n{to, {}, frame.size()};
+        std::copy(frame.begin(), frame.end(), n.bytes.begin());
+        notifications.push_back(n);
+        telemetryValue = n;
+        return true;
+    }
+    void clearTelemetry() noexcept override
+    {
+        ++telemetryClears;
+        telemetryValue.reset();
     }
     bool terminate(ConnectionHandle connection) noexcept override
     {
@@ -158,6 +177,8 @@ struct Rig {
     FakeDrive drive;
     FakeConfiguration configuration;
     FakeLink link;
+    telemetry::BatteryMonitor battery{std::nullopt, nullptr};
+    telemetry::RobotTelemetryInputs inputs{battery};
     std::optional<runtime::FirmwareRuntime> runtime;
     std::optional<RuntimeView> view;
     RestrictedLabPassThroughSecurity passThrough;
@@ -179,8 +200,9 @@ struct Rig {
         runtime.emplace(runtime::RuntimeDependencies{clock, platform, drive, configuration, nullptr});
         EXPECT_EQ(runtime->start(), runtime::StartResult::Running);
         view.emplace(*runtime);
-        ble.emplace(runtime->commands(), *view, commandLimits(provisioning::robotInfoValues(*config)), link, clock,
-                    *security, securityMode);
+        const auto info = provisioning::robotInfoValues(*config);
+        ble.emplace(runtime->commands(), *view, commandLimits(info), link, clock, inputs,
+                    std::chrono::milliseconds{info.telemetryPeriodMilliseconds}, *security, securityMode);
         if (startAdvertising) ble->start();
     }
     void subscribe(ConnectionHandle h, Characteristic c, bool on = true) { ble->onSubscriptionChanged(h, c, on); }

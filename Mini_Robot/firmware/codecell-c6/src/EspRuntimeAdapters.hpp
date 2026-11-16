@@ -40,8 +40,8 @@ private:
     portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
 };
 
-// The production image needs exactly the supervisor and the control task.
-inline constexpr std::size_t kMaxPeriodicTasks = 2;
+// The production image needs the supervisor, the control task and the telemetry tick (#164).
+inline constexpr std::size_t kMaxPeriodicTasks = 3;
 
 // Task watchdog (#156 B17, #162): only the subscribed task (the supervisor) is watched. The
 // idle task is not (the pinned sdkconfig does not watch it either), so a busy low-priority

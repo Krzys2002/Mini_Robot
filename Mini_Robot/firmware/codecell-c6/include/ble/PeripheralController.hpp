@@ -32,6 +32,15 @@
 //   result that cannot be protected is handled like one that cannot be queued. The Emergency
 //   Stop latch comes before all of it. start() refuses to advertise when the selected mode
 //   does not admit the policy (SecureRequired never runs the restricted-lab pass-through).
+// - Telemetry (#164): while ready, onTelemetryTick() decides with telemetry::TelemetryScheduler
+//   whether a frame is due (session start, state change, period) and queues it on the same
+//   shared robot counter, in this same context, so a Telemetry and a CommandResult are never
+//   reordered. The tick comes from the telemetry task through the stack's host event queue
+//   (one pending event at a time); it is never sent from inside a write callback, so the
+//   callback allowance of #156 B8/B11 is unchanged. A frame that cannot be queued is dropped
+//   and counted, the session continues and nothing is retried early (#156 overload policy:
+//   only a lost CommandResult ends the session). The Telemetry characteristic's Read value is
+//   the latest queued frame of the current session, and empty outside a session.
 // - Link parameters are requested once per connection as hints (ble-gatt.md); the request
 //   outcome and the negotiated values are reported, and nothing depends on them.
 // - NimBLE installs a connection before it delivers the connect callback, so the central's
@@ -52,6 +61,9 @@
 #include "ble/SessionSecurity.hpp"
 #include "protocol/V1CommandSession.hpp"
 #include "runtime/RuntimePorts.hpp"
+#include "telemetry/TelemetryDiagnostics.hpp"
+#include "telemetry/TelemetryInputs.hpp"
+#include "telemetry/TelemetryScheduler.hpp"
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -73,6 +85,12 @@ public:
     // queue it (no buffer, link gone); the controller then applies the overload policy.
     [[nodiscard]] virtual bool notifyCommandResult(ConnectionHandle connection,
                                                    std::span<const std::uint8_t> frame) noexcept = 0;
+    // Queue one Telemetry notification to that connection and make the frame the Telemetry
+    // characteristic's Read value. False when the stack could not queue the notification.
+    [[nodiscard]] virtual bool publishTelemetry(ConnectionHandle connection,
+                                                std::span<const std::uint8_t> frame) noexcept = 0;
+    // Empty the Telemetry Read value (no session: no frame of the current session exists).
+    virtual void clearTelemetry() noexcept = 0;
     // Request termination of that connection; completion arrives as onDisconnected().
     [[nodiscard]] virtual bool terminate(ConnectionHandle connection) noexcept = 0;
     // Start connectable advertising with the v1 advertising data and scan response.
@@ -145,11 +163,21 @@ struct LinkStatus {
 
 class PeripheralController {
 public:
+    // `telemetryPeriod` is the advertised telemetryPeriodMs; `inputs` supplies the measurements.
     PeripheralController(runtime::IMotionCommandSink& commands, const protocol::v1::IRuntimeStatusView& runtime,
                          const protocol::v1::CommandLimits& limits, IPeripheralLink& link,
-                         const IFirmwareClock& clock, ISessionSecurity& security, SecurityMode mode) noexcept
-        : commands_(commands), link_(link), clock_(clock), security_(security), mode_(mode),
-          session_(commands, runtime, limits)
+                         const IFirmwareClock& clock, const telemetry::ITelemetryInputs& inputs,
+                         std::chrono::milliseconds telemetryPeriod, ISessionSecurity& security,
+                         SecurityMode mode) noexcept
+        : commands_(commands),
+          runtime_(runtime),
+          link_(link),
+          clock_(clock),
+          inputs_(inputs),
+          security_(security),
+          mode_(mode),
+          session_(commands, runtime, limits),
+          scheduler_(telemetryPeriod)
     {
     }
     PeripheralController(const PeripheralController&) = delete;
@@ -292,6 +320,45 @@ public:
         if (owns(connection)) mtu_.store(mtu, std::memory_order_relaxed);
     }
 
+    // One telemetry tick, in the host context: queue a Telemetry frame if one is due.
+    void onTelemetryTick() noexcept
+    {
+        telemetry_.count(telemetry::TelemetryCounter::Ticks);
+        if (state() != LinkState::Ready) {
+            telemetry_.count(telemetry::TelemetryCounter::TicksNotReady);
+            return;
+        }
+        const runtime::Instant now = clock_.nowMicroseconds();
+        // One status read: the decision and the frame see the same state.
+        const auto status = runtime_.status();
+        const auto measured = inputs_.measurements(now);
+        const telemetry::TelemetryKey key{status.state, status.commandExpired, measured.batteryLow};
+        const auto reason = scheduler_.due(now, key);
+        if (reason == telemetry::FrameReason::None) return;
+        protocol::v1::TelemetryValues values;
+        values.batteryLow = measured.batteryLow;
+        values.uptimeMilliseconds = telemetry::uptimeMilliseconds(now);
+        values.batteryMillivolts = measured.batteryMillivolts;
+        values.measuredLinearMillimetresPerSecond = measured.measuredLinearMillimetresPerSecond;
+        values.measuredAngularMilliradiansPerSecond = measured.measuredAngularMilliradiansPerSecond;
+        const auto frame = session_.telemetry(status, values);
+        if (!frame) {  // Not representable: no sequence was used and nothing is sent.
+            telemetry_.count(telemetry::TelemetryCounter::EncodeFailures);
+            scheduler_.attempted(now, key, false);
+            return;
+        }
+        const bool queued = link_.publishTelemetry(*owner_, *frame);
+        scheduler_.attempted(now, key, queued);
+        if (!queued) {
+            // Dropped and counted; its sequence is spent, so the desktop sees the loss as a gap.
+            telemetry_.count(telemetry::TelemetryCounter::NotifyFailures);
+            return;
+        }
+        telemetry_.countFrame(reason);
+        if (lastFrameAt_) telemetry_.recordGap(now - *lastFrameAt_, reason, scheduler_.period());
+        lastFrameAt_ = now;
+    }
+
     [[nodiscard]] LinkState state() const noexcept { return state_.load(std::memory_order_acquire); }
 
     [[nodiscard]] LinkStatus status() const noexcept
@@ -314,6 +381,10 @@ public:
         }
         return out;
     }
+
+    [[nodiscard]] telemetry::TelemetryCounters telemetryCounters() const noexcept { return telemetry_.counters(); }
+    // Reporter only (one caller): the spacing extremes since its previous call.
+    [[nodiscard]] telemetry::TelemetryWindow takeTelemetryWindow() noexcept { return telemetry_.takeWindow(); }
 
     [[nodiscard]] BleDiagnosticsSnapshot diagnostics() const noexcept
     {
@@ -357,6 +428,9 @@ private:
             securityBypassedShown_.store(established.bypassed, std::memory_order_relaxed);
             securitySessionShown_.store(true, std::memory_order_relaxed);
             session_.open();
+            scheduler_.sessionStarted();
+            lastFrameAt_.reset();
+            link_.clearTelemetry();
             setState(LinkState::Ready);
             count(BleCounter::SessionsReady);
         } else if (!ready && current == LinkState::Ready) {
@@ -393,7 +467,9 @@ private:
             securitySessionShown_.store(false, std::memory_order_relaxed);
             securityBypassedShown_.store(false, std::memory_order_relaxed);
         }
-        if (wasReady) count(BleCounter::SessionsEnded);
+        if (!wasReady) return;
+        count(BleCounter::SessionsEnded);
+        link_.clearTelemetry();
     }
 
     // Advertising is published before it starts: once it runs, the host task can process a
@@ -487,13 +563,18 @@ private:
     };
 
     runtime::IMotionCommandSink& commands_;
+    const protocol::v1::IRuntimeStatusView& runtime_;
     IPeripheralLink& link_;
     const IFirmwareClock& clock_;
+    const telemetry::ITelemetryInputs& inputs_;
     ISessionSecurity& security_;
     SecurityMode mode_;
     protocol::v1::CommandSession session_;
     Authorizer authorizer_{*this};
     bool securityActive_{false};  // Callback context only.
+    telemetry::TelemetryScheduler scheduler_;
+    std::optional<runtime::Instant> lastFrameAt_{};  // Last queued Telemetry frame of this session.
+    telemetry::TelemetryDiagnostics telemetry_{};
 
     // Callback context only.
     // One entry per connection the stack can hold beside the owner (NimBLE's limit is 3 in the

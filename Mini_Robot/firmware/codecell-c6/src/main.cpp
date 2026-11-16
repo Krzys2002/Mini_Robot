@@ -13,6 +13,9 @@
 // watchdog. A watchdog expiry first sleeps both bridges from the ISR, then panics and resets;
 // esp_restart() runs the runtime's shutdown first. Every boot starts Idle with outputs off
 // and nothing restored; the boot and status lines report the reset reason.
+// Telemetry (#164): a priority-5 telemetry task ticks every 5 ms and the BLE host decides
+// and queues Telemetry frames on the shared robot counter. Battery and measured velocity are
+// reported as unknown: no battery conversion is validated and no velocity sensor exists.
 // USB serial carries status output and the maintenance console only, never motion.
 #include <Arduino.h>
 #include <esp_attr.h>
@@ -32,6 +35,8 @@
 #include "provisioning/MaintenanceConsole.hpp"
 #include "provisioning/ProvisionedConfiguration.hpp"
 #include "runtime/FirmwareRuntime.hpp"
+#include "telemetry/BatteryMonitor.hpp"
+#include "telemetry/TelemetryInputs.hpp"
 
 namespace {
 using namespace codecell;
@@ -61,6 +66,15 @@ public:
     runtime::RuntimeStatus status() const noexcept override { return firmwareRuntime.status(); }
 };
 RuntimeStatusView runtimeStatusView;
+
+constexpr const char* kTelemetryTaskName = "mr_telemetry";
+
+// ---- Telemetry inputs (#164) ----
+// No battery sensor is wired and no evidence is approved: the CodeCell API conversion and the
+// pack's thresholds are unverified (#154, #238 NOT RUN). Telemetry therefore sends 0xFFFF and
+// never sets batteryLow; there is no low-battery protection in this image.
+telemetry::BatteryMonitor battery{std::nullopt, nullptr};
+telemetry::RobotTelemetryInputs telemetryInputs{battery};
 
 // v1 BLE peripheral (#163). The controller is constructed in setup() only with a validated
 // identity (static storage, no heap); every callback runs in nimble_host.
@@ -96,11 +110,45 @@ BleStart startBle()
     const auto record = protocol::v1::encodeRobotInfo(*info, ble::kRobotInfoFirmwareVersion);
     if (!record) return BleStart::RobotInfoUnencodable;
     bleController.emplace(firmwareRuntime.commands(), runtimeStatusView, protocol::v1::commandLimits(*info),
-                          blePeripheral, firmwareClock, bleSecurity, ble::kSecurityMode);
+                          blePeripheral, firmwareClock, telemetryInputs,
+                          std::chrono::milliseconds{info->telemetryPeriodMilliseconds}, bleSecurity,
+                          ble::kSecurityMode);
     if (!blePeripheral.begin(info->robotId, *record, *bleController)) return BleStart::StackFailed;
     bleController->start();
     if (bleController->state() == ble::LinkState::SecurityRefused) return BleStart::SecurityRefused;
     return BleStart::Started;
+}
+
+// The telemetry task's step (priority 5, every 5 ms): sample the battery port once per
+// telemetry period (no sensor is wired, so nothing is read), then ask the host to evaluate
+// the schedule. It never touches the session or the drive.
+class TelemetryTick final : public runtime::IPeriodicStep {
+public:
+    void step() noexcept override
+    {
+        const auto now = firmwareClock.nowMicroseconds();
+        if (battery.hasSensor() && (!lastSample_ || now - *lastSample_ >= runtime::Instant{timing::kTelemetryPeriod})) {
+            battery.sample(now);
+            lastSample_ = now;
+        }
+        blePeripheral.requestTelemetryTick();
+    }
+
+private:
+    std::optional<runtime::Instant> lastSample_{};
+};
+TelemetryTick telemetryTick;
+bool telemetryTaskRunning{false};
+
+// If the task cannot start, no telemetry is published: the boot line says so, and the
+// desktop's silence rule (3 periods) reports the link as stale. Motion safety never depends
+// on telemetry (the watchdog, E-stop and faults are local).
+bool startTelemetryTask()
+{
+    if (bleStart != BleStart::Started) return false;
+    const runtime::TaskSpec spec{kTelemetryTaskName, timing::kTelemetryPriority, runtime::kDefaultTaskStackBytes,
+                                 timing::kTelemetryTickPeriod, false};
+    return platform.startPeriodicTask(spec, telemetryTick);
 }
 
 class SerialMaintenanceOutput final : public provisioning::IMaintenanceOutput {
@@ -241,8 +289,9 @@ void setup()
     motorsAttached = motors.begin();
     startResult = firmwareRuntime.start();
     bleStart = startBle();
+    telemetryTaskRunning = startTelemetryTask();
     Serial.begin(kSerialBaudRate);
-    Serial.println("CodeCell C6 production runtime (#158-#163): v1 BLE peripheral, restricted-lab profile "
+    Serial.println("CodeCell C6 production runtime (#158-#164): v1 BLE peripheral and telemetry, restricted-lab profile "
                    "(unauthenticated); bounded drive from the provisioned profile, powered checks blocked (#238); "
                    "type help for maintenance");
     Serial.printf("BOOT reset_reason=%s shutdown_handler=%s\n", resetReason,
@@ -254,6 +303,10 @@ void setup()
                   bleStart == BleStart::Started ? name.data() : "none");
     Serial.printf("SECURITY mode=%s policy=%s authenticated=no encrypted=no %s\n", ble::toString(ble::kSecurityMode),
                   bleSecurity.profile(), ble::kRestrictedLabSecurityWarning);
+    Serial.printf("TELEMETRY start=%s tick_ms=%ld period_ms=%u battery=unknown battery_low=unsupported velocity=unknown\n",
+                  telemetryTaskRunning ? "started" : (bleStart == BleStart::Started ? "failed" : "no_ble"),
+                  static_cast<long>(timing::kTelemetryTickPeriod.count()),
+                  identity ? static_cast<unsigned>(identity->telemetryPeriodMilliseconds) : 0U);
     if (!motorsAttached) Serial.println("DRIVE attach=failed");
     const auto& boot = configuration.bootState();
     Serial.printf("PROVISIONING state=%s reason=%s generation=%lu pending=%s\n", provisioning::toString(boot.state),

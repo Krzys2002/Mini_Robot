@@ -181,8 +181,8 @@ using RobotInfoBytes = std::array<std::uint8_t, kRobotInfoLength>;
 }
 
 // Telemetry values in wire units. Unknown values are empty and become the v1 sentinels;
-// nothing here is measured by this codec. Measured velocities come from the robot's own
-// estimate when one exists (#164); without one they stay unknown.
+// nothing here is measured by this codec. The CodeCell C6 Drive has no velocity source, so the
+// image always sends them unknown (#164, telemetry/TelemetryInputs.hpp).
 struct TelemetryValues {
     runtime::MotionState state{runtime::MotionState::Idle};
     bool commandExpired{false};
@@ -260,8 +260,8 @@ struct CommandResultValues {
 
 // ---- Robot Info record ----------------------------------------------------------------
 
-// Diagnostic firmware version bytes. The image's version is a build input (#164); this
-// codec does not choose one.
+// Diagnostic firmware version bytes. The image's version is ble::kRobotInfoFirmwareVersion
+// (#164); this codec does not choose one.
 struct FirmwareVersion {
     std::uint8_t major{0};
     std::uint8_t minor{0};

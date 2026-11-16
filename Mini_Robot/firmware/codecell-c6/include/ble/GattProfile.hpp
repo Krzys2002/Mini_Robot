@@ -117,9 +117,12 @@ inline constexpr std::array<CharacteristicSpec, kCharacteristicCount> kCharacter
 inline constexpr std::uint16_t kDefaultAttMtu = 23;
 static_assert(protocol::v1::kMaxAttPayload == kDefaultAttMtu - 3, "ATT notification/write header is 3 bytes");
 
-// Robot Info firmware version bytes (diagnostic only). The production image has no release
-// version yet; the build version is a #164 input, so this image reports an explicit 0.0.0.
-inline constexpr protocol::v1::FirmwareVersion kRobotInfoFirmwareVersion{0, 0, 0};
+// Robot Info firmware version bytes (#164; diagnostic only, robot-protocol.md). 0.1.0 is the
+// first image that publishes the whole v1 surface: Robot Info, CommandResults and Telemetry.
+// Pre-1.0: a version names an image, it promises no compatibility beyond protocol v1, and no
+// desktop decision may depend on it. Change it when the image's public behaviour changes; the
+// exact build is identified by the ELF SHA-256 in the boot line and the build provenance.
+inline constexpr protocol::v1::FirmwareVersion kRobotInfoFirmwareVersion{0, 1, 0};
 
 // ---- Advertising ----------------------------------------------------------------------
 inline constexpr std::uint8_t kAdTypeFlags = 0x01;
