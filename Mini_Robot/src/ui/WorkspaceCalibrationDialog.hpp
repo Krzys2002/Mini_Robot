@@ -18,6 +18,7 @@ class WorkspaceImageView;
 class WorkspaceReferenceModel;
 class WorkspaceBoardPanel;
 class WorkspaceDiagnosticsDialog;
+class WorkspaceDistanceDialog;
 
 class WorkspaceCalibrationDialog final : public QDialog {
     Q_OBJECT
@@ -40,6 +41,8 @@ private:
     WorkspaceReferenceModel* referenceModel_{};
     WorkspaceBoardPanel* board_{};
     QPointer<WorkspaceDiagnosticsDialog> diagnosticsDialog_;
+    QPointer<WorkspaceDistanceDialog> distanceDialog_;
+    QPushButton* distance_{};
     QPushButton* diagnostics_{};
     QLabel* message_{};
     QPushButton *freeze_{}, *calculate_{}, *save_{}, *load_{}, *verify_{}, *activate_{};

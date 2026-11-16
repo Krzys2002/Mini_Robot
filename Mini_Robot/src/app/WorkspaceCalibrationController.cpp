@@ -17,6 +17,8 @@ WorkspaceCalibrationController::WorkspaceCalibrationController(
         throw std::invalid_argument("Workspace calibration services are required.");
     diagnostics_ = std::make_unique<WorkspaceDiagnosticsController>();
     connect(this, &WorkspaceCalibrationController::profileChanged, this, [this] {
+        ++measurementGeneration_; measurementFrame_.reset();
+        emit measurementFrameChanged();
         diagnostics_->setCalibration(profile_, activeAcquisition_);
     });
     connect(diagnostics_.get(), &WorkspaceDiagnosticsController::stopped, this, &WorkspaceCalibrationController::stopped);

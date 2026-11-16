@@ -1,5 +1,7 @@
 #pragma once
 #include "calibration/WorkspaceDiagnostics.hpp"
+#include "calibration/WorkspaceDistance.hpp"
+#include "camera/CameraTypes.hpp"
 #include <QObject>
 #include <QString>
 #include <QThread>
@@ -24,6 +26,9 @@ public:
     void request(WorkspaceSurveyEvidence = {}, std::size_t columns = DefaultWorkspaceMapColumns,
                  std::size_t rows = DefaultWorkspaceMapRows);
     void exportSnapshot(const QString& path);
+    // Same bounded worker as map recomputation/export. Captures an immutable pair.
+    bool exportDistanceSnapshot(std::array<WorkspaceDistanceEndpoint,WorkspaceDistanceEndpointCount>,
+                                FramePtr, const QString& path);
     void shutdown();
     [[nodiscard]] const auto& snapshot() const { return snapshot_; }
     [[nodiscard]] const auto& profile() const { return profile_; }
@@ -36,6 +41,7 @@ signals:
     void changed();
     void calibrationChanged();
     void stopped();
+    void distanceExportFinished(const QString& message);
 
 private:
     struct Task {
@@ -61,4 +67,6 @@ private:
 };
 // Worker-only canonical JSON export; atomic replacement and bounded bytes.
 [[nodiscard]] std::string exportWorkspaceDiagnostics(const WorkspaceDiagnostics&, const QString& path);
+[[nodiscard]] std::string exportWorkspaceDistance(const WorkspaceDiagnostics&,
+    const std::array<WorkspaceDistanceEndpoint,WorkspaceDistanceEndpointCount>&, const FramePtr&, const QString& path);
 } // namespace micro_robot
