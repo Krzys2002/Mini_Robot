@@ -172,12 +172,14 @@ lost link.
   and macOS manages its own parameters. Safety must not depend on these values.
 - All version 1 payloads fit the default 23-byte ATT MTU. A larger negotiated MTU
   is allowed, but it must not be used to send concatenated or longer frames.
-- Version 1 uses no pairing or encryption. Any central in radio range can
-  connect while the robot advertises. Version 1 may be operated only under the
-  [restricted-lab security profile](security-profile.md), which lists the
-  operating restrictions, firmware rules and accepted residual risks. `robotId`,
-  advertised names and sequence numbers are not authentication. A secure profile
-  requires a separate compatibility decision and protocol/GATT change.
+- Version 1 requires no pairing and guarantees no encryption. Any central in
+  radio range can connect while the robot advertises. Its use is restricted by the
+  [restricted-lab security profile](security-profile.md), merged in PR #274.
+  Desktop companion [PR #287](https://github.com/Krzys2002/Mini_Robot/pull/287)
+  remains an integration dependency. Session exclusivity,
+  identifiers and successful pass-through security hooks are not authentication.
+  The restricted-lab mock is unauthenticated and unencrypted; a real secure profile
+  requires a coordinated compatibility/version decision.
 - Desktop and firmware run version 1 behind session-security extension points
   ([F12](security-profile.md#5-enforceable-firmware-rules)). The only implementation is
   a restricted-lab pass-through: it changes no byte of these frames, and it reports
@@ -190,13 +192,15 @@ ESP32-C6 firmware ([v1 codec](../overview/firmware-protocol.md), #161;
 board, not powered or HIL-tested, #166/#238):
 
 - [x] GATT layout, properties, and CCCDs as in the table, with robotId from non-volatile storage.
-- [x] Advertising with the service UUID and `MR-<robotId>` scan response; one connection at a time
-  (enforced by the firmware; the prebuilt stack allows 3, see [one central](../overview/firmware-ble.md#one-central-per-robot-f1-on-this-build)).
+- [x] Advertising with the service UUID and `MR-<robotId>` scan response; one accepted
+  application-controller connection per robot, additional links promptly terminated
+  without ordinary command/CCCD effects (dedicated E-stop still latches). The stack
+  capacity is 3; [AT-03 hardware validation](../overview/firmware-ble.md#at-03-acceptance-and-evidence)
+  remains unverified.
 - [x] Frame validation order, result codes, and one CommandResult per received frame.
 - [x] Sequence rules, ready-state gating, and Velocity deadline from receipt time.
 - [x] Emergency Stop latch on any write; stop on expiry, disconnect, or CCCD disable.
 - [ ] Telemetry every `telemetryPeriodMs` and immediately after a state change (#164).
-
 
 Desktop BLE adapter ([#65](https://github.com/Krzys2002/Mini_Robot/issues/65),
 [#66](https://github.com/Krzys2002/Mini_Robot/issues/66)):

@@ -5,15 +5,20 @@ the [production runtime](firmware-runtime.md) (#158), [identity provisioning](fi
 (#159), the [bounded drive](firmware-drive.md) (#160), the [v1 codec](firmware-protocol.md)
 (#161) and [safety enforcement](firmware-safety.md) (#162). It is the robot side of the
 [BLE GATT contract](../protocol/ble-gatt.md) (#64), under the restricted-lab v1 profile
-proposed by [#157](https://github.com/Krzys2002/Mini_Robot/issues/157) (PR #274, not yet
-merged). Final security enforcement is [#165](https://github.com/Krzys2002/Mini_Robot/issues/165),
+defined by [#157](https://github.com/Krzys2002/Mini_Robot/issues/157)
+([security profile](../protocol/security-profile.md), merged in PR #274).
+Final security enforcement is [#165](https://github.com/Krzys2002/Mini_Robot/issues/165),
 telemetry publication is [#164](https://github.com/Krzys2002/Mini_Robot/issues/164), the HIL
 suite is [#166](https://github.com/Krzys2002/Mini_Robot/issues/166) and powered checks are
 [#238](https://github.com/Krzys2002/Mini_Robot/issues/238).
 
-**v1 is not authenticated.** Any central in radio range can connect while the robot
-advertises. The only enforceable controls are one central per robot and the readiness
-rule below. The operating restrictions of the profile still apply.
+**v1 is unauthenticated and has no guaranteed encryption.** Any central in radio range
+can connect while the robot advertises. The enforceable controls are one accepted
+application-controller connection per robot and the readiness rule below, not
+authenticated ownership. The operating restrictions of the profile still apply.
+The [F1 decision recorded in PR #274](https://github.com/Krzys2002/Mini_Robot/pull/274#issuecomment-6922939151)
+is approved and its policy text is included in this branch. Integration still depends
+on the desktop security-scaffolding companion [PR #287](https://github.com/Krzys2002/Mini_Robot/pull/287).
 
 ## Files
 
@@ -73,9 +78,9 @@ stateDiagram-v2
 | Event | Behaviour |
 | --- | --- |
 | First connection | Becomes the owner. Advertising is stopped explicitly. Link parameters are requested once. |
-| Any other connection while an owner exists | Terminated at once. Its Command writes and subscriptions are never applied. Its disconnect changes nothing. |
+| Any other connection while an owner exists | Promptly terminated; never becomes ready or takes ownership. Its ordinary Command writes and CCCD changes have no effect, including on the owner's subscriptions. Exception: its dedicated E-stop still latches. Its disconnect changes nothing. |
 | Both CCCDs enabled (notification bit) on the owner | `CommandSession::open()`: new #162 session token, `lastAccepted` unset, transmit counter at 0 |
-| Either CCCD disabled | `end(NotificationsDisabled)`: stop as for Stop, latch kept, no auto-resume |
+| Either owner CCCD disabled | `end(NotificationsDisabled)`: stop as for Stop, latch kept, pending motion/Clear intent and session/security state invalidated. The owner stays connected/unready, with no advertising or ownership transfer. Re-enabling both CCCDs starts a fresh session; new motion needs fresh Velocity, never auto-resume. |
 | Owner disconnect (any reason) | `end(Disconnected)`, reason and time since the last write recorded (I10), then advertising restarts |
 | Repeated connect, subscribe, disconnect or `start()` | Idempotent: no new session, no second end, the counter keeps running |
 
@@ -94,7 +99,8 @@ notification channel yet (v1):
 - Stop and EmergencyStop take effect.
 - Velocity and ClearEmergencyStop carry no ready token, so the authority refuses them. No
   motion and no result.
-- Writes from a connection that does not own the link are never applied.
+- Ordinary Command writes from a non-owner are never applied. Exception: any
+  connected central's dedicated Emergency Stop write still latches immediately.
 
 ## Emergency Stop path
 
@@ -106,10 +112,11 @@ notification channel yet (v1):
   for a well-formed v1 EmergencyStop and `0` otherwise.
 - A write that arrives before readiness, or from a connection that does not own the link,
   latches without an answer.
-- **Firmware choice, please confirm:** #157 F1 says the writes of a second connection are
-  not applied, and F4 says any Emergency Stop write latches. The controller latches on an
-  Emergency Stop write from any connection (fail-safe; at worst a denial of service, which
-  any central in range can already cause), and applies nothing else from a non-owner.
+- The approved F1 decision explicitly preserves F4: a dedicated Emergency Stop write
+  from **any connected central**, including a rejected newcomer awaiting termination,
+  latches before parsing, queueing or authorization. Non-owner ordinary Command writes
+  and CCCD changes still have no effect. This permits a non-owner to stop the robot,
+  never to clear the latch, submit motion or take ownership.
 
 ## Command results and overload
 
@@ -132,30 +139,50 @@ timeout (`kLinkParameterRequest`). These are hints only. The request outcome
 status line, and so is the ATT MTU. Nothing depends on them. The command validity window and
 the stop on disconnect bound motion whatever is negotiated.
 
-## One central per robot (F1) on this build
+## One accepted application connection per robot (F1)
 
-#157 F1 asks for `CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1`. That is not possible on the pinned
-toolchain. The Arduino-ESP32 3.3.7 libraries are prebuilt, and their `sdkconfig.h` defines
+The maintainer's [2026-11-16 F1 decision](https://github.com/Krzys2002/Mini_Robot/pull/274#issuecomment-6922939151)
+replaces the original mandatory stack limit of one with exactly **one accepted
+desktop/application-controller connection per robot**. No observer connections,
+secondary application sessions or concurrent command owners are supported. One desktop
+may connect to several different robots; the limit is per robot.
+
+The Arduino-ESP32 3.3.7 libraries are prebuilt, and their `sdkconfig.h` defines
 `CONFIG_BT_NIMBLE_MAX_CONNECTIONS 3` (and every NimBLE role on). NimBLE-Arduino 2.3.6 reads
 its configuration from that header on ESP platforms, so a `-D` build flag is redefined and
 has no effect. The build showed exactly that, as a redefinition warning in every file.
-Changing it would need a custom sdkconfig, and with it a rebuilt framework.
+Changing it would need a custom sdkconfig, and with it a rebuilt framework. The
+approved policy allows this compiled capacity of three physical links; it does not
+permit three usable application sessions.
 
 Exclusivity is enforced by the controller instead:
 
 - advertising is stopped when the owner connects and restarted only after its disconnect was
   processed;
-- any other connection the stack reports is terminated without applying its writes.
+- any additional physical link the stack reports is promptly terminated. Its ordinary
+  commands (including motion/Clear) and CCCD changes have no effect, and it never
+  becomes ready or takes ownership. **Exception:** its dedicated E-stop still latches;
+- readiness loss ends the owner's session and pending intent but retains its physical
+  connection and ownership, with advertising off. Only actual owner disconnect releases
+  ownership for a different central; nothing transfers or resumes automatically.
 
 The boot line states both values: `BLE ... accepted_centrals=1 stack_max_connections=3`.
 
-**This does not meet F1 literally.** F1 asks for a stack limit of one, and this build has
-three stack links with one accepted owner. #274 records a *proposed* F1 amendment for exactly
-this behaviour: up to three stack links, one owner, every other link terminated from its
-connect callback with its writes and CCCD changes never applied, advertising off while
-owned, and AT-03 kept. That amendment is pending maintainer review. Until it is accepted, no
-document may claim F1 conformance for this image on the strength of the application gate.
-The second-independent-central acceptance test (AT-03, HIL) is still to run (#165/#166).
+### AT-03 acceptance and evidence
+
+A transient additional physical link may be reported and terminated, but a second
+usable application session or owner is never permitted. Test that the newcomer cannot
+submit motion or ClearEmergencyStop, change the owner's subscriptions, become ready or
+take ownership, including while the owner is CCCD-unready. Its disconnect must leave the
+owner's session intact. Its dedicated E-stop must still latch immediately before parsing,
+queueing or authorization, and its Clear must not release that latch.
+
+The host fakes cover second-central rejection and permissive non-owner E-stop; they
+are not two-radio evidence. The **second-independent-central hardware test remains
+unverified**, owned by #165/#166. F1 policy approval is not a hardware pass or approval
+of the entire PR, authentication/encryption, powered tests, public/unattended operation
+or unresolved timing deviations. Additional application/observer connections require
+a separate reviewed policy change.
 
 ## Security settings
 
@@ -207,8 +234,10 @@ Owners of the real implementation: #165 for production firmware enforcement and 
 tests, and a future secure-profile issue for mutual authentication, confidentiality plus
 integrity, session-bound replay protection, enrollment and key storage, revocation and
 recovery. Any wire or GATT change needs a coordinated protocol version decision
-([security profile](../protocol/security-profile.md) section 9). The desktop side has the
-matching hooks in `transport/ble/BleSessionSecurity.hpp`. The host tests in
+([security profile in PR #274](https://github.com/Krzys2002/Mini_Robot/pull/274), section 9).
+The desktop companion [PR #287](https://github.com/Krzys2002/Mini_Robot/pull/287)
+provides the matching hooks in `transport/ble/BleSessionSecurity.hpp` and is an
+integration dependency, not part of this firmware branch. The host tests in
 `BlePeripheralTest` (`BleSessionSecurityTest.*`) prove the hooks are called, that the
 pass-through is unchanged and reports insecurity, that refusals prevent motion, Clear and
 delivery, and that E-stop bypasses them. They are not cryptographic security validation.

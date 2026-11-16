@@ -10,8 +10,13 @@ one command authority (`CommandProcessor`) is the only way to request motion, an
 a 5 ms safety supervisor and a 10 ms control task follow the #156 scheduling model.
 See [runtime and threading](../../docs/overview/firmware-runtime.md). The portable
 [v1 codec and command validation](../../docs/overview/firmware-protocol.md) (#161)
-is served by the v1 [BLE peripheral](../../docs/overview/firmware-ble.md) (#163): one central,
-ready only while both CCCDs are enabled, restricted-lab profile (not authenticated).
+is served by the v1 [BLE peripheral](../../docs/overview/firmware-ble.md) (#163): one accepted
+application-controller connection per robot, ready only while both owner CCCDs are enabled.
+The stack capacity is three physical links, not three usable application sessions;
+newcomers are promptly terminated without ordinary command/CCCD effects, but their
+dedicated E-stop still latches. No observers are supported. The restricted-lab mock is
+unauthenticated and unencrypted. The policy from #274 is included; desktop companion
+#287 remains an integration dependency.
 Telemetry is not published yet (#164). The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
 (#160). It wakes the H-bridges only with a valid provisioned profile, and it is not
 proof of safe electrical boot behaviour or of any physical motor limit (#238).
