@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <vector>
 
 using namespace codecell;
@@ -83,6 +84,88 @@ TEST(TelemetrySchedulerTest, SchedulingLatenessUpToTheAllowanceKeepsTheB10Deviat
     }
 }
 
+// Review finding (#283): the scheduler admitted a state change 17.5 ms and a periodic frame
+// 97.5 ms after the previous frame. The approved B10 values are >= 20 ms and 100 +/- 2 ms.
+TEST(TelemetrySchedulerTest, BoundariesAreTheApprovedB10Values)
+{
+    static_assert(timing::kStateTelemetryMinSpacing == 20ms);
+    static_assert(timing::kTelemetryPeriodDeviationMax == 2ms);
+    static_assert(timing::kTelemetryPeriod == 100ms);
+    TelemetryScheduler scheduler{timing::kTelemetryPeriod};
+    scheduler.attempted(Instant::zero(), kIdle, true);
+    EXPECT_EQ(scheduler.due(17'500us, kMoving), FrameReason::None) << "the review probe";
+    EXPECT_EQ(scheduler.due(20ms - 1us, kMoving), FrameReason::None);
+    EXPECT_EQ(scheduler.due(20ms, kMoving), FrameReason::StateChange);
+    EXPECT_EQ(scheduler.due(97'500us, kIdle), FrameReason::None) << "the review probe";
+    EXPECT_EQ(scheduler.due(98ms - 1us, kIdle), FrameReason::None);
+    EXPECT_EQ(scheduler.due(98ms, kIdle), FrameReason::Periodic);
+    EXPECT_EQ(scheduler.due(102ms, kIdle), FrameReason::Periodic);
+}
+
+// The model behind the rule (#283 review): ticks on the 5 ms grid, each late by any amount
+// within the scheduling allowance, and the state changing at random. Every frame is at least
+// 20 ms after the previous one, every periodic gap is 100 +/- 2 ms, at most 60 frames fall in
+// any second, and a state change seen at a tick is sent no more than four ticks (20 ms) later.
+TEST(TelemetrySchedulerTest, LatenessModelMeetsEveryB10BoundAtOnce)
+{
+    std::uint32_t seed = 0x2834u;
+    const auto next = [&seed] {
+        seed = seed * 1664525u + 1013904223u;
+        return seed >> 8;
+    };
+    const auto allowance = timing::kSchedulingAllowance.count();
+    for (int pattern = 0; pattern < 240; ++pattern) {
+        TelemetryScheduler scheduler{timing::kTelemetryPeriod};
+        scheduler.sessionStarted();
+        TelemetryKey key = kIdle;
+        std::optional<TelemetryKey> sentKey;
+        std::optional<std::int64_t> pendingSince;  // First tick that saw an unsent state.
+        std::optional<Instant> previous;
+        std::vector<Instant> times;
+        const Instant start = 1s + Instant{static_cast<std::int64_t>(next() % 5000)};
+        for (std::int64_t k = 0; k < 2000; ++k) {
+            Instant late{0};
+            switch (pattern % 4) {
+            case 0: late = Instant{static_cast<std::int64_t>(next() % (allowance + 1))}; break;  // Random.
+            case 1: late = Instant{k % 2 == 0 ? 0 : allowance}; break;                        // Alternating.
+            case 2: late = Instant{(k * allowance / 7) % (allowance + 1)}; break;              // Ramps.
+            case 3: late = Instant{(k / 20) % 2 == 0 ? allowance : 0}; break;                  // Steps.
+            }
+            if (next() % 9 == 0) {
+                const TelemetryKey choices[] = {kIdle, kMoving, kExpired, kLatched};
+                key = choices[next() % 4];
+            }
+            const Instant now = start + k * kTick + late;
+            if (sentKey && key != *sentKey) {
+                if (!pendingSince) pendingSince = k;
+            } else {
+                pendingSince.reset();
+            }
+            const auto reason = scheduler.due(now, key);
+            if (reason == FrameReason::None) continue;
+            scheduler.attempted(now, key, true);
+            if (previous) {
+                const auto gap = now - *previous;
+                ASSERT_GE(gap, Instant{timing::kStateTelemetryMinSpacing}) << pattern << " " << k;
+                if (reason == FrameReason::Periodic) {
+                    const auto deviation = gap > kPeriod ? gap - kPeriod : kPeriod - gap;
+                    ASSERT_LE(deviation, timing::kTelemetryPeriodDeviationMax) << pattern << " " << k;
+                }
+            }
+            if (pendingSince) ASSERT_LE((k - *pendingSince) * kTick, Instant{timing::kStateTelemetryMinSpacing})
+                << "state-change delay, pattern " << pattern << " tick " << k;
+            pendingSince.reset();
+            sentKey = key;
+            previous = now;
+            times.push_back(now);
+        }
+        for (std::size_t i = 0, j = 0; i < times.size(); ++i) {
+            while (times[i] - times[j] >= 1s) ++j;
+            ASSERT_LE(i - j + 1, static_cast<std::size_t>(timing::kTelemetryNotificationsPerSecondMax)) << pattern;
+        }
+    }
+}
+
 TEST(TelemetrySchedulerTest, StateChangeIsSentAtTheNextTickOrOnceTheSpacingHasPassed)
 {
     TelemetryScheduler scheduler{timing::kTelemetryPeriod};
@@ -109,7 +192,7 @@ TEST(TelemetrySchedulerTest, ChangesWithinTheSpacingCoalesceToTheLatestState)
 TEST(TelemetrySchedulerTest, FlappingStateUnderAnyLatenessNeverExceedsTheB10Rate)
 {
     // The state changes at every tick; ticks are late by 0..2.5 ms in an adversarial pattern.
-    const auto lateness = [](std::int64_t k) { return k % 2 == 0 ? Instant::zero() : timing::kTelemetryTickTolerance; };
+    const auto lateness = [](std::int64_t k) { return k % 2 == 0 ? Instant::zero() : timing::kSchedulingAllowance; };
     const auto flapping = [](Instant now) { return (now / kTick) % 2 == 0 ? kIdle : kMoving; };
     const auto sent = simulate(1s, 10s, lateness, flapping, alwaysQueued);
     for (std::size_t i = 1; i < sent.size(); ++i)
@@ -120,7 +203,10 @@ TEST(TelemetrySchedulerTest, FlappingStateUnderAnyLatenessNeverExceedsTheB10Rate
         for (std::size_t j = i; j < sent.size() && sent[j].at - sent[i].at < 1s; ++j) ++inWindow;
         EXPECT_LE(inWindow, static_cast<std::size_t>(timing::kTelemetryNotificationsPerSecondMax));
     }
-    EXPECT_GE(sent.size(), 10U * 45U);  // And state changes are not starved either.
+    // Nor are state changes starved. With the strict 20 ms bound, a late frame followed by an
+    // on-time tick waits one more tick (25 ms), so this worst-case pattern still gets 40 per
+    // second; each change is sent within 20 ms of the tick that saw it (LatenessModel test).
+    EXPECT_GE(sent.size(), 10U * 40U);
 }
 
 TEST(TelemetrySchedulerTest, CongestedStackGetsNoRetryBurstAndTheStateChangeIsTriedAgain)

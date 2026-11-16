@@ -60,17 +60,22 @@ inline constexpr microseconds kRobotStackQueueAllowance{static_cast<long long>(k
 // ---- Telemetry, results and logging ----
 inline constexpr milliseconds kTelemetryPeriod{100};       // advertised telemetryPeriodMs
 inline constexpr milliseconds kStateTelemetryMinSpacing{20};
+// B10 robot-side periodic deviation: |gap between consecutive frames - period| for a periodic frame.
+inline constexpr microseconds kTelemetryPeriodDeviationMax{2000};
 inline constexpr int kTelemetryNotificationsPerSecondMax =
     static_cast<int>(std::chrono::seconds{1} / kTelemetryPeriod + std::chrono::seconds{1} / kStateTelemetryMinSpacing);
 // Telemetry publication (#164). The telemetry task (kTelemetryPriority) wakes every tick and
 // asks the BLE host to evaluate the schedule; the frame itself is built and queued in the
 // host context, so it shares the robot transmit counter with CommandResults without
-// reordering. Every spacing check allows half a tick for scheduling lateness, so the nominal
-// spacing is kept on the tick grid and no frame ever follows another by less than
-// kTelemetryMinFrameSpacing, which bounds the rate below kTelemetryNotificationsPerSecondMax.
+// reordering. Both checks use the approved B10 values on the robot clock (#283 review): no
+// frame follows another by less than kStateTelemetryMinSpacing, and a periodic frame waits
+// until the period minus kTelemetryPeriodDeviationMax has passed. Ticks lie on a 5 ms grid, so
+// while their lateness stays within kSchedulingAllowance the periodic frame lands on the tick
+// one period after the previous frame: its gap is the period +/- the lateness difference,
+// within B10. A state change seen at a tick goes out at most four ticks (20 ms) later.
+// TelemetrySchedulerTest models every lateness pattern within the allowance.
 inline constexpr milliseconds kTelemetryTickPeriod{5};
-inline constexpr microseconds kTelemetryTickTolerance{microseconds{kTelemetryTickPeriod} / 2};
-inline constexpr microseconds kTelemetryMinFrameSpacing{microseconds{kStateTelemetryMinSpacing} - kTelemetryTickTolerance};
+inline constexpr microseconds kTelemetryMinFrameSpacing{kStateTelemetryMinSpacing};
 // One telemetry frame in the host context does the work of one CommandResult (encode and one
 // notify), so it gets the same allowance. At most one telemetry event is pending at a time.
 inline constexpr microseconds kTelemetryHandlerAllowance{kWriteCallbackAllowance};
@@ -132,7 +137,11 @@ static_assert(kTelemetryPeriod % kTelemetryTickPeriod == milliseconds::zero()
                   && kStateTelemetryMinSpacing % kTelemetryTickPeriod == milliseconds::zero(),
               "telemetry spacing and period are whole ticks");
 static_assert(std::chrono::seconds{1} / kTelemetryMinFrameSpacing <= kTelemetryNotificationsPerSecondMax,
-              "the tolerated spacing still bounds the telemetry rate");
+              "the frame spacing bounds the telemetry rate (B10)");
+static_assert(kSchedulingAllowance <= kTelemetryPeriodDeviationMax,
+              "lateness within the allowance cannot push a periodic frame past the B10 deviation");
+static_assert(kSchedulingAllowance + kTelemetryPeriodDeviationMax < microseconds{kTelemetryTickPeriod},
+              "the tick one before the period can never qualify, so no periodic frame is early by a tick");
 static_assert(kTelemetryTickPeriod <= kStateTelemetryMinSpacing, "a change is seen before its spacing passes");
 static_assert(kReceiptToSetpointBound + kControlPeriod + kSchedulingAllowance <= kReceiptToActuatorWriteBound);
 static_assert(kSafetyCheckPeriod % kSchedulerTick == milliseconds::zero(), "periods are whole ticks");

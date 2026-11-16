@@ -13,10 +13,12 @@
 // - Otherwise a frame is sent once the period has passed since the previous one. Measuring
 //   from the previous frame keeps every gap at most one period (plus lateness), so the
 //   desktop's silence threshold of three periods is never approached by the schedule itself.
-// - Each check allows half a tick (timing::kTelemetryTickTolerance), because ticks arrive on
-//   a fixed grid but late by scheduling lateness. So frames stay on that grid at the nominal
-//   spacing, and no two frames are ever closer than timing::kTelemetryMinFrameSpacing, which
-//   bounds the rate (B10: at most 60 per second) across sessions too.
+// - The checks use the approved B10 values on the robot clock (#283 review): no frame follows
+//   another by less than timing::kStateTelemetryMinSpacing (20 ms), which bounds the rate (B10:
+//   at most 60 per second) across sessions too; a periodic frame waits until the period minus
+//   timing::kTelemetryPeriodDeviationMax (2 ms) has passed, so it is never early by more than
+//   B10 allows. On the 5 ms tick grid with lateness within timing::kSchedulingAllowance it is
+//   not late by more than that either (see TimingBudget.hpp).
 // - A frame that could not be queued still counts as an attempt for the spacing, so a
 //   congested link sees no retry burst. A state change that failed is tried again after the
 //   spacing; the periodic frame after the next period. Nothing is buffered.
@@ -56,7 +58,7 @@ public:
             if (elapsed < timing::kTelemetryMinFrameSpacing) return FrameReason::None;
             if (!lastSentKey_) return FrameReason::SessionStart;
             if (key != *lastSentKey_) return FrameReason::StateChange;
-            if (elapsed >= Instant{period_} - timing::kTelemetryTickTolerance) return FrameReason::Periodic;
+            if (elapsed >= Instant{period_} - timing::kTelemetryPeriodDeviationMax) return FrameReason::Periodic;
             return FrameReason::None;
         }
         return lastSentKey_ ? FrameReason::None : FrameReason::SessionStart;

@@ -66,11 +66,26 @@ flowchart LR
     that sees it, but never closer than 20 ms to the previous frame. Changes in between
     coalesce to the latest state, so a state shorter than a tick can be missed (its
     CommandResult still reports it);
-  - **periodic**: once 100 ms (`telemetryPeriodMs`) have passed since the previous frame.
-- Every check allows half a tick (2.5 ms) for scheduling lateness. Frames therefore stay on
-  the tick grid at their nominal spacing, and no two frames are ever less than 17.5 ms apart.
-  That gives at most 57 frames per second, inside B10's 60, across sessions too. The
-  compile-time checks in `TimingBudget.hpp` keep those relations.
+  - **periodic**: once the period minus the B10 deviation (100 − 2 = 98 ms) has passed since
+    the previous frame.
+- Both checks use the approved B10 values on the robot clock (#283 review). Earlier versions
+  allowed half a tick, which admitted a state change after 17.5 ms and a periodic frame after
+  97.5 ms. Now:
+  - no two frames are ever less than 20 ms apart, so at most 50 frames per second, inside
+    B10's 60, across sessions too;
+  - ticks lie on the 5 ms grid, and while their lateness stays within the 2 ms scheduling
+    allowance, the tick one period after the previous frame is the first that qualifies. Every
+    periodic gap is therefore 100 ± 2 ms;
+  - a state change seen at a tick goes out at most four ticks (20 ms) later. A late frame
+    followed by an on-time tick waits one tick longer than the nominal spacing, never longer
+    than that bound.
+
+  `TelemetrySchedulerTest.LatenessModelMeetsEveryB10BoundAtOnce` checks all four bounds
+  together over random, alternating, ramp and step lateness patterns, and
+  `BoundariesAreTheApprovedB10Values` checks the edges. The compile-time checks in
+  `TimingBudget.hpp` keep the relations (allowance ≤ deviation, allowance + deviation < one
+  tick). Lateness above the allowance, as under the write bursts below, is not covered by this
+  argument.
 - Telemetry is never sent from inside a write callback, so the 0.8 ms callback allowance of
   B8/B11 is unchanged. An E-stop write can wait behind the one pending telemetry event; the
   budget composition (`kRobotStackQueueAllowance + kTelemetryHandlerAllowance + 1 ms ≤ 25 ms`)
@@ -174,7 +189,8 @@ Host tests (`core` label), all with fakes and a fake microsecond clock:
   - the session-start frame, then periodic frames exactly 100 ms apart;
   - deviation ≤ 2 ms with every tick late by up to the B3 allowance;
   - state-change spacing and coalescing;
-  - flapping state under adversarial lateness that stays ≥ 17.5 ms and ≤ 60 per second;
+  - flapping state under adversarial lateness that stays ≥ 20 ms and ≤ 60 per second;
+  - the B10 boundaries and the lateness model above;
   - congestion without retry bursts;
   - cross-session spacing;
   - the uptime and clock wrap points.
