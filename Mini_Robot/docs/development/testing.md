@@ -553,3 +553,18 @@ validation in #265 and related #63/#224 evidence. **All new physical camera and 
 behavior were not tested here. Fixed-pair conditional model coverage does not
 establish a general accuracy guarantee, 3D measurement, motion control or robot
 safety.
+
+## Side-mounted planar calibration regression (#247)
+
+Run core plus the host desktop presets. `TabletopObliqueTest`,
+`OpenCvWorkspaceHomographyObliqueTest`, `MetricObservationObliqueTest`,
+`OpenCvMetricObservationObliqueTest` and `WorkspaceObliqueUiTest` cover a known
+pinhole plane with a 3.4× near/far scale ratio, independent edge/interior references,
+native-K lens correction, world headings, degeneracy/horizon recovery and
+session-only fit coverage. `MetricObservationTest.ProjectiveMetricMappingIsInvariantToLargeFiniteHomogeneousScale`
+regresses the reproduced unnormalised denominator overflow.
+
+These are deterministic software checks. Physical side-camera accuracy and new
+native-display checks belong to #261 and remain NOT RUN. The
+[oblique-camera audit](../overview/oblique-tabletop.md) records sources, geometry
+and plane/height/extrapolation limits.

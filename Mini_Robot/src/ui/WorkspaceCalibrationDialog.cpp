@@ -148,7 +148,8 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
     auto* instructions = new QLabel(
         "1. Freeze compatible undistorted pixels. Select physical C1 (base), C2 (+X neighbour), C3 (opposite), C4 (+Y neighbour).\n"
         "2. Enter measured edge lengths and origin offsets from C1 along +X/+Y. Review the labelled perimeter and Confirm boundary.\n"
-        "3. Add extra paired references / independent Checks, Calculate, review errors, then explicitly Activate. Keep camera/table fixed.", this);
+        "3. Add extra paired references / independent Checks, Calculate, review errors, then explicitly Activate. Keep camera/table fixed.\n"
+        "Side views are planar only: use visible near/far references, never guessed occluded points. Raise an almost edge-on camera; elevated objects have parallax error.", this);
     instructions->setWordWrap(true);
     layout->addWidget(instructions);
     auto* settings = new QHBoxLayout;

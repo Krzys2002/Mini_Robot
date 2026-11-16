@@ -431,6 +431,10 @@ TEST(WorkspaceDistanceUiTest, ExportsSelectedPairIdentityEvidenceAndAvailableOrU
     EXPECT_TRUE(json["endpoints"].toArray()[0].toObject()["selectionMaximumRadius"].isNull());
     EXPECT_FALSE(json["intervalAvailable"].toBool()); EXPECT_TRUE(json["plusMinusMeters"].isNull());
     EXPECT_FALSE(json["uncertaintyUnavailable"].toString().isEmpty());
+    f.source.diagnostics().request();
+    EXPECT_FALSE(c.canExport()); const auto pending=dir.filePath("pending.json"); c.exportMeasurement(pending);
+    EXPECT_FALSE(QFile::exists(pending));
+    ASSERT_TRUE(QTest::qWaitFor([&]{return !f.source.diagnostics().busy();}));
     f.surveyed();
     for (std::size_t i=0;i<2;++i) c.setSelection(i,{WorkspaceSelectionSpace::WorldMeters,0.0,"synthetic fixed coordinate bound"});
     ASSERT_TRUE(c.measurement().result->plusMinusMeters);
@@ -460,6 +464,13 @@ TEST(WorkspaceDistanceUiTest, ExportActionRequiresCurrentPairAndFrozenFrameMetad
     auto* button=dialog.findChild<QPushButton*>("distanceExport"); ASSERT_NE(button,nullptr); EXPECT_FALSE(button->isEnabled());
     WorkspaceDistanceController c(f.source); c.freeze();
     ASSERT_TRUE(QTest::qWaitFor([&]{return !f.source.busy();})); ASSERT_TRUE(c.frame());
+    for (int i=0;i<2;++i) {
+        const auto prefix=QStringLiteral("distance%1").arg(i);
+        dialog.findChild<QDoubleSpinBox*>(prefix+"X")->setValue(i ? 700 : 400);
+        dialog.findChild<QDoubleSpinBox*>(prefix+"Y")->setValue(i ? 400 : 200);
+        dialog.findChild<QPushButton*>(prefix+"Apply")->click();
+    }
+    EXPECT_TRUE(button->isEnabled());
     ASSERT_TRUE(c.setWorld(0,{Meters{0.4},Meters{0.2}})); ASSERT_TRUE(c.setWorld(1,{Meters{0.7},Meters{0.4}}));
     QTemporaryDir dir; const auto path=dir.filePath("frozen.json"); c.exportMeasurement(path);
     ASSERT_TRUE(QTest::qWaitFor([&]{return !f.source.diagnostics().busy();}));
