@@ -18,13 +18,27 @@ public:
     [[nodiscard]] MotionState state() const noexcept { return state_; }
     [[nodiscard]] FaultCode fault() const noexcept { return fault_; }
     [[nodiscard]] bool ready() const noexcept { return ready_; }
+    [[nodiscard]] bool maintenance() const noexcept { return maintenance_; }
     [[nodiscard]] std::uint32_t generation() const noexcept { return generation_; }
     [[nodiscard]] std::optional<Instant> deadline() const noexcept { return deadline_; }
 
-    // Startup completed with every task running. A faulted runtime never becomes ready.
+    // Startup completed with every task running. A faulted runtime, or one that entered
+    // maintenance, never becomes ready.
     void markReady() noexcept
     {
-        if (state_ != MotionState::Fault) ready_ = true;
+        if (state_ != MotionState::Fault && !maintenance_) ready_ = true;
+    }
+
+    // Local maintenance (#159): ends motion as for Stop and refuses new motion until a
+    // reset. The E-stop latch and faults are kept; one-way by design, so provisioning
+    // or a factory reset can never resume an earlier intent.
+    void enterMaintenance() noexcept
+    {
+        maintenance_ = true;
+        ready_ = false;
+        if (state_ == MotionState::Moving) state_ = MotionState::Idle;
+        deadline_.reset();
+        advance();
     }
 
     // Receipt-relative deadline, capped by the ceiling; replaces any previous deadline.
@@ -99,6 +113,7 @@ private:
     MotionState state_{MotionState::Idle};
     FaultCode fault_{FaultCode::None};
     bool ready_{false};
+    bool maintenance_{false};
     std::uint32_t generation_{0};
     std::optional<Instant> deadline_{};
 };

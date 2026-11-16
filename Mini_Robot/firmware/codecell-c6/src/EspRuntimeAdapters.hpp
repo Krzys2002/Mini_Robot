@@ -98,9 +98,6 @@ public:
     bool command(const runtime::BodyVelocity&) noexcept override { return false; }
 };
 
-// Compiled budget defaults; validated provisioning is #159.
-class CompiledConfiguration final : public runtime::IConfigurationSource {
-public:
-    std::optional<runtime::RuntimeConfig> load() noexcept override { return runtime::RuntimeConfig{}; }
-};
+// The configuration source is provisioning::ProvisionedConfiguration over
+// EspProvisioningAdapters.hpp (#159).
 } // namespace codecell::esp

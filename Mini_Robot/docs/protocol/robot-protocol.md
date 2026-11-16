@@ -25,7 +25,8 @@ Key words: **must**/**must not** are mandatory for a conforming implementation;
 | Session | One connection between one desktop and one robot. Sequence state is per session. |
 | `robotId` | Unsigned 32-bit application identity, equal to the domain `RobotId` value. |
 
-- Each robot stores its `robotId` in non-volatile memory at provisioning time.
+- Each robot stores its `robotId` in non-volatile memory at provisioning time
+  ([firmware provisioning](../overview/firmware-provisioning.md)).
   The operator must keep IDs unique within the arena. `robotId` is independent of
   BLE addresses, platform peripheral UUIDs, or Zigbee short addresses.
 - The authoritative identity is the `robotId` field of the

@@ -1,6 +1,7 @@
 # Can also be included by the desktop test build, without embedded source linkage.
 add_executable(codecell_firmware_host_tests FirmwareClockTest.cpp LatencyHistogramTest.cpp TimingBudgetTest.cpp
-    RuntimeComponentsTest.cpp FirmwareRuntimeTest.cpp)
+    RuntimeComponentsTest.cpp FirmwareRuntimeTest.cpp RobotConfigRecordTest.cpp ConfigStoreTest.cpp
+    MaintenanceConsoleTest.cpp ProvisioningRuntimeTest.cpp)
 target_include_directories(codecell_firmware_host_tests PRIVATE ../include)
 target_compile_features(codecell_firmware_host_tests PRIVATE cxx_std_20)
 target_link_libraries(codecell_firmware_host_tests PRIVATE GTest::gtest_main)

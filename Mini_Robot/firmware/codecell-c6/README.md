@@ -11,7 +11,10 @@ a 5 ms safety supervisor and a 10 ms control task follow the #156 scheduling mod
 See [runtime and threading](../../docs/overview/firmware-runtime.md). The image has
 no BLE peripheral, codec or telemetry yet (#161, #163, #164), so nothing commands
 motion. Its drive adapter is inhibited until the validated actuator contract (#160),
-and it is not proof of safe electrical boot behaviour (#238). The separate
+and it is not proof of safe electrical boot behaviour (#238). The runtime becomes
+ready only with a validated, provisioned identity/configuration record (#159); an
+unprovisioned board stays in `Fault` with outputs disabled. Provision it over USB
+serial as described in [identity provisioning](../../docs/overview/firmware-provisioning.md). The separate
 [BLE lifecycle fixture](../ble-lifecycle/README.md) remains connection-only.
 
 Arduino/PlatformIO is retained (#155): the Arduino core already runs on
@@ -25,10 +28,11 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 | `scripts/production_image_policy.py`, `scripts/image_policy.py` | Fails the link if Wi-Fi/AP/HTTP/OTA code is in the image (#158) |
 | `include/FirmwareClock.hpp` | Portable C++20 clock contract and conversions, no SDK includes |
 | `include/runtime/` | Portable production runtime (#158): ports, safety state, actuator gate, command processor, mailbox, periodic steps and start-up orchestration |
+| `include/provisioning/` | Portable identity/configuration record, A/B atomic store, runtime configuration source and USB maintenance console (#159) |
 | `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
 | `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
 | `pilot/`, `scripts/timing_pilot_host.py` | [#156 timing pilot](../../docs/testing/timing-pilot-156.md): bench measurement image and its Linux/BlueZ host driver; never a robot image |
-| `src/main.cpp`, `src/EspRuntimeAdapters.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS adapters: clock, critical section, periodic tasks, inhibited drive, compiled configuration |
+| `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS adapters: clock, critical section, periodic tasks, inhibited drive, NVS record storage and bond erase |
 | `CMakeLists.txt`, `tests/` | Independent GoogleTest host entry point (no Arduino, Qt or OpenCV) |
 
 All commands below run from the repository root.
@@ -157,6 +161,10 @@ the instrumentation histogram. `RuntimeComponentsTest` and `FirmwareRuntimeTest`
 run the #158 runtime with fake clock, platform, drive, configuration and sensor:
 injected start-up failures, stale snapshots, stop/new-command races, mailbox
 floods and the control-stall bound ([details](../../docs/overview/firmware-runtime.md#verification)).
+`RobotConfigRecordTest`, `ConfigStoreTest`, `MaintenanceConsoleTest` and
+`ProvisioningRuntimeTest` cover the #159 record schema, corruption and version
+handling, power interruption at every step and byte, the maintenance console and
+the provisioning gate ([details](../../docs/overview/firmware-provisioning.md#verification)).
 None of these tests exercises a motor controller.
 
 ## Timing pilot (bench measurement image, #156)
@@ -253,10 +261,15 @@ pio device monitor --port DEVICE --baud 115200
 Observed on Ubuntu during #156: every open of the port (including pyserial
 with DTR/RTS deasserted) reset the C6, so a tool that needs uninterrupted
 firmware state must keep one serial session open. Upload rebuilds if needed, then writes the bootloader, partition table and
-application images to their regions; it does not erase the whole flash. The monitor should show
-`RUNTIME uptime_ms=... start=running ready=1 state=Idle output=disabled fault=None ...`
+application images to their regions; it does not erase the whole flash, so a stored
+identity survives an upload. On a provisioned board the monitor should show
+`RUNTIME uptime_ms=... start=running ready=1 state=Idle output=disabled fault=None maintenance=0 provisioning=Provisioned robot_id=<id> ...`
 every 5 s (the boot banner is printed before USB CDC reconnects and is often not seen).
-Any other `start`, `state` or `fault` value means the runtime did not reach safe idle;
+An unprovisioned board shows `start=faulted state=Fault output=disabled
+fault=ConfigurationUnavailable provisioning=Unprovisioned robot_id=none`; provision it
+with the [maintenance console](../../docs/overview/firmware-provisioning.md#usb-maintenance-path)
+in the same monitor session (type `help`). Any other `start`, `state` or `fault` value
+means the runtime did not reach safe idle;
 see [start-up and failure behaviour](../../docs/overview/firmware-runtime.md#start-up-and-failure-behaviour). Record the
 device, revision, `firmware-provenance.json` and logs.
 
@@ -273,7 +286,8 @@ device, revision, `firmware-provenance.json` and logs.
   erases the entire flash, including any stored identity, calibration and
   credentials; the `erase_upload` target does the same before uploading. Both are
   separate recovery actions, never part of a routine build or upload; record why
-  one was needed and re-upload afterwards.
+  one was needed and re-upload afterwards. The robot is then `Unprovisioned` and
+  must be [provisioned](../../docs/overview/firmware-provisioning.md) again.
 
 ### Debugging
 

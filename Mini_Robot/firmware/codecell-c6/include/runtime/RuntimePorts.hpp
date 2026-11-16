@@ -92,7 +92,8 @@ public:
     [[nodiscard]] virtual bool startPeriodicTask(const TaskSpec& spec, IPeriodicStep& body) noexcept = 0;
 };
 
-// Configuration source: compiled defaults today, validated provisioning in #159.
+// Configuration source: the validated provisioned record (#159). nullopt means no usable
+// configuration; the runtime then stays in Fault with the drive off.
 class IConfigurationSource {
 public:
     virtual ~IConfigurationSource() = default;

@@ -33,6 +33,9 @@
 - [Tabletop homography](tabletop-homography.md): paired undistorted image/world points, residuals, workspace profile save/load and commissioning.
 - [CodeCell C6 production runtime](firmware-runtime.md): boundaries, single safety/actuator
   authority, start-up failures, scheduling model and the production image policy (#158).
+- [CodeCell C6 identity provisioning](firmware-provisioning.md): persistent RobotId,
+  validated configuration record, atomic storage and rollback, USB maintenance path
+  and the RobotId/AprilTag association (#159).
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
   verified board/motor facts, unresolved safety blockers, and the bench envelope
   used before powered motion acceptance.

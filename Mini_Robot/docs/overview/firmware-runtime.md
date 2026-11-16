@@ -10,8 +10,14 @@ those remain with #160–#166 and the powered gate
 
 ## What the production image does today
 
-- Boots with the drive disabled, starts the safety supervisor and the control task,
-  and reports `Idle` with the output disabled.
+- Boots with the drive disabled, loads the provisioned configuration (#159), starts
+  the safety supervisor and the control task, and reports `Idle` with the output
+  disabled. Without a validated record (unprovisioned, corrupt, partial, out of
+  version or unreadable) it stays in `Fault` (`ConfigurationUnavailable`) with the
+  output disabled; see [identity provisioning](firmware-provisioning.md).
+- Accepts only maintenance commands on USB serial (status, provisioning, factory
+  reset). Entering maintenance ends motion, clears intent and refuses motion until
+  restart.
 - Has exactly one motion-command entry point, `FirmwareRuntime::commands()`. No
   code in the image calls it yet: the BLE peripheral that will is #163, and the
   codec that decodes v1 frames for it is #161.
@@ -29,7 +35,10 @@ All logic is portable C++20 under
 [`include/runtime/`](../../firmware/codecell-c6/include/runtime/FirmwareRuntime.hpp).
 It names no Arduino, ESP-IDF, FreeRTOS, CodeCell, DriveCell or radio API. Production
 adapters are in [`src/EspRuntimeAdapters.hpp`](../../firmware/codecell-c6/src/EspRuntimeAdapters.hpp)
+[`src/EspProvisioningAdapters.hpp`](../../firmware/codecell-c6/src/EspProvisioningAdapters.hpp)
 and [`src/main.cpp`](../../firmware/codecell-c6/src/main.cpp), and nowhere else.
+Provisioning logic is portable C++20 under
+[`include/provisioning/`](../../firmware/codecell-c6/include/provisioning/ConfigStore.hpp).
 
 | Boundary | Type | Production adapter | Owner of the real implementation |
 | --- | --- | --- | --- |
@@ -37,7 +46,8 @@ and [`src/main.cpp`](../../firmware/codecell-c6/src/main.cpp), and nowhere else.
 | Scheduler / RTOS | `IPlatform`: critical section, periodic tasks; every creation checked | `FreeRtosPlatform` (`portMUX`, `xTaskCreate`, `xTaskDelayUntil`) | #158 |
 | Drive | `IDriveOutput`: `disable()`, `command(BodyVelocity)` | `InhibitedDriveOutput` | #160 |
 | Inertial sensor (optional) | `IInertialSensor` | none wired | #160, if approved |
-| Configuration | `IConfigurationSource` + `validate()` | `CompiledConfiguration` (budget defaults) | #159 |
+| Configuration | `IConfigurationSource` + `validate()` | `ProvisionedConfiguration` over `ConfigStore` and `NvsRecordStorage` ([provisioning](firmware-provisioning.md)) | #159 |
+| Maintenance | `FirmwareRuntime::enterMaintenance()`, `MaintenanceConsole` | USB serial line reader in `loopTask` | #159 |
 | BLE adapter | `IMotionCommandSink` (implemented by `CommandProcessor`) | not attached | #163 |
 | Diagnostics | `RuntimeDiagnostics` (atomic counters) + `RuntimeStatus` | serial status line from `loopTask` | #164 (telemetry) |
 
@@ -103,7 +113,9 @@ and its write (`StopLikeEventBetweenSnapshotCopyAndWriteAlwaysWins`).
 `FirmwareRuntime::start()` runs once from `setup()`:
 
 1. Disable the drive.
-2. Load the configuration and validate it against the budget (`RuntimeConfig.hpp`).
+2. Load the provisioned record (#159) and validate the resulting runtime configuration
+   against the budget (`RuntimeConfig.hpp`). The record's `maxCommandValidityMs` becomes
+   the validity ceiling; the other values are the budget defaults.
 3. Create the handoff critical section.
 4. Start the safety supervisor, then the control task.
 5. Mark ready.
@@ -117,6 +129,11 @@ and a supervisor that already runs keeps the outputs off. A configuration error 
 keeps its `ConfigError`. Calling `start()` again returns the first result. Faults
 are not clearable by the desktop (v1); recovery beyond a reset is #162.
 
+`enterMaintenance()` (the USB maintenance path, #159) is one-way until reset: inside the
+gate's critical section it ends motion as for Stop, advances the generation, disables
+the drive and clears readiness, so Velocity is rejected with `RejectedNotReady`. The
+E-stop latch and faults are kept, and `markReady()` has no effect afterwards.
+
 At run time a refused drive write (`DriveWriteFailed`), a failed disable
 (`DriveDisableFailed`) or a control task that stops updating while the drive is on
 (`ControlStalled`, B7) also enter `Fault`.
@@ -129,7 +146,7 @@ At run time a refused drive write (`DriveWriteFailed`), a failed disable
 | `mr_safety` (`SafetySupervisor`) | 22 | 5 ms | Expiry, control stall | B3, B4, B7, B18 |
 | `nimble_host` (BLE callbacks, #163) | 21 | — | `IMotionCommandSink` calls, E-stop first | B8, B9 |
 | `mr_control` (`ControlLoop`) | 20 | 10 ms | Sensor, copy setpoint, gated write | B7, B9 |
-| Arduino `loopTask` | 1 | 100 ms poll | Serial status line (log drain) | B13 |
+| Arduino `loopTask` | 1 | 100 ms poll | Serial status line (log drain); USB maintenance console and its NVS writes (#159), only with outputs disabled | B13 |
 
 - Priorities, periods and the stall limit come from `TimingBudget.hpp`. `validate()`
   rejects a configuration slower than the budget periods, a stall limit outside
@@ -150,7 +167,7 @@ At run time a refused drive write (`DriveWriteFailed`), a failed disable
   (`session_overload`).
 - Diagnostics are lock-free 32-bit counters. Only `loopTask` prints, which keeps
   serial output off the supervisor, control and callback paths (B13). The status
-  line is about 120 B every 5 s.
+  line is about 160 B every 5 s.
 - Heap is allocated only by `xTaskCreate` during start-up (B15). Production
   stack high-water marks (B16), CPU share (B14) and heap minimum have not been
   measured on this image yet (#166).
@@ -181,8 +198,8 @@ environment that goes through the same `ActuatorGate`.
 
 ## Verification
 
-Host tests (`core` label) run the orchestration with fakes: `FirmwareRuntimeTest`
-and `RuntimeComponentsTest` in
+Host tests (`core` label) run the orchestration with fakes: `FirmwareRuntimeTest`,
+`RuntimeComponentsTest` and, for provisioning and maintenance, `ProvisioningRuntimeTest` in
 [`tests/`](../../firmware/codecell-c6/tests/FirmwareRuntimeTest.cpp). They cover each
 injected start-up failure (no nonzero output afterwards), the single command
 authority, stale snapshots past their deadline, stop-like events between copy and
@@ -190,8 +207,10 @@ write, a new command racing an old snapshot, latch and clear, command floods,
 result-queue exhaustion, drive refusal, the control-stall bound and a blocked sensor
 read. See the [firmware guide](../../firmware/codecell-c6/README.md) for the commands.
 
-Bench boot (USB only, no battery, motors disconnected, 2026-11-15): status lines at
-5 s, 10 s and 15 s uptime reported `start=running ready=1 state=Idle output=disabled
-fault=None`. Afterwards the board's previous `ble-lifecycle` image was restored and
+Bench boot (USB only, no battery, motors disconnected, 2026-11-15, #158 image with
+compiled configuration): status lines at 5 s, 10 s and 15 s uptime reported
+`start=running ready=1 state=Idle output=disabled fault=None`. Since #159 the same
+result requires a provisioned record; an unprovisioned board reports `start=faulted
+state=Fault fault=ConfigurationUnavailable` ([provisioning bench check](firmware-provisioning.md#verification)). Afterwards the board's previous `ble-lifecycle` image was restored and
 read back with the same SHA-256. This shows the commanded state only; the electrical
 pin state was not measured (#238).
