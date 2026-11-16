@@ -226,3 +226,13 @@ board-spacing, anchor or orientation errors.
 Height-aware conversion remains [#270](https://github.com/Krzys2002/Mini_Robot/issues/270);
 reference monitoring remains [#271](https://github.com/Krzys2002/Mini_Robot/issues/271).
 Physical acquisition acceptance (#263) remains NOT RUN.
+
+### Re-saving legacy evidence
+
+Loading an acquisition v1 leaves height/thickness unknown. Saving it unchanged
+validates and compares canonical content against the original sidecar, accepts
+the existing identity, and leaves its original bytes and modification time intact.
+A changed measurement or provenance field still requires a new acquisition identity;
+it cannot overwrite legacy evidence. Store recreation and the real controller
+Save path are covered, alongside dialog acquisition → measured height/thickness/
+method → save → load → re-save.

@@ -1,3 +1,8 @@
+#include "../calibration/ObliqueWorkspaceFixtures.hpp"
+#include "calibration/QtWorkspaceProfileStore.hpp"
+#include <QTemporaryDir>
+#include <QFile>
+#include <QDir>
 #include "../calibration/CaptureFixtures.hpp"
 #include "../calibration/HomographyFixtures.hpp"
 #include "app/WorkspaceCalibrationController.hpp"
@@ -52,14 +57,17 @@ class Solver final : public IWorkspaceHomographySolver {
 public:
     std::shared_ptr<Gate> gate;
     std::function<void(WorkspaceHomographyResult&)> alter;
+    bool oblique{};
 
     WorkspaceHomographyOutcome solve(const WorkspaceHomographyInput& input) override
     {
         if (gate)
             gate->wait();
-        auto h = knownHomography();
+        auto h = oblique ? obliqueHomography() : knownHomography();
+        if (!oblique) {
         for (std::size_t i=0;i<3;++i) h.imageToWorld[i]*=input.profile.bounds.width().value;
         for (std::size_t i=3;i<6;++i) h.imageToWorld[i]*=input.profile.bounds.height().value/0.6;
+        }
         h.imageToWorld[2] += input.profile.bounds.minimum().x.value;
         h.imageToWorld[5] += input.profile.bounds.minimum().y.value;
         auto result = evaluateWorkspaceHomography(input, h);
@@ -864,4 +872,93 @@ TEST(WorkspaceBoardAcquisitionUiTest, InteriorOriginKeepsNegativeBoardCoordinate
     EXPECT_EQ(record.record->profile.frameId,f.controller.draftProfile()->frameId);
     EXPECT_DOUBLE_EQ(record.record->profile.bounds.minimum().x.value,-0.5);
     EXPECT_DOUBLE_EQ(record.record->placements[0].anchor.x.value,-0.3);
+}
+
+TEST(WorkspaceBoardAcquisitionUiTest, ElevationThicknessAndMethodSurviveDialogAcquisitionSaveLoadAndResave)
+{
+    QTemporaryDir directory; ASSERT_TRUE(directory.isValid()); Logger logger;
+    WorkspaceCalibrationController controller{std::make_unique<Solver>(),std::make_unique<Undistorter>(),
+        std::make_unique<QtWorkspaceProfileStore>(directory.path()),logger.channel("store-workflow")};
+    controller.setInput(validIntrinsicCalibration(),true); controller.configure("table-A",1,0.6);
+    auto frame=std::make_shared<Frame>(*captureFrame(1)); frame->capturedAt=MonotonicClock::now(); controller.receiveFrame(frame);
+    controller.freeze(); ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();}));
+    ASSERT_TRUE(controller.frozenFrame());
+    for(const auto& pair:homographyInput().fitPoints) controller.selectCorner(pair.image);
+    controller.confirmBoundary(); ASSERT_TRUE(controller.boundaryConfirmed());
+    controller.setAcquisitionDetector(std::make_unique<WorkspaceBoardDetector>());
+    controller.detectBoard(); ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();}));
+    WorkspaceCalibrationDialog dialog(controller); dialog.show(); QApplication::processEvents();
+    dialog.findChild<QGroupBox*>("workspaceBoardPanel")->setChecked(true);
+    dialog.findChild<QDoubleSpinBox*>("workspaceBoardAnchorX")->setValue(0.2);
+    dialog.findChild<QDoubleSpinBox*>("workspaceBoardAnchorY")->setValue(0.1);
+    dialog.findChild<QComboBox*>("workspaceBoardRowDirection")->setCurrentIndex(1);
+    dialog.findChild<QLineEdit*>("workspaceBoardSurfaceElevation")->setText("0.004");
+    dialog.findChild<QLineEdit*>("workspaceBoardThickness")->setText("0.003");
+    dialog.findChild<QLineEdit*>("workspaceBoardBackingThickness")->setText("0.001");
+    dialog.findChild<QLineEdit*>("workspaceBoardElevationMethod")->setText("caliper from table survey B");
+    dialog.findChild<QPushButton*>("workspaceBoardReview")->click();
+    ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();})); ASSERT_TRUE(controller.boardReview());
+    dialog.findChild<QCheckBox*>("workspaceBoardIdentityConfirmed")->setChecked(true);
+    dialog.findChild<QPushButton*>("workspaceBoardImport")->click(); ASSERT_EQ(controller.placements().size(),1);
+    dialog.findChild<QPushButton*>("workspaceCalculate")->click(); ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();}));
+    ASSERT_TRUE(controller.draftProfile())<<controller.message().toStdString();
+    dialog.findChild<QPushButton*>("workspaceSave")->click(); ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();}));
+    EXPECT_TRUE(controller.message().contains("saved",Qt::CaseInsensitive));
+    QtWorkspaceProfileStore reader{directory.path()};
+    const auto first=reader.load("table-A",validIntrinsicCalibration()); ASSERT_TRUE(first.acquisition)<<first.error;
+    const auto canonical=serializeWorkspaceAcquisition(*first.acquisition);
+    controller.configure("table-A",1,0.6,0.1,0); controller.load();
+    ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();})); ASSERT_EQ(controller.placements().size(),1);
+    const auto& board=controller.placements().front();
+    EXPECT_EQ(board.surfaceElevationMeters,0.004); EXPECT_EQ(board.boardThicknessMeters,0.003);
+    EXPECT_EQ(board.backingThicknessMeters,0.001); EXPECT_EQ(board.elevationMethod,"caliper from table survey B");
+    dialog.findChild<QPushButton*>("workspaceSave")->click(); ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();}));
+    const auto final=reader.load("table-A",validIntrinsicCalibration()); ASSERT_TRUE(final.acquisition)<<final.error;
+    EXPECT_EQ(serializeWorkspaceAcquisition(*final.acquisition),canonical);
+    // Recreate an actual old-format sidecar and exercise the controller Save path.
+    auto legacy=canonical;
+    legacy.replace(legacy.find("acquisition 2"),std::string("acquisition 2").size(),"acquisition 1");
+    const auto elevation=legacy.find(" elevation "); ASSERT_NE(elevation,std::string::npos);
+    legacy.erase(elevation,legacy.find('\n',elevation)-elevation);
+    const auto files=QDir(directory.path()).entryList({"*.acquisition"},QDir::Files); ASSERT_EQ(files.size(),1);
+    QFile sidecar{directory.filePath(files.front())}; ASSERT_TRUE(sidecar.open(QIODevice::WriteOnly));
+    ASSERT_EQ(sidecar.write(QByteArray::fromStdString(legacy)),static_cast<qint64>(legacy.size())); sidecar.close();
+    controller.configure("table-A",1,0.6,0.2,0); controller.load();
+    ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();})); ASSERT_EQ(controller.placements().size(),1);
+    EXPECT_FALSE(controller.placements().front().surfaceElevationMeters);
+    controller.save(); ASSERT_TRUE(QTest::qWaitFor([&]{return !controller.busy();}));
+    EXPECT_TRUE(controller.message().contains("saved",Qt::CaseInsensitive));
+    const auto legacyReload=reader.load("table-A",validIntrinsicCalibration()); ASSERT_TRUE(legacyReload.acquisition)<<legacyReload.error;
+    EXPECT_FALSE(legacyReload.acquisition->placements.front().boardThicknessMeters);
+    ASSERT_TRUE(sidecar.open(QIODevice::ReadOnly)); EXPECT_EQ(sidecar.readAll(),QByteArray::fromStdString(legacy));
+    controller.shutdown(); ASSERT_TRUE(QTest::qWaitFor([&]{return controller.isStopped();}));
+}
+
+TEST(WorkspaceObliqueUiTest, ShowsCoverageAndPlaneLimitsWithoutReplacingActiveTransform)
+{
+    Fixture f;
+    const auto input = obliqueWorkspaceInput();
+    f.controller.setInput(input.profile.intrinsics,true); f.fresh(2); f.freeze();
+    f.solver->oblique = true;
+    f.controller.configure("table-A",1.5,2.4);
+    for (const auto& p:input.fitPoints) f.controller.selectCorner(p.image);
+    f.controller.confirmBoundary();
+    ASSERT_TRUE(f.controller.boundaryConfirmed());
+    f.controller.setPoints(input.fitPoints,input.checkPoints);
+    WorkspaceCalibrationDialog dialog{f.controller};
+    dialog.show(); QApplication::processEvents();
+    f.controller.calculate();
+    ASSERT_TRUE(QTest::qWaitFor([&]{ return !f.controller.busy(); }));
+    ASSERT_TRUE(f.controller.draftProfile()) << f.controller.message().toStdString();
+    EXPECT_FALSE(f.controller.profile());
+    const auto message = dialog.findChild<QLabel*>("workspaceMessage")->text();
+    EXPECT_TRUE(message.contains("covers 100%"));
+    EXPECT_TRUE(message.contains("0 Check point(s)"));
+    EXPECT_TRUE(message.contains("unsupported"));
+    const auto screenshot = qEnvironmentVariable("MICRO_ROBOT_WORKSPACE_OBLIQUE_SCREENSHOT");
+    if (!screenshot.isEmpty()) EXPECT_TRUE(dialog.grab().save(screenshot));
+    f.controller.activate();
+    const auto active = f.controller.profile()->homography->imageToWorld;
+    f.controller.setPoints({},{});
+    EXPECT_EQ(f.controller.profile()->homography->imageToWorld,active);
 }

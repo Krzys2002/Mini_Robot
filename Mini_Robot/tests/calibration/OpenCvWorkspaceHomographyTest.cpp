@@ -159,3 +159,39 @@ TEST(WorkspaceSolverMemoryAudit, BoundedThinDecomposition)
     std::cout<<"OpenCV "<<CV_VERSION<<"; points="<<count<<"; U="<<u.rows<<'x'<<u.cols
              <<"; U_bytes="<<u.total()*u.elemSize()<<'\n';
 }
+
+#include "ObliqueWorkspaceFixtures.hpp"
+
+TEST(OpenCvWorkspaceHomographyObliqueTest, RecoversStrongPinholePlaneFromFourAndManyReferences)
+{
+    OpenCvWorkspaceHomographySolver solver;
+    auto input = obliqueWorkspaceInput();
+    for (bool many : {false,true}) {
+        if (many) {
+            for (const auto xy : std::array<std::array<double,2>,3>{{{0.4,0.8},{1.2,0.4},{0.8,1.8}}}) {
+                WorldPoint2D world{Meters{xy[0]},Meters{xy[1]}};
+                input.fitPoints.push_back({obliqueImage(world),world});
+            }
+        }
+        const auto result = solver.solve(input);
+        ASSERT_TRUE(result.result) << result.error;
+        EXPECT_LT(result.result->fit.maximumMeters,1e-9);
+        EXPECT_LT(result.result->check->maximumMeters,1e-9);
+        EXPECT_NEAR(result.result->coverage.workspaceFraction,1,1e-12);
+        for (const auto& check : input.checkPoints) {
+            const auto mapped = projectWorkspacePoint(*result.result->profile.homography,check.image);
+            ASSERT_TRUE(mapped);
+            EXPECT_NEAR(mapped->x.value,check.world.x.value,1e-9);
+            EXPECT_NEAR(mapped->y.value,check.world.y.value,1e-9);
+        }
+    }
+}
+
+TEST(OpenCvWorkspaceHomographyObliqueTest, NearEdgeOnReferencesAreRejectedWithRecoveryAdvice)
+{
+    auto input = obliqueWorkspaceInput();
+    for (auto& p : input.fitPoints) p.image.v = 400 + (p.image.v-400)*1e-10;
+    const auto result = OpenCvWorkspaceHomographySolver{}.solve(input);
+    EXPECT_FALSE(result.result);
+    EXPECT_NE(result.error.find("raise"),std::string::npos);
+}

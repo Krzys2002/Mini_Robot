@@ -488,3 +488,18 @@ coverage and native-display acceptance belong to
 OpenCV 4 and native input/display behavior were not exercised by these offscreen
 macOS tests. Source inspection used `rg` because this worktree had no local graph;
 no generated graph or another worktree's cache was used.
+
+## Side-mounted planar calibration regression (#247)
+
+Run core plus the host desktop presets. `TabletopObliqueTest`,
+`OpenCvWorkspaceHomographyObliqueTest`, `MetricObservationObliqueTest`,
+`OpenCvMetricObservationObliqueTest` and `WorkspaceObliqueUiTest` cover a known
+pinhole plane with a 3.4× near/far scale ratio, independent edge/interior references,
+native-K lens correction, world headings, degeneracy/horizon recovery and
+session-only fit coverage. `MetricObservationTest.ProjectiveMetricMappingIsInvariantToLargeFiniteHomogeneousScale`
+regresses the reproduced unnormalised denominator overflow.
+
+These are deterministic software checks. Physical side-camera accuracy and new
+native-display checks belong to #261 and remain NOT RUN. The
+[oblique-camera audit](../overview/oblique-tabletop.md) records sources, geometry
+and plane/height/extrapolation limits.

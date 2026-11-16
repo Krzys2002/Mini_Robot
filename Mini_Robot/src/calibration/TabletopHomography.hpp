@@ -36,10 +36,17 @@ struct WorkspaceMappingErrors {
     double maximumMeters{};
 };
 
+inline constexpr double WorkspaceHullCrossTolerance = 1e-8; // Normalized coordinates.
+struct WorkspaceFitCoverage {
+    double imageFraction{}; // Convex hull / native image area; informational under oblique views.
+    double workspaceFraction{}; // Convex hull / declared table area, not an accuracy score.
+    std::size_t extrapolatedCheckCount{}; // Check lies outside image OR world fitting hull.
+};
 struct WorkspaceHomographyResult {
     WorkspaceCalibrationProfile profile;
     WorkspaceMappingErrors fit;
     std::optional<WorkspaceMappingErrors> check; // None is not zero validation error.
+    WorkspaceFitCoverage coverage; // Session-only geometry, not persisted uncertainty/evidence.
 };
 
 struct WorkspaceHomographyOutcome {
@@ -47,8 +54,8 @@ struct WorkspaceHomographyOutcome {
     std::string error;
 };
 
-// Geometry helper used to evaluate calibration; does not transform detections or
-// update WorldModel (#58). Null at a horizon/non-finite input or invalid matrix.
+// Geometry helper shared by calibration and metric observation conversion;
+// does not update WorldModel. Null at a horizon/non-finite input or invalid matrix.
 [[nodiscard]] std::optional<WorldPoint2D> projectWorkspacePoint(const WorkspaceHomography& transform,
                                                                 ImageCorner point);
 // World metres to undistorted native-K pixels; no viewport or lens conversion.
