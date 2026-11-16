@@ -13,8 +13,9 @@ namespace codecell::ble {
 
 enum class SecurityProfile : std::uint8_t { RestrictedLabV1 };
 
-// The one profile this image is built for. No secure profile exists, so there is nothing to
-// fall back from or to.
+// The one profile this image is built for. No secure profile exists, and nothing falls back
+// to the restricted-lab pass-through: SecurityMode::SecureRequired (ble/SessionSecurity.hpp)
+// refuses it and the peripheral never advertises.
 inline constexpr SecurityProfile kSecurityProfile = SecurityProfile::RestrictedLabV1;
 
 [[nodiscard]] constexpr const char* toString(SecurityProfile profile) noexcept
