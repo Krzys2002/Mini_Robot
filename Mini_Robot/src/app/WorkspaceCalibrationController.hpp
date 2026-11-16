@@ -9,8 +9,9 @@
 #include <memory>
 
 namespace micro_robot {
-// GUI-thread application service. Undistortion, estimation and disk I/O share
-// one serialized worker. Input/configuration changes invalidate late results.
+class WorkspaceDiagnosticsController;
+// GUI-thread application service. Calibration work shares one serialized worker;
+// owned spatial diagnostics have a separate bounded worker. Changes fence late results.
 class WorkspaceCalibrationController final : public QObject {
     Q_OBJECT
 public:
@@ -19,6 +20,7 @@ public:
                                    std::unique_ptr<IWorkspaceProfileStore> store, LogChannel log,
                                    QObject* parent = nullptr);
     ~WorkspaceCalibrationController() override;
+    [[nodiscard]] WorkspaceDiagnosticsController& diagnostics() const;
     void setInput(std::optional<IntrinsicCalibration> intrinsics, bool persistent);
     void receiveFrame(FramePtr frame);
     void configure(QString workspaceId, double widthMeters, double heightMeters,
@@ -101,7 +103,7 @@ public:
         return !shuttingDown_ && !busy_ && persistent_ && intrinsics_ && !workspaceId_.isEmpty();
     }
 
-    [[nodiscard]] bool isStopped() const { return worker_.isFinished(); }
+    [[nodiscard]] bool isStopped() const;
 
 public slots:
     void freeze();
@@ -139,6 +141,7 @@ private:
     std::shared_ptr<const WorkspaceAcquisitionRecord> draftAcquisition_, activeAcquisition_;
     std::uint64_t nextReferenceId_{1}, nextPlacementId_{1}, boardRevision_{};
     LogChannel log_;
+    std::unique_ptr<WorkspaceDiagnosticsController> diagnostics_;
     QThread worker_;
     QObject* workerContext_{}; // Deleted on worker completion.
     std::optional<IntrinsicCalibration> intrinsics_;
