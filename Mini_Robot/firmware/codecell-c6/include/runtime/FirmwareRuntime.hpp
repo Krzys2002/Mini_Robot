@@ -17,6 +17,8 @@
 //      (#164 review: mandatory telemetry is part of the checked start-up, so a robot whose
 //      telemetry cannot run never becomes motion-ready);
 //   7. mark ready (commands are rejected with RejectedNotReady before this).
+// When an earlier step fails, start() still starts the telemetry task, so a faulted robot
+// keeps reporting Fault to a connected central. That task never touches the drive.
 // A supervisor that already runs when a later step fails keeps the outputs off.
 //
 // Recovery (#162): faults are sticky and keep the drive disabled and powered down; only a
@@ -77,6 +79,7 @@ public:
     {
         if (result_) return *result_;
         result_ = startOnce();
+        if (*result_ == StartResult::Faulted) startTelemetryForReporting();
         return *result_;
     }
 
@@ -109,6 +112,15 @@ public:
     [[nodiscard]] IPeriodicStep& controlStep() noexcept { return control_; }
 
 private:
+    // After a start-up fault: telemetry only reports the state (Fault), so it may run; its own
+    // failure changes nothing, because the runtime is already faulted.
+    void startTelemetryForReporting() noexcept
+    {
+        if (!telemetryTask_ || telemetryTaskStarted_ || !telemetryTask_->step) return;
+        if (gate_.status().fault == FaultCode::TelemetryTaskStartFailed) return;
+        telemetryTaskStarted_ = platform_.startPeriodicTask(telemetryTask_->spec, *telemetryTask_->step);
+    }
+
     StartResult fail(FaultCode code) noexcept
     {
         gate_.fault(code);

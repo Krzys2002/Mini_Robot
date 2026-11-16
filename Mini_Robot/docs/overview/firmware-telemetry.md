@@ -97,7 +97,9 @@ flowchart LR
   and the boot line says `TELEMETRY start=failed`. A central can still connect, but every
   Velocity and Clear is refused (`RobotFault`), so no motion-ready endpoint is published
   (`FailedTelemetryTaskNeverExposesAMotionReadyEndpoint`). Nothing relies on the desktop
-  noticing the missing telemetry. `start=not_reached` means an earlier start-up step failed.
+  noticing the missing telemetry. When an earlier start-up step fails, the runtime still starts
+  the telemetry task, so a faulted robot keeps reporting `Fault`
+  (`AFaultedRuntimeStillStartsTelemetrySoItCanReportTheFault`).
 - Every Telemetry frame passes the session-security `protectOutgoing()` hook before it is
   queued ([BLE guide](firmware-ble.md#session-security-extension-points-157-review)). The
   restricted-lab pass-through returns it unchanged; a refused frame is dropped and counted.
@@ -231,8 +233,9 @@ measured, and the only accepted Velocity was 0 mm/s, 0 mrad/s.
 1. Took a full 8 MB backup (two identical reads, SHA-256 `0d65a45f…`) and flashed the image.
    - **Unprovisioned** (an earlier build of this branch, before the serial-drain fixes):
      `TELEMETRY start=no_ble`, `battery=unknown`, `robot_id=none`, and the runtime in `Fault`
-     (`ConfigurationUnavailable`). The image after the #283 review reports `not_reached` here,
-     because the task is now started by the runtime.
+     (`ConfigurationUnavailable`). The image after the #283 review reports `start=started`
+     here: the runtime starts the task even after that fault, and with no BLE peripheral its
+     ticks do nothing.
    - **Provisioned** with the host-test fixture values (RobotId 7, 200 ms ceiling; not
      calibration data): `TELEMETRY start=started tick_ms=5 period_ms=100`, every task listed.
 2. Ran `scripts/gatt_conformance_host.py --robot-id 7 --max-validity-ms 200`. Besides the #163
@@ -295,10 +298,25 @@ all five full runs, and run 5 had two such windows:
 - **Bound.** The values are within the 19.2 ms that #156 derives for the host draining its 24
   inbound buffers (`kRobotStackQueueAllowance`). Host-side gaps stayed ≤ 0.121 s, so the
   desktop silence rule was never at risk.
-- **Decision needed.** Options include also evaluating the periodic deadline in the host after
-  each write callback, which costs callback time inside the B8/B11 allowances; a different
-  priority order; or a B10 bound for write bursts. None is tested or approved here. The
-  conformance check now evaluates every window, so a run reports this as a failure.
+- **Status after the #283 review: open.** The scheduler now enforces the approved B10 values,
+  and meets them whenever lateness stays within the 2 ms allowance (see
+  [Schedule](#schedule-156-b10)). Write bursts exceed that allowance, and this branch has no fix
+  for them:
+  - Evaluating the deadline in the host after each write callback was implemented and then
+    withdrawn before review. A frame sent from a write lands off the 5 ms tick grid, so the
+    next tick-based periodic frame can miss 100 ms by up to about 3 ms. Example: a frame at
+    22.5 ms makes the 120 ms tick refuse at 97.5 ms elapsed and send at 125 ms. That breaks
+    B10 in normal operation, not only under bursts.
+  - Options that would hold need a decision for the [timing budgets](../protocol/timing-budgets.md)
+    (#276):
+    - a finer evaluation grid: ticks of 2 ms or less, which costs CPU (B14);
+    - a periodic schedule anchored to one grid shared by the tick and the write path, which
+      changes how the period restarts after a state change and how the deviation is measured;
+    - a different priority order (B18);
+    - a separate B10 bound for write bursts.
+
+  The conformance check evaluates every window, so a run still reports this as a failure.
+  Acceptance criterion 2 stays unresolved until the burst and idle cases pass on a C6.
 
 **Fixed during the bench check.** After about two minutes of BLE testing, the console went
 silent while BLE and the runtime kept running. Changing the 0 ms TX timeout to 1 ms (for the

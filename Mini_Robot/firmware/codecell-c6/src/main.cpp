@@ -462,9 +462,7 @@ void setup()
     logf("SECURITY mode=%s policy=%s authenticated=no encrypted=no %s", ble::toString(ble::kSecurityMode),
          bleSecurity.profile(), ble::kRestrictedLabSecurityWarning);
     logf("TELEMETRY start=%s tick_ms=%ld period_ms=%u battery=unknown battery_low=unsupported velocity=unknown",
-         firmwareRuntime.telemetryTaskStarted()                                              ? "started"
-         : firmwareRuntime.status().fault == runtime::FaultCode::TelemetryTaskStartFailed ? "failed"
-                                                                                          : "not_reached",
+         firmwareRuntime.telemetryTaskStarted() ? "started" : "failed",
          static_cast<long>(timing::kTelemetryTickPeriod.count()),
          identity ? static_cast<unsigned>(identity->telemetryPeriodMilliseconds) : 0U);
     if (!motorsAttached) logLine("DRIVE attach=failed");

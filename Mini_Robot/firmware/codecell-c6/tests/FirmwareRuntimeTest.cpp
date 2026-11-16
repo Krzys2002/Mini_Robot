@@ -248,6 +248,29 @@ TEST(FirmwareRuntimeTest, TelemetryTaskIsAMandatoryStartupStep)
     EXPECT_FALSE(everCommandedNonzero(drive));
 }
 
+TEST(FirmwareRuntimeTest, AFaultedRuntimeStillStartsTelemetrySoItCanReportTheFault)
+{
+    struct Step final : IPeriodicStep {
+        void step() noexcept override {}
+    } telemetry;
+    FakeClock clock;
+    FakePlatform platform;
+    FakeDrive drive;
+    FakeConfiguration configuration;
+    drive.section = &platform.section;
+    drive.failConfigure = true;  // An earlier step fails.
+    FirmwareRuntime runtime{{clock, platform, drive, configuration, nullptr,
+                             PeriodicTask{{"mr_telemetry", timing::kTelemetryPriority, kDefaultTaskStackBytes,
+                                           timing::kTelemetryTickPeriod, false},
+                                          &telemetry}}};
+    EXPECT_EQ(runtime.start(), StartResult::Faulted);
+    EXPECT_EQ(runtime.status().fault, FaultCode::DriveConfigurationRejected) << "the first fault is kept";
+    EXPECT_TRUE(runtime.telemetryTaskStarted());
+    ASSERT_EQ(platform.tasks.size(), 1U) << "only telemetry: no supervisor or control task was reached";
+    EXPECT_EQ(std::string{platform.tasks[0].spec.name}, "mr_telemetry");
+    EXPECT_FALSE(runtime.status().ready);
+}
+
 TEST(FirmwareRuntimeTest, InvalidConfigurationReportsWhichRuleFailed)
 {
     Rig rig;
