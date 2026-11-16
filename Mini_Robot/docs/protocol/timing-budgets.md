@@ -223,6 +223,22 @@ procedure is the template ([record](../testing/timing-pilot-156.md#method)).
 ## Open items and explicit blockers
 
 - Approval of this table (#156 PR review).
+- **Integration follow-up (2026-11-16, [PR #276](https://github.com/Krzys2002/Mini_Robot/pull/276#issuecomment-6923047956)).**
+  No additional isolated code correction was requested for #156. The table
+  remains **proposed**, with no approved relaxation:
+  - #164/PR #283 recorded B10 periodic deviations of 10.6–14.0 ms against
+    ≤ 2 ms. Its scheduler corrections are host-tested, but burst/stress runs on
+    the corrected C6 image must still establish 100 ± 2 ms periodic gaps and
+    state-change spacing ≥ 20 ms.
+  - B3 reached 2.09 ms against ≤ 2 ms during a roughly 75-minute idle window.
+    The cause remains unresolved; investigation and a long idle rerun are
+    required.
+
+  Passing host/reference-model tests does not establish production timing
+  conformance. The 19.2 ms host-queue allowance does not replace the separate
+  B10 bound. Any revised bound needs explicit #156/#276 maintainer approval
+  and recalculation of B4/B5/B7/B8 and desktop freshness assumptions as
+  applicable. Physical output-disable uncertainty remains unchanged.
 - Physical stopping distance and time, DriveCell disable semantics (coast or
   brake), and the actuator write time: powered and gated by #238; HIL in #166.
 - Electrical output state during panic, reset and boot: UNRESOLVED (#238).
