@@ -134,14 +134,15 @@ and its write (`StopLikeEventBetweenSnapshotCopyAndWriteAlwaysWins`).
 4. Configure the drive with the profile; only then are the bridges woken (#160).
 5. Create the handoff critical section.
 6. Start the safety supervisor (subscribed to the 50 ms task watchdog, #162), then the
-   control task.
+   control task, then the telemetry task (`RuntimeDependencies::telemetryTask`, #164). A
+   robot whose telemetry cannot run never becomes motion-ready (#283 review).
 7. Mark ready.
 
 Commands before step 7 are rejected with `RejectedNotReady`. If any step fails, the
 runtime enters `Fault` with the drive disabled, records the first `FaultCode`
 (`DriveDisableFailed`, `ShutdownHookUnavailable`, `ConfigurationUnavailable`,
 `ConfigurationInvalid`, `DriveConfigurationRejected`, `SynchronizationUnavailable`,
-`SupervisorTaskStartFailed`, `ControlTaskStartFailed`),
+`SupervisorTaskStartFailed`, `ControlTaskStartFailed`, `TelemetryTaskStartFailed`),
 and never attempts normal motion. Later commands are rejected with `RejectedFault`,
 and a supervisor that already runs keeps the outputs off. A configuration error also
 keeps its `ConfigError`. Calling `start()` again returns the first result. Faults

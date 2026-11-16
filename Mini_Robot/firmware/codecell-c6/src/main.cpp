@@ -83,7 +83,27 @@ bool motorsAttached{false};
 esp::NvsRecordStorage recordStorage;
 provisioning::ConfigStore configStore{recordStorage};
 provisioning::ProvisionedConfiguration configuration{configStore};
-runtime::FirmwareRuntime firmwareRuntime{{firmwareClock, platform, driveOutput, configuration, nullptr}};
+// The telemetry task's step (priority 5, every 5 ms): sample the battery port once per
+// telemetry period (no sensor is wired, so nothing is read), then ask the host to evaluate
+// the schedule. It never touches the session or the drive. Defined below, once the BLE
+// peripheral exists; until the peripheral is running a tick does nothing.
+class TelemetryTick final : public runtime::IPeriodicStep {
+public:
+    void step() noexcept override;
+
+private:
+    std::optional<runtime::Instant> lastSample_{};
+};
+TelemetryTick telemetryTick;
+
+// The telemetry task is part of the runtime's checked start-up (#164 review): if it cannot
+// start, the runtime faults (TelemetryTaskStartFailed) and never accepts motion. Nothing
+// relies on the desktop noticing the missing telemetry.
+runtime::FirmwareRuntime firmwareRuntime{{firmwareClock, platform, driveOutput, configuration, nullptr,
+                                          runtime::PeriodicTask{{kTelemetryTaskName, timing::kTelemetryPriority,
+                                                                 runtime::kDefaultTaskStackBytes,
+                                                                 timing::kTelemetryTickPeriod, false},
+                                                                &telemetryTick}}};
 
 class RuntimeStatusView final : public protocol::v1::IRuntimeStatusView {
 public:
@@ -201,36 +221,14 @@ BleStart startBle()
     return BleStart::Started;
 }
 
-// The telemetry task's step (priority 5, every 5 ms): sample the battery port once per
-// telemetry period (no sensor is wired, so nothing is read), then ask the host to evaluate
-// the schedule. It never touches the session or the drive.
-class TelemetryTick final : public runtime::IPeriodicStep {
-public:
-    void step() noexcept override
-    {
-        const auto now = firmwareClock.nowMicroseconds();
-        if (battery.hasSensor() && (!lastSample_ || now - *lastSample_ >= runtime::Instant{timing::kTelemetryPeriod})) {
-            battery.sample(now);
-            lastSample_ = now;
-        }
-        blePeripheral.requestTelemetryTick();
-    }
-
-private:
-    std::optional<runtime::Instant> lastSample_{};
-};
-TelemetryTick telemetryTick;
-bool telemetryTaskRunning{false};
-
-// If the task cannot start, no telemetry is published: the boot line says so, and the
-// desktop's silence rule (3 periods) reports the link as stale. Motion safety never depends
-// on telemetry (the watchdog, E-stop and faults are local).
-bool startTelemetryTask()
+void TelemetryTick::step() noexcept
 {
-    if (bleStart != BleStart::Started) return false;
-    const runtime::TaskSpec spec{kTelemetryTaskName, timing::kTelemetryPriority, runtime::kDefaultTaskStackBytes,
-                                 timing::kTelemetryTickPeriod, false};
-    return platform.startPeriodicTask(spec, telemetryTick);
+    const auto now = firmwareClock.nowMicroseconds();
+    if (battery.hasSensor() && (!lastSample_ || now - *lastSample_ >= runtime::Instant{timing::kTelemetryPeriod})) {
+        battery.sample(now);
+        lastSample_ = now;
+    }
+    blePeripheral.requestTelemetryTick();  // Dropped until the peripheral is running.
 }
 
 class SerialMaintenanceOutput final : public provisioning::IMaintenanceOutput {
@@ -299,7 +297,7 @@ diagnostics::ReportLine telemetryLine()
 {
     diagnostics::TelemetryReport report;
     report.session = sessionNumber();
-    report.taskRunning = telemetryTaskRunning;
+    report.taskRunning = firmwareRuntime.telemetryTaskStarted();
     report.ticksCoalesced = blePeripheral.ticksCoalesced();
     if (const auto info = configuration.robotInfo())
         report.period = std::chrono::milliseconds{info->telemetryPeriodMilliseconds};
@@ -446,7 +444,6 @@ void setup()
     motorsAttached = motors.begin();
     startResult = firmwareRuntime.start();
     bleStart = startBle();
-    telemetryTaskRunning = startTelemetryTask();
     readBuildId();
     Serial.begin(kSerialBaudRate);
     // Bounded writes: the drain offers only what the USB buffer has room for (B13).
@@ -465,7 +462,9 @@ void setup()
     logf("SECURITY mode=%s policy=%s authenticated=no encrypted=no %s", ble::toString(ble::kSecurityMode),
          bleSecurity.profile(), ble::kRestrictedLabSecurityWarning);
     logf("TELEMETRY start=%s tick_ms=%ld period_ms=%u battery=unknown battery_low=unsupported velocity=unknown",
-         telemetryTaskRunning ? "started" : (bleStart == BleStart::Started ? "failed" : "no_ble"),
+         firmwareRuntime.telemetryTaskStarted()                                              ? "started"
+         : firmwareRuntime.status().fault == runtime::FaultCode::TelemetryTaskStartFailed ? "failed"
+                                                                                          : "not_reached",
          static_cast<long>(timing::kTelemetryTickPeriod.count()),
          identity ? static_cast<unsigned>(identity->telemetryPeriodMilliseconds) : 0U);
     if (!motorsAttached) logLine("DRIVE attach=failed");

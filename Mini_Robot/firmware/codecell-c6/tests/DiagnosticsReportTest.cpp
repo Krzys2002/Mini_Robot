@@ -220,7 +220,8 @@ TEST(StatusReportTest, EveryLineFitsWithWorstCaseValuesAndCarriesOnlyItsKeys)
                           {"state", "cccd_result", "cccd_telemetry", "mtu", "link_request", "negotiated", "latency",
                            "timeout_ms", "in_request", "last_disconnect", "since_write_ms", "connections",
                            "rejected_centrals", "sessions", "results", "result_failures", "unanswered", "estop_writes",
-                           "foreign", "early_cccd", "adv_failures", "terminate_failures"});
+                           "foreign", "early_cccd", "adv_failures", "terminate_failures", "security",
+                           "security_sessions", "security_refusals"});
 
     TelemetryReport telemetry;
     telemetry.session = kMax32;

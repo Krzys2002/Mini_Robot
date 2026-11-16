@@ -207,6 +207,47 @@ TEST(FirmwareRuntimeTest, ShutdownHookIsRegisteredBeforeAnyOtherStartupStep)
     ASSERT_NE(ok.platform.shutdownHook, nullptr);
 }
 
+// Review finding (#283): the telemetry task was started after the runtime and BLE, and a
+// failure only logged a warning while Velocity was still accepted.
+TEST(FirmwareRuntimeTest, TelemetryTaskIsAMandatoryStartupStep)
+{
+    struct Step final : IPeriodicStep {
+        void step() noexcept override {}
+    } telemetry;
+    const PeriodicTask task{{"mr_telemetry", timing::kTelemetryPriority, kDefaultTaskStackBytes,
+                             timing::kTelemetryTickPeriod, false},
+                            &telemetry};
+    {
+        FakeClock clock;
+        FakePlatform platform;
+        FakeDrive drive;
+        FakeConfiguration configuration;
+        drive.section = &platform.section;
+        FirmwareRuntime runtime{{clock, platform, drive, configuration, nullptr, task}};
+        ASSERT_EQ(runtime.start(), StartResult::Running);
+        EXPECT_TRUE(runtime.telemetryTaskStarted());
+        ASSERT_EQ(platform.tasks.size(), 3U);
+        EXPECT_EQ(std::string{platform.tasks[2].spec.name}, "mr_telemetry") << "after the supervisor and control";
+        EXPECT_EQ(platform.tasks[2].spec.priority, timing::kTelemetryPriority);
+    }
+    FakeClock clock;
+    FakePlatform platform;
+    FakeDrive drive;
+    FakeConfiguration configuration;
+    drive.section = &platform.section;
+    platform.failTaskNamed = "mr_telemetry";
+    FirmwareRuntime runtime{{clock, platform, drive, configuration, nullptr, task}};
+    EXPECT_EQ(runtime.start(), StartResult::Faulted);
+    EXPECT_FALSE(runtime.telemetryTaskStarted());
+    const auto status = runtime.status();
+    EXPECT_EQ(status.fault, FaultCode::TelemetryTaskStartFailed);
+    EXPECT_FALSE(status.ready);
+    EXPECT_FALSE(status.outputEnabled);
+    const auto session = runtime.commands().openSession();
+    EXPECT_EQ(runtime.commands().velocity(session, kForward, 100ms, clock.nowMicroseconds()), CommandOutcome::RejectedFault);
+    EXPECT_FALSE(everCommandedNonzero(drive));
+}
+
 TEST(FirmwareRuntimeTest, InvalidConfigurationReportsWhichRuleFailed)
 {
     Rig rig;

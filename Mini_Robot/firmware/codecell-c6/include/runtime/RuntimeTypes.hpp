@@ -53,6 +53,7 @@ enum class FaultCode : std::uint8_t {
     DriveConfigurationRejected,  // The drive adapter refused the validated profile or could not enable (#160).
     StopRampOverrun,             // A normal stop ramp was not at zero within the B6 enforcement limit (#160).
     ShutdownHookUnavailable,     // The pre-restart shutdown hook could not be registered (#162 review).
+    TelemetryTaskStartFailed,    // The mandatory telemetry task could not be started (#164 review).
 };
 
 // Answer of the single motion-command authority. protocol::v1::resultCodeFor() maps it
@@ -103,6 +104,7 @@ enum class SessionEndReason : std::uint8_t {
     case FaultCode::DriveConfigurationRejected: return "DriveConfigurationRejected";
     case FaultCode::StopRampOverrun: return "StopRampOverrun";
     case FaultCode::ShutdownHookUnavailable: return "ShutdownHookUnavailable";
+    case FaultCode::TelemetryTaskStartFailed: return "TelemetryTaskStartFailed";
     }
     return "Unknown";
 }

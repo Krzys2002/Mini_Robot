@@ -61,6 +61,24 @@ std::uint32_t telemetryCount(const Rig& rig, TelemetryCounter c) { return rig.bl
 std::uint32_t uptimeOf(Instant t) { return telemetry::uptimeMilliseconds(t); }
 } // namespace
 
+// Review finding (#283): a failed telemetry task left a motion-ready BLE endpoint. Now the
+// runtime faults before it is ready; a central that connects anyway is refused all motion.
+TEST(TelemetryPublicationTest, FailedTelemetryTaskNeverExposesAMotionReadyEndpoint)
+{
+    Rig rig{true, nullptr, SecurityMode::RestrictedLabPassThrough, true};
+    EXPECT_EQ(rig.status().fault, runtime::FaultCode::TelemetryTaskStartFailed);
+    EXPECT_FALSE(rig.status().ready);
+    EXPECT_FALSE(rig.runtime->telemetryTaskStarted());
+    rig.makeReady();
+    rig.command(kOwner, velocityFrame(0, kForward, kValidity));
+    EXPECT_EQ(rig.last().code, ResultCode::RobotFault);
+    rig.run(50ms);
+    EXPECT_EQ(rig.drive.commandCount(), 0) << "no accepted motion";
+    EXPECT_NE(rig.status().state, MotionState::Moving);
+    rig.estop(kOwner, {});
+    EXPECT_FALSE(rig.drive.enabled);
+}
+
 TEST(TelemetryPublicationTest, NoTelemetryBeforeReadinessThenTheFirstFrameAtTheFirstTick)
 {
     Rig rig;

@@ -182,6 +182,13 @@ private:
     const telemetry::ITelemetryInputs& production_;
 };
 
+// Stands in for the production telemetry tick when a test needs the task itself.
+class TelemetryTaskStep final : public runtime::IPeriodicStep {
+public:
+    int steps{0};
+    void step() noexcept override { ++steps; }
+};
+
 struct Rig {
     FakeClock clock;
     FakePlatform platform;
@@ -200,8 +207,12 @@ struct Rig {
     std::optional<PeripheralController> ble;
 
     // Default: the explicitly selected restricted-lab pass-through, as in the image.
+    TelemetryTaskStep telemetryStep;
+
+    // `failTelemetryTask`: the runtime gets the production telemetry task, and the platform
+    // refuses to start it (#164 review).
     explicit Rig(bool startAdvertising = true, ISessionSecurity* custom = nullptr,
-                 SecurityMode mode = SecurityMode::RestrictedLabPassThrough)
+                 SecurityMode mode = SecurityMode::RestrictedLabPassThrough, bool failTelemetryTask = false)
     {
         if (custom) security = custom;
         securityMode = mode;
@@ -210,8 +221,15 @@ struct Rig {
         configuration.value = provisioning::runtimeConfigFor(*config);
         clock.time = 1s;
         drive.section = &platform.section;
-        runtime.emplace(runtime::RuntimeDependencies{clock, platform, drive, configuration, nullptr});
-        EXPECT_EQ(runtime->start(), runtime::StartResult::Running);
+        std::optional<runtime::PeriodicTask> telemetryTask;
+        if (failTelemetryTask) {
+            telemetryTask = runtime::PeriodicTask{{"mr_telemetry", timing::kTelemetryPriority,
+                                                   runtime::kDefaultTaskStackBytes, timing::kTelemetryTickPeriod, false},
+                                                  &telemetryStep};
+            platform.failTaskNamed = "mr_telemetry";
+        }
+        runtime.emplace(runtime::RuntimeDependencies{clock, platform, drive, configuration, nullptr, telemetryTask});
+        EXPECT_EQ(runtime->start(), failTelemetryTask ? runtime::StartResult::Faulted : runtime::StartResult::Running);
         view.emplace(*runtime);
         const auto info = provisioning::robotInfoValues(*config);
         ble.emplace(runtime->commands(), *view, commandLimits(info), link, clock, inputs,

@@ -76,8 +76,16 @@ flowchart LR
   budget composition (`kRobotStackQueueAllowance + kTelemetryHandlerAllowance + 1 ms ≤ 25 ms`)
   is a `static_assert`.
 - Telemetry, results and diagnostics never extend a deadline, and safety does not depend on
-  telemetry. If the telemetry task cannot start, the boot line says `TELEMETRY start=failed`
-  and the desktop's silence rule (3 periods) reports a stale link.
+  telemetry.
+- The telemetry task is a checked start-up step of `FirmwareRuntime::start()` (#283 review).
+  If it cannot start, the runtime faults with `TelemetryTaskStartFailed` before it is ready,
+  and the boot line says `TELEMETRY start=failed`. A central can still connect, but every
+  Velocity and Clear is refused (`RobotFault`), so no motion-ready endpoint is published
+  (`FailedTelemetryTaskNeverExposesAMotionReadyEndpoint`). Nothing relies on the desktop
+  noticing the missing telemetry. `start=not_reached` means an earlier start-up step failed.
+- Every Telemetry frame passes the session-security `protectOutgoing()` hook before it is
+  queued ([BLE guide](firmware-ble.md#session-security-extension-points-157-review)). The
+  restricted-lab pass-through returns it unchanged; a refused frame is dropped and counted.
 
 ### Congestion
 
@@ -207,7 +215,8 @@ measured, and the only accepted Velocity was 0 mm/s, 0 mrad/s.
 1. Took a full 8 MB backup (two identical reads, SHA-256 `0d65a45f…`) and flashed the image.
    - **Unprovisioned** (an earlier build of this branch, before the serial-drain fixes):
      `TELEMETRY start=no_ble`, `battery=unknown`, `robot_id=none`, and the runtime in `Fault`
-     (`ConfigurationUnavailable`).
+     (`ConfigurationUnavailable`). The image after the #283 review reports `not_reached` here,
+     because the task is now started by the runtime.
    - **Provisioned** with the host-test fixture values (RobotId 7, 200 ms ceiling; not
      calibration data): `TELEMETRY start=started tick_ms=5 period_ms=100`, every task listed.
 2. Ran `scripts/gatt_conformance_host.py --robot-id 7 --max-validity-ms 200`. Besides the #163

@@ -781,3 +781,20 @@ TEST(BleSessionSecurityTest, EmergencyStopBypassesVerificationAndAuthorization)
     EXPECT_EQ(rig.ble->state(), LinkState::Closing);
     EXPECT_EQ(rig.status().state, MotionState::EmergencyStop);
 }
+
+TEST(BleSessionSecurityTest, TelemetryFramesAreProtectedAndARefusedOneIsDropped)
+{
+    SpySecurity spy;
+    Rig rig{true, &spy, SecurityMode::SecureRequired};
+    rig.makeReady();
+    const int before = spy.protectedFrames;
+    rig.ble->onTelemetryTick();
+    EXPECT_EQ(spy.protectedFrames, before + 1);
+    ASSERT_EQ(rig.link.telemetryAttempts, 1);
+    spy.refuseOutgoing = true;
+    rig.clock.advance(200ms);
+    rig.ble->onTelemetryTick();
+    EXPECT_EQ(spy.protectedFrames, before + 2);
+    EXPECT_EQ(rig.link.telemetryAttempts, 1) << "a refused frame never reaches the stack";
+    EXPECT_EQ(rig.ble->state(), LinkState::Ready) << "telemetry loss alone does not end the session";
+}

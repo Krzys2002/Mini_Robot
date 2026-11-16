@@ -13,7 +13,9 @@
 //   3. load and validate the configuration;
 //   4. configure the drive with the validated profile (#160);
 //   5. create the critical section; 6. start the safety supervisor (subscribed to the task
-//      watchdog, B17), then the control task;
+//      watchdog, B17), then the control task, then the telemetry task when one is given
+//      (#164 review: mandatory telemetry is part of the checked start-up, so a robot whose
+//      telemetry cannot run never becomes motion-ready);
 //   7. mark ready (commands are rejected with RejectedNotReady before this).
 // A supervisor that already runs when a later step fails keeps the outputs off.
 //
@@ -35,12 +37,21 @@ namespace codecell::runtime {
 inline constexpr const char* kSafetyTaskName = "mr_safety";
 inline constexpr const char* kControlTaskName = "mr_control";
 
+// A periodic task the runtime starts as part of its checked start-up.
+struct PeriodicTask {
+    TaskSpec spec;
+    IPeriodicStep* step{nullptr};
+};
+
 struct RuntimeDependencies {
     const IFirmwareClock& clock;
     IPlatform& platform;
     IDriveOutput& drive;
     IConfigurationSource& configuration;
     IInertialSensor* inertialSensor{nullptr};  // Optional; nullptr means no sensor.
+    // Production: the #164 telemetry task. When given, failing to start it is a start-up
+    // fault (TelemetryTaskStartFailed).
+    std::optional<PeriodicTask> telemetryTask{};
 };
 
 enum class StartResult : std::uint8_t { Running, Faulted };
@@ -51,6 +62,7 @@ public:
         : clock_(dependencies.clock),
           platform_(dependencies.platform),
           configuration_(dependencies.configuration),
+          telemetryTask_(dependencies.telemetryTask),
           gate_(dependencies.drive, diagnostics_, dependencies.clock),
           commands_(gate_, mailbox_, diagnostics_),
           supervisor_(gate_, dependencies.clock),
@@ -89,6 +101,8 @@ public:
     [[nodiscard]] std::optional<ConfigError> configError() const noexcept { return configError_; }
     // Whether start() registered the pre-restart shutdown hook (boot report).
     [[nodiscard]] bool shutdownHookRegistered() const noexcept { return shutdownHookRegistered_; }
+    // Whether start() started the telemetry task (boot and TELEMETRY report).
+    [[nodiscard]] bool telemetryTaskStarted() const noexcept { return telemetryTaskStarted_; }
 
     // The steps the platform schedules; exposed so host tests can drive them directly.
     [[nodiscard]] IPeriodicStep& safetyStep() noexcept { return supervisor_; }
@@ -132,6 +146,11 @@ private:
         const TaskSpec control{kControlTaskName, config_->controlTask.priority, config_->controlTask.stackBytes,
                                config_->controlPeriod};
         if (!platform_.startPeriodicTask(control, control_)) return fail(FaultCode::ControlTaskStartFailed);
+        if (telemetryTask_) {
+            if (!telemetryTask_->step || !platform_.startPeriodicTask(telemetryTask_->spec, *telemetryTask_->step))
+                return fail(FaultCode::TelemetryTaskStartFailed);
+            telemetryTaskStarted_ = true;
+        }
 
         gate_.markReady(clock_.nowMicroseconds());
         return gate_.status().ready ? StartResult::Running : StartResult::Faulted;
@@ -149,6 +168,7 @@ private:
     const IFirmwareClock& clock_;
     IPlatform& platform_;
     IConfigurationSource& configuration_;
+    std::optional<PeriodicTask> telemetryTask_;
     RuntimeDiagnostics diagnostics_{};
     SetpointMailbox mailbox_{};
     ActuatorGate gate_;
@@ -157,6 +177,7 @@ private:
     ControlLoop control_;
     ShutdownHook shutdownHook_{*this};
     bool shutdownHookRegistered_{false};
+    bool telemetryTaskStarted_{false};
     std::optional<RuntimeConfig> config_{};
     std::optional<ConfigError> configError_{};
     std::optional<StartResult> result_{};

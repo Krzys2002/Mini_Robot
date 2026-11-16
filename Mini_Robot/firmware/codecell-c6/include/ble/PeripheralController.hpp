@@ -347,7 +347,12 @@ public:
             scheduler_.attempted(now, key, false);
             return;
         }
-        const bool queued = link_.publishTelemetry(*owner_, *frame);
+        // Session security (#157 review): every Telemetry frame is protected before it is
+        // queued. A refused frame is dropped and counted like one the stack could not queue.
+        std::array<std::uint8_t, kSecuredFrameMax> scratch{};
+        const auto protectedFrame = security_.protectOutgoing(*frame, scratch);
+        if (!protectedFrame) count(BleCounter::SecurityRefusals);
+        const bool queued = protectedFrame && link_.publishTelemetry(*owner_, *protectedFrame);
         scheduler_.attempted(now, key, queued);
         if (!queued) {
             // Dropped and counted; its sequence is spent, so the desktop sees the loss as a gap.
