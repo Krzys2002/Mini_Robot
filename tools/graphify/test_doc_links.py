@@ -11,6 +11,7 @@ class DocumentTests(unittest.TestCase):
     def test_only_technical_docs_are_candidates(self):
         for name in ("Mini_Robot/docs/overview/transport.md",
                      "Mini_Robot/docs/testing/codecell-c6-hardware-154.md",
+                     "Mini_Robot/firmware/codecell-c6/README.md",
                      "Mini_Robot/firmware/ble-lifecycle/README.md"):
             self.assertTrue(technical_document(name), name)
         for name in (".github/README.md", "AGENTS.md", "core arhiteture.md",
@@ -23,9 +24,9 @@ class DocumentTests(unittest.TestCase):
             self.assertFalse(technical_document(name), name)
 
     def test_reference_resolution_stays_in_available_repository_files(self):
-        available = {"src/a.cpp", "T1-ESP-C6/src/Main.cpp"}
+        available = {"src/a.cpp", "Mini_Robot/firmware/codecell-c6/src/main.cpp"}
         self.assertEqual(references("docs/guide.md", """
-[source](../src/a.cpp#L2) `T1-ESP-C6/src/Main.cpp`
+[source](../src/a.cpp#L2) `Mini_Robot/firmware/codecell-c6/src/main.cpp`
 [remote](https://github.com/example/src/a.cpp) `/etc/passwd`
 `../../outside.cpp` [absolute](/src/a.cpp) [missing](../src/missing.cpp)
 """, available), available)

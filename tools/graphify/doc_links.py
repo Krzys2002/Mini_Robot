@@ -16,7 +16,8 @@ def technical_document(name: str) -> bool:
     path = Path(name)
     if path.suffix.lower() != ".md":
         return False
-    if name in {"README.md", "Mini_Robot/README.md", "T1-ESP-C6/README.md",
+    if name in {"README.md", "Mini_Robot/README.md",
+                "Mini_Robot/firmware/codecell-c6/README.md",
                 "Mini_Robot/firmware/ble-lifecycle/README.md",
                 "Mini_Robot/docs/testing/ble-connection-187.md",
                 "Mini_Robot/docs/testing/codecell-c6-hardware-154.md"}:

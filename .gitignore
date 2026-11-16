@@ -1,6 +1,4 @@
 .DS_Store
-T1-ESP-C6/.idea/doNotAskNotifications.xml
-/T1-ESP-C6/.idea
 .codex/config.toml
 /Mini_Robot/.codex
 /Mini_Robot/.idea
@@ -11,6 +9,9 @@ T1-ESP-C6/.idea/doNotAskNotifications.xml
 /out/
 /CMakeUserPresets.json
 /.idea/
+
+# Optional local firmware build-tool environment (see firmware/codecell-c6/README.md).
+/.venv-firmware/
 
 # Optional local Graphify tooling, independent in every worktree.
 graphify-out/
