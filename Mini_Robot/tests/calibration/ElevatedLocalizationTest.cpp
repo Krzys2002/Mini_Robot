@@ -45,6 +45,8 @@ TEST(ElevatedLocalizationTest, DiagnosesUnknownOrInvalidSurveyMountsAmbiguityAnd
     EXPECT_FALSE(intersectTagPlane(*p.localization,p.intrinsics,{960,540-1100*b/a},.05));
     EXPECT_FALSE(intersectTagPlane(*p.localization,p.intrinsics,{960,540-2200*b/a},.05));
     p.localization->survey.references.resize(MaximumExtrinsicReferences+1); EXPECT_FALSE(validateWorkspaceCalibrationProfile(p).empty());
+    p=original; p.workspaceId.assign(MaximumWorkspaceProfileBytes, 'x');
+    EXPECT_NO_THROW(EXPECT_FALSE(validateWorkspaceCalibrationProfile(p).empty()));
 }
 TEST(ElevatedLocalizationTest, V4RoundtripPreservesLegacyBindingAndRejectsMissingCorruptOrFutureGeometry) {
     const auto p=elevatedProfile(); const auto text=serializeWorkspaceProfile(p);

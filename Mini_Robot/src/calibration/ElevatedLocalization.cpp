@@ -102,7 +102,13 @@ std::optional<ImageCorner> projectReference(const ElevatedLocalization& e,const 
     return ImageCorner{u,v};
 }
 std::string validateElevatedLocalization(const ElevatedLocalization& e, const WorkspaceCalibrationProfile& p) {
-    if (!note(e.revision) || e.tabletopBinding!=tabletopProfileBinding(p)) return "Extrinsics belong to another camera/K/resolution, frame or calibration revision.";
+    if (!note(e.revision)) return "Extrinsics require a bounded calibration revision.";
+    try {
+        if (e.tabletopBinding!=tabletopProfileBinding(p))
+            return "Extrinsics belong to another camera/K/resolution, frame or calibration revision.";
+    } catch (const std::exception& error) {
+        return std::string{"Invalid tabletop binding: "}+error.what();
+    }
     if (auto error=validateExtrinsicSurvey(e.survey,p.intrinsics); !error.empty()) return error;
     if (auto error=validateRobotMounts(e.mounts); !error.empty()) return error;
     const auto camera=cameraWorldPosition(e);
