@@ -16,11 +16,15 @@ namespace micro_robot {
 // Owning Qt event-loop thread only. Requests/events are deferred. Observe domain
 // connections via IRobotTransport; scan/phase signals are optional diagnostics.
 // Disconnect active robots and await terminal states before destruction.
+// Session security (#157): `security` is called when a session becomes ready, before
+// Velocity and ClearEmergencyStop, on every incoming notification and (through the
+// backend) on every outgoing frame except the dedicated E-stop. It must suit
+// config.securityMode; SecureRequired refuses the restricted-lab pass-through.
 class BleTransport final : public QObject, public IRobotTransport {
     Q_OBJECT
 public:
-    explicit BleTransport(std::unique_ptr<IBleBackend> backend, BleTransportConfig config = {},
-                          std::optional<LogChannel> log = std::nullopt);
+    BleTransport(std::unique_ptr<IBleBackend> backend, std::shared_ptr<IBleSessionSecurity> security,
+                 BleTransportConfig config = {}, std::optional<LogChannel> log = std::nullopt);
     ~BleTransport() override;
     void setEventSink(std::weak_ptr<IRobotTransportEvents> sink) override;
     [[nodiscard]] ConnectionState connectionState(RobotId id) const override;
@@ -34,6 +38,7 @@ public:
     void requestEmergencyStop(RobotId id) override;
     [[nodiscard]] bool supportsEmergencyClear() const noexcept override { return true; }
     bool requestEmergencyClear(RobotId id, std::uint64_t request) override;
+    [[nodiscard]] std::optional<TransportSecurityStatus> securityStatus(RobotId id) const override;
     void startDiscovery();
     void cancelDiscovery(); // Cancels robots still awaiting this scan, not active links.
     [[nodiscard]] bool discovering() const noexcept { return scanning_; }
@@ -50,6 +55,7 @@ private:
         BlePhase phase{BlePhase::Disconnected};
         std::unique_ptr<QTimer> timer;
         std::optional<BleRobotInfo> info;
+        std::optional<TransportSecurityStatus> security; // Set once the security session is established.
         BleReceiveSequence receiveSequence;
         std::uint16_t transmitSequence{};
         std::optional<RobotCommand> pending;
@@ -74,7 +80,8 @@ private:
                std::optional<TransportOperation> operation = {});
     [[nodiscard]] std::optional<RobotId> findToken(std::uint64_t token) const;
     void armTimeout(RobotId id, std::chrono::milliseconds duration);
-    void clearIo(Session& session);
+    void clearIo(RobotId id, Session& session);
+    [[nodiscard]] BleOutgoingProtection outgoingProtection(RobotId id);
     void schedulePump(RobotId id);
     void pump(RobotId id);
     void sendEmergencyStop(RobotId id);
@@ -83,6 +90,7 @@ private:
                       std::optional<std::uint64_t> domainSequence = {});
     void receive(std::uint64_t token, BleEndpoint endpoint, const QByteArray& bytes, Timestamp at);
     std::unique_ptr<IBleBackend> backend_;
+    std::shared_ptr<IBleSessionSecurity> security_;
     BleTransportConfig config_;
     std::optional<LogChannel> log_;
     std::weak_ptr<IRobotTransportEvents> sink_;

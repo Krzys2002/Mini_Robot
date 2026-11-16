@@ -29,8 +29,11 @@ bool blockedVelocity(const RobotCommand& command, bool emergencyRequested, BleRo
         && (emergencyRequested || state == BleRobotState::EmergencyStop || state == BleRobotState::Fault);
 }
 } // namespace
-void BleTransport::clearIo(Session& session)
+void BleTransport::clearIo(RobotId id, Session& session)
 {
+    // Session teardown and readiness loss end the security session with all pending intent.
+    if (session.security) security_->endSession(id);
+    session.security.reset();
     session.pending.reset();
     session.info.reset();
     session.writing.reset();
@@ -88,10 +91,19 @@ void BleTransport::pump(RobotId id)
         return;
     }
     const auto command = std::exchange(session.pending, {});
+    // Velocity is authorized per frame; Stop is never gated (it only removes motion).
+    if (velocity) {
+        const auto decision = security_->authorize(id, BleSecuredOperation::Velocity);
+        if (!decision.permitted) {
+            error(id, TransportOperation::SendCommand, TransportErrorCode::InvalidCommand,
+                "Velocity refused by session security: " + decision.reason);
+            return;
+        }
+    }
     const auto sequence = session.transmitSequence;
     const auto encoded = encodeBleCommand(*command, *session.info, sequence, now);
     if (!encoded.frame) { error(id, TransportOperation::SendCommand, encoded.code, encoded.error); return; }
-    const auto dispatched = backend_->write(session.token, {sequence, false, *command});
+    const auto dispatched = backend_->write(session.token, {sequence, false, *command, false, outgoingProtection(id)});
     if (!dispatched.dispatched) {
         error(id, TransportOperation::SendCommand, dispatched.code, dispatched.error);
         return;
@@ -137,9 +149,13 @@ bool BleTransport::requestEmergencyClear(RobotId id, std::uint64_t request)
     auto& session = found->second;
     if (session.state != ConnectionState::Connected || !session.nativeReady || !session.info
         || !session.emergencyRequested || !session.emergencyConfirmed || session.clearRequest
-        || session.writing || session.emergencyWriting) return false;
+        || session.writing || session.emergencyWriting || !session.security) return false;
+    if (const auto decision = security_->authorize(id, BleSecuredOperation::EmergencyClear); !decision.permitted) {
+        if (log_) log_->warning("ClearEmergencyStop refused by session security: " + decision.reason, id);
+        return false;
+    }
     const auto sequence = session.transmitSequence;
-    const auto outcome = backend_->write(session.token, {sequence, false, {}, true});
+    const auto outcome = backend_->write(session.token, {sequence, false, {}, true, outgoingProtection(id)});
     if (!outcome.dispatched) return false;
     ++session.transmitSequence;
     session.writing = sequence;
@@ -176,7 +192,9 @@ void BleTransport::sendEmergencyStop(RobotId id)
     }
     if (!session.emergencyTimer->isActive()) session.emergencyTimer->start(static_cast<int>(config_.emergencyStopRetry.count()));
     const auto sequence = session.transmitSequence;
-    const auto outcome = backend_->write(session.token, {sequence, true, {}});
+    // Dedicated E-stop: no authorization and no outgoing protection (v1 latches on any
+    // write); the request deliberately carries no protection step.
+    const auto outcome = backend_->write(session.token, {sequence, true, {}, false, {}});
     if (!outcome.dispatched) {
         // Backpressure cannot accumulate an unbounded native E-stop queue.
         if (outcome.code != TransportErrorCode::Unavailable)
@@ -214,8 +232,15 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
     if (!id) return;
     auto& session = sessions_.at(*id);
     if (!session.nativeReady || (session.state != ConnectionState::Connected && session.state != ConnectionState::Connecting)) return;
-    const auto decoded = decodeBleNotification(endpoint,
-        {reinterpret_cast<const std::uint8_t*>(bytes.constData()), static_cast<std::size_t>(bytes.size())});
+    // Incoming verification before any decoding or state update. A refused notification is
+    // never delivered and counts as invalid input (it never enables velocity).
+    const auto verified = session.security
+        ? security_->verifyIncoming(*id, endpoint,
+              {reinterpret_cast<const std::uint8_t*>(bytes.constData()), static_cast<std::size_t>(bytes.size())})
+        : BleProtectedPayload{std::nullopt, false, "no security session"};
+    const auto decoded = verified.bytes ? decodeBleNotification(endpoint, *verified.bytes)
+        : BleDecodeResult{std::nullopt, TransportErrorCode::InvalidTelemetry,
+                          "BLE notification refused by session security: " + verified.reason};
     if (!decoded.frame) {
         session.robotState = BleRobotState::Fault; // Unknown input never enables velocity.
         if (session.pending && std::holds_alternative<VelocityCommand>(session.pending->payload)) session.pending.reset();
@@ -316,5 +341,18 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
         if (result.result != 0 && result.result != 7 && result.result != 8) error(*id, TransportOperation::SendCommand, bleRejectionCode(result.result),
             std::string{"Robot rejected command wire_sequence="} + std::to_string(result.commandSequence) + ": " + bleResultName(result.result));
     }
+}
+BleOutgoingProtection BleTransport::outgoingProtection(RobotId id)
+{
+    // The policy outlives the backend's synchronous write; the lambda is used only there.
+    return [security = security_, id](BleEndpoint endpoint, std::span<const std::uint8_t> bytes) {
+        return security->protectOutgoing(id, endpoint, bytes);
+    };
+}
+std::optional<TransportSecurityStatus> BleTransport::securityStatus(RobotId id) const
+{
+    const auto found = sessions_.find(id);
+    if (found == sessions_.end()) return std::nullopt;
+    return found->second.security;
 }
 } // namespace micro_robot

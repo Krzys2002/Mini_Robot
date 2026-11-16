@@ -189,6 +189,8 @@ public:
                 ? BleEncodeResult{encodeBleEmergencyClear(request.sequence), TransportErrorCode::InvalidCommand, {}}
                 : encodeBleCommand(request.command, link->info, request.sequence, now);
         if (!encoded.frame) return {false, {}, encoded.code, encoded.error};
+        if (auto refused = applyBleOutgoingProtection(request, *encoded.frame))
+            return {false, {}, TransportErrorCode::InvalidCommand, std::move(*refused)};
         const auto& frame = *encoded.frame;
         const QByteArray bytes(reinterpret_cast<const char*>(frame.bytes.data()), static_cast<qsizetype>(frame.bytes.size()));
         if (frame.withResponse) pending = PendingWrite{request.sequence, bytes};

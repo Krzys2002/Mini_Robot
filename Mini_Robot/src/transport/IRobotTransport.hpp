@@ -77,6 +77,10 @@ public:
     // Prompt submission only. A later matching result is required to release inhibition.
     virtual bool requestEmergencyClear(RobotId, std::uint64_t) { return false; }
 
+    // Security of the current session, for diagnostics and operator status (#157).
+    // nullopt: the transport has no security layer, or the robot has no session.
+    [[nodiscard]] virtual std::optional<TransportSecurityStatus> securityStatus(RobotId) const { return std::nullopt; }
+
 
 };
 
