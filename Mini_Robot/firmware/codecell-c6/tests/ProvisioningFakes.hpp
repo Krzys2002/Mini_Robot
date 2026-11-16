@@ -36,6 +36,8 @@ inline RobotConfig validConfig(RobotId id = 7)
 class FakeRecordStorage final : public IRecordStorage {
 public:
     std::array<std::optional<std::vector<std::uint8_t>>, kSlots.size()> slots{};
+    std::optional<std::vector<std::uint8_t>> marker{};
+    bool failMarkerRead{false};
     bool bondsPresent{false};
     std::array<bool, kSlots.size()> failRead{false, false};
     bool failWrite{false};
@@ -48,9 +50,12 @@ public:
     std::size_t tornBytes{0};
     bool powerLost{false};
 
+    bool failMarkerErase{false};
+
     int reads{0};
-    int writes{0};
-    int erases{0};
+    int writes{0};      // Slot and marker writes.
+    int markerWrites{0};
+    int erases{0};      // Slot and marker erases.
 
     StorageRead read(Slot slot, std::span<std::uint8_t> buffer) noexcept override
     {
@@ -84,6 +89,37 @@ public:
         return true;
     }
 
+    StorageRead readMarker(std::span<std::uint8_t> buffer) noexcept override
+    {
+        ++reads;
+        if (failMarkerRead) return {StorageStatus::Failed, 0};
+        if (!marker) return {StorageStatus::NotFound, 0};
+        if (marker->size() > buffer.size()) return {StorageStatus::TooLarge, 0};
+        std::copy(marker->begin(), marker->end(), buffer.begin());
+        return {StorageStatus::Ok, marker->size()};
+    }
+
+    bool writeMarker(std::span<const std::uint8_t> bytes) noexcept override
+    {
+        ++writes;
+        ++markerWrites;
+        if (failWrite || powerLost) return false;
+        if (cutNow()) {
+            marker = std::vector<std::uint8_t>(bytes.begin(), bytes.begin() + std::min(tornBytes, bytes.size()));
+            return false;
+        }
+        if (!dropWrites) marker = std::vector<std::uint8_t>(bytes.begin(), bytes.end());
+        return true;
+    }
+
+    bool eraseMarker() noexcept override
+    {
+        ++erases;
+        if (failMarkerErase || powerLost || cutNow()) return false;
+        marker.reset();
+        return true;
+    }
+
     bool eraseControllerBonds() noexcept override
     {
         if (failBondErase || powerLost || cutNow()) return false;
@@ -93,6 +129,7 @@ public:
 
     void put(Slot slot, std::vector<std::uint8_t> bytes) { slots[index(slot)] = std::move(bytes); }
     void put(Slot slot, const RecordBytes& bytes) { slots[index(slot)] = std::vector<std::uint8_t>(bytes.begin(), bytes.end()); }
+    void putMarker(const MarkerBytes& bytes) { marker = std::vector<std::uint8_t>(bytes.begin(), bytes.end()); }
     // Restores power with the persisted contents unchanged (a reboot).
     void reboot()
     {

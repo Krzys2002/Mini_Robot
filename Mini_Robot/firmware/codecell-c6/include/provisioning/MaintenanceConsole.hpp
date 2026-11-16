@@ -220,9 +220,9 @@ private:
     void status() noexcept
     {
         const auto stored = store_.load();
-        printLine("PROV state=%s reason=%s generation=%lu slot=%s maintenance=%d", toString(stored.state),
+        printLine("PROV state=%s reason=%s generation=%lu slot=%s pending=%s maintenance=%d", toString(stored.state),
                toString(stored.reason), static_cast<unsigned long>(stored.generation.value_or(0)),
-               stored.newestSlot ? toString(*stored.newestSlot) : "-", maintenance_ ? 1 : 0);
+               stored.newestSlot ? toString(*stored.newestSlot) : "-", toString(stored.pending), maintenance_ ? 1 : 0);
         if (stored.config) {
             const auto name = advertisedName(stored.config->robotId());
             printLine("PROV robot_id=%lu name=%s", static_cast<unsigned long>(stored.config->robotId()), name.data());

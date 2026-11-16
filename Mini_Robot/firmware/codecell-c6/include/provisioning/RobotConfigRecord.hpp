@@ -102,6 +102,10 @@ enum class RecordError : std::uint8_t {
     AngularLimitAboveWheelSpeed,// The drive cannot reach the advertised maxAngular on the spot.
     ValidityOutOfRange,         // 1..kCommandValidityCeiling (#156) ms.
     TelemetryPeriodMismatch,    // Must equal the budgeted kTelemetryPeriod (#156).
+    // State of the A/B store (#159 review). Appended so the earlier values keep their numbers.
+    CommittedRecordDamaged,     // A slot is damaged and no interrupted provisioning write explains it.
+    FactoryResetIncomplete,     // A factory reset started and has not finished erasing both slots.
+    ProvisioningIncomplete,     // A provisioning write was cut and no armable record preceded it.
 };
 
 [[nodiscard]] constexpr const char* toString(RecordError error) noexcept
@@ -129,6 +133,9 @@ enum class RecordError : std::uint8_t {
     case RecordError::AngularLimitAboveWheelSpeed: return "AngularLimitAboveWheelSpeed";
     case RecordError::ValidityOutOfRange: return "ValidityOutOfRange";
     case RecordError::TelemetryPeriodMismatch: return "TelemetryPeriodMismatch";
+    case RecordError::CommittedRecordDamaged: return "CommittedRecordDamaged";
+    case RecordError::FactoryResetIncomplete: return "FactoryResetIncomplete";
+    case RecordError::ProvisioningIncomplete: return "ProvisioningIncomplete";
     }
     return "Unknown";
 }

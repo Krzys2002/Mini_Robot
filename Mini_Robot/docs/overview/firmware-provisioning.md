@@ -69,10 +69,13 @@ firmware can check a record's integrity and age before it interprets the payload
 
 ## Storage states and rollback
 
-Two NVS slots (`rec_a`, `rec_b` in namespace `mr_config`) hold records. The
+Two NVS slots (`rec_a`, `rec_b` in namespace `mr_config`) hold records. A third key, the
+**transaction marker** (`txn`, 12 bytes with its own CRC), names the change in progress:
+"provisioning slot X" or "factory reset". It exists only while a change is unfinished. The
 [`ConfigStore`](../../firmware/codecell-c6/include/provisioning/ConfigStore.hpp) loads
-both slots, and the **newest intact record** (highest generation, wrap-safe) decides the
-state:
+both slots and the marker. The marker lets it tell an interrupted write apart from a
+committed record that was damaged later. Without it the two look the same in flash. After
+that, the **newest intact record** (highest generation, wrap-safe) decides the state:
 
 | Stored situation | State | Runtime |
 | --- | --- | --- |
@@ -80,34 +83,56 @@ state:
 | Newest intact record is valid | `Provisioned` | Starts; becomes ready |
 | Newest intact record is out of version or has invalid content | `Invalid` | Fault, outputs off. The older record is **not** used. |
 | Two intact records, same generation, different content | `Invalid` (`ConflictingRecords`) | Fault, outputs off |
-| Only torn/corrupt records (CRC, length, magic) | `Invalid` | Fault, outputs off |
-| A slot cannot be read | `StorageUnavailable` | Fault, outputs off; provisioning refused |
+| A torn/corrupt slot (CRC, length, magic) that the marker does not name as the slot being provisioned | `Invalid` (`CommittedRecordDamaged`) | Fault, outputs off. The other slot is **not** used, so a completed limit reduction cannot roll back |
+| The marker names the torn slot, and the store was armable when that write began | As for the other slot (the previous record) | Old record, as before the write |
+| The marker names the torn slot, and nothing armable preceded the write | `Invalid` (`ProvisioningIncomplete`) | Fault, outputs off |
+| The marker says a factory reset is unfinished | `Invalid` (`FactoryResetIncomplete`) | Fault, outputs off; provisioning refused until the reset is run again |
+| The marker itself is torn, both slots intact | As if no change were in progress | The cut came while the marker was written, before any slot |
+| A slot or the marker cannot be read | `StorageUnavailable` | Fault, outputs off; provisioning and reset refused |
 
 Writes follow these rules:
 
 - **Provisioning and reprovisioning.** The draft is validated before anything is written.
-  The new record goes to the slot that does **not** hold the newest record, with the next
-  generation, and is then read back. A torn or corrupt slot is skipped on load, because it
-  can only be that interrupted write. Power loss at any point therefore leaves either the
-  previous record or the new one. If the board had no record before, the result is
-  `Unprovisioned` or `Invalid`, and neither can arm.
-- **Factory reset** erases BLE bonds first, then the older slot, then the newest one. An
-  interruption leaves either the unchanged newest record or nothing, never an older record.
-  Running the reset again completes it. While a slot cannot be read the newest slot is
-  unknown, so the reset is refused (`StorageUnavailable`) before anything, bonds included,
-  is erased.
+  The marker is written first. It names the target slot and records whether the store was
+  armable. The new record then goes to the slot that does **not** hold the newest record,
+  with the next generation, and is read back. Only then is the marker erased, and only then
+  does `commit` report `Written`. A failed marker erase reports `CommitFailed`, and `commit`
+  should be run again. Power loss at any point therefore leaves either the previous record
+  or the new one. When nothing armable preceded the write (first provisioning, or
+  reprovisioning an `Invalid` store), the result is instead a state that cannot arm.
+- **Factory reset** erases BLE bonds first. It then writes the "factory reset" marker,
+  erases the older slot and then the newest one, and erases the marker last. While the
+  marker is present the store cannot arm, whatever the slots hold. An interruption
+  therefore leaves either the unchanged store (cut before the marker) or a non-armable one.
+  In particular, it can never make a previously non-armable store armable, such as one
+  with two conflicting records. Running the reset again completes it. While a slot or the
+  marker cannot be read, the reset is refused (`StorageUnavailable`) before anything,
+  bonds included, is erased.
+- **Damage to a committed record fails closed.** A damaged record's generation cannot be
+  read. Without a marker naming it, the store cannot tell whether the damaged slot held the
+  newer or the older record, so it refuses to arm either way. The operator recovers by
+  reprovisioning, which overwrites the damaged slot, or by a factory reset. Two faults at
+  once, such as a torn marker and a damaged slot, also fail closed.
 - **No resurrection.** A superseded record never becomes active again, even when the newer
   one is unusable (for example after a downgrade to an image that does not understand the
   newer schema).
 
-NVS also recovers the old or new value of a single key after power loss. The CRC and the
-generations are an independent check. Arduino reformats an NVS partition that it cannot
+NVS also recovers the old or new value of a single key after power loss. The CRCs, the
+generations and the marker are an independent check.
+A marker can be left behind after the new record was read back: by a failed erase
+(`CommitFailed`), or by a power cut during the erase. The robot then boots armable on the
+new record, but its slot is still treated as "being provisioned". If that slot were damaged
+later, the previous record would be used. This is a known residual of the scheme. It is why
+`commit` reports `CommitFailed` rather than `Written`, and why both the boot `PROVISIONING`
+line and `status` show `pending=Provisioning` until a later `commit` succeeds. An operator
+who sees `pending=` other than `None` should run `commit` again. Arduino reformats an NVS partition that it cannot
 initialize; the robot then reports `Unprovisioned`.
 
 ### Wear policy
 
-- Flash is written only by `commit` (one ~42-byte blob) and `factory-reset` (two key erases
-  plus the bond namespace).
+- Flash is written only by:
+  - `commit`: the 12-byte marker, one ~42-byte record blob and the marker erase;
+  - `factory-reset`: the marker, two slot erases, the marker erase and the bond namespace.
 - Boot only reads.
 - Commands, telemetry, E-stop, session ends and status reporting never write. This is
   host-tested: 200 control cycles, stops, E-stop and session end performed zero writes.
@@ -224,7 +249,14 @@ Host tests (`core` label, [`tests/`](../../firmware/codecell-c6/tests/ConfigStor
   - failed and silently lost writes;
   - a power cut after each mutation, with the interrupted write torn at every byte, for
     provisioning, repeated reprovisioning and factory reset;
-  - one write per provision and none on load.
+  - the transaction marker (#278 review): a corrupted committed newest record never
+    restores the superseded record or its higher output bound; a damaged older slot also
+    fails closed; an interrupted reset starting from conflicting records never arms;
+    provisioning is refused while a reset is unfinished; reprovisioning an `Invalid` store
+    that is cut never arms the older record; a failed marker erase is not reported as
+    `Written`; an unreadable or damaged marker; every truncation, bit flip and reserved
+    value of the marker codec;
+  - one record write per provision (plus the marker) and none on load.
 - `MaintenanceConsoleTest`:
   - maintenance is entered before any write;
   - a refused disable blocks writes;
@@ -242,7 +274,10 @@ Host tests (`core` label, [`tests/`](../../firmware/codecell-c6/tests/ConfigStor
   - no writes in ordinary operation.
 
 Bench check, 2026-11-15 (USB only, battery and motors disconnected, one CodeCell C6 Drive,
-image SHA-256 `d0876c5f…`):
+image SHA-256 `d0876c5f…`). This was the image **before** the #278 review fix: it had no
+transaction marker, and its `PROV` and `PROVISIONING` lines had no `pending=` field. The
+marker and the corrupted-record and interrupted-reset behaviour are host-tested only, and
+have not been checked on the board:
 
 1. A full 8 MB flash backup was taken.
 2. **First boot:** `start=faulted state=Fault output=disabled fault=ConfigurationUnavailable

@@ -171,6 +171,12 @@ TEST(MaintenanceConsoleTest, StatusReportsIdentityAndHasNoCredentialFields)
     rig.send("status");
     EXPECT_TRUE(rig.output.contains("PROV robot_id=4294967295 name=MR-4294967295"));
     EXPECT_TRUE(rig.output.contains("CONFIG max_validity_ms=200"));
+    EXPECT_TRUE(rig.output.contains("pending=None"));
+    // An unfinished change (here a marker that could not be erased) is visible.
+    rig.storage.failMarkerErase = true;
+    ASSERT_EQ(rig.store.provision(validConfig(5)).outcome, WriteOutcome::CommitFailed);
+    rig.send("status");
+    EXPECT_TRUE(rig.output.contains("pending=Provisioning"));
     for (const auto& line : rig.output.lines) {
         for (const char* secret : {"key", "pass", "secret", "token", "pin"})
             EXPECT_EQ(line.find(secret), std::string::npos) << line;

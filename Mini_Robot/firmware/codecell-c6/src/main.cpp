@@ -115,8 +115,9 @@ void setup()
     Serial.println("CodeCell C6 production runtime (#158/#159): BLE commands not yet available (#163); "
                    "drive inhibited (#160); type help for maintenance");
     const auto& boot = configuration.bootState();
-    Serial.printf("PROVISIONING state=%s reason=%s generation=%lu\n", provisioning::toString(boot.state),
-                  provisioning::toString(boot.reason), static_cast<unsigned long>(boot.generation.value_or(0)));
+    Serial.printf("PROVISIONING state=%s reason=%s generation=%lu pending=%s\n", provisioning::toString(boot.state),
+                  provisioning::toString(boot.reason), static_cast<unsigned long>(boot.generation.value_or(0)),
+                  provisioning::toString(boot.pending));
     if (const auto error = firmwareRuntime.configError())
         Serial.printf("RUNTIME config_error=%u\n", static_cast<unsigned>(*error));
 }
