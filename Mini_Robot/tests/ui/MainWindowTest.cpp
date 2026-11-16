@@ -151,7 +151,7 @@ TEST(DesktopIntegrationTest, TabletopConventionAndUnconfiguredWorkspaceAreVisibl
     auto* convention = fixture.label("worldCoordinateConvention");
     ASSERT_NE(convention, nullptr);
     EXPECT_TRUE(convention->isVisible());
-    EXPECT_TRUE(convention->text().contains(QStringLiteral("lower-left (0, 0) m")));
+    EXPECT_TRUE(convention->text().contains(QStringLiteral("explicit calibrated origin (0, 0) m")));
     EXPECT_TRUE(convention->text().contains(QStringLiteral("+X")));
     EXPECT_TRUE(convention->text().contains(QStringLiteral("+Y")));
     EXPECT_TRUE(convention->text().contains(QStringLiteral("0 rad")));
@@ -830,3 +830,17 @@ TEST(CameraStreamControlTest, StatusObserverCanCancelStartBeforeBackendDispatch)
 }
 
 } // namespace
+
+TEST(DesktopIntegrationTest, ActivatingSignedFrameClearsOldPoseAndShowsSignedExtents)
+{
+    DesktopFixture f;
+    ASSERT_EQ(f.world.updatePose(RobotId{1}, {Meters{0.5},Meters{0.3},Radians{0}}, f.now + 1ms), PoseUpdateResult::Applied);
+    auto p = test::homographyInput().profile;
+    p.bounds = WorkspaceBounds{Meters{1}, Meters{0.6}, {Meters{-0.5}, Meters{-0.3}}};
+    p.homography = test::knownHomography();
+    f.controller.setWorkspaceCalibration(p);
+    EXPECT_FALSE(f.world.robot(RobotId{1})->pose);
+    ASSERT_TRUE(f.world.workspaceBounds());
+    EXPECT_DOUBLE_EQ(f.world.workspaceBounds()->minimum().x.value, -0.5);
+    EXPECT_TRUE(f.label("workspaceDescription")->text().contains("X [-0.5, 0.5] m"));
+}

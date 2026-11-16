@@ -4,6 +4,7 @@
 #include "world/Workspace.hpp"
 
 #include <map>
+#include <string>
 
 namespace micro_robot {
 
@@ -14,6 +15,7 @@ namespace micro_robot {
 struct WorldSnapshot {
     std::map<RobotId, RobotState> robots;
     std::optional<WorkspaceBounds> workspace; // Absent until measured/configured.
+    std::optional<std::string> workspaceFrameId; // Absent for dimensions-only configuration.
 };
 
 } // namespace micro_robot

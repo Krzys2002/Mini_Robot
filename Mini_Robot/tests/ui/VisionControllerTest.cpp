@@ -2,6 +2,7 @@
 #include "app/DesktopController.hpp"
 #include "ui/MainWindow.hpp"
 #include "ManualBackends.hpp"
+#include "../calibration/HomographyFixtures.hpp"
 
 #include <QApplication>
 #include <QElapsedTimer>
@@ -326,7 +327,7 @@ TEST(VisionTrackingIntegrationTest, DelayedCaptureMultipleRobotsEmptyFramesAndSh
     EXPECT_EQ(world.tracking(RobotId{1},now).age,600ms);
     EXPECT_EQ(world.tracking(RobotId{2},Timestamp{}+12s).status,TrackingStatus::Lost);
     f.vision->shutdown();
-    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Unknown);
 }
 TEST(VisionTrackingIntegrationTest, CalibrationReplacementAndCameraRestartFenceObsoleteResults)
 {
@@ -340,8 +341,13 @@ TEST(VisionTrackingIntegrationTest, CalibrationReplacementAndCameraRestartFenceO
     ASSERT_EQ(tracker.observe(RobotId{1},{Meters{.2},Meters{.3},Radians{0}},now+1s,now+1s),TrackerUpdate::Applied);
     f.vision->receiveFrame(trackingFrame(50,now+1100ms));
     ASSERT_TRUE(visionUntil([&]{return f.detector->calls==1;}));
-    now+=1200ms; f.vision->setWorkspaceCalibration({});
-    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    auto replacement=micro_robot::test::homographyInput().profile;
+    replacement.bounds=WorkspaceBounds{Meters{1},Meters{0.6},WorldPoint2D{Meters{-0.4},Meters{-0.2}}};
+    replacement.frameId="signed-origin-replacement";
+    now+=1200ms; f.vision->setWorkspaceCalibration(replacement);
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Unknown);
+    EXPECT_FALSE(world.robot(RobotId{1})->pose);
+    EXPECT_FALSE(world.robot(RobotId{1})->tracking);
     const auto invalidations=delivered;
     f.unblock(); ASSERT_TRUE(visionUntil([&]{return !f.vision->busy();}));
     EXPECT_EQ(delivered,invalidations);
@@ -350,7 +356,7 @@ TEST(VisionTrackingIntegrationTest, CalibrationReplacementAndCameraRestartFenceO
     ASSERT_TRUE(visionUntil([&]{return delivered>invalidations;}));
     EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Fresh);
     f.vision->setInput("camera-a",false);
-    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Unknown);
     f.vision->setInput("camera-b",true); now+=100ms;
     auto before=delivered;
     f.vision->receiveFrame(trackingFrame(1,now));
@@ -358,7 +364,7 @@ TEST(VisionTrackingIntegrationTest, CalibrationReplacementAndCameraRestartFenceO
     EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Fresh);
     EXPECT_EQ(world.robot(RobotId{1})->poseUpdatedAt,now);
     f.vision->shutdown();
-    EXPECT_EQ(world.tracking(RobotId{2},now).status,TrackingStatus::Lost);
+    EXPECT_EQ(world.tracking(RobotId{2},now).status,TrackingStatus::Unknown);
 }
 }
 
@@ -391,8 +397,8 @@ TEST(VisionTrackingIntegrationTest, ShutdownInvalidatesImmediatelyWhileDetection
     f.vision->receiveFrame(trackingFrame(1,now));
     ASSERT_TRUE(visionUntil([&]{return f.detector->calls==1;}));
     f.vision->shutdown();
-    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Unknown);
     f.unblock(); ASSERT_TRUE(visionUntil([&]{return !f.vision->busy();}));
-    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Lost);
+    EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Unknown);
     EXPECT_FALSE(world.robot(RobotId{2}));
 }
