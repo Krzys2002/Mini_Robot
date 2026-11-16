@@ -9,6 +9,32 @@ bounded, rate-limited log. The v1 frames are unchanged, and no field or counter 
 them. HIL and powered checks remain with [#166](https://github.com/Krzys2002/Mini_Robot/issues/166)
 and [#238](https://github.com/Krzys2002/Mini_Robot/issues/238).
 
+## Review status (2026-11-16)
+
+The [latest PR #283 follow-up](https://github.com/Krzys2002/Mini_Robot/pull/283#issuecomment-6923061596)
+distinguishes completed code corrections from evidence still required:
+
+| Item | Status |
+| --- | --- |
+| Mandatory telemetry task startup | Corrected and host-tested: failure inhibits motion with `TelemetryTaskStartFailed`; no reliance on a desktop silence timer |
+| Early spacing and write-burst scheduling | Corrected and host-tested: ≥ 20 ms frame spacing, 99 ms periodic eligibility, millisecond checks and due frames after ordinary write results |
+| Session-security integration | Hooks and restricted-lab pass-through implemented and host-tested; the mock is unauthenticated and unencrypted, not cryptographic validation |
+| B10 corrected-image bench evidence | **Pending:** rerun burst/stress cases on the corrected C6 image against 100 ± 2 ms and spacing ≥ 20 ms; previous 10.6–14.0 ms deviations remain unresolved evidence |
+| B3 supervisor lateness | **Open:** investigate the 2.09 ms observation against ≤ 2 ms and perform a long idle rerun |
+| Timing-budget approval | **Pending:** #156/PR #276 retains its proposed bounds; no relaxation is approved |
+
+Acceptance criterion 2 (within the #156 timing budget) remains unresolved. Host models
+cannot close either hardware finding. If any bound changes, explicit #156/#276
+approval and recalculation of affected guarantees and desktop freshness assumptions are
+required. Physical/electrical stopping is not established, and these checks do not
+authorize powered motor tests.
+
+The approved [F1 decision in PR #274](https://github.com/Krzys2002/Mini_Robot/pull/274#issuecomment-6922939151)
+and its policy text are included in this branch. Desktop companion
+[PR #287](https://github.com/Krzys2002/Mini_Robot/pull/287) remains an integration dependency.
+One accepted application-controller connection per robot is not authentication;
+the second-independent-central hardware test remains unverified.
+
 ## What the robot publishes
 
 **Robot Info** carries firmware version **0.1.0** (`ble::kRobotInfoFirmwareVersion`). It is
@@ -76,16 +102,17 @@ flowchart LR
   priority-5 task can then neither run nor get its event ahead of the queued writes. So every
   ordinary Command write callback also publishes a due periodic or state-change frame, after
   that write's CommandResult is queued. The session's first frame stays on the task's check.
-- Every check uses the approved B10 values on the robot clock (#283 review). Earlier versions
+- Every check uses the unchanged proposed B10 values on the robot clock (#283 review). Earlier versions
   allowed half a tick, which admitted a state change after 17.5 ms and a periodic frame after
   97.5 ms. With one check per millisecond, frames can be at any phase, including frames sent
   from a write. The bounds:
   - no two frames are ever less than 20 ms apart, so at most 50 frames per second, inside
     B10's 60, across sessions too;
-  - a periodic frame becomes eligible at 99 ms, and the next check or write comes at most one
-    millisecond plus the 2 ms scheduling lateness later. Every periodic gap is therefore within
-    99–102 ms, inside 100 ± 2 ms, whatever the phase of the previous frame. During a burst,
-    the next write comes within one callback;
+  - in the host model, a periodic frame becomes eligible at 99 ms, and the next check or
+    write comes at most one millisecond plus the assumed 2 ms scheduling lateness later.
+    Every modeled periodic gap is therefore within 99–102 ms, inside 100 ± 2 ms,
+    whatever the phase of the previous frame. During a modeled burst, the next write
+    comes within one callback. Corrected-image bench conformance is still pending;
   - a state change goes out at the first check or write at least 20 ms after the previous
     frame: at most 20 ms plus one check and the lateness after that frame.
 
@@ -133,7 +160,7 @@ flowchart LR
 | Situation | Behaviour |
 | --- | --- |
 | The stack cannot queue a Telemetry notification | Dropped and counted (`notify_failures`); the session continues; its sequence is spent |
-| Repeated failures | A failed attempt counts for the spacing: a state change is tried again after 20 ms, a periodic frame after 100 ms. At most 57 attempts per second, no queue, no burst |
+| Repeated failures | A failed attempt counts for the spacing: a state change is eligible again after 20 ms, a periodic frame after 99 ms. At most 50 attempts per second, no queue, no burst |
 | A CommandResult cannot be queued | Unchanged #156 policy: the session ends as for Stop and the link is terminated |
 | The host is busy (write burst) | Ticks coalesce in the one pending event; the next frame carries the newest state |
 | A value equals its sentinel | Not sent and counted (`encode_failures`); no sequence is spent |
@@ -276,8 +303,9 @@ measured, and the only accepted Velocity was 0 mm/s, 0 mrad/s.
    and 50 cycles. Applied to the same logs, the committed script's every-window B10 check fails
    C14 in all four runs (see the open finding below).
 
-   **HEAD image** (`firmware.bin` `66951b47…`, ELF `c5afd4c7…`, built from the final code of this branch;
-   it differs from the image above only by comment edits), with the committed script and 20
+   **Pre-review bench image** (`firmware.bin` `66951b47…`, ELF `c5afd4c7…`, before the
+   subsequent startup, security-hook and scheduler corrections; it differs from the
+   image above only by comment edits), with the committed script and 20
    cycles: **71/73**. Its unprovisioned boot was again `start=faulted`
    (`ConfigurationUnavailable`), `robot_id=none`. The two failures:
    - C14 B10 every window: 11.97 ms in the burst window, the open finding below;
@@ -319,9 +347,11 @@ all five full runs, and run 5 had two such windows:
 - **Cause.** The telemetry task runs at priority 5 (B18) and is preempted while `nimble_host`
   (21) works through a burst of queued writes. Its own step took up to 14.5 ms, so the tick
   was late before it was posted.
-- **Bound.** The values are within the 19.2 ms that #156 derives for the host draining its 24
-  inbound buffers (`kRobotStackQueueAllowance`). Host-side gaps stayed ≤ 0.121 s, so the
-  desktop silence rule was never at risk.
+- **Context, not conformance.** The values are within the 19.2 ms that #156 derives for
+  the host draining its 24 inbound buffers (`kRobotStackQueueAllowance`), and host-side
+  gaps stayed ≤ 0.121 s. Neither fact satisfies the independent B10 deviation bound.
+  The desktop's proposed silence response is not a substitute for robot-side timing
+  conformance or a proven implemented safeguard.
 - **Fix (#283 review), host-tested only.** Ordinary write callbacks publish a due frame after
   their result, and the telemetry task checks every millisecond (see
   [Schedule](#schedule-156-b10)). A first version that kept 5 ms checks was withdrawn: a frame
@@ -339,6 +369,9 @@ did. Every later run kept the console alive throughout, including after 30 s wit
 
 **NOT RUN.** These belong to #166 and #238:
 
+- corrected-image burst/stress reruns for B10 (100 ± 2 ms and spacing ≥ 20 ms);
+- B3 root-cause investigation and a long idle rerun against ≤ 2 ms;
+- second-independent-central hardware validation (AT-03, also owned by #165);
 - battery against a reference meter;
 - a battery sensor failing on a powered board;
 - powered and motor-connected checks;
