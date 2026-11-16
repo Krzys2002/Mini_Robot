@@ -34,8 +34,9 @@ in the #157 issue body). This profile:
 The conflict between "v1 is intentionally unpaired" and "controller security is
 required" is resolved as follows: in this profile **no radio-level or
 protocol-level controller authorization exists**. The only enforceable control
-is *session exclusivity* (one connected central at a time) plus physical and
-procedural supervision. `robotId`, the advertised name, BLE addresses, macOS
+is *session exclusivity* (one accepted application-controller connection per
+robot, as recorded in F1) plus physical and procedural supervision. `robotId`,
+the advertised name, BLE addresses, macOS
 peripheral UUIDs and sequence counters are identifiers, not authentication.
 
 Any later secure profile needs a separate compatibility decision, a new protocol
@@ -126,8 +127,8 @@ O = operating rule in [section 4](#4-operating-restrictions)). Test IDs refer to
 
 | ID | Threat | v1 effect | Restricted-lab mitigation | Residual risk | Tests |
 | --- | --- | --- | --- | --- | --- |
-| TM-01 | Unauthorized central connects while the robot advertises (no session) | Full control: Velocity, Stop, E-stop, ClearEmergencyStop | O1–O4 (supervision, powered only when needed, keep the operator session connected); F1, F2 (only the single session may command) | Any central that connects first controls the robot (R1) | AT-01, AT-02 |
-| TM-02 | Second central during an active session | Cannot discover or connect: the robot stops advertising and accepts one connection | F1 enforces one link and no advertising while connected | None beyond TM-08 (forced disconnect, then reconnect race) | AT-03 |
+| TM-01 | Unauthorized central connects while the robot advertises (no session) | Full control: Velocity, Stop, E-stop, ClearEmergencyStop | O1–O4 (supervision, powered only when needed, keep the operator session connected); F1, F2 (only the owner's ready session may submit motion/Clear; any connected central's dedicated E-stop still latches) | Any central that connects first controls the robot (R1) | AT-01, AT-02 |
+| TM-02 | Second central during an active session | Advertising is off; a transient additional physical link may still be reported by the stack | F1 permits only one application owner, promptly terminates newcomers and ignores their ordinary commands and CCCD changes; their dedicated E-stop still latches | A non-owner may stop the robot through the deliberately permissive dedicated E-stop path; forced-disconnect/reconnect race remains TM-08 | AT-03 |
 | TM-03 | Spoofed robot (impostor advertises the service UUID, `MR-<id>` and the same Robot Info `robotId`) | Desktop may connect to the impostor; the operator's commands and E-stop do not reach the real robot | D: duplicate advertisers in one scan are reported as ambiguous and refused; O6 (physical power cut is the authoritative stop). O5's watched wheel-motion check applies only under the powered bench gates and is not a demonstrated mitigation | Undetectable if the real robot is off, out of range or silent (R3) | AT-09 |
 | TM-04 | Spoofed controller identity | Not applicable: v1 has no controller identity, every central is equivalent | Same as TM-01 | Same as R1 | AT-01 |
 | TM-05 | Passive observation | All frames, `robotId`, limits, telemetry and battery values are readable in clear | F7: no secrets are ever sent over v1; nothing sent is confidential | Traffic analysis and recording (R4) | AT-11 |
@@ -192,55 +193,67 @@ and test them in `Mini_Robot/firmware/codecell-c6/`. The connection-only
 [`ble-lifecycle` fixture](../../firmware/ble-lifecycle/README.md) is not changed
 by this profile and does not implement it.
 
-- **F1 Session exclusivity.** Configure the BLE host for at most one connection
-  (`CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1`): the pinned NimBLE-Arduino 2.3.6
-  defaults to 3 in
-  [nimconfig.h](https://github.com/h2zero/NimBLE-Arduino/blob/2.3.6/src/nimconfig.h),
-  so relying on the library default is not compliant. Stop advertising while
-  connected and restart it only after the disconnect is fully processed. If the
-  stack ever reports a second connection, disconnect the newcomer without
-  reading or applying its writes. A peripheral that is not advertising cannot
-  receive a new connection, so this is what prevents an active session from
-  being taken over.
+- **F1 One accepted application connection per robot.** The maintainer
+  [approved this amendment on 2026-11-16](https://github.com/Krzys2002/Mini_Robot/pull/274#issuecomment-6922939151),
+  replacing the original mandatory stack limit of one. The first accepted central
+  holds the robot's only application session. No observer connection, secondary
+  application session or concurrent command owner is supported. This is a
+  **per-robot** limit: one desktop may connect to several different robots.
 
-  **Proposed F1 amendment (2026-11-16, pending maintainer review on this PR).**
-  #163 found that the stack limit of one cannot be configured on the pinned
-  toolchain. The prebuilt Arduino-ESP32 3.3.7 libraries fix
-  `CONFIG_BT_NIMBLE_MAX_CONNECTIONS` at 3, and NimBLE-Arduino reads that header,
-  so a build flag has no effect. Meeting F1 literally would need a custom sdkconfig
-  and a rebuilt framework. The proposed amendment replaces the stack limit with
-  this application rule:
-  - the stack may hold up to three links, and the boot log states both values
-    (`accepted_centrals=1 stack_max_connections=3`);
-  - the robot accepts exactly one owning central;
-  - any other link the stack reports is terminated from its connect callback,
-    and its writes and CCCD changes are never applied;
-  - advertising stays off while the owner is connected;
-  - AT-03 remains the acceptance test, with a second independent central on the
-    bench and a host fake that injects a second connection.
+  The pinned stack may retain its compiled capacity of three physical links.
+  NimBLE-Arduino 2.3.6 defaults to 3 in
+  [nimconfig.h](https://github.com/h2zero/NimBLE-Arduino/blob/2.3.6/src/nimconfig.h);
+  #163 found that the prebuilt Arduino-ESP32 3.3.7 libraries fix
+  `CONFIG_BT_NIMBLE_MAX_CONNECTIONS` at 3, so a build flag has no effect.
+  This capacity is an implementation detail, not permission for three usable
+  application connections. The boot log states both values
+  (`accepted_centrals=1 stack_max_connections=3`).
 
-  Until the maintainer accepts this amendment, the production image does not meet
-  F1 literally, and no document may claim it does on the strength of the
-  application gate.
+  - Advertising stays disabled while the owning connection exists, including
+    while it is unready, and resumes only after its actual disconnect is processed.
+  - Any additional link reported by the stack is promptly terminated. Its ordinary
+    Command writes (including motion and ClearEmergencyStop) and CCCD changes have
+    no effect; it never becomes ready, changes the owner's subscriptions or takes
+    ownership. Its disconnect does not end the owner's session.
+  - **Exception:** a write to the dedicated Emergency Stop characteristic from
+    **any connected central**, including a rejected newcomer, still latches
+    immediately before parsing, queueing or authorization checks (F4).
+  - Owner disconnect or readiness loss invalidates pending intent and session
+    state and stops motion (F2/F3), without transferring ownership or auto-resuming.
+    CCCD disable leaves the owner connected and unready; re-enabling both CCCDs
+    requires a fresh ready session on that link before new motion. Only actual
+    owner disconnect releases the connection for a different central.
+
+  AT-03 requires both a host fake and a second independent central. The hardware
+  test remains outstanding: this policy approval is not a test pass, approval of
+  the entire PR or dismissal of its existing review. It does not approve
+  authentication/encryption claims, powered tests, public/unattended operation or
+  unresolved timing deviations. The F12 mock remains unauthenticated and
+  unencrypted, with desktop dependency PR #287. Additional application/observer
+  connections require a separate reviewed policy change.
 - **F2 Session-bound intent.** Motion and ClearEmergencyStop are processed only
   from the current, ready session (both CCCDs enabled, as specified in
   [BLE session establishment](ble-gatt.md#session-establishment)). Sequence state,
   `lastAccepted`, pending Velocity, deadlines and queued frames belong to that
   session and are discarded when it ends. No frame received before a session
   started can act after it.
-- **F3 Disconnect and readiness loss stop.** Any disconnect, and any loss of
-  readiness (either CCCD disabled), stops motion as for Stop, keeps the RAM E-stop
-  latch, and never resumes motion automatically. Readiness loss ends the session
+- **F3 Disconnect and readiness loss stop.** Owner disconnect, and any loss of
+  owner readiness (either CCCD disabled), stops motion as for Stop, keeps the
+  RAM E-stop latch, and never resumes motion automatically. Readiness loss ends the session
   (F2): its sequence state, pending Velocity, deadline and any ClearEmergencyStop
   in flight are discarded. The link stays connected and unready, and the robot does
-  not advertise (F1). Only an actual disconnect restarts advertising. Re-enabling
+  not advertise (F1). Only actual owner disconnect restarts advertising. Re-enabling
   both CCCDs opens a new session on the same link. Nothing moves until that
-  session sends a fresh Velocity.
+  session sends a fresh Velocity. Readiness loss does not release ownership for
+  another central; only the owning connection's actual disconnect does.
 - **F4 Prompt and permissive E-stop.** Any write to the Emergency Stop
-  characteristic, from the connected central, latches before parsing, before
-  queueing, and before any session, readiness, sequence or authorization check.
+  characteristic, from any connected central including a rejected non-owner,
+  latches before parsing, before queueing, and before any session, readiness,
+  sequence or authorization check.
   No future authorization code may be placed on this path. E-stop is also
-  honoured before readiness. Clear and motion are the only gated operations.
+  honoured before readiness. Within the owning connection, Clear and motion are
+  the only operations gated by readiness/authorization; F1 separately prohibits
+  non-owner ordinary commands, without blocking their dedicated E-stop.
 - **F5 Bounded input.** Writes are copied into bounded storage; overload follows
   the #156 policy (for example, reject or disconnect), never unbounded buffering
   and never blocking the E-stop path or the watchdog.
@@ -409,7 +422,7 @@ firmware. Expected results are the acceptance criteria for those issues.
 | --- | --- | --- | --- |
 | AT-01 | Unauthorized central connects to an advertising robot and sends Velocity | HIL | Accepted (documents R1). Boot log/diagnostics show `restricted-lab-v1`; no document or UI calls the session authenticated. |
 | AT-02 | Central connects but does not enable both CCCDs, then sends Velocity and ClearEmergencyStop | Host + HIL | Velocity ignored without motion or result; robot stays latched if latched; E-stop still latches |
-| AT-03 | Second central scans and tries to connect while the operator session is active | HIL | Robot not visible in scans; no second connection; operator session unaffected. A fake that injects a second connection callback must see it dropped without applying writes. |
+| AT-03 | Second independent central scans and tries to connect while the operator owns the connection; a host fake also injects an additional physical link and callbacks before termination, including while the owner is CCCD-unready | Host + HIL | Advertising stays off. A transient additional physical link may be reported but is promptly terminated; no second usable application session or owner ever exists. Its ordinary Command writes, including Velocity and ClearEmergencyStop, have no effect; its CCCD changes cannot change the owner's subscriptions; it cannot become ready or take ownership, even when the owner loses readiness. Its disconnect leaves the owner's session intact. Exception: its dedicated E-stop write still latches immediately before parsing, queueing or authorization; motion stops and the latch cannot be cleared by the newcomer. Second-independent-central hardware validation remains outstanding. |
 | AT-04 | Replay a recorded Velocity frame (and a ClearEmergencyStop) from a new session | Host + HIL | Accepted as the session's first frame (documents R1/R2); motion ends at `validForMs` ≤ `maxCommandValidityMs`; nothing from the recorded session's state carries over |
 | AT-05 | Replay an older/equal sequence inside one session | Host | Velocity/Clear rejected `StaleSequence`; Stop accepted |
 | AT-06a | Force the operator disconnect during motion, with no E-stop latched, then connect a different central first | HIL | Robot stops on disconnect, no auto-resume, no latch created; the operator desktop reports failure. The new ready session moves with a fresh Velocity and needs no Clear (documents R2). |

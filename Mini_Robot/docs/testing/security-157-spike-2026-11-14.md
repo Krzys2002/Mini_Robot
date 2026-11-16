@@ -51,8 +51,16 @@ logs. They are not secrets, but they are omitted here.
 - **Connection-count default.** NimBLE-Arduino 2.3.6 defaults to three
   connections (`CONFIG_BT_NIMBLE_MAX_CONNECTIONS` in
   [nimconfig.h](https://github.com/h2zero/NimBLE-Arduino/blob/2.3.6/src/nimconfig.h)).
-  Session exclusivity currently relies on advertising stopping. Profile rule F1
-  therefore requires an explicit limit of one connection in production.
+  The fixture stops advertising while connected; this spike did not test
+  additional-link rejection. The maintainer's
+  [2026-11-16 F1 decision](../protocol/security-profile.md#5-enforceable-firmware-rules)
+  allows the compiled capacity of three physical links but requires exactly one
+  accepted application-controller connection per robot in production, no
+  advertising while its owner remains connected, and prompt termination of any
+  additional link. Non-owner ordinary commands and CCCD changes have no effect;
+  the exception is a dedicated E-stop write from any connected central, which
+  still latches immediately. The decision is policy, not a hardware test pass;
+  the second-independent-central test (AT-03) remains outstanding.
 - **Provisioning has no access control beyond USB custody**, as profile O8 and
   R7 assume.
 - No result here shows MITM-resistant pairing. As the profile states, the

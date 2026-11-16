@@ -75,9 +75,11 @@ flowchart LR
 
 - Any write of any length or content latches the robot into `EmergencyStop`
   immediately. This includes zero-length writes, malformed frames, and
-  unsupported versions.
+  unsupported versions, from **any connected central**, including a rejected
+  non-owner awaiting termination. This dedicated path bypasses the ordinary
+  non-owner write prohibition.
 - This is a deliberately permissive safety path. Parsing must never prevent a
-  stop.
+  stop; latching precedes parsing, queueing, readiness and authorization checks.
 - The robot then answers on Command Result:
   - for a well-formed version 1 EmergencyStop frame: `commandType = 0x03`,
     the frame's sequence, and `Accepted`;
@@ -86,8 +88,9 @@ flowchart LR
 - The desktop should always write a well-formed EmergencyStop frame, normally with
   Write With Response. It must use this characteristic, not Command, for E-stop,
   so that the request does not depend on the Command queue or parser.
-- An EmergencyStop frame received on Command is also honoured. This is redundant
-  and must not be relied on.
+- An EmergencyStop frame received on Command from the owning connection is also
+  honoured. This is redundant and must not be relied on; the non-owner exception
+  applies only to the dedicated Emergency Stop characteristic.
 
 ## Advertising and discovery
 
@@ -102,8 +105,15 @@ flowchart LR
   from the `RobotId` that was requested.
 - If two advertisers claim the same `robotId` name during one scan, the adapter
   should report the ambiguity rather than choose one.
-- The robot accepts one connection at a time. It stops advertising while it is
-  connected.
+- The robot accepts exactly one application-controller connection per robot;
+  one desktop may connect to several different robots. Under the approved
+  [F1 decision](security-profile.md#5-enforceable-firmware-rules), the stack may
+  retain capacity for three physical links, but any additional link is promptly
+  terminated and never becomes ready or takes ownership. Its ordinary commands
+  and CCCD changes have no effect on the owner's session; its dedicated E-stop
+  still latches. No observer or secondary application connection is supported.
+  Advertising stays off while the owner is connected, even when unready, and
+  resumes only after the owning connection's actual disconnect is processed.
 
 ## Session establishment
 
@@ -124,18 +134,25 @@ Any failure in steps 1–5 ends the connection attempt. The adapter reports a
 problems), publishes `Fault` or `Disconnected` as defined by the
 [transport contract](../overview/transport.md), and disconnects.
 
-The robot treats a session as **ready** only while both CCCDs are enabled. Before
-ready, it ignores Velocity frames without moving and without a result, because
-no notification channel exists to report one. Stop and EmergencyStop still take
-effect. If notifications are disabled later, the robot stops as for Stop and
-leaves the ready state.
+The robot treats the owner's session as **ready** only while both CCCDs are
+enabled. Before ready, it ignores Velocity and ClearEmergencyStop frames without
+moving, clearing the latch or sending a result, because no notification channel
+exists to report one. Stop from the owner and dedicated Emergency Stop from any
+connected central still take effect. If either CCCD is disabled later, the robot
+stops as for Stop, keeps any E-stop latch and discards pending motion/Clear intent,
+sequence state and security session state. The owning link remains connected and
+unready, without advertising or transferring ownership. Re-enabling both CCCDs
+starts a fresh ready session on that link; new motion requires a fresh Velocity
+and never resumes automatically. Only actual owner disconnect frees ownership
+for another central.
 
 ## Session safety
 
 | Event | Robot behaviour | Desktop behaviour |
 | --- | --- | --- |
 | Velocity expires (watchdog) | Stop, `Idle`, set `commandExpired`, telemetry now | Observe the flag. Do not resend stale intent. |
-| BLE disconnect, any cause, including supervision timeout | Stop immediately, keep any E-stop latch, reset sequence state, resume advertising | Publish the disconnect. Drop queued commands. The safety layer decides recovery. |
+| Owner BLE disconnect, any cause, including supervision timeout | Stop immediately, keep any E-stop latch, discard pending intent and session state, release ownership and resume advertising | Publish the disconnect. Drop queued commands. The safety layer decides recovery. |
+| Owner disables either CCCD | Stop, keep any E-stop latch, discard pending intent and session state; stay connected/unready with no advertising or ownership transfer | Treat readiness as lost. A fresh ready session and fresh intent are required; never auto-resume. |
 | Telemetry silent for 3 × `telemetryPeriodMs` | — | Treat the link as stale and hand over to the safety layer ([#70](https://github.com/Krzys2002/Mini_Robot/issues/70)) |
 | E-stop requested by the operator | Latch on any write to Emergency Stop | Write it immediately, outside any task or control queue. Retry until confirmed or disconnected. |
 | E-stop clear requested by the operator | Release the latch only via ClearEmergencyStop | Send only on an explicit operator action, never automatically after a reconnect |
@@ -169,7 +186,7 @@ lost link.
 ESP32-C6 firmware:
 
 - [ ] GATT layout, properties, and CCCDs as in the table, with robotId from non-volatile storage.
-- [ ] Advertising with the service UUID and `MR-<robotId>` scan response; one connection at a time.
+- [ ] Advertising with the service UUID and `MR-<robotId>` scan response; one accepted application-controller connection per robot, additional links promptly terminated without ordinary command/CCCD effects (dedicated E-stop still latches).
 - [ ] Frame validation order, result codes, and one CommandResult per received frame.
 - [ ] Sequence rules, ready-state gating, and Velocity deadline from receipt time.
 - [ ] Emergency Stop latch on any write; stop on expiry, disconnect, or CCCD disable.

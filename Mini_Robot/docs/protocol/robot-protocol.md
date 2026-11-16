@@ -36,6 +36,12 @@ Key words: **must**/**must not** are mandatory for a conforming implementation;
 - Frames do not repeat `robotId`: a session is point-to-point, so every frame on
   it belongs to the identified robot. A future multi-robot gateway (for example
   Zigbee) must add its own addressing outside these frames.
+- Each robot permits one accepted application-controller connection, not observer
+  or secondary application sessions. The BLE stack's physical-link capacity does
+  not change that limit: non-owner ordinary commands and subscription changes have
+  no effect, but any connected central's dedicated E-stop write still latches
+  ([F1](security-profile.md#5-enforceable-firmware-rules)). One desktop may connect
+  to several different robots.
 
 ## Encoding rules
 
@@ -329,7 +335,9 @@ firmware build settings, not as literals scattered through modules.
   disables outputs, latches, and sends a CommandResult and then telemetry
   showing `EmergencyStop`.
 - The robot accepts the message on the dedicated Emergency Stop path regardless of
-  sequence, validity, robot state, or planner activity on the desktop. On that
+  connection ownership, readiness, sequence, validity, robot state, authorization
+  or planner activity on the desktop. This includes a rejected non-owner awaiting
+  termination, whose ordinary Command writes have no effect. On that
   path even an unparsable payload latches the robot (see [BLE GATT](ble-gatt.md#emergency-stop-characteristic)).
 - While latched, the robot rejects Velocity with `EmergencyStopLatched`. Stop is
   accepted with no effect, and EmergencyStop is accepted again. Only
