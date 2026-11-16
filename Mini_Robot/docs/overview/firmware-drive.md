@@ -167,7 +167,7 @@ for it.
   [#166](https://github.com/Krzys2002/Mini_Robot/issues/166).
 - Calibrated wheel speed, deadband and rates: [#167](https://github.com/Krzys2002/Mini_Robot/issues/167).
 - Wheel feedback control: none. The board has no wheel encoders (#154).
-- Commands reach the drive only once the BLE peripheral exists ([#163](https://github.com/Krzys2002/Mini_Robot/issues/163)).
+- Commands reach the drive only through the v1 [BLE peripheral](firmware-ble.md) (#163).
   Watchdog, E-stop and fault recovery: [safety enforcement](firmware-safety.md) (#162).
 
 ## Verification

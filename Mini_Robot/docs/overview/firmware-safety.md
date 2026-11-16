@@ -96,8 +96,9 @@ physical timing are not covered here.
 ## Sessions
 
 `IMotionCommandSink::openSession()` returns a `SessionToken`. Velocity and
-ClearEmergencyStop carry it, and only the current token is admitted. The BLE adapter
-(#163) drives the lifecycle through `protocol::v1::CommandSession`:
+ClearEmergencyStop carry it, and only the current token is admitted. The
+[BLE peripheral](firmware-ble.md#session-lifecycle) (#163) drives the lifecycle through
+`protocol::v1::CommandSession`:
 
 - `open()` restarts the sequence counters and calls `openSession()`. A second `open()`
   is a **replacement**: the previous session ends as for Stop, and its token is never
@@ -176,7 +177,8 @@ desktop still has to discard its own queue (v1 session rules).
   erases stall the whole single-core chip for longer than 50 ms, and maintenance
   refuses motion until reset anyway. The supervisor unsubscribes itself on its next
   step, so no feed races the removal. Any future flash user while motion is possible,
-  such as BLE bonding (#163/#165), must keep within the watchdog timeout.
+  such as BLE bonding (#165), must keep within the watchdog timeout. The #163 peripheral
+  stores no bonds, so BLE writes no flash.
 
 ## Reset, brownout and boot
 
@@ -272,7 +274,8 @@ observable without instruments and remain NOT RUN.
 
 ## Not in this issue
 
-- The GATT server, CCCD callbacks and advertising that call `open()` and `end()`: #163.
+- The GATT server, CCCD callbacks and advertising that call `open()` and `end()`: the
+  [BLE peripheral](firmware-ble.md) (#163).
 - Telemetry publication and scheduling, and the reset or fault reason in telemetry: #164.
 - Security and authorization of the controller: #165.
 - Any persistent E-stop or recovery beyond v1.

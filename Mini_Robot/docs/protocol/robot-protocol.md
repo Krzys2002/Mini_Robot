@@ -5,8 +5,8 @@ The desktop [BLE lifecycle](../overview/ble-connection.md) validates Robot Info
 and establishes GATT readiness. Desktop [message handling](../overview/ble-messages.md)
 implements frame encoding/decoding and writes. The portable ESP32-C6
 [codec and command validation](../overview/firmware-protocol.md) (#161) implements
-the robot side of these rules but is not yet linked to a BLE peripheral (#163);
-physical command-delivery acceptance remains outstanding. The BLE carriage of
+the robot side of these rules, and the [C6 BLE peripheral](../overview/firmware-ble.md)
+(#163) carries them; powered and desktop command-delivery acceptance remains outstanding. The BLE carriage of
 these frames is defined in [BLE GATT contract](ble-gatt.md).
 
 This document defines the bytes exchanged between the desktop and one robot. It

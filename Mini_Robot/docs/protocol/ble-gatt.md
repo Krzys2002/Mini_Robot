@@ -6,7 +6,8 @@ identity/service validation and notification setup. Desktop
 [message handling](../overview/ble-messages.md) implements command writes and
 validated notifications; physical command delivery remains unverified. The portable
 firmware [codec and command validation](../overview/firmware-protocol.md) (#161) is
-not yet attached to a GATT server (#163). A connection-only
+served by the [C6 BLE peripheral](../overview/firmware-ble.md) (#163), under the
+restricted-lab v1 profile (#157); telemetry publication is #164. A connection-only
 [CodeCell bench fixture](../../firmware/ble-lifecycle/README.md) supports #187;
 it does not implement the command/safety protocol below.
 
@@ -171,12 +172,14 @@ lost link.
   and macOS manages its own parameters. Safety must not depend on these values.
 - All version 1 payloads fit the default 23-byte ATT MTU. A larger negotiated MTU
   is allowed, but it must not be used to send concatenated or longer frames.
-- Version 1 uses no pairing or encryption. Any central in radio range can
-  connect while the robot advertises. Version 1 may be operated only under the
-  [restricted-lab security profile](security-profile.md), which lists the
-  operating restrictions, firmware rules and accepted residual risks. `robotId`,
-  advertised names and sequence numbers are not authentication. A secure profile
-  requires a separate compatibility decision and protocol/GATT change.
+- Version 1 requires no pairing and guarantees no encryption. Any central in
+  radio range can connect while the robot advertises. Its use is restricted by the
+  [restricted-lab security profile](security-profile.md), merged in PR #274.
+  Desktop companion [PR #287](https://github.com/Krzys2002/Mini_Robot/pull/287)
+  remains an integration dependency. Session exclusivity,
+  identifiers and successful pass-through security hooks are not authentication.
+  The restricted-lab mock is unauthenticated and unencrypted; a real secure profile
+  requires a coordinated compatibility/version decision.
 - Desktop and firmware run version 1 behind session-security extension points
   ([F12](security-profile.md#5-enforceable-firmware-rules)). The only implementation is
   a restricted-lab pass-through: it changes no byte of these frames, and it reports
@@ -184,17 +187,20 @@ lost link.
 
 ## Implementation checklist
 
-ESP32-C6 firmware (the frame validation order, result codes, sequence rules and
-E-stop latch-on-any-write logic exist as portable, host-tested code in the
-[v1 codec](../overview/firmware-protocol.md), #161; the items stay open until the
-GATT server uses them, #163):
+ESP32-C6 firmware ([v1 codec](../overview/firmware-protocol.md), #161;
+[BLE peripheral](../overview/firmware-ble.md), #163; host-tested and checked on a USB-only
+board, not powered or HIL-tested, #166/#238):
 
-- [ ] GATT layout, properties, and CCCDs as in the table, with robotId from non-volatile storage.
-- [ ] Advertising with the service UUID and `MR-<robotId>` scan response; one accepted application-controller connection per robot, additional links promptly terminated without ordinary command/CCCD effects (dedicated E-stop still latches).
-- [ ] Frame validation order, result codes, and one CommandResult per received frame.
-- [ ] Sequence rules, ready-state gating, and Velocity deadline from receipt time.
-- [ ] Emergency Stop latch on any write; stop on expiry, disconnect, or CCCD disable.
-- [ ] Telemetry every `telemetryPeriodMs` and immediately after a state change.
+- [x] GATT layout, properties, and CCCDs as in the table, with robotId from non-volatile storage.
+- [x] Advertising with the service UUID and `MR-<robotId>` scan response; one accepted
+  application-controller connection per robot, additional links promptly terminated
+  without ordinary command/CCCD effects (dedicated E-stop still latches). The stack
+  capacity is 3; [AT-03 hardware validation](../overview/firmware-ble.md#at-03-acceptance-and-evidence)
+  remains unverified.
+- [x] Frame validation order, result codes, and one CommandResult per received frame.
+- [x] Sequence rules, ready-state gating, and Velocity deadline from receipt time.
+- [x] Emergency Stop latch on any write; stop on expiry, disconnect, or CCCD disable.
+- [ ] Telemetry every `telemetryPeriodMs` and immediately after a state change (#164).
 
 Desktop BLE adapter ([#65](https://github.com/Krzys2002/Mini_Robot/issues/65),
 [#66](https://github.com/Krzys2002/Mini_Robot/issues/66)):

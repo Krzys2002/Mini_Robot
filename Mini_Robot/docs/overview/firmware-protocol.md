@@ -7,12 +7,11 @@ top of the [production runtime](firmware-runtime.md) (#158),
 [protocol version 1](../protocol/robot-protocol.md) (#64). The desktop side is
 [message handling](ble-messages.md) (#66).
 
-This is portable C++20 with no BLE, GATT, motor or clock calls. Nothing in the
-production image calls it yet. The BLE peripheral and session lifecycle that will is
-[#163](https://github.com/Krzys2002/Mini_Robot/issues/163), and telemetry publication
-is [#164](https://github.com/Krzys2002/Mini_Robot/issues/164). Host tests and a
-compile check show that the bytes and rules are right. They do not show radio
-delivery, interoperability over the air or physical stopping.
+This is portable C++20 with no BLE, GATT, motor or clock calls. The
+[BLE peripheral](firmware-ble.md) (#163) owns one `CommandSession` and feeds it every
+Command and Emergency Stop write; telemetry publication is
+[#164](https://github.com/Krzys2002/Mini_Robot/issues/164). Host tests and a compile check
+show that the bytes and rules are right. They do not show physical stopping.
 
 ## Files
 
@@ -102,8 +101,8 @@ reports it in the same precedence position for invalid frames (`isOpen()`).
 - Telemetry and CommandResult share one robot counter, which starts at 0 per
   session. `open()` and `end()` restart both counters (#162). `open()` also obtains the
   session token from the authority, and `end()` reports the end of the session, which
-  stops as for Stop ([sessions](firmware-safety.md#sessions)). The BLE adapter calls
-  them on CCCD and connection events (#163).
+  stops as for Stop ([sessions](firmware-safety.md#sessions)). The
+  [BLE peripheral](firmware-ble.md#session-lifecycle) calls them on CCCD and connection events (#163).
 
 ## Emergency Stop characteristic and JSON
 
@@ -138,7 +137,7 @@ moves the robot. No serial JSON mirror is implemented. The USB maintenance conso
 
 - GATT characteristics, CCCDs, detecting session readiness and calling `open()`/`end()`
   (Velocity ignored before both CCCDs are enabled), advertising and disconnect
-  handling: #163.
+  handling: the [BLE peripheral](firmware-ble.md) (#163).
 - Telemetry scheduling, battery and diagnostics content and the firmware version
   bytes: #164. Since #162, `telemetry()` takes `state` and `commandExpired` from the
   runtime status, so they always match the safety state.

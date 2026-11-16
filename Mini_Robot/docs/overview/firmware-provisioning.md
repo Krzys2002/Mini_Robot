@@ -7,7 +7,7 @@ Status: implemented by [#159](https://github.com/Krzys2002/Mini_Robot/issues/159
 identities relate to the desktop's AprilTag association. Nothing here establishes physical
 motion, stopping or calibration. The [bounded drive](firmware-drive.md) (#160) uses the
 calibrated actuator fields below. The Robot Info byte encoding is the
-[v1 codec](firmware-protocol.md) (#161), and its BLE publication and advertising are #163.
+[v1 codec](firmware-protocol.md) (#161), and the [BLE peripheral](firmware-ble.md) (#163) publishes it and advertises `MR-<robotId>`.
 
 ## What a robot stores
 
@@ -235,7 +235,7 @@ reviewed storage (NVS encryption). It must never be added to this record or prin
   advertised limits for Robot Info, and `advertisedName()` returns `MR-<robotId>`. Both come
   from the same boot record, so the identity a desktop reads cannot differ from the advertised
   one, nor from the enforced validity ceiling. An unprovisioned or invalid robot returns no
-  identity, and the BLE peripheral (#163) must not advertise in that case. Robot Info stays
+  identity, and the [BLE peripheral](firmware-ble.md) (#163) then does not start (`BLE start=unprovisioned`). Robot Info stays
   unchanged until the next restart.
 
 ## Verification
@@ -310,6 +310,6 @@ This shows the commanded state, persistence and console behaviour on one board o
 
 - a true power-supply interruption during a write (simulated on the host only);
 - distinct IDs on several robots (only one board is available; #168);
-- Robot Info and advertising on air (#163);
+- Robot Info and advertising on air: checked by #163 ([BLE peripheral](firmware-ble.md#verification));
 - electrical pin state (#238);
 - any powered or motor test.
