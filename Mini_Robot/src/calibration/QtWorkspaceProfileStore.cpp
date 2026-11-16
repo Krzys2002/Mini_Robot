@@ -114,8 +114,15 @@ std::string QtWorkspaceProfileStore::saveAcquisition(const WorkspaceCalibrationP
             QFile previous{name};
             if (!previous.open(QIODevice::ReadOnly)) return previous.errorString().toStdString();
             const auto bytes = previous.read(static_cast<qint64>(MaximumWorkspaceAcquisitionBytes)+1);
-            if (previous.error()!=QFileDevice::NoError || bytes!=QByteArray::fromStdString(text))
-                return "Immutable acquisition identity already contains different data. Generate a new snapshot identity.";
+            if (previous.error()!=QFileDevice::NoError)
+                return previous.errorString().toStdString();
+            if (bytes!=QByteArray::fromStdString(text)) {
+                // Legacy v1 sidecars have no elevation fields. Compare their
+                // validated canonical meaning, but never replace the evidence bytes.
+                const auto existing=parseWorkspaceAcquisition({bytes.constData(),static_cast<std::size_t>(bytes.size())});
+                if (!existing.record || serializeWorkspaceAcquisition(*existing.record)!=text)
+                    return "Immutable acquisition identity already contains different data. Generate a new snapshot identity.";
+            }
         } else {
             QSaveFile file{name}; file.setDirectWriteFallback(false);
             if (!file.open(QIODevice::WriteOnly)) return file.errorString().toStdString();

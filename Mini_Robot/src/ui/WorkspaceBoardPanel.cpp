@@ -167,6 +167,9 @@ WorkspaceBoardPanel::WorkspaceBoardPanel(WorkspaceCalibrationController& control
                        std::pair{&backingThickness_, "Backing thickness (m; blank = unknown)"},
                        std::pair{&elevationMethod_, "Elevation measurement method/provenance"}}) {
         *entry.first=new QLineEdit(settings_);
+        (*entry.first)->setObjectName(entry.first==&surface_ ? "workspaceBoardSurfaceElevation" :
+            entry.first==&boardThickness_ ? "workspaceBoardThickness" :
+            entry.first==&backingThickness_ ? "workspaceBoardBackingThickness" : "workspaceBoardElevationMethod");
         (*entry.first)->setMaxLength(static_cast<int>(MaximumWorkspacePlacementNoteBytes));
         grid->addWidget(new QLabel(entry.second,settings_),metadataRow,0);
         grid->addWidget(*entry.first,metadataRow++,1);
