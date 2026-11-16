@@ -270,8 +270,9 @@ by this profile and does not implement it.
 - **F10 Identifiable, reproducible profile.** The production build environment
   defines the profile identifier `restricted-lab-v1` in one place. The boot log
   and diagnostics print it with the firmware version. No secure profile exists,
-  so a build that selects any other identifier must fail; there is nothing to
-  fall back from or to. Platform and library versions are pinned (#155).
+  so a build that selects any other identifier must fail. Nothing falls back to the
+  pass-through either: F12's secure-required mode refuses it and fails closed.
+  Platform and library versions are pinned (#155).
 - **F11 Configuration failure is safe.** Missing, corrupt or out-of-version
   configuration cannot arm outputs and cannot change this profile (#159).
 - **F12 Security extension points (requested extension, [section 1.1](#11-requested-extension-security-extension-points-2026-11-16)).**
