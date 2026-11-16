@@ -153,7 +153,7 @@ ctest --test-dir build -LE hardware --output-on-failure --no-tests=error
 | Mock camera and robot transport | `FakeCameraTest`, `FakeCameraSourceFactoryTest`, `SimulationTransportTest`, `BackendSubstitutionTest`, interface probes; replay (`replay` label) with generated video |
 | Initialization | `DesktopIntegrationTest` (controller startup and shutdown with fake backends) and `DesktopStartup.StartsAndShutsDownCleanly` (the production executable) |
 | Platform adapters without devices | Offscreen UI tests; V4L2 tests on temporary device trees; macOS bundle permission check |
-| Firmware portable logic | `FirmwareClockTest`, `LatencyHistogramTest` and `TimingBudgetTest` (`core` label): the CodeCell C6 clock contract, the instrumentation histogram, and fake-clock stop timelines against the proposed [timing budgets](../protocol/timing-budgets.md). They compile from the independent [firmware host entry point](#firmware-build-and-host-tests) without embedded sources |
+| Firmware portable logic | `FirmwareClockTest`, `LatencyHistogramTest`, `TimingBudgetTest`, `RuntimeComponentsTest` and `FirmwareRuntimeTest` (`core` label): the CodeCell C6 clock contract, the instrumentation histogram, fake-clock stop timelines against the proposed [timing budgets](../protocol/timing-budgets.md), and the [production runtime](../overview/firmware-runtime.md) with fake clock, platform, drive and configuration (injected start-up failures, stale snapshots, stop/command races, mailbox floods). They compile from the independent [firmware host entry point](#firmware-build-and-host-tests) without embedded sources |
 
 The `core` configure preset turns off the desktop, replay, calibration, and marker
 targets, so CMake never looks for Qt or OpenCV:
@@ -184,7 +184,10 @@ ctest --test-dir build/firmware-host-c6 --output-on-failure --no-tests=error
 
 The host entry point needs only CMake, a C++20 compiler and GoogleTest; it never
 looks for PlatformIO, Arduino, Qt or OpenCV, and desktop presets never need
-PlatformIO. Run these when touching firmware contracts, pins or the firmware
+PlatformIO. The C6 build also runs the production image policy, which fails if
+Wi-Fi/AP/HTTP/OTA code is linked; its rule is tested with
+`python3 -m unittest discover -s .github/scripts/tests -p 'test_firmware_*.py'`.
+Run these when touching firmware contracts, pins or the firmware
 workflow. Physical upload, monitoring and recovery checks are tracked in
 [#240](https://github.com/Krzys2002/Mini_Robot/issues/240).
 

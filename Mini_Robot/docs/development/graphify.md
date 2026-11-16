@@ -116,7 +116,7 @@ rules exclude builds, dependencies, environments, IDE state, local agent files,
 generated output, GitHub automation/administration, plans, archives, evidence
 records, thesis reports and presentations. The code-only flag skips remaining
 media. The graph includes desktop code, the `Mini_Robot/firmware/codecell-c6/`
-firmware skeleton, the separate `Mini_Robot/firmware/ble-lifecycle/` fixture,
+production firmware, the separate `Mini_Robot/firmware/ble-lifecycle/` fixture,
 tests and maintained local tools.
 A `.h=cpp` override handles Arduino and fake headers. CAD, STL and other binary
 physical-design assets are not parsed. Do not bypass Git ignores to index local credentials/config.

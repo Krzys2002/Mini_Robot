@@ -32,8 +32,9 @@ and `core arhiteture.md` do not establish implemented functionality.
   than assuming `CMAKE_SOURCE_DIR` is the application directory.
 - Root builds place application artifacts under `build/<preset>/Mini_Robot/`;
   standalone builds place them under `Mini_Robot/build/<preset>/`.
-- Firmware lives under `Mini_Robot/firmware/`. `codecell-c6/` is the new C6
-  production build skeleton; `ble-lifecycle/` is a separate connection fixture.
+- Firmware lives under `Mini_Robot/firmware/`. `codecell-c6/` is the C6
+  production runtime (drive inhibited until #160, no BLE peripheral until #163);
+  `ble-lifecycle/` is a separate connection fixture.
   The outdated T1 projects and HTTP/browser controller have been retired.
   Never link embedded production sources into desktop targets. Firmware host
   tests compile portable headers/logic through an independent CMake entry point.

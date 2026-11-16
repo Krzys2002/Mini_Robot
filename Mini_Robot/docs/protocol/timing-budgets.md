@@ -13,7 +13,9 @@ Emergency Stop write, and one CommandResult per received frame while ready. It
 chooses the robot's advertised values within the v1 ranges. Implementation
 belongs to [#158](https://github.com/Krzys2002/Mini_Robot/issues/158) (runtime and
 scheduling), [#162](https://github.com/Krzys2002/Mini_Robot/issues/162)
-(watchdog, E-stop and faults) and #163/#164 (protocol and telemetry).
+(watchdog, E-stop and faults) and #163/#164 (protocol and telemetry). The #158
+tasks, priorities, periods, mailbox and start-up checks are described in
+[runtime and threading](../overview/firmware-runtime.md).
 Verification on the physical robot belongs to
 [#166](https://github.com/Krzys2002/Mini_Robot/issues/166), and powered physical
 checks to [#238](https://github.com/Krzys2002/Mini_Robot/issues/238).

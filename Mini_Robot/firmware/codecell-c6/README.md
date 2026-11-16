@@ -1,14 +1,17 @@
 # CodeCell C6 firmware
 
-This is a fresh Arduino/PlatformIO build skeleton for the production firmware
-work (#155 onward). It replaces the retired T1 C6/S3 projects. The old HTTP server,
-browser UI, motor controller and IMU-distance experiments are not ported here.
+This is the Arduino/PlatformIO production firmware project (#155 onward). It
+replaces the retired T1 C6/S3 projects. The old HTTP server, browser UI, motor
+controller and IMU-distance/target experiments are not ported here.
 
-The current image prints a build-skeleton message and supplies a monotonic clock
-adapter. It has no motor initialization, motion authority, command input, BLE
-server, telemetry or watchdog implementation. It is not a functioning desktop
-endpoint or proof of safe electrical boot behavior. Runtime, actuation, protocol
-and safety arrive through #158–#165. The separate
+The image runs the production runtime (#158): the drive is disabled at boot, one
+local safety/actuator authority (`ActuatorGate`) holds the only drive reference,
+one command authority (`CommandProcessor`) is the only way to request motion, and
+a 5 ms safety supervisor and a 10 ms control task follow the #156 scheduling model.
+See [runtime and threading](../../docs/overview/firmware-runtime.md). The image has
+no BLE peripheral, codec or telemetry yet (#161, #163, #164), so nothing commands
+motion. Its drive adapter is inhibited until the validated actuator contract (#160),
+and it is not proof of safe electrical boot behaviour (#238). The separate
 [BLE lifecycle fixture](../ble-lifecycle/README.md) remains connection-only.
 
 Arduino/PlatformIO is retained (#155): the Arduino core already runs on
@@ -19,11 +22,13 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 | `platformio.ini` | Pinned cross-build for the C6 (`esp32-c6-devkitc-1`) and the measurement-only `timing-pilot` environment |
 | `requirements.txt` | Exact PlatformIO Core and Python dependency pins |
 | `scripts/toolchain_provenance.py` | Rejects an unpinned Core/platform; writes build provenance |
+| `scripts/production_image_policy.py`, `scripts/image_policy.py` | Fails the link if Wi-Fi/AP/HTTP/OTA code is in the image (#158) |
 | `include/FirmwareClock.hpp` | Portable C++20 clock contract and conversions, no SDK includes |
+| `include/runtime/` | Portable production runtime (#158): ports, safety state, actuator gate, command processor, mailbox, periodic steps and start-up orchestration |
 | `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
 | `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
 | `pilot/`, `scripts/timing_pilot_host.py` | [#156 timing pilot](../../docs/testing/timing-pilot-156.md): bench measurement image and its Linux/BlueZ host driver; never a robot image |
-| `src/main.cpp` | Arduino entry point and the ESP timer clock adapter |
+| `src/main.cpp`, `src/EspRuntimeAdapters.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS adapters: clock, critical section, periodic tasks, inhibited drive, compiled configuration |
 | `CMakeLists.txt`, `tests/` | Independent GoogleTest host entry point (no Arduino, Qt or OpenCV) |
 
 All commands below run from the repository root.
@@ -148,7 +153,11 @@ replays representative stop timelines (command loss, deadline boundaries,
 stalled control, E-stop behind a parser flood, notification pressure, clock
 wrap points) through a test-only reference model of the #156 budget; it is a
 specification oracle, not the #162 supervisor. `LatencyHistogramTest` covers
-the instrumentation histogram. None of these tests exercises a motor controller.
+the instrumentation histogram. `RuntimeComponentsTest` and `FirmwareRuntimeTest`
+run the #158 runtime with fake clock, platform, drive, configuration and sensor:
+injected start-up failures, stale snapshots, stop/new-command races, mailbox
+floods and the control-stall bound ([details](../../docs/overview/firmware-runtime.md#verification)).
+None of these tests exercises a motor controller.
 
 ## Timing pilot (bench measurement image, #156)
 
@@ -170,6 +179,7 @@ Default builds, the CMake `firmware_codecell_c6` target and robots never use it.
 | `Error: Resolved platform ... does not match the pinned release` | A stale platform is installed. Run `pio pkg uninstall -g -p espressif32`, then rebuild. |
 | `VCSBaseException ... not our ref <sha>` or `Could not find the package` | A pinned commit/release cannot be fetched. Check network/proxy access to GitHub and the PlatformIO registry; if upstream removed it, follow the dependency review, never a moving reference. |
 | `check_firmware_pins.py` reports `error: ... lib_deps = ...` | A moving or unpinned reference was introduced. Pin as the message states. |
+| `Error: the production image links retired Wi-Fi/AP/HTTP/OTA code (#158)` | A source or library change linked a network, web, DNS or OTA stack. Remove it; experiments need their own environment behind the same `ActuatorGate` ([policy](../../docs/overview/firmware-runtime.md#production-image-policy)). |
 | `CodeCell firmware requires C++20` | A build bypassed the pinned configuration or host CMake entry point. |
 | `firmware-provenance.json` names a different `sha256` than `firmware.bin` | Provenance is written by the default build target only; `-t upload` does not refresh it. Run `pio run -e <environment>` before archiving, then upload without changing sources. |
 | CTest `No tests were found!!!` with `--no-tests=error` | The test executable was not built or discovered. Rebuild the host tree and check configure output. |
@@ -178,7 +188,7 @@ Default builds, the CMake `firmware_codecell_c6` target and robots never use it.
 
 `.github/workflows/firmware-build-test.yml` runs on `ubuntu-24.04` and `macos-15`
 with a 25-minute bound: pin check, installation from `requirements.txt`,
-C6 cross-build without upload, the timing-pilot build, provenance and package listing, and host
+C6 cross-build without upload (including the production image policy), the timing-pilot build, provenance and package listing, and host
 configure/build/CTest with `--no-tests=error`. It uses no USB, BLE, credentials,
 IDE paths or desktop dependencies. It is called by the standard daily `master`
 batch at 02:00 UTC when the daily merge gate requests a build, so it has no PR,
@@ -194,8 +204,9 @@ Physical upload, monitoring, recovery and host USB behavior are validated in
 [#240](https://github.com/Krzys2002/Mini_Robot/issues/240); until that evidence
 exists, the steps below are the procedure to follow, not verified results.
 
-Safe output state: the skeleton never initializes CodeCell or DriveCell and
-configures no drive pins, so the application itself commands no motor output.
+Safe output state: the image never initializes CodeCell or DriveCell, configures
+no drive pins and keeps its inhibited drive adapter disabled, so the application
+itself commands no motor output.
 The electrical state of the drive outputs during reset, boot and download mode
 is not verified. Keep motor power disconnected while uploading or monitoring,
 and do not connect an unreviewed motor-power setup merely to upload.
@@ -243,7 +254,10 @@ Observed on Ubuntu during #156: every open of the port (including pyserial
 with DTR/RTS deasserted) reset the C6, so a tool that needs uninterrupted
 firmware state must keep one serial session open. Upload rebuilds if needed, then writes the bootloader, partition table and
 application images to their regions; it does not erase the whole flash. The monitor should show
-`CodeCell firmware build skeleton; control unavailable` after reset. Record the
+`RUNTIME uptime_ms=... start=running ready=1 state=Idle output=disabled fault=None ...`
+every 5 s (the boot banner is printed before USB CDC reconnects and is often not seen).
+Any other `start`, `state` or `fault` value means the runtime did not reach safe idle;
+see [start-up and failure behaviour](../../docs/overview/firmware-runtime.md#start-up-and-failure-behaviour). Record the
 device, revision, `firmware-provenance.json` and logs.
 
 ### Recovery and destructive erase
