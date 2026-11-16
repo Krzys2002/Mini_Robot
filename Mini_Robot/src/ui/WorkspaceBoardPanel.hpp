@@ -2,6 +2,7 @@
 #include <limits>
 #include "app/WorkspaceCalibrationController.hpp"
 #include <QGroupBox>
+#include "ui/WorkspaceLengthUnit.hpp"
 #include <functional>
 class QDoubleSpinBox; class QSpinBox; class QComboBox; class QCheckBox; class QTableWidget;
 class QLineEdit; class QLabel; class QPushButton;
@@ -12,7 +13,11 @@ class WorkspaceBoardPanel final : public QGroupBox {
 public:
     WorkspaceBoardPanel(WorkspaceCalibrationController& controller,
                         std::function<std::optional<std::uint64_t>()> selectedReference,QWidget* parent=nullptr);
+    void setLengthUnit(WorkspaceLengthUnit unit, bool recalculate);
+    void finishUnitChange() { preserveInputs_=false; }
 private:
+    WorkspaceLengthUnit unit_{WorkspaceLengthUnit::Meters};
+    bool preserveInputs_{};
     void refresh();
     void edited();
     void review();

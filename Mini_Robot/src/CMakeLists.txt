@@ -299,6 +299,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/WorkspaceReferenceModel.cpp
         ui/WorkspaceCalibrationDialog.cpp
         ui/WorkspaceCalibrationDialog.hpp
+        ui/WorkspaceLengthUnit.hpp
         ui/CalibrationWizard.hpp
         ui/CalibrationWizard.cpp
         ui/RobotControlPanel.hpp

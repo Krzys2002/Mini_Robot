@@ -1,6 +1,7 @@
 #pragma once
 #include "app/WorkspaceCalibrationController.hpp"
 #include <QDialog>
+#include "ui/WorkspaceLengthUnit.hpp"
 #include <QPointer>
 #include <limits>
 class QLineEdit;
@@ -34,7 +35,14 @@ private:
     WorkspaceCalibrationController& controller_;
     WorkspaceImageView* image_{};
     QLineEdit* identity_{};
-    QDoubleSpinBox *width_{}, *height_{}, *originX_{}, *originY_{};
+    QLineEdit *width_{}, *height_{}, *originX_{}, *originY_{};
+    QComboBox* units_{};
+    WorkspaceLengthUnit unit_{WorkspaceLengthUnit::Meters};
+    std::optional<WorkspaceBounds> shownBounds_;
+    bool configuring_{};
+    QString inputError_;
+    void changeUnit(int index);
+    void updateUnitLabels();
     QComboBox* originCorner_{};
     QTableWidget* corners_{};
     QTableView* points_{};
@@ -51,6 +59,5 @@ private:
     std::uint64_t shownRevision_{std::numeric_limits<std::uint64_t>::max()};
     FramePtr shownFrame_;
     static constexpr double MaximumWorkspaceDimensionMeters = 1000;
-    static constexpr int CoordinateDisplayDecimals = 9;
 };
 } // namespace micro_robot
