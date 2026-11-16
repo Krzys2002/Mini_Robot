@@ -318,7 +318,11 @@ response ([#70](https://github.com/Krzys2002/Mini_Robot/issues/70)).
 ### Illustrative defaults
 
 These values are starting points for bring-up. They belong in configuration or
-firmware build settings, not as literals scattered through modules.
+firmware build settings, not as literals scattered through modules. The
+production firmware's proposed values, with their derivation and stopping
+bounds, are in the [timing budgets](timing-budgets.md): a 250 ms
+`maxCommandValidityMs` and a 100 ms `telemetryPeriodMs`. Choosing those values
+changes no v1 rule.
 
 | Parameter | Owner | Default |
 | --- | --- | --- |

@@ -17,6 +17,11 @@ command-delivery acceptance remain outstanding.
   operating restrictions, enforceable firmware rules, controller lifecycle,
   provisioning/revocation policy, residual risks, attack tests and the stack
   capability review for a future secure profile.
+- [Firmware timing, resource and stopping budgets](timing-budgets.md) (#156,
+  proposed): the robot-side timing path, the budget table with owners and
+  pass/fail methods, overload policy, desktop queue requirements,
+  instrumentation points and stress conditions. It chooses advertised v1 values
+  and does not change the protocol.
 
 The domain-facing [transport contract](../overview/transport.md) is independent of
 this format. Only protocol adapters behind `IRobotTransport` and robot firmware

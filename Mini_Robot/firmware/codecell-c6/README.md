@@ -16,10 +16,13 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 
 | Path | Purpose |
 | --- | --- |
-| `platformio.ini` | Pinned cross-build for the C6 (`esp32-c6-devkitc-1` environment) |
+| `platformio.ini` | Pinned cross-build for the C6 (`esp32-c6-devkitc-1`) and the measurement-only `timing-pilot` environment |
 | `requirements.txt` | Exact PlatformIO Core and Python dependency pins |
 | `scripts/toolchain_provenance.py` | Rejects an unpinned Core/platform; writes build provenance |
 | `include/FirmwareClock.hpp` | Portable C++20 clock contract and conversions, no SDK includes |
+| `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
+| `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
+| `pilot/`, `scripts/timing_pilot_host.py` | [#156 timing pilot](../../docs/testing/timing-pilot-156.md): bench measurement image and its Linux/BlueZ host driver; never a robot image |
 | `src/main.cpp` | Arduino entry point and the ESP timer clock adapter |
 | `CMakeLists.txt`, `tests/` | Independent GoogleTest host entry point (no Arduino, Qt or OpenCV) |
 
@@ -140,8 +143,22 @@ builds without an installed GoogleTest may set
 The same pure tests are included in the desktop/core CTest suites (`core`
 label) without linking embedded production sources. Fixtures cover injected
 time, future/negative readings, microsecond-to-millisecond conversion of the
-ESP timer value and the 32-bit millisecond wrap boundary. They do not test a
-motor controller.
+ESP timer value and the 32-bit millisecond wrap boundary. `TimingBudgetTest`
+replays representative stop timelines (command loss, deadline boundaries,
+stalled control, E-stop behind a parser flood, notification pressure, clock
+wrap points) through a test-only reference model of the #156 budget; it is a
+specification oracle, not the #162 supervisor. `LatencyHistogramTest` covers
+the instrumentation histogram. None of these tests exercises a motor controller.
+
+## Timing pilot (bench measurement image, #156)
+
+`pio run -d Mini_Robot/firmware/codecell-c6 -e timing-pilot` builds a separate
+measurement image from `pilot/` only. It links NimBLE but neither CodeCell nor
+DriveCell, configures no motor, sensor or GPIO pin and uses its own BLE UUIDs and
+name (`MR-PILOT-156`), so a v1 desktop cannot mistake it for a robot. Flash it
+only USB-powered with the battery and motors disconnected, then restore the image
+the board had. Use, results and limits: [timing pilot record](../../docs/testing/timing-pilot-156.md).
+Default builds, the CMake `firmware_codecell_c6` target and robots never use it.
 
 ## Troubleshooting
 
@@ -154,13 +171,14 @@ motor controller.
 | `VCSBaseException ... not our ref <sha>` or `Could not find the package` | A pinned commit/release cannot be fetched. Check network/proxy access to GitHub and the PlatformIO registry; if upstream removed it, follow the dependency review, never a moving reference. |
 | `check_firmware_pins.py` reports `error: ... lib_deps = ...` | A moving or unpinned reference was introduced. Pin as the message states. |
 | `CodeCell firmware requires C++20` | A build bypassed the pinned configuration or host CMake entry point. |
+| `firmware-provenance.json` names a different `sha256` than `firmware.bin` | Provenance is written by the default build target only; `-t upload` does not refresh it. Run `pio run -e <environment>` before archiving, then upload without changing sources. |
 | CTest `No tests were found!!!` with `--no-tests=error` | The test executable was not built or discovered. Rebuild the host tree and check configure output. |
 
 ## Continuous integration
 
 `.github/workflows/firmware-build-test.yml` runs on `ubuntu-24.04` and `macos-15`
 with a 25-minute bound: pin check, installation from `requirements.txt`,
-C6 cross-build without upload, provenance and package listing, and host
+C6 cross-build without upload, the timing-pilot build, provenance and package listing, and host
 configure/build/CTest with `--no-tests=error`. It uses no USB, BLE, credentials,
 IDE paths or desktop dependencies. It is called by the standard daily `master`
 batch at 02:00 UTC when the daily merge gate requests a build, so it has no PR,
@@ -221,7 +239,9 @@ pio run -d Mini_Robot/firmware/codecell-c6 -e esp32-c6-devkitc-1 -t upload --upl
 pio device monitor --port DEVICE --baud 115200
 ```
 
-Upload rebuilds if needed, then writes the bootloader, partition table and
+Observed on Ubuntu during #156: every open of the port (including pyserial
+with DTR/RTS deasserted) reset the C6, so a tool that needs uninterrupted
+firmware state must keep one serial session open. Upload rebuilds if needed, then writes the bootloader, partition table and
 application images to their regions; it does not erase the whole flash. The monitor should show
 `CodeCell firmware build skeleton; control unavailable` after reset. Record the
 device, revision, `firmware-provenance.json` and logs.

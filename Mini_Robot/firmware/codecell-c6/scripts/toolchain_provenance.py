@@ -29,7 +29,7 @@ RELEASE_URL = re.compile(r"/releases/download/v?(\d+)\.(\d+)\.(\d+)/")
 PROVENANCE_SCHEMA = 2  # 2: `source.untracked_inputs`; `modified` includes untracked inputs.
 # Project-relative paths whose contents can change the image: PlatformIO configuration,
 # the pins, sources, headers, libraries, board definitions and the build scripts.
-BUILD_INPUTS = ("platformio.ini", "requirements.txt", "src", "include", "lib", "boards", "scripts")
+BUILD_INPUTS = ("platformio.ini", "requirements.txt", "src", "include", "lib", "boards", "scripts", "pilot")
 
 
 def fail(message):

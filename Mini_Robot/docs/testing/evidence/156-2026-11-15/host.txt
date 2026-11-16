@@ -1,0 +1,3 @@
+Linux 7.0.0-43-generic
+bluetoothctl: 5.85
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
