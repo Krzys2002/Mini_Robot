@@ -66,8 +66,8 @@ prove only that the call sites exist and that refusals act; they are not
 cryptographic validation. Rule [F12](#5-enforceable-firmware-rules) states the
 requirements. The implementations are split across:
 
-- the desktop companion PR on branch `feat/157-security-scaffolding`, a dependency
-  of this correction: `IBleSessionSecurity` in the BLE transport;
+- the desktop companion [PR #287](https://github.com/Krzys2002/Mini_Robot/pull/287),
+  a dependency of this correction: `IBleSessionSecurity` in the BLE transport;
 - the production firmware, #163 (PR #282): `ble::ISessionSecurity` in the
   peripheral controller, with telemetry protection added by #164 (PR #283);
 - #165 for enforcement on the production image and its attack tests.
@@ -520,7 +520,7 @@ Requirements for the eventual real implementation behind the F12 interfaces:
 #165 implements F1–F11 and AT-01…AT-16 for the restricted-lab profile:
 
 - **Desktop integration scope:** only the F12 scaffolding, in the companion PR
-  (branch `feat/157-security-scaffolding`). It also labels the session
+  ([PR #287](https://github.com/Krzys2002/Mini_Robot/pull/287)). It also labels the session
   `INSECURE: restricted-lab-pass-through (unauthenticated, unencrypted)` in the
   operator status. Otherwise the existing desktop behavior is sufficient.
 - **Security extension points:** #163 (PR #282) integrates F12 into the production
