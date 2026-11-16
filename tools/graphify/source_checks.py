@@ -9,7 +9,7 @@ import hashlib
 import re
 
 CPP_SUFFIXES = {".cpp", ".hpp", ".h", ".cc", ".cxx", ".hh", ".hxx", ".ino"}
-PRODUCTION = ("Mini_Robot/src/", "Mini_Robot/firmware/")
+PRODUCTION = ("Mini_Robot/src/", "Mini_Robot/firmware/", "T1-ESP-C6/", "T1-ESP-S3/")
 
 
 def retain_rejections(root: Path, current: dict, previous: dict) -> dict:
