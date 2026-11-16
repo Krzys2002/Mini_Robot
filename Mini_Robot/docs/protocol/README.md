@@ -13,6 +13,10 @@ command-delivery acceptance remain outstanding.
 - [BLE GATT contract](ble-gatt.md): service and characteristic UUIDs, advertising,
   session establishment, disconnect and E-stop safety, link parameters, and
   implementation checklists.
+- [Restricted-lab security profile](security-profile.md): threat matrix,
+  operating restrictions, enforceable firmware rules, controller lifecycle,
+  provisioning/revocation policy, residual risks, attack tests and the stack
+  capability review for a future secure profile.
 
 The domain-facing [transport contract](../overview/transport.md) is independent of
 this format. Only protocol adapters behind `IRobotTransport` and robot firmware
