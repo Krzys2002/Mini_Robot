@@ -149,6 +149,14 @@ Exclusivity is enforced by the controller instead:
 
 The boot line states both values: `BLE ... accepted_centrals=1 stack_max_connections=3`.
 
+**This does not meet F1 literally.** F1 asks for a stack limit of one, and this build has
+three stack links with one accepted owner. #274 records a *proposed* F1 amendment for exactly
+this behaviour: up to three stack links, one owner, every other link terminated from its
+connect callback with its writes and CCCD changes never applied, advertising off while
+owned, and AT-03 kept. That amendment is pending maintainer review. Until it is accepted, no
+document may claim F1 conformance for this image on the strength of the application gate.
+The second-independent-central acceptance test (AT-03, HIL) is still to run (#165/#166).
+
 ## Security settings
 
 - Restricted-lab v1 (`profile=restricted-lab-v1` on the boot line): no pairing requirement,
@@ -157,6 +165,53 @@ The boot line states both values: `BLE ... accepted_centrals=1 stack_max_connect
   NoInputNoOutput. Without bonding no keys are stored, so BLE writes no flash while motion is
   possible (#162 watchdog note). A central can still obtain unauthenticated Just Works
   encryption; no behaviour depends on it.
+
+## Session security extension points (#157 review)
+
+v1 has no authenticated controller ownership and no guaranteed encryption. The review of
+#274 requires the eventual implementation to have real interfaces and call sites now, with
+an explicit temporary mock. [`ble/SessionSecurity.hpp`](../../firmware/codecell-c6/include/ble/SessionSecurity.hpp)
+defines `ISessionSecurity`. The controller calls it on every real path:
+
+| Path | Call | Refusal |
+| --- | --- | --- |
+| Both CCCDs enabled | `beginSession()` before the session opens | Link stays `connected` and unready |
+| Command write of a ready session | `verifyIncoming()` before the frame is parsed | `RobotFault` result; nothing acts |
+| Velocity, ClearEmergencyStop | `authorize()` (through `protocol::v1::ICommandAuthorizer`), after the sequence check and before the authority | `RobotFault` result; the sequence is not recorded |
+| Every CommandResult | `protectOutgoing()` before it is queued | Handled like a full queue: the session ends and the link is terminated |
+| Every session end | `endSession()` | — |
+| Emergency Stop write | none before the latch | Never refused (F4) |
+
+Stop is verified and its result protected, but it is not subject to authorization: it only
+removes motion. v1 has no "unauthorized" result code and its frames are frozen, so a refusal
+reports `RobotFault`. Before readiness there is no security session; Stop and E-stop still
+act and Velocity/Clear are refused by the authority as before.
+
+The image runs `RestrictedLabPassThroughSecurity`, selected explicitly by
+`ble::kSecurityMode = SecurityMode::RestrictedLabPassThrough`. It permits every operation,
+returns the bytes unchanged and reports `bypassed`, never authenticated or encrypted. It is
+**not** security. `SecureRequired` refuses it: the controller then enters `security_refused`
+and never advertises. Nothing falls back to the pass-through after any failure.
+
+The insecure mode is visible:
+
+- the boot line `SECURITY mode=restricted-lab-pass-through policy=restricted-lab-pass-through
+  authenticated=no encrypted=no TODO: authentication and encryption are not implemented;
+  restricted-lab pass-through security is active.`;
+- one `SECURITY session=<n> TODO: …` line per new pass-through session. It is printed by
+  `loop()` from a counter, never from the BLE callback;
+- `security=bypassed|established|none`, `security_sessions` and `security_refusals` on the
+  `BLE` status line.
+
+Owners of the real implementation: #165 for production firmware enforcement and its attack
+tests, and a future secure-profile issue for mutual authentication, confidentiality plus
+integrity, session-bound replay protection, enrollment and key storage, revocation and
+recovery. Any wire or GATT change needs a coordinated protocol version decision
+([security profile](../protocol/security-profile.md) section 9). The desktop side has the
+matching hooks in `transport/ble/BleSessionSecurity.hpp`. The host tests in
+`BlePeripheralTest` (`BleSessionSecurityTest.*`) prove the hooks are called, that the
+pass-through is unchanged and reports insecurity, that refusals prevent motion, Clear and
+delivery, and that E-stop bypasses them. They are not cryptographic security validation.
 
 ## Threading and resources
 

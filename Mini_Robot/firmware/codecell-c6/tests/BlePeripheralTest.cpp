@@ -160,10 +160,17 @@ struct Rig {
     FakeLink link;
     std::optional<runtime::FirmwareRuntime> runtime;
     std::optional<RuntimeView> view;
+    RestrictedLabPassThroughSecurity passThrough;
+    ISessionSecurity* security{&passThrough};
+    SecurityMode securityMode{SecurityMode::RestrictedLabPassThrough};
     std::optional<PeripheralController> ble;
 
-    explicit Rig(bool startAdvertising = true)
+    // Default: the explicitly selected restricted-lab pass-through, as in the image.
+    explicit Rig(bool startAdvertising = true, ISessionSecurity* custom = nullptr,
+                 SecurityMode mode = SecurityMode::RestrictedLabPassThrough)
     {
+        if (custom) security = custom;
+        securityMode = mode;
         const auto config = provisioning::ValidatedRobotConfig::validated(provisioning::fakes::validConfig());
         EXPECT_TRUE(config);
         configuration.value = provisioning::runtimeConfigFor(*config);
@@ -172,7 +179,8 @@ struct Rig {
         runtime.emplace(runtime::RuntimeDependencies{clock, platform, drive, configuration, nullptr});
         EXPECT_EQ(runtime->start(), runtime::StartResult::Running);
         view.emplace(*runtime);
-        ble.emplace(runtime->commands(), *view, commandLimits(provisioning::robotInfoValues(*config)), link, clock);
+        ble.emplace(runtime->commands(), *view, commandLimits(provisioning::robotInfoValues(*config)), link, clock,
+                    *security, securityMode);
         if (startAdvertising) ble->start();
     }
     void subscribe(ConnectionHandle h, Characteristic c, bool on = true) { ble->onSubscriptionChanged(h, c, on); }
@@ -779,4 +787,198 @@ TEST(BlePeripheralTest, RepeatedLifecycleCyclesAllocateNothingAndLeaveNoState)
     EXPECT_EQ(rig.link.advertisingStarts, kCycles + 1);
     rig.run(200ms);
     EXPECT_FALSE(rig.drive.enabled);
+}
+
+// ---- Session-security extension points (#157 review of PR #274) -----------------------
+// These prove the hooks are on the real paths. They are not cryptographic security
+// validation: the pass-through provides no authentication or encryption.
+namespace {
+class SpySecurity final : public ISessionSecurity {
+public:
+    bool refuseSession{}, refuseVelocity{}, refuseClear{}, refuseIncoming{}, refuseOutgoing{};
+    int sessions{}, ended{}, velocityChecks{}, clearChecks{}, verified{}, protectedFrames{};
+    const char* profile() const noexcept override { return "spy"; }
+    bool isPassThrough() const noexcept override { return false; }
+    SecuritySessionStatus beginSession() noexcept override
+    {
+        ++sessions;
+        return {!refuseSession, !refuseSession, !refuseSession, false};
+    }
+    bool authorize(MessageType operation) noexcept override
+    {
+        if (operation == MessageType::Velocity) return ++velocityChecks, !refuseVelocity;
+        if (operation == MessageType::ClearEmergencyStop) return ++clearChecks, !refuseClear;
+        ADD_FAILURE() << "only Velocity and ClearEmergencyStop are authorized";
+        return false;
+    }
+    std::optional<std::span<const std::uint8_t>> verifyIncoming(std::span<const std::uint8_t> frame,
+                                                                std::span<std::uint8_t> scratch) noexcept override
+    {
+        ++verified;
+        if (refuseIncoming || frame.size() > scratch.size()) return std::nullopt;
+        std::copy(frame.begin(), frame.end(), scratch.begin());  // Parsed from the verified copy.
+        return std::span<const std::uint8_t>{scratch.data(), frame.size()};
+    }
+    std::optional<std::span<const std::uint8_t>> protectOutgoing(std::span<const std::uint8_t> frame,
+                                                                 std::span<std::uint8_t>) noexcept override
+    {
+        ++protectedFrames;
+        if (refuseOutgoing) return std::nullopt;
+        return frame;
+    }
+    void endSession() noexcept override { ++ended; }
+};
+} // namespace
+
+TEST(BleSessionSecurityTest, PassThroughLeavesBytesUnchangedAndReportsInsecurity)
+{
+    RestrictedLabPassThroughSecurity security;
+    std::array<std::uint8_t, kSecuredFrameMax> scratch{};
+    const std::array<std::uint8_t, 3> frame{1, 2, 3};
+    const auto session = security.beginSession();
+    EXPECT_TRUE(session.established);
+    EXPECT_FALSE(session.authenticated);
+    EXPECT_FALSE(session.encrypted);
+    EXPECT_TRUE(session.bypassed);
+    EXPECT_TRUE(security.authorize(MessageType::Velocity));
+    EXPECT_TRUE(security.authorize(MessageType::ClearEmergencyStop));
+    for (const auto& out : {security.verifyIncoming(frame, scratch), security.protectOutgoing(frame, scratch)}) {
+        ASSERT_TRUE(out);
+        EXPECT_EQ(out->data(), frame.data()) << "the very same bytes";
+        EXPECT_EQ(out->size(), frame.size());
+    }
+    EXPECT_STREQ(security.profile(), kRestrictedLabSecurityProfile);
+    EXPECT_EQ(kSecurityMode, SecurityMode::RestrictedLabPassThrough) << "the image selects it explicitly";
+}
+
+TEST(BleSessionSecurityTest, ModeSelectionFailsClosedAndNeverAdvertises)
+{
+    RestrictedLabPassThroughSecurity passThrough;
+    SpySecurity secureStandIn;
+    EXPECT_TRUE(securityModeAdmits(SecurityMode::RestrictedLabPassThrough, passThrough));
+    EXPECT_FALSE(securityModeAdmits(SecurityMode::SecureRequired, passThrough));
+    EXPECT_TRUE(securityModeAdmits(SecurityMode::SecureRequired, secureStandIn));
+    EXPECT_FALSE(securityModeAdmits(SecurityMode::RestrictedLabPassThrough, secureStandIn));
+
+    Rig rig{true, nullptr, SecurityMode::SecureRequired};
+    EXPECT_EQ(rig.ble->state(), LinkState::SecurityRefused);
+    EXPECT_EQ(rig.link.advertisingStarts, 0) << "not visible to any central";
+    EXPECT_EQ(rig.bleCount(BleCounter::SecurityRefusals), 1U);
+}
+
+TEST(BleSessionSecurityTest, PassThroughSessionIsCountedAndReportedAsBypassed)
+{
+    Rig rig;
+    rig.makeReady();
+    EXPECT_EQ(rig.ble->state(), LinkState::Ready);
+    EXPECT_TRUE(rig.ble->status().securitySession);
+    EXPECT_TRUE(rig.ble->status().securityBypassed);
+    EXPECT_EQ(rig.bleCount(BleCounter::BypassedSecuritySessions), 1U);
+    rig.command(kOwner, velocityFrame(0, kForward, kValidity));
+    EXPECT_EQ(rig.last().code, ResultCode::Accepted);
+    rig.subscribe(kOwner, Characteristic::Telemetry, false);
+    EXPECT_FALSE(rig.ble->status().securitySession);
+}
+
+TEST(BleSessionSecurityTest, HooksRunOnTheRealSessionCommandAndResultPaths)
+{
+    SpySecurity spy;
+    Rig rig{true, &spy, SecurityMode::SecureRequired};
+    rig.makeReady();
+    EXPECT_EQ(spy.sessions, 1);
+    EXPECT_TRUE(rig.ble->status().securitySession);
+    EXPECT_FALSE(rig.ble->status().securityBypassed);
+
+    rig.command(kOwner, velocityFrame(0, kForward, kValidity));
+    EXPECT_EQ(rig.last().code, ResultCode::Accepted);
+    EXPECT_EQ(spy.verified, 1);
+    EXPECT_EQ(spy.velocityChecks, 1);
+    EXPECT_EQ(spy.protectedFrames, 1);
+
+    rig.command(kOwner, headerFrame(MessageType::Stop, 1));
+    EXPECT_EQ(rig.last().code, ResultCode::Accepted);
+    EXPECT_EQ(spy.verified, 2);
+    EXPECT_EQ(spy.velocityChecks, 1) << "Stop is not subject to authorization";
+    EXPECT_EQ(spy.protectedFrames, 2);
+
+    // Readiness loss ends the security session; re-enabling opens a new one and moves nothing.
+    rig.subscribe(kOwner, Characteristic::CommandResult, false);
+    EXPECT_EQ(spy.ended, 1);
+    EXPECT_FALSE(rig.ble->status().securitySession);
+    const int writes = rig.drive.commandCount();
+    rig.subscribe(kOwner, Characteristic::CommandResult, true);
+    EXPECT_EQ(spy.sessions, 2);
+    rig.run(50ms);
+    EXPECT_NE(rig.status().state, MotionState::Moving);
+    EXPECT_LE(rig.drive.commandCount(), writes + 0) << "no automatic motion after re-enable";
+
+    rig.ble->onDisconnected(kOwner, kRemoteUserTerminated);
+    EXPECT_EQ(spy.ended, 2);
+}
+
+TEST(BleSessionSecurityTest, RefusedSessionStaysConnectedAndUnreadyButEmergencyStopLatches)
+{
+    SpySecurity spy;
+    spy.refuseSession = true;
+    Rig rig{true, &spy, SecurityMode::SecureRequired};
+    rig.makeReady();
+    EXPECT_EQ(rig.ble->state(), LinkState::Connected);
+    EXPECT_FALSE(rig.status().sessionReady);
+    EXPECT_GE(rig.bleCount(BleCounter::SecurityRefusals), 1U);
+    rig.command(kOwner, velocityFrame(0, kForward, kValidity));
+    EXPECT_TRUE(rig.link.notifications.empty()) << "unready: no result (v1)";
+    rig.estop(kOwner, {});
+    EXPECT_EQ(rig.status().state, MotionState::EmergencyStop);
+    EXPECT_EQ(rig.drive.commandCount(), 0);
+}
+
+TEST(BleSessionSecurityTest, RefusedVelocityClearAndIncomingFramesNeverAct)
+{
+    SpySecurity spy;
+    Rig rig{true, &spy, SecurityMode::SecureRequired};
+    rig.makeReady();
+    spy.refuseVelocity = true;
+    rig.command(kOwner, velocityFrame(0, kForward, kValidity));
+    EXPECT_EQ(rig.last().code, ResultCode::RobotFault);
+    EXPECT_EQ(rig.last().commandSequence, 0U);
+    rig.run(30ms);
+    EXPECT_EQ(rig.drive.commandCount(), 0) << "a refused Velocity never reaches the drive";
+
+    spy.refuseVelocity = false;
+    spy.refuseIncoming = true;
+    rig.command(kOwner, velocityFrame(1, kForward, kValidity));
+    EXPECT_EQ(rig.last().code, ResultCode::RobotFault);
+    EXPECT_EQ(rig.last().commandSequence, 1U);
+    EXPECT_EQ(spy.velocityChecks, 1) << "an unverified frame is never parsed or authorized";
+    rig.run(30ms);
+    EXPECT_EQ(rig.drive.commandCount(), 0);
+
+    spy.refuseIncoming = false;
+    rig.estop(kOwner, headerFrame(MessageType::EmergencyStop, 2));
+    ASSERT_EQ(rig.status().state, MotionState::EmergencyStop);
+    spy.refuseClear = true;
+    rig.command(kOwner, headerFrame(MessageType::ClearEmergencyStop, 3));
+    EXPECT_EQ(rig.last().code, ResultCode::RobotFault);
+    EXPECT_EQ(rig.status().state, MotionState::EmergencyStop) << "a refused Clear keeps the latch";
+    spy.refuseClear = false;
+    rig.command(kOwner, headerFrame(MessageType::ClearEmergencyStop, 4));
+    EXPECT_EQ(rig.last().code, ResultCode::Accepted) << "the refused sequence was not recorded";
+}
+
+TEST(BleSessionSecurityTest, EmergencyStopBypassesVerificationAndAuthorization)
+{
+    SpySecurity spy;
+    Rig rig{true, &spy, SecurityMode::SecureRequired};
+    rig.makeMoving();
+    spy.refuseIncoming = spy.refuseVelocity = spy.refuseClear = spy.refuseOutgoing = true;
+    const int verifiedBefore = spy.verified;
+    rig.estop(kOwner, {0xde, 0xad});  // Any payload.
+    EXPECT_EQ(rig.status().state, MotionState::EmergencyStop);
+    EXPECT_FALSE(rig.drive.enabled) << "the latch came first";
+    EXPECT_EQ(spy.verified, verifiedBefore) << "the E-stop path is never verified";
+    // Its result could not be protected: handled like a full queue, so the session ends and
+    // the link is terminated; the latch persists.
+    EXPECT_FALSE(rig.status().sessionReady);
+    EXPECT_EQ(rig.ble->state(), LinkState::Closing);
+    EXPECT_EQ(rig.status().state, MotionState::EmergencyStop);
 }

@@ -66,8 +66,12 @@ RuntimeStatusView runtimeStatusView;
 // identity (static storage, no heap); every callback runs in nimble_host.
 esp::NimBlePeripheral blePeripheral;
 std::optional<ble::PeripheralController> bleController;
+// Session security (#157 review): the explicitly selected restricted-lab pass-through. It
+// permits everything and provides no authentication or encryption (ble/SessionSecurity.hpp).
+ble::RestrictedLabPassThroughSecurity bleSecurity;
+std::uint32_t warnedBypassedSessions{0};
 
-enum class BleStart : std::uint8_t { Started, Unprovisioned, RobotInfoUnencodable, StackFailed };
+enum class BleStart : std::uint8_t { Started, Unprovisioned, RobotInfoUnencodable, StackFailed, SecurityRefused };
 BleStart bleStart{BleStart::Unprovisioned};
 
 const char* toString(BleStart start)
@@ -77,6 +81,7 @@ const char* toString(BleStart start)
     case BleStart::Unprovisioned: return "unprovisioned";
     case BleStart::RobotInfoUnencodable: return "robot_info_unencodable";
     case BleStart::StackFailed: return "stack_failed";
+    case BleStart::SecurityRefused: return "security_refused";
     }
     return "unknown";
 }
@@ -91,9 +96,10 @@ BleStart startBle()
     const auto record = protocol::v1::encodeRobotInfo(*info, ble::kRobotInfoFirmwareVersion);
     if (!record) return BleStart::RobotInfoUnencodable;
     bleController.emplace(firmwareRuntime.commands(), runtimeStatusView, protocol::v1::commandLimits(*info),
-                          blePeripheral, firmwareClock);
+                          blePeripheral, firmwareClock, bleSecurity, ble::kSecurityMode);
     if (!blePeripheral.begin(info->robotId, *record, *bleController)) return BleStart::StackFailed;
     bleController->start();
+    if (bleController->state() == ble::LinkState::SecurityRefused) return BleStart::SecurityRefused;
     return BleStart::Started;
 }
 
@@ -167,7 +173,7 @@ void reportBle(const ble::LinkStatus& link)
     Serial.printf("BLE state=%s cccd_result=%d cccd_telemetry=%d mtu=%u link_request=%s negotiated=%s "
                   "last_disconnect=%s connections=%lu rejected_centrals=%lu sessions=%lu results=%lu "
                   "result_failures=%lu unanswered=%lu estop_writes=%lu foreign=%lu early_cccd=%lu adv_failures=%lu "
-                  "terminate_failures=%lu\n",
+                  "terminate_failures=%lu security=%s security_sessions=%lu security_refusals=%lu\n",
                   ble::toString(link.state), link.commandResultNotify ? 1 : 0, link.telemetryNotify ? 1 : 0,
                   static_cast<unsigned>(link.mtu), ble::toString(link.linkRequest), negotiated, disconnect,
                   static_cast<unsigned long>(c[C::Connections]), static_cast<unsigned long>(c[C::RejectedCentrals]),
@@ -177,7 +183,9 @@ void reportBle(const ble::LinkStatus& link)
                   static_cast<unsigned long>(c[C::EmergencyStopWrites]), static_cast<unsigned long>(c[C::ForeignEvents]),
                   static_cast<unsigned long>(c[C::EarlySubscriptions]),
                   static_cast<unsigned long>(c[C::AdvertisingFailures]),
-                  static_cast<unsigned long>(c[C::TerminateFailures]));
+                  static_cast<unsigned long>(c[C::TerminateFailures]),
+                  !link.securitySession ? "none" : link.securityBypassed ? "bypassed" : "established",
+                  static_cast<unsigned long>(c[C::SecuritySessions]), static_cast<unsigned long>(c[C::SecurityRefusals]));
 }
 
 bool changed(const ble::LinkStatus& a, const ble::LinkStatus& b)
@@ -244,6 +252,8 @@ void setup()
     Serial.printf("BLE start=%s profile=%s accepted_centrals=1 stack_max_connections=%d name=%s\n", toString(bleStart),
                   ble::toString(ble::kSecurityProfile), CONFIG_BT_NIMBLE_MAX_CONNECTIONS,
                   bleStart == BleStart::Started ? name.data() : "none");
+    Serial.printf("SECURITY mode=%s policy=%s authenticated=no encrypted=no %s\n", ble::toString(ble::kSecurityMode),
+                  bleSecurity.profile(), ble::kRestrictedLabSecurityWarning);
     if (!motorsAttached) Serial.println("DRIVE attach=failed");
     const auto& boot = configuration.bootState();
     Serial.printf("PROVISIONING state=%s reason=%s generation=%lu pending=%s\n", provisioning::toString(boot.state),
@@ -265,6 +275,13 @@ void loop()
         reported = true;
     }
     if (bleController) {
+        // One warning per new pass-through session, printed here and never from the BLE callback.
+        const auto bypassed = bleController->diagnostics()[ble::BleCounter::BypassedSecuritySessions];
+        if (bypassed != warnedBypassedSessions) {
+            warnedBypassedSessions = bypassed;
+            Serial.printf("SECURITY session=%lu %s\n", static_cast<unsigned long>(bypassed),
+                          ble::kRestrictedLabSecurityWarning);
+        }
         const auto link = bleController->status();
         const bool due = !bleReported || now - lastBleReport >= kStatusReportPeriod;
         if (due || (changed(link, lastBle) && now - lastBleReport >= kBleReportMinSpacing)) {

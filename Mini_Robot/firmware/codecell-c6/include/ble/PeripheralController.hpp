@@ -24,6 +24,14 @@
 //   stack cannot queue one, the session ends as for Stop (ResultQueueExhausted) and the link
 //   is terminated (#156 overload policy): no result is buffered here and none goes missing
 //   silently while the session continues.
+// - Session security (#157 review, ble/SessionSecurity.hpp): a session becomes ready only if
+//   ISessionSecurity::beginSession() establishes one; every Command write of a ready session
+//   is verified before it is parsed, Velocity and ClearEmergencyStop are authorized before
+//   they reach the authority, every CommandResult is protected before it is queued, and
+//   every session end ends the security session. A refused write gets a RobotFault result; a
+//   result that cannot be protected is handled like one that cannot be queued. The Emergency
+//   Stop latch comes before all of it. start() refuses to advertise when the selected mode
+//   does not admit the policy (SecureRequired never runs the restricted-lab pass-through).
 // - Link parameters are requested once per connection as hints (ble-gatt.md); the request
 //   outcome and the negotiated values are reported, and nothing depends on them.
 // - NimBLE installs a connection before it delivers the connect callback, so the central's
@@ -41,6 +49,7 @@
 #include "FirmwareClock.hpp"
 #include "ble/GattProfile.hpp"
 #include "ble/SessionPolicy.hpp"
+#include "ble/SessionSecurity.hpp"
 #include "protocol/V1CommandSession.hpp"
 #include "runtime/RuntimePorts.hpp"
 #include <array>
@@ -85,6 +94,7 @@ enum class LinkState : std::uint8_t {
     Connected,          // One central owns the link; the session is not ready.
     Ready,              // Both CCCDs enabled: results are sent and motion may be admitted.
     Closing,            // Session ended for overload; termination requested, waiting for it.
+    SecurityRefused,    // The selected security mode does not admit the policy: never advertises.
 };
 
 enum class LinkRequestOutcome : std::uint8_t { None, Requested, Refused };
@@ -105,6 +115,9 @@ enum class BleCounter : std::uint8_t {
     AdvertisingFailures,      // Advertising could not be started or stopped when required.
     TerminateFailures,
     LinkRequestsRefused,
+    SecuritySessions,         // Security sessions established (each one a ready session).
+    BypassedSecuritySessions, // Of those, without authentication or encryption (pass-through).
+    SecurityRefusals,         // Sessions, writes, operations or results refused by session security.
     Count_,
 };
 
@@ -126,14 +139,17 @@ struct LinkStatus {
     std::optional<int> lastDisconnectReason{};   // Stack reason code of the last owner disconnect.
     // Time from the owner's last write to its disconnect (#156 I10); empty without a write.
     std::optional<std::chrono::milliseconds> lastWriteBeforeDisconnect{};
+    bool securitySession{false};   // A security session is established (the session is ready).
+    bool securityBypassed{false};  // ...without authentication or encryption.
 };
 
 class PeripheralController {
 public:
     PeripheralController(runtime::IMotionCommandSink& commands, const protocol::v1::IRuntimeStatusView& runtime,
                          const protocol::v1::CommandLimits& limits, IPeripheralLink& link,
-                         const IFirmwareClock& clock) noexcept
-        : commands_(commands), link_(link), clock_(clock), session_(commands, runtime, limits)
+                         const IFirmwareClock& clock, ISessionSecurity& security, SecurityMode mode) noexcept
+        : commands_(commands), link_(link), clock_(clock), security_(security), mode_(mode),
+          session_(commands, runtime, limits)
     {
     }
     PeripheralController(const PeripheralController&) = delete;
@@ -144,6 +160,12 @@ public:
     void start() noexcept
     {
         if (state() != LinkState::Stopped) return;
+        // Fail closed: never advertise with a policy the selected mode does not admit.
+        if (!securityModeAdmits(mode_, security_)) {
+            count(BleCounter::SecurityRefusals);
+            setState(LinkState::SecurityRefused);
+            return;
+        }
         advertise();
     }
 
@@ -223,12 +245,21 @@ public:
             return;
         }
         lastWrite_ = receipt;
-        const auto result = session_.onCommandWrite(bytes, receipt);
         if (state() != LinkState::Ready) {
+            // No security session and no answer channel: Stop and EmergencyStop still act,
+            // Velocity and Clear are refused by the authority (no ready token), no result (v1).
+            (void)session_.onCommandWrite(bytes, receipt);
             count(BleCounter::UnansweredCommandWrites);
             return;
         }
-        send(result);
+        std::array<std::uint8_t, kSecuredFrameMax> scratch{};
+        const auto verified = security_.verifyIncoming(bytes, scratch);
+        if (!verified) {
+            count(BleCounter::SecurityRefusals);
+            send(session_.refuse(bytes));
+            return;
+        }
+        send(session_.onCommandWrite(*verified, receipt, &authorizer_));
     }
 
     void onEmergencyStopWrite(ConnectionHandle connection, std::span<const std::uint8_t> bytes) noexcept
@@ -274,6 +305,8 @@ public:
         if (const auto interval = negotiatedIntervalUnits_.load(std::memory_order_relaxed); interval != 0)
             out.negotiated = LinkParameters{interval, negotiatedLatency_.load(std::memory_order_relaxed),
                                             negotiatedTimeoutUnits_.load(std::memory_order_relaxed)};
+        out.securitySession = securitySessionShown_.load(std::memory_order_relaxed);
+        out.securityBypassed = securityBypassedShown_.load(std::memory_order_relaxed);
         if (hasDisconnected_.load(std::memory_order_relaxed)) {
             out.lastDisconnectReason = disconnectReason_.load(std::memory_order_relaxed);
             if (const auto ms = writeBeforeDisconnectMs_.load(std::memory_order_relaxed); ms != kNoWrite)
@@ -312,6 +345,17 @@ private:
         const bool ready = sessionMayBeReady(kSecurityProfile, {owner_.has_value(), current == LinkState::Closing,
                                                                 resultNotify_, telemetryNotify_});
         if (ready && current == LinkState::Connected) {
+            // The security session comes first; a refusal keeps the link connected but unready.
+            const auto established = security_.beginSession();
+            if (!established.established) {
+                count(BleCounter::SecurityRefusals);
+                return;
+            }
+            securityActive_ = true;
+            count(BleCounter::SecuritySessions);
+            if (established.bypassed) count(BleCounter::BypassedSecuritySessions);
+            securityBypassedShown_.store(established.bypassed, std::memory_order_relaxed);
+            securitySessionShown_.store(true, std::memory_order_relaxed);
             session_.open();
             setState(LinkState::Ready);
             count(BleCounter::SessionsReady);
@@ -323,7 +367,10 @@ private:
 
     void send(const protocol::v1::CommandResultBytes& result) noexcept
     {
-        if (link_.notifyCommandResult(*owner_, result)) {
+        std::array<std::uint8_t, kSecuredFrameMax> scratch{};
+        const auto protectedResult = security_.protectOutgoing(result, scratch);
+        if (!protectedResult) count(BleCounter::SecurityRefusals);
+        if (protectedResult && link_.notifyCommandResult(*owner_, *protectedResult)) {
             count(BleCounter::ResultsSent);
             return;
         }
@@ -340,6 +387,12 @@ private:
     {
         const bool wasReady = state() == LinkState::Ready;
         session_.end(reason);
+        if (securityActive_) {
+            security_.endSession();
+            securityActive_ = false;
+            securitySessionShown_.store(false, std::memory_order_relaxed);
+            securityBypassedShown_.store(false, std::memory_order_relaxed);
+        }
         if (wasReady) count(BleCounter::SessionsEnded);
     }
 
@@ -418,10 +471,29 @@ private:
         counters_[static_cast<std::size_t>(counter)].fetch_add(1, std::memory_order_relaxed);
     }
 
+    // Session security's authorization, in the form the command session asks for it.
+    class Authorizer final : public protocol::v1::ICommandAuthorizer {
+    public:
+        explicit Authorizer(PeripheralController& owner) noexcept : owner_(owner) {}
+        bool authorize(protocol::v1::MessageType operation) noexcept override
+        {
+            if (owner_.security_.authorize(operation)) return true;
+            owner_.count(BleCounter::SecurityRefusals);
+            return false;
+        }
+
+    private:
+        PeripheralController& owner_;
+    };
+
     runtime::IMotionCommandSink& commands_;
     IPeripheralLink& link_;
     const IFirmwareClock& clock_;
+    ISessionSecurity& security_;
+    SecurityMode mode_;
     protocol::v1::CommandSession session_;
+    Authorizer authorizer_{*this};
+    bool securityActive_{false};  // Callback context only.
 
     // Callback context only.
     // One entry per connection the stack can hold beside the owner (NimBLE's limit is 3 in the
@@ -435,6 +507,8 @@ private:
 
     // Published for status() and diagnostics().
     std::atomic<LinkState> state_{LinkState::Stopped};
+    std::atomic<bool> securitySessionShown_{false};
+    std::atomic<bool> securityBypassedShown_{false};
     std::atomic<bool> resultNotifyShown_{false};
     std::atomic<bool> telemetryNotifyShown_{false};
     std::atomic<std::uint16_t> mtu_{0};
@@ -457,6 +531,7 @@ private:
     case LinkState::Connected: return "connected";
     case LinkState::Ready: return "ready";
     case LinkState::Closing: return "closing";
+    case LinkState::SecurityRefused: return "security_refused";
     }
     return "unknown";
 }
@@ -489,6 +564,9 @@ private:
     case BleCounter::AdvertisingFailures: return "advertising_failures";
     case BleCounter::TerminateFailures: return "terminate_failures";
     case BleCounter::LinkRequestsRefused: return "link_requests_refused";
+    case BleCounter::SecuritySessions: return "security_sessions";
+    case BleCounter::BypassedSecuritySessions: return "bypassed_security_sessions";
+    case BleCounter::SecurityRefusals: return "security_refusals";
     case BleCounter::Count_: break;
     }
     return "unknown";

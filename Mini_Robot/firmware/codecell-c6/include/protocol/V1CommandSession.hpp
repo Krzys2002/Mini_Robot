@@ -34,6 +34,17 @@
 
 namespace codecell::protocol::v1 {
 
+// Authorization of the gated operations, Velocity and ClearEmergencyStop (#157 review, #163).
+// Asked after a frame passed steps 1-5's sequence check and before the authority sees it.
+// Stop and EmergencyStop are never asked: they only remove motion. v1 has no "unauthorized"
+// result code and its frames are frozen, so a refusal is reported as RobotFault (the
+// rejection the desktop already handles) and changes neither motion nor lastAccepted.
+class ICommandAuthorizer {
+public:
+    virtual ~ICommandAuthorizer() = default;
+    [[nodiscard]] virtual bool authorize(MessageType operation) noexcept = 0;
+};
+
 // Read-only view of the runtime status (runtime::FirmwareRuntime::status() in production).
 class IRuntimeStatusView {
 public:
@@ -80,8 +91,9 @@ public:
     CommandSession& operator=(const CommandSession&) = delete;
 
     // A write to the Command characteristic. Returns the one CommandResult for it.
-    [[nodiscard]] CommandResultBytes onCommandWrite(std::span<const std::uint8_t> bytes,
-                                                    runtime::Instant receipt) noexcept
+    // `authorizer` (nullable) decides Velocity and ClearEmergencyStop before dispatch.
+    [[nodiscard]] CommandResultBytes onCommandWrite(std::span<const std::uint8_t> bytes, runtime::Instant receipt,
+                                                    ICommandAuthorizer* authorizer = nullptr) noexcept
     {
         const auto decoded = decodeCommand(bytes);
         if (!decoded.frame) return result(decoded.echoSequence, decoded.echoType, decoded.rejection);
@@ -89,9 +101,23 @@ public:
         const auto type = static_cast<std::uint8_t>(frame.type);
         if (!sequence_.admits(frame.type, frame.sequence))
             return result(frame.sequence, type, ResultCode::StaleSequence);
+        const bool gated = frame.type == MessageType::Velocity || frame.type == MessageType::ClearEmergencyStop;
+        if (gated && authorizer && !authorizer->authorize(frame.type))
+            return result(frame.sequence, type, ResultCode::RobotFault);
         const ResultCode code = dispatch(frame, receipt);
         if (code == ResultCode::Accepted) sequence_.record(frame.type, frame.sequence);
         return result(frame.sequence, type, code);
+    }
+
+    // A Command write that session security refused before it was parsed (#157 review): it
+    // has no effect; the one CommandResult rejects it (RobotFault) with whatever sequence
+    // and type are readable.
+    [[nodiscard]] CommandResultBytes refuse(std::span<const std::uint8_t> bytes) noexcept
+    {
+        const auto decoded = decodeCommand(bytes);
+        const auto sequence = decoded.frame ? decoded.frame->sequence : decoded.echoSequence;
+        const auto type = decoded.frame ? static_cast<std::uint8_t>(decoded.frame->type) : decoded.echoType;
+        return result(sequence, type, ResultCode::RobotFault);
     }
 
     // A write to the Emergency Stop characteristic: any length or content latches before
