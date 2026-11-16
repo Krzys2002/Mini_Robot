@@ -8,9 +8,10 @@ The image runs the production runtime (#158): the drive is disabled at boot, one
 local safety/actuator authority (`ActuatorGate`) holds the only drive reference,
 one command authority (`CommandProcessor`) is the only way to request motion, and
 a 5 ms safety supervisor and a 10 ms control task follow the #156 scheduling model.
-See [runtime and threading](../../docs/overview/firmware-runtime.md). The image has
-no BLE peripheral, codec or telemetry yet (#161, #163, #164), so nothing commands
-motion. The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
+See [runtime and threading](../../docs/overview/firmware-runtime.md). The portable
+[v1 codec and command validation](../../docs/overview/firmware-protocol.md) (#161)
+exists, but the image has no BLE peripheral or telemetry yet (#163, #164): nothing
+links the codec, so nothing commands motion. The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
 (#160). It wakes the H-bridges only with a valid provisioned profile, and it is not
 proof of safe electrical boot behaviour or of any physical motor limit (#238). The runtime becomes
 ready only with a validated, provisioned identity/configuration record (#159); an
@@ -30,6 +31,7 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 | `include/FirmwareClock.hpp` | Portable C++20 clock contract and conversions, no SDK includes |
 | `include/runtime/` | Portable production runtime (#158): ports, safety state, actuator gate, command processor, mailbox, periodic steps and start-up orchestration |
 | `include/provisioning/` | Portable identity/configuration record, A/B atomic store, runtime configuration source and USB maintenance console (#159) |
+| `include/protocol/` | Portable [v1 codec and command validation](../../docs/overview/firmware-protocol.md) (#161): wire constants, command decoder, Telemetry/CommandResult/Robot Info encoders, sequence rules and the per-session command handler |
 | `include/drive/` | Portable [bounded drive](../../docs/overview/firmware-drive.md) (#160): drive profile, kinematics and actuator map, rate limiter, motor HAL port and `BoundedDriveOutput` |
 | `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
 | `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
@@ -167,7 +169,30 @@ floods and the control-stall bound ([details](../../docs/overview/firmware-runti
 `ProvisioningRuntimeTest` cover the #159 record schema, corruption and version
 handling, power interruption at every step and byte, the maintenance console and
 the provisioning gate ([details](../../docs/overview/firmware-provisioning.md#verification)).
+`ProtocolCodecTest`, `ProtocolSequenceTest`, `ProtocolSessionTest` and
+`ProtocolFuzzTest` cover the #161 codec against the shared
+[v1 byte vectors](../../docs/protocol/fixtures/v1-frames.txt), every truncation,
+version and type, the sequence rules, the validation order against the real runtime,
+and mutation and fuzz runs ([details](../../docs/overview/firmware-protocol.md#verification)).
 None of these tests exercises a motor controller.
+
+### Host sanitizers and fuzz run
+
+GCC or Clang can build the same tests with AddressSanitizer and
+UndefinedBehaviorSanitizer, which turns any read outside a frame buffer into a
+failure. The fuzz test is deterministic: seed `161`, 200,000 inputs by default.
+
+```sh
+cmake -S Mini_Robot/firmware/codecell-c6 -B build/firmware-host-c6-asan -DCMAKE_BUILD_TYPE=Debug \
+  -DCODECELL_FIRMWARE_HOST_SANITIZERS=ON
+cmake --build build/firmware-host-c6-asan --parallel 3
+CODECELL_PROTOCOL_FUZZ_ITERATIONS=2000000 ctest --test-dir build/firmware-host-c6-asan \
+  --output-on-failure --no-tests=error
+```
+
+`CODECELL_PROTOCOL_FUZZ_SEED` picks another seed; a failure message names the seed
+and iteration so the run can be repeated exactly. MSVC is not supported for this
+option.
 
 ## Timing pilot (bench measurement image, #156)
 

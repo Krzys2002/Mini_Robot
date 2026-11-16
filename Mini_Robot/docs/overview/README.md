@@ -36,6 +36,9 @@
 - [CodeCell C6 identity provisioning](firmware-provisioning.md): persistent RobotId,
   validated configuration record, atomic storage and rollback, USB maintenance path
   and the RobotId/AprilTag association (#159).
+- [CodeCell C6 v1 codec and command validation](firmware-protocol.md): decoding of
+  untrusted command frames, robot frame and Robot Info encoding, validation order,
+  sequence rules, the E-stop characteristic and the shared byte vectors (#161).
 - [CodeCell C6 bounded drive](firmware-drive.md): actuator contract from body velocity
   to PWM duty, saturation, rate/reversal limits, the output bound, the stop ramp versus
   immediate disable, and the DRV8837 board facts (#160).

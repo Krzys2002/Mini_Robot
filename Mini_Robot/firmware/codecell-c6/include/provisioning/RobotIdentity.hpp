@@ -2,8 +2,8 @@
 // Read-only identity and limits for Robot Info, advertising and diagnostics (#159).
 // Both come from the one ValidatedRobotConfig the runtime started with, so the
 // advertised name, the Robot Info record and the enforced validity ceiling cannot
-// disagree. Byte encoding of Robot Info is the v1 codec (#161); GATT and advertising
-// are the BLE peripheral (#163). A robot without a validated record has no identity
+// disagree. Byte encoding of Robot Info is protocol::v1::encodeRobotInfo (#161); GATT
+// and advertising are the BLE peripheral (#163). A robot without a validated record has no identity
 // to publish and must not advertise (docs/overview/firmware-provisioning.md).
 #include "provisioning/RobotConfigRecord.hpp"
 #include <array>
@@ -13,8 +13,9 @@
 
 namespace codecell::provisioning {
 
-// Robot Info fields that the configuration owns, in v1 wire units. The format byte,
-// protocol range and firmware version come from the build (#161/#164).
+// Robot Info fields that the configuration owns, in v1 wire units. The format byte and
+// protocol range are fixed by the v1 codec (#161); the firmware version is a build
+// input (#164).
 struct RobotInfoValues {
     RobotId robotId{0};
     std::uint16_t maxLinearMillimetresPerSecond{0};

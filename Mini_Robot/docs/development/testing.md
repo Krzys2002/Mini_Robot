@@ -31,7 +31,7 @@ selection rather than reporting successful verification with no tests run.
 | Executable | CTest label | Coverage |
 | --- | --- | --- |
 | `micro_robot_vision_tests` | `vision` | AprilTag formats/stride, canonical rotations and resulting robot headings, multiple IDs, invalid inputs, negative scenes and generated-video replay; desktop or standalone vision ON |
-| `micro_robot_ble_contract_tests` | `core`, `ble` | Qt-free Robot Info, identity/GATT validation, command codec, malformed notifications and sequence wrap |
+| `micro_robot_ble_contract_tests` | `core`, `ble` | Qt-free Robot Info, identity/GATT validation, command codec, malformed notifications, sequence wrap and the shared v1 byte vectors |
 | `micro_robot_ble_tests` (opt-in) | `ble` | Qt Core fake-radio lifecycle, bounded dispatch/freshness, telemetry/results, E-stop retries, controller delivery, timeouts and recovery; no physical radio |
 | `micro_robot_calibration_tests` | `core`, `calibration` | Capture/guidance policy, bounded review storage, allocation/overflow/cleanup regressions, intrinsic result validation and owned snapshots |
 | `micro_robot_calibration_detector_tests` | `calibration` | Generated chessboards, analytic intrinsic/distortion recovery and metric corner-undistortion tests; built with desktop or standalone calibration enabled |
@@ -58,7 +58,9 @@ Enable `-DMICRO_ROBOT_BUILD_BLE=ON` for BLE adapter/lifecycle tests, then run
 `ctest --test-dir build -L ble --output-on-failure --no-tests=error`. On macOS
 with Qt 6.5+, this label also checks the production app's Bluetooth usage
 description and statically imported permission plugin without requesting access.
-Core-only builds keep thirteen Robot Info/GATT and message-codec tests without Qt.
+Core-only builds keep fifteen Robot Info/GATT and message-codec tests without Qt,
+including the shared [v1 byte vectors](../protocol/fixtures/v1-frames.txt) that the
+firmware codec tests also read.
 Physical checks are listed in the [connection guide](../overview/ble-connection.md)
 and [message guide](../overview/ble-messages.md).
 
@@ -188,7 +190,8 @@ PlatformIO. The C6 build also runs the production image policy, which fails if
 Wi-Fi/AP/HTTP/OTA code is linked; its rule is tested with
 `python3 -m unittest discover -s .github/scripts/tests -p 'test_firmware_*.py'`.
 Run these when touching firmware contracts, pins or the firmware
-workflow. Physical upload, monitoring and recovery checks are tracked in
+workflow. Codec changes also need the
+[sanitizer and fuzz run](../../firmware/codecell-c6/README.md#host-sanitizers-and-fuzz-run). Physical upload, monitoring and recovery checks are tracked in
 [#240](https://github.com/Krzys2002/Mini_Robot/issues/240).
 
 ## macOS continuous integration

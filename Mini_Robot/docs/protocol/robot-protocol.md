@@ -3,8 +3,10 @@
 Status: specification for [issue #64](https://github.com/Krzys2002/Mini_Robot/issues/64).
 The desktop [BLE lifecycle](../overview/ble-connection.md) validates Robot Info
 and establishes GATT readiness. Desktop [message handling](../overview/ble-messages.md)
-implements frame encoding/decoding and writes. ESP32-C6 firmware and physical
-command-delivery acceptance remain outstanding. The BLE carriage of
+implements frame encoding/decoding and writes. The portable ESP32-C6
+[codec and command validation](../overview/firmware-protocol.md) (#161) implements
+the robot side of these rules but is not yet linked to a BLE peripheral (#163);
+physical command-delivery acceptance remains outstanding. The BLE carriage of
 these frames is defined in [BLE GATT contract](ble-gatt.md).
 
 This document defines the bytes exchanged between the desktop and one robot. It
@@ -391,7 +393,9 @@ Hex bytes in transmission order. The limits in the Robot Info example are illust
 | CommandResult, seq 8, for Velocity 258, `Accepted`, `Moving` | `01 81 08 00 02 01 02 00 01` |
 | Robot Info, ID 7, firmware 0.1.0, 300 mm/s, 6000 mrad/s, 500 ms, 100 ms | `01 01 01 07 00 00 00 00 01 00 2C 01 70 17 F4 01 64 00` |
 
-Implementations should use these frames as encoder and decoder test vectors.
+Implementations should use these frames as encoder and decoder test vectors. They
+are also in machine-readable form in [`fixtures/v1-frames.txt`](fixtures/v1-frames.txt),
+which both the desktop and firmware tests read.
 
 ## JSON bring-up representation
 

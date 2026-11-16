@@ -19,8 +19,9 @@ those remain with #161–#166 and the powered gate
   reset). Entering maintenance ends motion, clears intent and refuses motion until
   restart.
 - Has exactly one motion-command entry point, `FirmwareRuntime::commands()`. No
-  code in the image calls it yet: the BLE peripheral that will is #163, and the
-  codec that decodes v1 frames for it is #161.
+  code in the image calls it yet: the BLE peripheral that will is #163. The
+  portable [v1 codec and command validation](firmware-protocol.md) (#161) that
+  decodes frames for it exists, but it is not linked into the image yet.
 - Uses the [bounded drive](firmware-drive.md) (#160): body velocity to wheel intent,
   saturation, rate and reversal limits and the approved output bound, from the
   provisioned profile. It wakes the H-bridges only after a valid profile. Normal Stop
@@ -54,7 +55,8 @@ Provisioning logic is portable C++20 under
 
 Domain values cross these boundaries in SI units: `BodyVelocity` is metres per
 second and radians per second (positive counter-clockwise), and time is the robot's
-monotonic clock in microseconds. Wire units (mm/s, mrad/s, ms) stay in the codec.
+monotonic clock in microseconds. Wire units (mm/s, mrad/s, ms) stay in the
+[codec](firmware-protocol.md#wire-to-domain-mapping-on-the-robot).
 
 ## Components and ownership
 
