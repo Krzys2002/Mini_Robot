@@ -18,6 +18,8 @@ class WorkspaceMapView;
 class WorkspaceSurveyModel final : public QAbstractTableModel
 {
 public:
+    enum Column { Surveyed, Identity, WorldX, WorldY, RadialError, XError, YError, XTarget, YTarget,
+                  RelativeError, Source, ColumnCount };
     explicit WorkspaceSurveyModel(QObject* parent = nullptr) : QAbstractTableModel(parent) {}
     void setAcquisition(std::shared_ptr<const WorkspaceAcquisitionRecord>,
                         const std::vector<std::uint64_t>& selected = {});

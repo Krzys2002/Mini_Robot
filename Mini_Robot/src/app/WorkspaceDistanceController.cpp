@@ -9,6 +9,9 @@ WorkspaceDistanceController::WorkspaceDistanceController(WorkspaceCalibrationCon
 {
     geometry_ = source_.diagnostics().snapshot();
     shownCanFreeze_ = canFreeze();
+    connect(&source_.diagnostics(),&WorkspaceDiagnosticsController::distanceExportFinished,this,[this](const QString& message) {
+        message_=message; emit changed();
+    });
     connect(&source_.diagnostics(), &WorkspaceDiagnosticsController::calibrationChanged, this,
             &WorkspaceDistanceController::calibrationChanged);
     connect(&source_.diagnostics(), &WorkspaceDiagnosticsController::changed, this, [this] {
@@ -114,6 +117,22 @@ void WorkspaceDistanceController::clear(std::optional<std::size_t> index)
         endpoints_ = {};
     measurement_ = {};
     message_ = "Endpoints cleared. Re-freezing or replacing calibration clears old picks.";
+    emit changed();
+}
+bool WorkspaceDistanceController::canExport() const
+{
+    return measurement_.result && endpoints_[0] && endpoints_[1] && geometry_
+        && geometry_==source_.diagnostics().snapshot() && !source_.diagnostics().busy();
+}
+void WorkspaceDistanceController::exportMeasurement(const QString& path)
+{
+    if (!canExport()) {
+        message_="Distance export unavailable: select two valid endpoints with current calibration diagnostics.";
+        emit changed(); return;
+    }
+    if (source_.diagnostics().exportDistanceSnapshot({*endpoints_[0],*endpoints_[1]},frame(),path))
+        message_="Exporting immutable distance snapshot…";
+    else message_="Distance export unavailable while diagnostics are busy or the destination is empty.";
     emit changed();
 }
 void WorkspaceDistanceController::freeze()

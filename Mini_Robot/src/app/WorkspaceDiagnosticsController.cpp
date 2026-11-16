@@ -261,6 +261,85 @@ void WorkspaceDiagnosticsController::exportSnapshot(const QString& path)
         },
         Qt::QueuedConnection);
 }
+
+std::string exportWorkspaceDistance(const WorkspaceDiagnostics& d,
+    const std::array<WorkspaceDistanceEndpoint,WorkspaceDistanceEndpointCount>& endpoints,
+    const FramePtr& frame,const QString& path)
+{
+    try {
+        const auto measurement=measureWorkspaceDistance(d,endpoints);
+        if (!measurement.result) return measurement.error;
+        const auto& result=*measurement.result;
+        QJsonArray points,selectionRadii,calibrationRadii,ids;
+        for (std::size_t i=0;i<endpoints.size();++i) {
+            const auto& endpoint=endpoints[i];
+            const auto image=unprojectWorkspacePoint(*d.profile.homography,endpoint.world);
+            points.append(QJsonObject{{"worldMeters",point(endpoint.world)},
+                {"nativeUndistortedPixels",image ? QJsonValue{QJsonArray{image->u,image->v}} : QJsonValue{QJsonValue::Null}},
+                {"selectionSpace",endpoint.selection.space==WorkspaceSelectionSpace::WorldMeters ? "worldMeters" : "nativeUndistortedPixels"},
+                {"selectionMaximumRadius",number(endpoint.selection.maximumRadius)},
+                {"selectionJustification",QString::fromStdString(endpoint.selection.justification)}});
+            selectionRadii.append(number(result.selectionRadiiMeters[i]));
+            calibrationRadii.append(number(result.calibrationRadiiMeters[i]));
+        }
+        for(auto ref:d.evidence.referenceIds) ids.append(id(ref));
+        QJsonObject root{{"schema","mini-robot-workspace-distance-v1"},
+            {"diagnosticPlane",QString::fromStdString(result.diagnosticPlane)},
+            {"worldFrameId",QString::fromStdString(result.frameId)},
+            {"calibrationRevision",QString::fromStdString(result.calibrationRevision)},
+            {"profileCanonical",QString::fromStdString(serializeWorkspaceProfile(d.profile))},
+            {"acquisitionId",QString::fromStdString(d.profile.acquisitionId)},
+            {"acquisitionCanonical",d.acquisition ? QJsonValue{QString::fromStdString(serializeWorkspaceAcquisition(*d.acquisition))} : QJsonValue{QJsonValue::Null}},
+            {"endpoints",points},{"distanceMeters",result.distanceMeters},
+            {"intervalAvailable",result.plusMinusMeters.has_value()},
+            {"plusMinusMeters",number(result.plusMinusMeters)},{"lowerMeters",number(result.lowerMeters)},
+            {"upperMeters",number(result.upperMeters)},{"conditionalCoverage",result.coverage},
+            {"uncertaintyUnavailable",QString::fromStdString(result.uncertaintyUnavailable)},
+            {"selectionRadiiMeters",selectionRadii},{"calibrationRadiiMeters",calibrationRadii},
+            {"scope","Fixed-pair tabletop-plane diagnostic; conditional interval is not per-axis robot-position certification"},
+            {"surveyEvidence",QJsonObject{{"referenceIds",ids},{"independentSurveyConfirmed",d.evidence.independentSurveyConfirmed},
+                {"gaussianAffineModelConfirmed",d.evidence.gaussianAffineModelConfirmed},
+                {"additionalStandardUncertaintyMeters",d.evidence.additionalStandardUncertaintyMeters},
+                {"method",QString::fromStdString(d.evidence.method)}}},
+            {"predictionUnavailable",QString::fromStdString(d.uncertaintyUnavailable)}};
+        if (d.prediction) {
+            const auto& m=*d.prediction;
+            auto array=[](const auto& values) {QJsonArray a;for(double v:values)a.append(v);return a;};
+            root["prediction"]=QJsonObject{{"inverseNormal",array(m.inverseNormal)},{"betaX",array(m.betaX)},{"betaY",array(m.betaY)},
+                {"varianceX",m.varianceX},{"varianceY",m.varianceY},{"degreesOfFreedom",static_cast<int>(m.degreesOfFreedom)},
+                {"pointCritical",m.pointCritical},{"endpointCritical",m.endpointCritical}};
+        } else root["prediction"]=QJsonValue{QJsonValue::Null};
+        if (frame) root["frozenFrame"]=QJsonObject{{"sequence",id(frame->sequence)},
+            {"capturedSteadyNanoseconds",QString::number(std::chrono::duration_cast<std::chrono::nanoseconds>(frame->capturedAt.time_since_epoch()).count())},
+            {"width",static_cast<int>(frame->width)},{"height",static_cast<int>(frame->height)}};
+        else root["frozenFrame"]=QJsonValue{QJsonValue::Null};
+        const auto bytes=QJsonDocument(root).toJson(QJsonDocument::Indented);
+        if (static_cast<std::size_t>(bytes.size())>MaximumWorkspaceDiagnosticsExportBytes) return "Distance export exceeds bounded capacity.";
+        QSaveFile file{path}; file.setDirectWriteFallback(false);
+        if (!file.open(QIODevice::WriteOnly)) return file.errorString().toStdString();
+        if (file.write(bytes)!=bytes.size() || !file.commit()) return file.errorString().toStdString();
+        return {};
+    } catch(const std::exception& e) { return e.what(); }
+    catch(...) { return "Unknown distance export failure."; }
+}
+bool WorkspaceDiagnosticsController::exportDistanceSnapshot(
+    std::array<WorkspaceDistanceEndpoint,WorkspaceDistanceEndpointCount> endpoints,FramePtr frame,const QString& path)
+{
+    if (shuttingDown_ || running_ || !snapshot_ || path.isEmpty()) return false;
+    const auto snapshot=snapshot_; const auto generation=generation_; running_=true;
+    message_="Exporting immutable distance snapshot…"; emit changed();
+    QMetaObject::invokeMethod(context_,[this,snapshot,endpoints=std::move(endpoints),frame=std::move(frame),path,generation] {
+        const auto error=exportWorkspaceDistance(*snapshot,endpoints,frame,path);
+        QMetaObject::invokeMethod(this,[this,error,generation] {
+            if (!shuttingDown_ && generation==generation_) {
+                message_=error.empty() ? QStringLiteral("Distance snapshot exported atomically.") : QStringLiteral("Distance export failed: %1").arg(QString::fromStdString(error));
+                emit distanceExportFinished(message_);
+            }
+            finished();
+        },Qt::QueuedConnection);
+    },Qt::QueuedConnection);
+    return true;
+}
 void WorkspaceDiagnosticsController::shutdown()
 {
     if (shuttingDown_)

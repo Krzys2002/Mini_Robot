@@ -38,6 +38,6 @@ private:
     std::array<std::optional<WorldPoint2D>, WorkspaceDistanceEndpointCount> shownWorld_;
     bool initialized_{};
     QLabel *identity_{}, *distance_{}, *uncertainty_{}, *status_{};
-    QPushButton* freeze_{};
+    QPushButton *freeze_{}, *export_{};
 };
 } // namespace micro_robot

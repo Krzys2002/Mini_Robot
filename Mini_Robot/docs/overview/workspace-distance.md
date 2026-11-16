@@ -189,3 +189,20 @@ axle/body-centre separation. Conditional distance intervals and two-point agreem
 do not certify the independently-per-X/Y ±5 mm robot-position target (#224/#63).
 Actual height-aware localization belongs to #270/#271/#272; those issues do not
 depend on this diagnostic. Physical distance acceptance (#268) remains NOT RUN.
+
+### Export the selected distance result
+
+Use **Export result…** with two supported endpoints and current completed diagnostics.
+The bounded existing diagnostics worker writes an atomic JSON snapshot (schema
+`mini-robot-workspace-distance-v1`), independently of map export. It includes both
+world endpoints and mapped native pixels, selection space/radius/justification,
+distance, nullable interval/radii and unavailable reason, conditional coverage,
+tabletop plane, frame ID, exact canonical calibration revision, acquisition evidence,
+survey assumptions and prediction parameters. An available frozen frame contributes
+its sequence/resolution/steady capture ticks; absent frame metadata is explicitly null.
+
+Unknown selection budgets remain null and suppress the interval. Completed diagnostic
+evidence is required to export; pending recomputation and invalidated bindings cannot
+export old endpoint results. A requested export captures an immutable historical pair
+and revision, so later endpoint edits do not change that file. No raster or physical
+accuracy certificate is included. Failed writes preserve the previous destination.

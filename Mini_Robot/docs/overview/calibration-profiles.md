@@ -243,3 +243,7 @@ the workspace geometry, existing draft references and solve results are invalida
 through the usual frame-replacement rules; active calibration changes only through
 explicit activation. Invalid text and unknown optional measurements stay explicit.
 Stored reference values are redisplayed in the selected unit rather than rewritten.
+
+Height-aware tag-to-axle/body conversion and per-robot mounting/height metadata remain
+owned by [#270](https://github.com/Krzys2002/Mini_Robot/issues/270). Boundary selection
+does not perform that conversion or estimate camera extrinsics.

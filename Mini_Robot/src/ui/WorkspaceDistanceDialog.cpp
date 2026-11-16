@@ -5,6 +5,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QGridLayout>
+#include <QFileDialog>
 #include <QImage>
 #include <QLabel>
 #include <QLineEdit>
@@ -274,6 +275,11 @@ WorkspaceDistanceDialog::WorkspaceDistanceDialog(WorkspaceCalibrationController&
     auto* close = new QPushButton("Close", this);
     actions->addWidget(freeze_);
     actions->addWidget(clearAll);
+    export_=new QPushButton("Export result…",this); export_->setObjectName("distanceExport"); actions->addWidget(export_);
+    connect(export_,&QPushButton::clicked,this,[this] {
+        const auto path=QFileDialog::getSaveFileName(this,"Export selected tabletop distance",{},"Distance result (*.json)");
+        if (!path.isEmpty()) controller_.exportMeasurement(path);
+    });
     actions->addWidget(close);
     outer->addLayout(actions);
     connect(freeze_, &QPushButton::clicked, &controller_, &WorkspaceDistanceController::freeze);
@@ -388,6 +394,7 @@ void WorkspaceDistanceDialog::refresh()
     }
     initialized_ = true;
     status_->setText(controller_.message());
+    export_->setEnabled(controller_.canExport());
     if (const auto& m = controller_.measurement(); m.result) {
         const auto& result = *m.result;
         distance_->setText(QStringLiteral("Tabletop z=0 distance: %1 cm (%2 mm)")

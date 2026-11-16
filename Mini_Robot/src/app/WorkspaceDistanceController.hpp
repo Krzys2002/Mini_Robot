@@ -18,6 +18,8 @@ public:
     void setSelection(std::size_t index, WorkspaceEndpointSelection);
     void clear(std::optional<std::size_t> index = {});
     void freeze();
+    [[nodiscard]] bool canExport() const;
+    void exportMeasurement(const QString& path);
     [[nodiscard]] const auto& endpoints() const { return endpoints_; }
     [[nodiscard]] const auto& measurement() const { return measurement_; }
     [[nodiscard]] const auto& geometry() const { return geometry_; }
