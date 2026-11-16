@@ -400,3 +400,18 @@ QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter=
 These paths are for root builds; standalone executable paths omit `Mini_Robot/`.
 The offscreen entry point does not establish native-display or physical-camera
 acceptance. Those new checks belong to #259 and remain NOT RUN until executed.
+
+## Side-mounted planar calibration regression (#247)
+
+Run core plus the host desktop presets. `TabletopObliqueTest`,
+`OpenCvWorkspaceHomographyObliqueTest`, `MetricObservationObliqueTest`,
+`OpenCvMetricObservationObliqueTest` and `WorkspaceObliqueUiTest` cover a known
+pinhole plane with a 3.4× near/far scale ratio, independent edge/interior references,
+native-K lens correction, world headings, degeneracy/horizon recovery and
+session-only fit coverage. `MetricObservationTest.ProjectiveMetricMappingIsInvariantToLargeFiniteHomogeneousScale`
+regresses the reproduced unnormalised denominator overflow.
+
+These are deterministic software checks. Physical side-camera accuracy and new
+native-display checks belong to #261 and remain NOT RUN. The
+[oblique-camera audit](../overview/oblique-tabletop.md) records sources, geometry
+and plane/height/extrapolation limits.

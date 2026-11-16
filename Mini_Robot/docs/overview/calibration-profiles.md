@@ -219,3 +219,7 @@ estimate camera extrinsics or validate elevated tags. WorkspaceBounds remains
 robot travel geometry. Survey references outside that rectangle belong to
 [reference monitoring #271](https://github.com/Krzys2002/Mini_Robot/issues/271),
 not enlarged or shifted travel bounds.
+
+Height-aware tag-to-axle/body conversion and per-robot mounting/height metadata remain
+owned by [#270](https://github.com/Krzys2002/Mini_Robot/issues/270). Boundary selection
+does not perform that conversion or estimate camera extrinsics.

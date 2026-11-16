@@ -103,3 +103,33 @@ TEST(OpenCvMetricObservationTest, BoundedReasonsDistinguishEmptyRejectedAndInval
     input.error="detector failure";
     EXPECT_EQ(convert().status,MetricObservationStatus::InvalidGeometry);
 }
+
+#include "ObliqueWorkspaceFixtures.hpp"
+
+TEST(OpenCvMetricObservationObliqueTest, UndistortsStrongNearFarPerspectiveInNativeCameraGeometry)
+{
+    auto profile = obliqueWorkspaceInput().profile;
+    profile.homography = obliqueHomography();
+    profile.intrinsics.distortion = {0.08,-0.01,0.002,-0.003,0.001};
+    OpenCvMetricObservationConverter converter;
+    for (double y : {0.1,1.1,2.3}) {
+        const double heading = 0.7;
+        std::array<MarkerCorner,4> corners;
+        const double front[]{1,1,-1,-1}, right[]{-1,1,1,-1};
+        for (std::size_t i=0;i<corners.size();++i) {
+            const auto ideal = obliqueImage({Meters{0.4+0.025*(front[i]*std::cos(heading)+right[i]*std::sin(heading))},
+                Meters{y+0.025*(front[i]*std::sin(heading)-right[i]*std::cos(heading))}});
+            const double x = (ideal.u-500)/400, ny = (ideal.v-300)/410;
+            const double r2 = x*x+ny*ny, radial = 1+0.08*r2-0.01*r2*r2+0.001*r2*r2*r2;
+            corners[i] = {500+400*(x*radial+2*0.002*x*ny-0.003*(r2+2*x*x)),
+                300+410*(ny*radial+0.002*(r2+2*ny*ny)-2*0.003*x*ny)};
+        }
+        MarkerDetections input; input.width=1000; input.height=800;
+        input.markers.push_back({MarkerFamily::AprilTag36h11,0,corners,{}});
+        const auto result = converter.convert(input,profile.intrinsics.sourceId,RobotMarkerMap{},profile);
+        ASSERT_EQ(result.measurements.size(),1);
+        EXPECT_NEAR(result.measurements[0].pose.x.value,0.4,1e-7);
+        EXPECT_NEAR(result.measurements[0].pose.y.value,y,1e-7);
+        EXPECT_NEAR(result.measurements[0].pose.heading.value,heading,1e-6);
+    }
+}
