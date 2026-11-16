@@ -16,23 +16,60 @@ double cross(Point a, Point b, Point c)
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
-bool spansPlane(std::vector<Point> points)
+std::vector<Point> convexHull(std::vector<Point> points)
 {
     std::sort(points.begin(), points.end(),
               [](Point a, Point b) { return a.x < b.x || (a.x == b.x && a.y < b.y); });
     std::vector<Point> hull;
     for (const auto point : points) {
-        while (hull.size() >= 2 && cross(hull[hull.size() - 2], hull.back(), point) <= 1e-8)
+        while (hull.size() >= 2 && cross(hull[hull.size() - 2], hull.back(), point) <= WorkspaceHullCrossTolerance)
             hull.pop_back();
         hull.push_back(point);
     }
     const auto lowerSize = hull.size();
     for (auto it = points.rbegin() + 1; it != points.rend(); ++it) {
-        while (hull.size() > lowerSize && cross(hull[hull.size() - 2], hull.back(), *it) <= 1e-8)
+        while (hull.size() > lowerSize && cross(hull[hull.size() - 2], hull.back(), *it) <= WorkspaceHullCrossTolerance)
             hull.pop_back();
         hull.push_back(*it);
     }
-    return hull.size() >= 4; // Closed hull with at least three non-collinear vertices.
+    return hull; // Closed hull; at least three distinct vertices are needed to span a plane.
+}
+
+bool spansPlane(const std::vector<Point>& points)
+{
+    return convexHull(points).size() >= 4;
+}
+
+double hullArea(const std::vector<Point>& hull)
+{
+    double area = 0;
+    for (std::size_t i = 1; i < hull.size(); ++i)
+        area += hull[i-1].x * hull[i].y - hull[i].x * hull[i-1].y;
+    return std::abs(area) / 2;
+}
+
+bool insideHull(const std::vector<Point>& hull, Point point)
+{
+    for (std::size_t i = 1; i < hull.size(); ++i)
+        if (cross(hull[i-1],hull[i],point) < -WorkspaceHullCrossTolerance) return false;
+    return true;
+}
+
+WorkspaceFitCoverage fitCoverage(const WorkspaceHomographyInput& input)
+{
+    const auto& p = input.profile;
+    std::vector<Point> image, world;
+    for (const auto& pair : input.fitPoints) {
+        image.push_back({pair.image.u / p.intrinsics.width, pair.image.v / p.intrinsics.height});
+        world.push_back({pair.world.x.value / p.bounds.width().value, pair.world.y.value / p.bounds.height().value});
+    }
+    const auto imageHull = convexHull(image), worldHull = convexHull(world);
+    WorkspaceFitCoverage coverage{hullArea(imageHull), hullArea(worldHull), 0};
+    for (const auto& pair : input.checkPoints)
+        if (!insideHull(imageHull,{pair.image.u / p.intrinsics.width,pair.image.v / p.intrinsics.height})
+            || !insideHull(worldHull,{pair.world.x.value / p.bounds.width().value,pair.world.y.value / p.bounds.height().value}))
+            ++coverage.extrapolatedCheckCount;
+    return coverage;
 }
 
 bool duplicate(const WorkspaceCorrespondence& a, const WorkspaceCorrespondence& b,
@@ -134,7 +171,8 @@ std::string validateWorkspaceHomographyInput(const WorkspaceHomographyInput& inp
                          p.world.y.value / profile.bounds.height().value});
     }
     if (!spansPlane(image) || !spansPlane(world))
-        return "Fitting image and world points must span a non-degenerate two-dimensional region.";
+        return "Fitting points are degenerate or nearly collinear. Spread visible references across near/far edges "
+               "and both table axes; raise an almost edge-on camera. Do not guess occluded points.";
     std::vector<WorkspaceCorrespondence> all = input.fitPoints;
     for (const auto& p : input.checkPoints) {
         if (!validPoint(p, profile))
@@ -188,13 +226,14 @@ WorkspaceHomographyOutcome evaluateWorkspaceHomography(const WorkspaceHomography
         const double w = h[6] * p.image.u + h[7] * p.image.v + h[8];
         if (!projectWorkspacePoint(transform, p.image) || !std::isfinite(w) || w == 0 ||
             (sign != 0 && std::signbit(w) != std::signbit(sign)))
-            return fail("Homography horizon crosses the fitting region.");
+            return fail("Homography horizon crosses the fitting region. Check paired labels/plane, raise the camera "
+                        "and reselect visible references on the same side of the horizon.");
         sign = w;
     }
     const auto fit = errors(transform, input.fitPoints);
     if (!fit)
         return fail("Cannot evaluate finite fitting residuals.");
-    WorkspaceHomographyResult result{std::move(profile), *fit, {}};
+    WorkspaceHomographyResult result{std::move(profile), *fit, {}, fitCoverage(input)};
     if (!input.checkPoints.empty()) {
         result.check = errors(transform, input.checkPoints);
         if (!result.check)

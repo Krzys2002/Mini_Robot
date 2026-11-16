@@ -38,8 +38,9 @@ WorkspaceHomographyOutcome OpenCvWorkspaceHomographySolver::solve(const Workspac
         }
         cv::Mat w, u, vt;
         cv::SVD::compute(a, w, u, vt, cv::SVD::FULL_UV);
-        if (w.at<double>(7) <= w.at<double>(0) * 1e-9)
-            return {{}, "Correspondences are numerically degenerate."};
+        if (w.at<double>(7) <= w.at<double>(0) * WorkspaceMinimumSingularValueRatio)
+            return {{}, "Correspondences are ill-conditioned or nearly edge-on. Spread visible references across "
+                        "near/far edges and both axes, raise the camera, and recheck measured pairs."};
         WorkspaceHomography initial;
         const double rows[]{width, height, 1}, columns[]{1.0 / k.width, 1.0 / k.height, 1};
         for (int row = 0; row < 3; ++row)
