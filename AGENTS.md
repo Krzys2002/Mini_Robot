@@ -35,7 +35,7 @@ and `core arhiteture.md` do not establish implemented functionality.
 - Firmware lives under `Mini_Robot/firmware/`. `codecell-c6/` is the C6
   production runtime (bounded open-loop drive since #160, portable v1 codec since
   #161, session-gated watchdog/E-stop/fault recovery since #162, v1 BLE peripheral
-  and session lifecycle since #163, telemetry publication in #164, powered checks in
+  and session lifecycle since #163, telemetry publication since #164, powered checks in
   #238);
   `ble-lifecycle/` is a separate connection fixture.
   The outdated T1 projects and HTTP/browser controller have been retired.

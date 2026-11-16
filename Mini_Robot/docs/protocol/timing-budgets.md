@@ -224,23 +224,36 @@ procedure is the template ([record](../testing/timing-pilot-156.md#method)).
 
 ## Open items and explicit blockers
 
-- Approval of this table (#156 PR review).
-- **Integration follow-up (2026-11-16, [PR #276](https://github.com/Krzys2002/Mini_Robot/pull/276#issuecomment-6923047956)).**
-  No additional isolated code correction was requested for #156. The table
-  remains **proposed**, with no approved relaxation:
-  - #164/PR #283 recorded B10 periodic deviations of 10.6–14.0 ms against
-    ≤ 2 ms. Its scheduler corrections are host-tested, but burst/stress runs on
-    the corrected C6 image must still establish 100 ± 2 ms periodic gaps and
-    state-change spacing ≥ 20 ms.
-  - B3 reached 2.09 ms against ≤ 2 ms during a roughly 75-minute idle window.
-    The cause remains unresolved; investigation and a long idle rerun are
-    required.
+- Explicit maintainer acceptance of this table (#156/PR #276 review) remains
+  outstanding after the [2026-11-16 follow-up](https://github.com/Krzys2002/Mini_Robot/pull/276#issuecomment-6923047956).
+  No bound has been relaxed. Passing host tests does not establish production
+  timing conformance; any revised budget requires explicit approval and
+  recalculation of B4/B5/B7/B8 and desktop freshness assumptions as applicable.
+  No additional isolated code correction was requested for #156; physical
+  output-disable uncertainty remains unchanged.
+- **B10 robot-side deviation under write bursts** (#164
+  [bench check](../overview/firmware-telemetry.md#bench-check-2026-11-16)). The deviation stayed
+  ≤ 1.45 ms in idle, nominal, flood, reconnect and serial-pause windows. A burst of back-to-back
+  writes measured 10.6–14.0 ms: the telemetry task (priority 5, B18) waits while `nimble_host`
+  (21) drains the queued writes. The 19.2 ms host-queue allowance and host gaps
+  ≤ 0.121 s do not satisfy the independent B10 bound. The #283 review did not
+  accept a looser bound. The host-tested fix keeps this table unchanged:
+  - ordinary write callbacks publish a due frame after their result;
+  - the telemetry task checks every millisecond, so modeled frames at any phase
+    keep 100 ± 2 ms under the model's scheduling assumptions.
 
-  Passing host/reference-model tests does not establish production timing
-  conformance. The 19.2 ms host-queue allowance does not replace the separate
-  B10 bound. Any revised bound needs explicit #156/#276 maintainer approval
-  and recalculation of B4/B5/B7/B8 and desktop freshness assumptions as
-  applicable. Physical output-disable uncertainty remains unchanged.
+  At most one telemetry frame is ever ahead of an E-stop, which the B8 composition already
+  counts. Host models show every B10 bound with the task fully starved. **Corrected-image
+  burst/stress bench reruns are pending**, against 100 ± 2 ms and spacing ≥ 20 ms;
+  the finding and #164 acceptance criterion 2 stay open until then. B14 is not measured.
+- **B3 once above its bound** (#164 bench check): the supervisor's worst wake lateness reached
+  2.09 ms in a ~75-minute idle window (advertising, no serial host). Active runs stayed
+  ≤ 1.45 ms. Not attributed; HIL (#166). Leading hypothesis, untested: the supervisor shares
+  priority 22 with `esp_timer` (B18). While advertising, the stack's own timer callbacks run
+  in that task, so a wake can queue behind one. Next step: trace `esp_timer` activity
+  alongside the I6 lateness histogram over a long idle window, then resolve the finding
+  and rerun against ≤ 2 ms. No new investigation or rerun is claimed here. Any priority
+  change is a decision for this table.
 - Physical stopping distance and time, DriveCell disable semantics (coast or
   brake), and the actuator write time: powered and gated by #238; HIL in #166.
 - Electrical output state during panic, reset and boot: UNRESOLVED (#238).

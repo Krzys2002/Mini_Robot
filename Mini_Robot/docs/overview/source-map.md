@@ -141,7 +141,10 @@ in [platform boundaries](platform-boundaries.md).
   and [identity/configuration provisioning](../../firmware/codecell-c6/include/provisioning/ConfigStore.hpp)
   and [bounded drive](../../firmware/codecell-c6/include/drive/BoundedDriveOutput.hpp)
   and [v1 codec and command session](../../firmware/codecell-c6/include/protocol/V1CommandSession.hpp)
-  and [BLE peripheral controller](../../firmware/codecell-c6/include/ble/PeripheralController.hpp):
+  and [BLE peripheral controller](../../firmware/codecell-c6/include/ble/PeripheralController.hpp)
+  and [telemetry scheduler](../../firmware/codecell-c6/include/telemetry/TelemetryScheduler.hpp),
+  [battery policy](../../firmware/codecell-c6/include/telemetry/BatteryMonitor.hpp) and
+  [diagnostic report lines](../../firmware/codecell-c6/include/diagnostics/StatusReport.hpp):
   portable C6 firmware logic with independent host tests; the ESP-IDF/FreeRTOS
   adapters are only in `firmware/codecell-c6/src/`, and embedded production
   sources are not linked into desktop targets. See the
@@ -149,7 +152,8 @@ in [platform boundaries](platform-boundaries.md).
   [runtime and threading](firmware-runtime.md) and
   [identity provisioning](firmware-provisioning.md) and
   [bounded drive](firmware-drive.md) and [v1 codec](firmware-protocol.md) and
-  [safety enforcement](firmware-safety.md) and [BLE peripheral](firmware-ble.md).
+  [safety enforcement](firmware-safety.md) and [BLE peripheral](firmware-ble.md) and
+  [telemetry and diagnostics](firmware-telemetry.md).
 - [Shared v1 byte vectors](../protocol/fixtures/v1-frames.txt): the #64 example frames
   plus derived sentinel/extrema frames, read by both the desktop and firmware codec tests.
 

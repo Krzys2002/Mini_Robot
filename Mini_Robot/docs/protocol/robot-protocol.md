@@ -6,7 +6,7 @@ and establishes GATT readiness. Desktop [message handling](../overview/ble-messa
 implements frame encoding/decoding and writes. The portable ESP32-C6
 [codec and command validation](../overview/firmware-protocol.md) (#161) implements
 the robot side of these rules, and the [C6 BLE peripheral](../overview/firmware-ble.md)
-(#163) carries them; powered and desktop command-delivery acceptance remains outstanding. The BLE carriage of
+(#163) carries them and [publishes telemetry](../overview/firmware-telemetry.md) (#164); powered and desktop command-delivery acceptance remains outstanding. The BLE carriage of
 these frames is defined in [BLE GATT contract](ble-gatt.md).
 
 This document defines the bytes exchanged between the desktop and one robot. It

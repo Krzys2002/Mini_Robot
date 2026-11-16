@@ -9,8 +9,8 @@ top of the [production runtime](firmware-runtime.md) (#158),
 
 This is portable C++20 with no BLE, GATT, motor or clock calls. The
 [BLE peripheral](firmware-ble.md) (#163) owns one `CommandSession` and feeds it every
-Command and Emergency Stop write; telemetry publication is
-[#164](https://github.com/Krzys2002/Mini_Robot/issues/164). Host tests and a compile check
+Command and Emergency Stop write, and builds Telemetry in the same context
+([telemetry publication](firmware-telemetry.md), #164). Host tests and a compile check
 show that the bytes and rules are right. They do not show physical stopping.
 
 ## Files
@@ -37,7 +37,7 @@ show that the bytes and rules are right. They do not show physical stopping.
 | Telemetry `lastAcceptedSequence`, flag bit 2 | `CommandSequenceState::lastAccepted()` | Filled in by the session, never by the caller |
 | Telemetry battery, measured velocity | `std::optional` in wire units | Empty becomes `0xFFFF` / `0x8000`. A known value equal to a sentinel is refused. `measuredToWire()` rounds half away from zero and never clamps |
 | Telemetry `uptimeMs` | Robot monotonic uptime | Diagnostic only, wraps |
-| Robot Info | `provisioning::RobotInfoValues` (#159) plus a `FirmwareVersion` | Protocol range is always exactly `1..1`. The firmware version is a build input (#164) |
+| Robot Info | `provisioning::RobotInfoValues` (#159) plus a `FirmwareVersion` | Protocol range is always exactly `1..1`. The firmware version is the image's, `ble::kRobotInfoFirmwareVersion` (0.1.0, #164) |
 
 The advertised limits and the enforced limits come from one provisioned record.
 `commandLimits(robotInfoValues(config))` gives the session its integer limits, and
@@ -138,9 +138,10 @@ moves the robot. No serial JSON mirror is implemented. The USB maintenance conso
 - GATT characteristics, CCCDs, detecting session readiness and calling `open()`/`end()`
   (Velocity ignored before both CCCDs are enabled), advertising and disconnect
   handling: the [BLE peripheral](firmware-ble.md) (#163).
-- Telemetry scheduling, battery and diagnostics content and the firmware version
-  bytes: #164. Since #162, `telemetry()` takes `state` and `commandExpired` from the
-  runtime status, so they always match the safety state.
+- Telemetry scheduling, battery and measurement availability, diagnostics and the firmware
+  version: [telemetry](firmware-telemetry.md) (#164). `telemetry()` takes `state` and
+  `commandExpired` from the runtime status (#162); since #164 an overload takes that status
+  from the caller, which read it once in the same context to decide that a frame is due.
 - Powered and radio checks: #238 and #166.
 
 ## Verification
