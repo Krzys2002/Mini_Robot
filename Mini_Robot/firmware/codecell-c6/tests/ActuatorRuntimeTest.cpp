@@ -160,13 +160,14 @@ TEST(ActuatorRuntimeTest, ControlStallIsEnforcedWhileShortCommandsKeepExpiring)
     Rig rig;
     rig.accelerateFully();
     const Instant lastControl = rig.clock.time;
-    while (!rig.motors.lastIsCoast() && rig.clock.time - lastControl < 1s) {
+    // Commands are accepted until the stall fault (#162 then refuses them as RobotFault).
+    while (rig.status().fault == FaultCode::None && rig.clock.time - lastControl < 1s) {
         rig.clock.advance(Instant{timing::kSafetyCheckPeriod - kShortValidity});
         ASSERT_EQ(rig.velocity(kFullForward, kShortValidity), CommandOutcome::Accepted);
         rig.clock.advance(Instant{kShortValidity});
         rig.runtime->safetyStep().step();  // Control is stalled; only the supervisor runs.
     }
-    EXPECT_TRUE(rig.motors.lastIsCoast());
+    EXPECT_TRUE(rig.motors.endsCoastThenSleep()) << "a fault coasts, then powers the bridges down";
     EXPECT_FALSE(rig.status().outputEnabled);
     EXPECT_EQ(rig.status().fault, FaultCode::ControlStalled);
     EXPECT_LE(rig.clock.time - lastControl, Instant{timing::kStalledControlToOutputOffBound});
@@ -185,14 +186,16 @@ TEST(ActuatorRuntimeTest, StopRampEnforcementIsNotHiddenByRepeatedExpiry)
     FirmwareRuntime runtime{{clock, platform, drive, configuration, nullptr}};
     ASSERT_EQ(runtime.start(), StartResult::Running);
     drive.rampNeverEnds = true;
-    ASSERT_EQ(runtime.commands().velocity(kFullForward, kValid, clock.nowMicroseconds()), CommandOutcome::Accepted);
+    const auto session = runtime.commands().openSession();
+    ASSERT_EQ(runtime.commands().velocity(session, kFullForward, kValid, clock.nowMicroseconds()),
+              CommandOutcome::Accepted);
     clock.advance(10ms);
     runtime.controlStep().step();
     ASSERT_TRUE(drive.enabled);
     const Instant start = clock.time;
     while (drive.enabled && clock.time - start < 1s) {
         clock.advance(Instant{timing::kSafetyCheckPeriod - kShortValidity});
-        ASSERT_EQ(runtime.commands().velocity(kFullForward, kShortValidity, clock.nowMicroseconds()),
+        ASSERT_EQ(runtime.commands().velocity(session, kFullForward, kShortValidity, clock.nowMicroseconds()),
                   CommandOutcome::Accepted);
         clock.advance(Instant{kShortValidity});
         runtime.safetyStep().step();
