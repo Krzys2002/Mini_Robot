@@ -13,6 +13,37 @@ MetricObservationResult metricObservation(const RobotObservation& observation,
         return {MetricObservationStatus::InvalidCalibration, {}};
     const auto geometry = markerGeometry(corners);
     if (!geometry) return {MetricObservationStatus::InvalidGeometry, {}};
+    if (calibration->localization) {
+        const auto& e = *calibration->localization;
+        const auto mount = std::find_if(e.mounts.begin(), e.mounts.end(), [&](const auto& m) { return m.robotId == observation.robotId; });
+        if (mount == e.mounts.end()) return {MetricObservationStatus::UnknownMount, {}};
+        std::array<WorldPoint2D,4> world;
+        for (std::size_t i=0;i<corners.size();++i) {
+            const auto& p=corners[i];
+            if (p.u<0 || p.v<0 || p.u>calibration->intrinsics.width-1 || p.v>calibration->intrinsics.height-1)
+                return {MetricObservationStatus::UnsupportedRay,{}};
+            const auto w=intersectTagPlane(e,calibration->intrinsics,{p.u,p.v},mount->tagHeightMeters);
+            if (!w) return {MetricObservationStatus::UnsupportedRay,{}};
+            if (!calibration->bounds.contains(*w)) return {MetricObservationStatus::OutsideWorkspace,{}};
+            world[i]=*w;
+        }
+        const auto center=intersectTagPlane(e,calibration->intrinsics,{geometry->center.u,geometry->center.v},mount->tagHeightMeters);
+        if (!center) return {MetricObservationStatus::UnsupportedRay,{}};
+        if (!calibration->bounds.contains(*center)) return {MetricObservationStatus::OutsideWorkspace,{}};
+        const double dx=world[0].x.value+world[1].x.value-world[2].x.value-world[3].x.value;
+        const double dy=world[0].y.value+world[1].y.value-world[2].y.value-world[3].y.value;
+        if (!std::isfinite(dx) || !std::isfinite(dy) || std::hypot(dx,dy)<=MinimumHeadingLengthMeters)
+            return {MetricObservationStatus::InvalidGeometry,{}};
+        const double tagHeading=std::atan2(dy,dx);
+        const double cosine=std::cos(tagHeading), sine=std::sin(tagHeading);
+        const WorldPoint2D body{Meters{center->x.value+cosine*mount->bodyForwardMeters-sine*mount->bodyLeftMeters},
+                               Meters{center->y.value+sine*mount->bodyForwardMeters+cosine*mount->bodyLeftMeters}};
+        if (!calibration->bounds.contains(body)) return {MetricObservationStatus::OutsideWorkspace,{}};
+        return {MetricObservationStatus::Valid,MetricPoseMeasurement{observation.robotId,
+            {body.x,body.y,normalizeAngle(Radians{tagHeading+mount->bodyHeadingOffsetRadians})},
+            observation.capturedAt,observation.frameSequence,observation.minimumEdgePixels,observation.decisionMargin,
+            MetricPoseReference::AxleBodyCenter,calibration->intrinsics.sourceId,calibration->frameId,e.revision,mount->revision}};
+    }
     const auto& h = *calibration->homography;
     std::array<WorldPoint2D, 4> world;
     // Match projection's homogeneous normalization before checking horizon sides.
@@ -38,10 +69,11 @@ MetricObservationResult metricObservation(const RobotObservation& observation,
     if (!calibration->bounds.contains(*center)) return {MetricObservationStatus::OutsideWorkspace, {}};
     const double dx = world[0].x.value + world[1].x.value - world[2].x.value - world[3].x.value;
     const double dy = world[0].y.value + world[1].y.value - world[2].y.value - world[3].y.value;
-    if (!std::isfinite(dx) || !std::isfinite(dy) || std::hypot(dx, dy) <= 1e-12)
+    if (!std::isfinite(dx) || !std::isfinite(dy) || std::hypot(dx, dy) <= MinimumHeadingLengthMeters)
         return {MetricObservationStatus::InvalidGeometry, {}};
     return {MetricObservationStatus::Valid, MetricPoseMeasurement{observation.robotId,
         {center->x, center->y, normalizeAngle(Radians{std::atan2(dy, dx)})},
-        observation.capturedAt, observation.frameSequence, observation.minimumEdgePixels, observation.decisionMargin}};
+        observation.capturedAt, observation.frameSequence, observation.minimumEdgePixels, observation.decisionMargin,
+        MetricPoseReference::TabletopTagCenter,calibration->intrinsics.sourceId,calibration->frameId,calibration->acquisitionId,{}}};
 }
 } // namespace micro_robot

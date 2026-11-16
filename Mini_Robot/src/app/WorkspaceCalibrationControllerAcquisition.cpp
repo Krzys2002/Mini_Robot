@@ -19,8 +19,10 @@ void WorkspaceCalibrationController::setAcquisitionDetector(std::unique_ptr<ICal
 std::shared_ptr<WorkspaceAcquisitionRecord> WorkspaceCalibrationController::acquisitionSnapshot(
     const WorkspaceCalibrationProfile& profile) const
 {
+    auto tabletop = profile;
+    tabletop.localization.reset(); // Immutable legacy evidence never acquires derived runtime geometry.
     return std::make_shared<WorkspaceAcquisitionRecord>(WorkspaceAcquisitionRecord{
-        profile.acquisitionId,profile,references_,placements_});
+        profile.acquisitionId,std::move(tabletop),references_,placements_});
 }
 void WorkspaceCalibrationController::synchronizeReferences()
 {

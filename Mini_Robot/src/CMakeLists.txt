@@ -49,6 +49,8 @@ add_library(micro_robot_calibration STATIC
     calibration/TabletopHomography.hpp
     calibration/WorkspaceAcquisition.hpp
     calibration/WorkspaceAcquisition.cpp
+    calibration/ElevatedLocalization.hpp
+    calibration/ElevatedLocalization.cpp
     calibration/WorkspaceProfile.cpp
     calibration/WorkspaceProfile.hpp
 )
@@ -58,6 +60,8 @@ micro_robot_platform_boundary(micro_robot_calibration)
 
 if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
     add_library(micro_robot_calibration_opencv STATIC
+        calibration/OpenCvExtrinsicsSolver.cpp
+        calibration/OpenCvExtrinsicsSolver.hpp
         calibration/OpenCvWorkspaceHomographySolver.cpp
         calibration/OpenCvWorkspaceHomographySolver.hpp
         calibration/OpenCvCalibrationDetector.hpp
@@ -259,6 +263,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         app/VisionController.hpp
         app/VisionController.cpp
         app/WorkspaceCalibrationControllerAcquisition.cpp
+        app/WorkspaceLocalizationController.cpp
         app/WorkspaceCalibrationController.cpp
         app/WorkspaceCalibrationController.hpp
         app/CalibrationController.hpp
@@ -284,6 +289,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/WorkspaceBoardPanel.cpp
         ui/WorkspaceReferenceModel.hpp
         ui/WorkspaceReferenceModel.cpp
+        ui/ElevatedLocalizationDialog.cpp
+        ui/ElevatedLocalizationDialog.hpp
         ui/WorkspaceCalibrationDialog.cpp
         ui/WorkspaceCalibrationDialog.hpp
         ui/CalibrationWizard.hpp

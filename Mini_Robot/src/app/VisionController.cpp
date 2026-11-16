@@ -139,9 +139,11 @@ void VisionController::dispatch()
                             .arg(metric->error.empty() ? QStringLiteral("calibration required") : QString::fromStdString(metric->error)));
                     else {
                         const auto& r = metric->rejected;
-                        describe(description_ + QStringLiteral(" · metric %1 · rejected: outside %2, geometry %3, duplicate %4, unassigned %5, family %6")
+                        describe(description_ + QStringLiteral(" · metric %1 · rejected: outside %2, geometry %3, duplicate %4, unassigned %5, family %6, mount %7, ray %8")
                             .arg(metric->measurements.size()).arg(r.outsideWorkspace).arg(r.invalidGeometry)
-                            .arg(r.duplicateRobot).arg(r.unassignedId).arg(r.unsupportedFamily));
+                            .arg(r.duplicateRobot).arg(r.unassignedId).arg(r.unsupportedFamily).arg(r.unknownMount).arg(r.unsupportedRay)
+                            + (workspace_ && workspace_->localization ? QStringLiteral(" · axle/body centre")
+                                                                    : QStringLiteral(" · tabletop tag centre only")));
                     }
                 }
                 if (preview && generation == generation_ && !shuttingDown_) {

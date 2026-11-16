@@ -33,6 +33,10 @@ public:
     [[nodiscard]] std::uint64_t referencesRevision() const { return referencesRevision_; }
     [[nodiscard]] bool boundaryConfirmed() const { return boundaryConfirmed_; }
     [[nodiscard]] bool canAddReferences() const { return boundaryConfirmed_ || (draft_ && draft_->homography); }
+    void setExtrinsicsSolver(std::unique_ptr<IExtrinsicsSolver> solver);
+    // GUI-thread draft operations; active geometry changes only on explicit Activate.
+    void localizationInputsChanged();
+    void calculateLocalization(ExtrinsicSolveInput input);
     void setAcquisitionDetector(std::unique_ptr<ICalibrationDetector> detector);
     void editReference(std::size_t index, WorkspaceCorrespondence point, bool check);
     void appendReference(std::optional<ImageCorner> point = {});
@@ -128,6 +132,8 @@ private:
     [[nodiscard]] std::shared_ptr<WorkspaceAcquisitionRecord> acquisitionSnapshot(const WorkspaceCalibrationProfile& profile) const;
     void publish(QString message);
     std::shared_ptr<IWorkspaceHomographySolver> solver_;
+    std::shared_ptr<IExtrinsicsSolver> extrinsicsSolver_;
+    std::optional<ElevatedLocalization> lastLocalizationDraft_;
     std::shared_ptr<ICalibrationUndistorter> undistorter_;
     std::shared_ptr<IWorkspaceProfileStore> store_;
     std::shared_ptr<ICalibrationDetector> detector_;
