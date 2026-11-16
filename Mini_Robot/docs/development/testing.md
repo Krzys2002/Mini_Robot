@@ -431,3 +431,18 @@ relative-anchor snapshots, active/draft evidence and camera/origin invalidation.
 records the contract and measured host evidence. All new physical/native-display
 acceptance remains NOT RUN in #263. Synthetic process/geometry results do not
 establish physical board accuracy or a motion loop.
+
+## Side-mounted planar calibration regression (#247)
+
+Run core plus the host desktop presets. `TabletopObliqueTest`,
+`OpenCvWorkspaceHomographyObliqueTest`, `MetricObservationObliqueTest`,
+`OpenCvMetricObservationObliqueTest` and `WorkspaceObliqueUiTest` cover a known
+pinhole plane with a 3.4× near/far scale ratio, independent edge/interior references,
+native-K lens correction, world headings, degeneracy/horizon recovery and
+session-only fit coverage. `MetricObservationTest.ProjectiveMetricMappingIsInvariantToLargeFiniteHomogeneousScale`
+regresses the reproduced unnormalised denominator overflow.
+
+These are deterministic software checks. Physical side-camera accuracy and new
+native-display checks belong to #261 and remain NOT RUN. The
+[oblique-camera audit](../overview/oblique-tabletop.md) records sources, geometry
+and plane/height/extrapolation limits.

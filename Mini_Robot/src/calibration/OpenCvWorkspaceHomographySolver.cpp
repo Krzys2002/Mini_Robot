@@ -42,8 +42,9 @@ WorkspaceHomographyOutcome OpenCvWorkspaceHomographySolver::solve(const Workspac
         // For >=5 points the thin U is (2N)x9 instead of quadratic (2N)x(2N).
         const int flags = input.fitPoints.size() == MinimumWorkspaceFitPoints ? cv::SVD::FULL_UV : 0;
         cv::SVD::compute(a, w, u, vt, flags);
-        if (w.at<double>(7) <= w.at<double>(0) * 1e-9)
-            return {{}, "Correspondences are numerically degenerate."};
+        if (w.at<double>(7) <= w.at<double>(0) * WorkspaceMinimumSingularValueRatio)
+            return {{}, "Correspondences are ill-conditioned or nearly edge-on. Spread visible references across "
+                        "near/far edges and both axes, raise the camera, and recheck measured pairs."};
         WorkspaceHomography initial;
         const double rows[]{width, height, 1}, columns[]{1.0 / k.width, 1.0 / k.height, 1};
         for (int row = 0; row < 3; ++row)
