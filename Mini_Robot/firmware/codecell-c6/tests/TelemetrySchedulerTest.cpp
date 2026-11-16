@@ -5,6 +5,7 @@
 #include "telemetry/TelemetryDiagnostics.hpp"
 #include "telemetry/TelemetryScheduler.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -18,6 +19,7 @@ using runtime::MotionState;
 namespace {
 constexpr Instant kTick{timing::kTelemetryTickPeriod};
 constexpr Instant kPeriod{timing::kTelemetryPeriod};
+constexpr Instant kEligible{timing::kTelemetryPeriodicEligibility};  // 99 ms.
 constexpr TelemetryKey kIdle{MotionState::Idle, false, false};
 constexpr TelemetryKey kMoving{MotionState::Moving, false, false};
 constexpr TelemetryKey kExpired{MotionState::Idle, true, false};
@@ -60,14 +62,16 @@ TEST(TelemetrySchedulerTest, FirstFrameOfASessionGoesOutAtTheFirstTick)
     EXPECT_EQ(scheduler.lastAttempt(), Instant{1s});
 }
 
-TEST(TelemetrySchedulerTest, PeriodicFramesFollowTheAdvertisedPeriodOnTheTickGrid)
+TEST(TelemetrySchedulerTest, PeriodicFramesFollowTheEligibilityOnTheMillisecondChecks)
 {
+    // Checked every millisecond without lateness, a periodic frame goes out as soon as it is
+    // eligible (99 ms), one millisecond inside the B10 deviation of the 100 ms period.
     const auto sent = simulate(1s, 10s, noLateness, [](Instant) { return kIdle; }, alwaysQueued);
-    ASSERT_EQ(sent.size(), 100U);  // 10 s at 100 ms: one session start, then 99 periodic frames.
+    ASSERT_GE(sent.size(), 100U);
     EXPECT_EQ(sent.front().reason, FrameReason::SessionStart);
     for (std::size_t i = 1; i < sent.size(); ++i) {
         EXPECT_EQ(sent[i].reason, FrameReason::Periodic);
-        EXPECT_EQ(sent[i].at - sent[i - 1].at, kPeriod) << i;
+        EXPECT_EQ(sent[i].at - sent[i - 1].at, kEligible) << i;
     }
 }
 
@@ -80,7 +84,7 @@ TEST(TelemetrySchedulerTest, SchedulingLatenessUpToTheAllowanceKeepsTheB10Deviat
     for (std::size_t i = 1; i < sent.size(); ++i) {
         const auto gap = sent[i].at - sent[i - 1].at;
         const auto deviation = gap > kPeriod ? gap - kPeriod : kPeriod - gap;
-        EXPECT_LE(deviation, timing::kSchedulingAllowance) << i;  // B10: robot-side deviation <= 2 ms.
+        EXPECT_LE(deviation, timing::kTelemetryPeriodDeviationMax) << i;  // B10: robot-side deviation <= 2 ms.
     }
 }
 
@@ -97,16 +101,22 @@ TEST(TelemetrySchedulerTest, BoundariesAreTheApprovedB10Values)
     EXPECT_EQ(scheduler.due(20ms - 1us, kMoving), FrameReason::None);
     EXPECT_EQ(scheduler.due(20ms, kMoving), FrameReason::StateChange);
     EXPECT_EQ(scheduler.due(97'500us, kIdle), FrameReason::None) << "the review probe";
-    EXPECT_EQ(scheduler.due(98ms - 1us, kIdle), FrameReason::None);
-    EXPECT_EQ(scheduler.due(98ms, kIdle), FrameReason::Periodic);
+    static_assert(timing::kTelemetryPeriodicEligibility >= 98ms, "never earlier than 100 - 2 ms");
+    EXPECT_EQ(scheduler.due(kEligible - 1us, kIdle), FrameReason::None);
+    EXPECT_EQ(scheduler.due(kEligible, kIdle), FrameReason::Periodic);
     EXPECT_EQ(scheduler.due(102ms, kIdle), FrameReason::Periodic);
 }
 
-// The model behind the rule (#283 review): ticks on the 5 ms grid, each late by any amount
-// within the scheduling allowance, and the state changing at random. Every frame is at least
-// 20 ms after the previous one, every periodic gap is 100 +/- 2 ms, at most 60 frames fall in
-// any second, and a state change seen at a tick is sent no more than four ticks (20 ms) later.
-TEST(TelemetrySchedulerTest, LatenessModelMeetsEveryB10BoundAtOnce)
+// The model behind the rule (#283 review). Two sources evaluate the schedule in the host:
+// - the telemetry task's check every millisecond, each late by any amount within the
+//   scheduling allowance (events are processed in order, so lateness never reorders them);
+// - ordinary write callbacks at arbitrary, off-grid instants. They publish a due periodic or
+//   state-change frame, never the session's first frame. Some are sparse, and some come in
+//   bursts that starve the task's checks entirely, as measured on the bench.
+// The state changes at random. Every frame is at least 20 ms after the previous one, every
+// periodic gap is 100 +/- 2 ms, at most 60 frames fall in any second, and a state change is
+// sent no later than 20 ms after the previous frame plus one check and the lateness.
+TEST(TelemetrySchedulerTest, TickAndWriteModelMeetsEveryB10BoundAtOnce)
 {
     std::uint32_t seed = 0x2834u;
     const auto next = [&seed] {
@@ -114,16 +124,33 @@ TEST(TelemetrySchedulerTest, LatenessModelMeetsEveryB10BoundAtOnce)
         return seed >> 8;
     };
     const auto allowance = timing::kSchedulingAllowance.count();
-    for (int pattern = 0; pattern < 240; ++pattern) {
-        TelemetryScheduler scheduler{timing::kTelemetryPeriod};
-        scheduler.sessionStarted();
-        TelemetryKey key = kIdle;
-        std::optional<TelemetryKey> sentKey;
-        std::optional<std::int64_t> pendingSince;  // First tick that saw an unsent state.
-        std::optional<Instant> previous;
-        std::vector<Instant> times;
+    const Instant stateDelayBound =
+        Instant{timing::kStateTelemetryMinSpacing} + kTick + Instant{timing::kSchedulingAllowance};
+    struct Evaluation {
+        Instant at;
+        bool fromWrite;
+    };
+    for (int pattern = 0; pattern < 160; ++pattern) {
         const Instant start = 1s + Instant{static_cast<std::int64_t>(next() % 5000)};
-        for (std::int64_t k = 0; k < 2000; ++k) {
+        const Instant length = 3s;
+        // Bursts: [begin, end) during which the task's checks are starved.
+        std::vector<std::pair<Instant, Instant>> bursts;
+        for (Instant b = start + 50ms; b < start + length;) {
+            const Instant gap{static_cast<std::int64_t>(20'000 + next() % 400'000)};
+            const Instant duration{static_cast<std::int64_t>(5'000 + next() % 60'000)};
+            bursts.push_back({b + gap, b + gap + duration});
+            b += gap + duration;
+        }
+        const auto inBurst = [&](Instant t) {
+            for (const auto& [b, e] : bursts)
+                if (t >= b && t < e) return true;
+            return false;
+        };
+        std::vector<Evaluation> events;
+        Instant lastTick{0};
+        for (std::int64_t k = 0; k * kTick < length; ++k) {
+            const Instant grid = start + k * kTick;
+            if (inBurst(grid)) continue;
             Instant late{0};
             switch (pattern % 4) {
             case 0: late = Instant{static_cast<std::int64_t>(next() % (allowance + 1))}; break;  // Random.
@@ -131,34 +158,58 @@ TEST(TelemetrySchedulerTest, LatenessModelMeetsEveryB10BoundAtOnce)
             case 2: late = Instant{(k * allowance / 7) % (allowance + 1)}; break;              // Ramps.
             case 3: late = Instant{(k / 20) % 2 == 0 ? allowance : 0}; break;                  // Steps.
             }
-            if (next() % 9 == 0) {
+            lastTick = std::max(lastTick, grid + late);
+            events.push_back({lastTick, false});
+        }
+        for (const auto& [b, e] : bursts)  // Back-to-back writes, one callback allowance or less apart.
+            for (Instant t = b; t < e; t += Instant{static_cast<std::int64_t>(300 + next() % 500)})
+                events.push_back({t, true});
+        for (Instant t = start; t < start + length; t += Instant{static_cast<std::int64_t>(5'000 + next() % 150'000)})
+            events.push_back({t + Instant{static_cast<std::int64_t>(next() % 1000)}, true});  // Sparse, off-grid.
+        // The model window: ticks exist only inside it, so no evaluation may fall after it.
+        std::erase_if(events, [&](const Evaluation& e) { return e.at >= start + length; });
+        std::stable_sort(events.begin(), events.end(), [](const auto& a, const auto& b) { return a.at < b.at; });
+
+        TelemetryScheduler scheduler{timing::kTelemetryPeriod};
+        scheduler.sessionStarted();
+        TelemetryKey key = kIdle;
+        Instant nextChange = start + Instant{static_cast<std::int64_t>(next() % 80'000)};
+        std::optional<TelemetryKey> sentKey;
+        std::optional<Instant> pendingSince;  // First evaluation that saw an unsent state.
+        std::optional<Instant> previous;
+        std::vector<Instant> times;
+        for (const auto& event : events) {
+            while (event.at >= nextChange) {
                 const TelemetryKey choices[] = {kIdle, kMoving, kExpired, kLatched};
                 key = choices[next() % 4];
+                nextChange += Instant{static_cast<std::int64_t>(1'000 + next() % 80'000)};
             }
-            const Instant now = start + k * kTick + late;
             if (sentKey && key != *sentKey) {
-                if (!pendingSince) pendingSince = k;
+                if (!pendingSince) pendingSince = event.at;
             } else {
                 pendingSince.reset();
             }
-            const auto reason = scheduler.due(now, key);
+            const auto reason = scheduler.due(event.at, key);
             if (reason == FrameReason::None) continue;
-            scheduler.attempted(now, key, true);
+            if (event.fromWrite && reason == FrameReason::SessionStart) continue;
+            scheduler.attempted(event.at, key, true);
             if (previous) {
-                const auto gap = now - *previous;
-                ASSERT_GE(gap, Instant{timing::kStateTelemetryMinSpacing}) << pattern << " " << k;
+                const auto gap = event.at - *previous;
+                ASSERT_GE(gap, Instant{timing::kStateTelemetryMinSpacing}) << pattern;
                 if (reason == FrameReason::Periodic) {
                     const auto deviation = gap > kPeriod ? gap - kPeriod : kPeriod - gap;
-                    ASSERT_LE(deviation, timing::kTelemetryPeriodDeviationMax) << pattern << " " << k;
+                    ASSERT_LE(deviation, timing::kTelemetryPeriodDeviationMax)
+                        << "pattern " << pattern << " write=" << event.fromWrite << " gap_us=" << gap.count();
                 }
+                if (pendingSince) ASSERT_LE(event.at - std::max(*pendingSince, *previous), stateDelayBound)
+                    << "state-change delay, pattern " << pattern;
             }
-            if (pendingSince) ASSERT_LE((k - *pendingSince) * kTick, Instant{timing::kStateTelemetryMinSpacing})
-                << "state-change delay, pattern " << pattern << " tick " << k;
             pendingSince.reset();
             sentKey = key;
-            previous = now;
-            times.push_back(now);
+            previous = event.at;
+            times.push_back(event.at);
         }
+        ASSERT_GE(times.size(), 25U) << pattern;
         for (std::size_t i = 0, j = 0; i < times.size(); ++i) {
             while (times[i] - times[j] >= 1s) ++j;
             ASSERT_LE(i - j + 1, static_cast<std::size_t>(timing::kTelemetryNotificationsPerSecondMax)) << pattern;
@@ -166,16 +217,33 @@ TEST(TelemetrySchedulerTest, LatenessModelMeetsEveryB10BoundAtOnce)
     }
 }
 
+// Why the task checks every millisecond (#283 review): a frame sent from a write callback is
+// off any coarse grid. With 5 ms checks, a frame at 22.5 ms made the 120 ms check refuse
+// (97.5 ms elapsed) and the 125 ms one send a 102.5 ms gap, outside B10.
+TEST(TelemetrySchedulerTest, AnOffGridFrameIsFollowedByAPeriodicFrameWithinB10)
+{
+    TelemetryScheduler scheduler{timing::kTelemetryPeriod};
+    scheduler.attempted(Instant::zero(), kIdle, true);
+    ASSERT_EQ(scheduler.due(22'500us, kMoving), FrameReason::StateChange);  // From a write.
+    scheduler.attempted(22'500us, kMoving, true);
+    std::optional<Instant> sent;
+    for (Instant check = 23ms; !sent; check += kTick)  // The task's millisecond checks.
+        if (scheduler.due(check, kMoving) == FrameReason::Periodic) sent = check;
+    const auto gap = *sent - 22'500us;
+    EXPECT_GE(gap, Instant{timing::kTelemetryPeriod} - Instant{timing::kTelemetryPeriodDeviationMax});
+    EXPECT_LE(gap, Instant{timing::kTelemetryPeriod} + Instant{timing::kTelemetryPeriodDeviationMax});
+}
+
 TEST(TelemetrySchedulerTest, StateChangeIsSentAtTheNextTickOrOnceTheSpacingHasPassed)
 {
     TelemetryScheduler scheduler{timing::kTelemetryPeriod};
     scheduler.attempted(1s, kIdle, true);  // Session start frame at 1 s.
-    // A change 3 ticks later (15 ms) waits for the 20 ms spacing, i.e. the 4th tick.
-    EXPECT_EQ(scheduler.due(1s + 3 * kTick, kMoving), FrameReason::None);
-    EXPECT_EQ(scheduler.due(1s + 4 * kTick, kMoving), FrameReason::StateChange);
-    scheduler.attempted(1s + 4 * kTick, kMoving, true);
-    // A change long after the previous frame goes out at the first tick that sees it.
-    EXPECT_EQ(scheduler.due(1s + 4 * kTick + 50ms, kExpired), FrameReason::StateChange);
+    // A change 15 ms later waits for the 20 ms spacing.
+    EXPECT_EQ(scheduler.due(1s + 15ms, kMoving), FrameReason::None);
+    EXPECT_EQ(scheduler.due(1s + 20ms, kMoving), FrameReason::StateChange);
+    scheduler.attempted(1s + 20ms, kMoving, true);
+    // A change long after the previous frame goes out at the first check that sees it.
+    EXPECT_EQ(scheduler.due(1s + 70ms, kExpired), FrameReason::StateChange);
 }
 
 TEST(TelemetrySchedulerTest, ChangesWithinTheSpacingCoalesceToTheLatestState)
@@ -183,10 +251,10 @@ TEST(TelemetrySchedulerTest, ChangesWithinTheSpacingCoalesceToTheLatestState)
     TelemetryScheduler scheduler{timing::kTelemetryPeriod};
     scheduler.attempted(1s, kIdle, true);
     // Moving and back to Idle before the spacing passes: nothing differs from what was sent.
-    EXPECT_EQ(scheduler.due(1s + kTick, kMoving), FrameReason::None);
-    EXPECT_EQ(scheduler.due(1s + 4 * kTick, kIdle), FrameReason::None);
+    EXPECT_EQ(scheduler.due(1s + 5ms, kMoving), FrameReason::None);
+    EXPECT_EQ(scheduler.due(1s + 20ms, kIdle), FrameReason::None);
     // E-stop after Moving: one frame with the latest state.
-    EXPECT_EQ(scheduler.due(1s + 4 * kTick, kLatched), FrameReason::StateChange);
+    EXPECT_EQ(scheduler.due(1s + 20ms, kLatched), FrameReason::StateChange);
 }
 
 TEST(TelemetrySchedulerTest, FlappingStateUnderAnyLatenessNeverExceedsTheB10Rate)
@@ -203,9 +271,8 @@ TEST(TelemetrySchedulerTest, FlappingStateUnderAnyLatenessNeverExceedsTheB10Rate
         for (std::size_t j = i; j < sent.size() && sent[j].at - sent[i].at < 1s; ++j) ++inWindow;
         EXPECT_LE(inWindow, static_cast<std::size_t>(timing::kTelemetryNotificationsPerSecondMax));
     }
-    // Nor are state changes starved. With the strict 20 ms bound, a late frame followed by an
-    // on-time tick waits one more tick (25 ms), so this worst-case pattern still gets 40 per
-    // second; each change is sent within 20 ms of the tick that saw it (LatenessModel test).
+    // Nor are state changes starved: with millisecond checks a frame follows the previous one
+    // after at most 20 ms plus one check and the lateness, so at least ~43 per second here.
     EXPECT_GE(sent.size(), 10U * 40U);
 }
 
@@ -218,16 +285,16 @@ TEST(TelemetrySchedulerTest, CongestedStackGetsNoRetryBurstAndTheStateChangeIsTr
     ASSERT_EQ(scheduler.due(periodic, kIdle), FrameReason::Periodic);
     scheduler.attempted(periodic, kIdle, false);
     EXPECT_EQ(scheduler.due(periodic + kTick, kIdle), FrameReason::None);
-    EXPECT_EQ(scheduler.due(periodic + kPeriod - kTick, kIdle), FrameReason::None);
-    EXPECT_EQ(scheduler.due(periodic + kPeriod, kIdle), FrameReason::Periodic);
+    EXPECT_EQ(scheduler.due(periodic + kEligible - 1us, kIdle), FrameReason::None);
+    EXPECT_EQ(scheduler.due(periodic + kEligible, kIdle), FrameReason::Periodic);
     // A state change that fails is retried after the spacing, until it is queued.
     const Instant change = periodic + 30ms;
     ASSERT_EQ(scheduler.due(change, kLatched), FrameReason::StateChange);
     scheduler.attempted(change, kLatched, false);
-    EXPECT_EQ(scheduler.due(change + 3 * kTick, kLatched), FrameReason::None);
-    EXPECT_EQ(scheduler.due(change + 4 * kTick, kLatched), FrameReason::StateChange);
-    scheduler.attempted(change + 4 * kTick, kLatched, true);
-    EXPECT_EQ(scheduler.due(change + 8 * kTick, kLatched), FrameReason::None);
+    EXPECT_EQ(scheduler.due(change + 15ms, kLatched), FrameReason::None);
+    EXPECT_EQ(scheduler.due(change + 20ms, kLatched), FrameReason::StateChange);
+    scheduler.attempted(change + 20ms, kLatched, true);
+    EXPECT_EQ(scheduler.due(change + 40ms, kLatched), FrameReason::None);
 }
 
 TEST(TelemetrySchedulerTest, AlwaysFailingStackIsAttemptedAtMostAtTheBoundedRate)
@@ -250,10 +317,10 @@ TEST(TelemetrySchedulerTest, SpacingHoldsAcrossSessionsAndANewSessionStartsWithA
     scheduler.sessionStarted();
     scheduler.attempted(1s, kMoving, true);
     scheduler.sessionStarted();  // Reconnect 5 ms later.
-    EXPECT_EQ(scheduler.due(1s + kTick, kIdle), FrameReason::None);
-    EXPECT_EQ(scheduler.due(1s + 4 * kTick, kIdle), FrameReason::SessionStart);
+    EXPECT_EQ(scheduler.due(1s + 5ms, kIdle), FrameReason::None);
+    EXPECT_EQ(scheduler.due(1s + 20ms, kIdle), FrameReason::SessionStart);
     // Even an unchanged state is sent first in a new session.
-    scheduler.attempted(1s + 4 * kTick, kIdle, true);
+    scheduler.attempted(1s + 20ms, kIdle, true);
     scheduler.sessionStarted();
     EXPECT_EQ(scheduler.due(2s, kIdle), FrameReason::SessionStart);
 }
@@ -274,8 +341,8 @@ TEST(TelemetrySchedulerTest, SchedulingDoesNotDependOnClockWrapPoints)
     for (const Instant start : {Instant{(std::int64_t{1} << 32) - 3 * kPeriod.count()},
                                 Instant{std::chrono::milliseconds{(std::int64_t{1} << 32) - 300}}}) {
         const auto sent = simulate(start, 1s, noLateness, [](Instant) { return kIdle; }, alwaysQueued);
-        ASSERT_EQ(sent.size(), 10U);
-        for (std::size_t i = 1; i < sent.size(); ++i) EXPECT_EQ(sent[i].at - sent[i - 1].at, kPeriod);
+        ASSERT_EQ(sent.size(), 11U);  // 0, 99, ..., 990 ms.
+        for (std::size_t i = 1; i < sent.size(); ++i) EXPECT_EQ(sent[i].at - sent[i - 1].at, kEligible);
     }
 }
 

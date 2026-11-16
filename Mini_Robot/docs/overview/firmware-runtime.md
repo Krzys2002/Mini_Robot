@@ -172,7 +172,7 @@ boot line reports `shutdown_handler=registered` or `failed`.
 | `mr_safety` (`SafetySupervisor`) | 22 | 5 ms | Expiry, stop-ramp enforcement, control heartbeat; the only task on the 50 ms task watchdog | B3, B4, B6, B7, B17, B18 |
 | `nimble_host` (BLE callbacks, #163) | 21 | — | `IMotionCommandSink` calls, E-stop first | B8, B9 |
 | `mr_control` (`ControlLoop`) | 20 | 10 ms | Sensor, copy setpoint, one bounded drive step or stop-ramp step | B6, B7, B9 |
-| `mr_telemetry` (#164) | 5 | 5 ms | Posts one coalesced telemetry tick to the BLE host, which builds and queues the frame ([telemetry](firmware-telemetry.md)) | B10, B18 |
+| `mr_telemetry` (#164) | 5 | 1 ms check | Posts one coalesced telemetry tick to the BLE host every 5 ms, and in between when a frame could be due; the host builds and queues the frame ([telemetry](firmware-telemetry.md)) | B10, B18 |
 | Arduino `loopTask` | 1 | 100 ms poll | Report lines and the log drain (bounded ring, ≤ 2048 B/s); USB maintenance console and its NVS writes (#159), only with outputs disabled | B12, B13 |
 
 - Priorities, periods and the stall limit come from `TimingBudget.hpp`. `validate()`

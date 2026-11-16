@@ -48,15 +48,19 @@ current session, with its original sequence. It is empty outside a session.
 
 ```mermaid
 flowchart LR
-    T["mr_telemetry p5, every 5 ms"] -->|one pending event, coalesced| Q[(NimBLE host event queue)]
+    T["mr_telemetry p5, checks every 1 ms"] -->|one pending event, coalesced| Q[(NimBLE host event queue)]
     Q --> H["nimble_host p21: onTelemetryTick()"]
     W[Command / E-stop writes] --> H
+    W -.->|ordinary writes: due frame after the result| N
     H -->|CommandSession: shared counter| N[Telemetry and CommandResult notifications]
 ```
 
-- The telemetry task wakes every 5 ms (`kTelemetryTickPeriod`) and posts one static event to
-  the NimBLE host's own queue. At most one is pending, so ticks coalesce while the host is
-  busy and nothing accumulates. The task never touches the session or the drive. It posts
+- The telemetry task checks every millisecond (`kTelemetryTickPeriod`, one scheduler tick).
+  It posts one static event to the NimBLE host's own queue every 5 ms
+  (`kTelemetryRoutinePostPeriod`). In between, it posts only when the lock-free
+  `PeripheralController::telemetryMayBeDue()` says a frame could be due, which happens at most
+  a millisecond early; the host still decides exactly. At most one event is pending, so ticks
+  coalesce while the host is busy and nothing accumulates. The task never touches the session or the drive. It posts
   nothing from the supervisor, the control task or the host itself, since NimBLE's put may
   wait for queue space.
 - In the host, `PeripheralController::onTelemetryTick()` reads the runtime status once and
@@ -66,30 +70,50 @@ flowchart LR
     that sees it, but never closer than 20 ms to the previous frame. Changes in between
     coalesce to the latest state, so a state shorter than a tick can be missed (its
     CommandResult still reports it);
-  - **periodic**: once the period minus the B10 deviation (100 − 2 = 98 ms) has passed since
-    the previous frame.
-- Both checks use the approved B10 values on the robot clock (#283 review). Earlier versions
+  - **periodic**: once 99 ms (`kTelemetryPeriodicEligibility`) have passed since the previous
+    frame.
+- **Write bursts (#283 review).** A burst of writes keeps `nimble_host` busy, and the
+  priority-5 task can then neither run nor get its event ahead of the queued writes. So every
+  ordinary Command write callback also publishes a due periodic or state-change frame, after
+  that write's CommandResult is queued. The session's first frame stays on the task's check.
+- Every check uses the approved B10 values on the robot clock (#283 review). Earlier versions
   allowed half a tick, which admitted a state change after 17.5 ms and a periodic frame after
-  97.5 ms. Now:
+  97.5 ms. With one check per millisecond, frames can be at any phase, including frames sent
+  from a write. The bounds:
   - no two frames are ever less than 20 ms apart, so at most 50 frames per second, inside
     B10's 60, across sessions too;
-  - ticks lie on the 5 ms grid, and while their lateness stays within the 2 ms scheduling
-    allowance, the tick one period after the previous frame is the first that qualifies. Every
-    periodic gap is therefore 100 ± 2 ms;
-  - a state change seen at a tick goes out at most four ticks (20 ms) later. A late frame
-    followed by an on-time tick waits one tick longer than the nominal spacing, never longer
-    than that bound.
+  - a periodic frame becomes eligible at 99 ms, and the next check or write comes at most one
+    millisecond plus the 2 ms scheduling lateness later. Every periodic gap is therefore within
+    99–102 ms, inside 100 ± 2 ms, whatever the phase of the previous frame. During a burst,
+    the next write comes within one callback;
+  - a state change goes out at the first check or write at least 20 ms after the previous
+    frame: at most 20 ms plus one check and the lateness after that frame.
 
-  `TelemetrySchedulerTest.LatenessModelMeetsEveryB10BoundAtOnce` checks all four bounds
-  together over random, alternating, ramp and step lateness patterns, and
-  `BoundariesAreTheApprovedB10Values` checks the edges. The compile-time checks in
-  `TimingBudget.hpp` keep the relations (allowance ≤ deviation, allowance + deviation < one
-  tick). Lateness above the allowance, as under the write bursts below, is not covered by this
-  argument.
-- Telemetry is never sent from inside a write callback, so the 0.8 ms callback allowance of
-  B8/B11 is unchanged. An E-stop write can wait behind the one pending telemetry event; the
-  budget composition (`kRobotStackQueueAllowance + kTelemetryHandlerAllowance + 1 ms ≤ 25 ms`)
-  is a `static_assert`.
+  The checks are `TelemetrySchedulerTest.TickAndWriteModelMeetsEveryB10BoundAtOnce`,
+  `AnOffGridFrameIsFollowedByAPeriodicFrameWithinB10`, `BoundariesAreTheApprovedB10Values`,
+  `TelemetryPublicationTest.GatedMillisecondChecksPublishExactlyWhatUngatedChecksDo` and
+  `WriteBurstThatStarvesTheTickKeepsTheB10Deviation`:
+  - the first checks all four bounds together. It merges millisecond checks with random,
+    alternating, ramp and step lateness, off-grid sparse writes, and bursts that starve the
+    checks entirely. Run with 5 ms checks instead, it fails with a 105 ms gap;
+  - the second is the off-grid case that broke the first attempt;
+  - the gated host publishes exactly the frames an ungated one does, with under a third of
+    the wake-ups.
+
+  The compile-time checks in `TimingBudget.hpp` keep the relations: eligibility ≥ period −
+  deviation, eligibility + check + allowance ≤ period + deviation, and the 19.2 ms queue
+  allowance below the 20 ms spacing.
+- The budgets the review named stay unchanged:
+  - B11: each CommandResult is still queued first, inside its callback.
+  - B8: the Emergency Stop callback never publishes telemetry.
+  - The E-stop wait: frames are at least 20 ms apart, and a full inbound queue drains in at
+    most 19.2 ms. At most one telemetry frame, from the task or a write, is therefore ever
+    handled ahead of an E-stop. The existing composition already counts that frame
+    (`kRobotStackQueueAllowance + kTelemetryHandlerAllowance + 1 ms ≤ 25 ms`, `static_assert`).
+
+  An ordinary write callback that publishes now takes up to one result plus one telemetry
+  frame. That is the cost the review named for this option, and the maintainer still has to
+  accept it. B14 (CPU share) is not measured, including the millisecond check.
 - Telemetry, results and diagnostics never extend a deadline, and safety does not depend on
   telemetry.
 - The telemetry task is a checked start-up step of `FirmwareRuntime::start()` (#283 review).
@@ -298,25 +322,15 @@ all five full runs, and run 5 had two such windows:
 - **Bound.** The values are within the 19.2 ms that #156 derives for the host draining its 24
   inbound buffers (`kRobotStackQueueAllowance`). Host-side gaps stayed ≤ 0.121 s, so the
   desktop silence rule was never at risk.
-- **Status after the #283 review: open.** The scheduler now enforces the approved B10 values,
-  and meets them whenever lateness stays within the 2 ms allowance (see
-  [Schedule](#schedule-156-b10)). Write bursts exceed that allowance, and this branch has no fix
-  for them:
-  - Evaluating the deadline in the host after each write callback was implemented and then
-    withdrawn before review. A frame sent from a write lands off the 5 ms tick grid, so the
-    next tick-based periodic frame can miss 100 ms by up to about 3 ms. Example: a frame at
-    22.5 ms makes the 120 ms tick refuse at 97.5 ms elapsed and send at 125 ms. That breaks
-    B10 in normal operation, not only under bursts.
-  - Options that would hold need a decision for the [timing budgets](../protocol/timing-budgets.md)
-    (#276):
-    - a finer evaluation grid: ticks of 2 ms or less, which costs CPU (B14);
-    - a periodic schedule anchored to one grid shared by the tick and the write path, which
-      changes how the period restarts after a state change and how the deviation is measured;
-    - a different priority order (B18);
-    - a separate B10 bound for write bursts.
-
-  The conformance check evaluates every window, so a run still reports this as a failure.
-  Acceptance criterion 2 stays unresolved until the burst and idle cases pass on a C6.
+- **Fix (#283 review), host-tested only.** Ordinary write callbacks publish a due frame after
+  their result, and the telemetry task checks every millisecond (see
+  [Schedule](#schedule-156-b10)). A first version that kept 5 ms checks was withdrawn: a frame
+  sent from a write lands off a 5 ms grid. Example: a frame at 22.5 ms made the 120 ms tick
+  refuse at 97.5 ms elapsed and send at 125 ms, which breaks B10 in normal operation. The
+  millisecond check removes that case. The B10 values and the B8/B11 bounds are unchanged.
+  **The bench stress and idle cases must be rerun on a C6** before this finding, and
+  acceptance criterion 2, can be closed. No board was attached on 2026-11-16. The
+  conformance check evaluates every window, so a rerun reports any remaining failure.
 
 **Fixed during the bench check.** After about two minutes of BLE testing, the console went
 silent while BLE and the runtime kept running. Changing the 0 ms TX timeout to 1 ms (for the

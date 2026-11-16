@@ -36,8 +36,17 @@
 //   whether a frame is due (session start, state change, period) and queues it on the same
 //   shared robot counter, in this same context, so a Telemetry and a CommandResult are never
 //   reordered. The tick comes from the telemetry task through the stack's host event queue
-//   (one pending event at a time); it is never sent from inside a write callback, so the
-//   callback allowance of #156 B8/B11 is unchanged. A frame that cannot be queued is dropped
+//   (one pending event at a time). A burst of writes keeps the host busy and delays that tick
+//   (#283 review: 10.6-14 ms periodic deviation), so the end of every ordinary Command write
+//   callback, after its CommandResult is queued, also publishes a periodic or state-change
+//   frame that is due (the session's first frame stays on the first tick). Such a frame is off
+//   the tick grid, so the telemetry task checks every millisecond and wakes the host whenever
+//   telemetryMayBeDue() says a frame could be due (plus a routine wake every 5 ms); the next
+//   periodic gap therefore stays within the B10 deviation whatever the previous frame's phase. The
+//   result's queueing (B11) is unchanged; the Emergency Stop callback never publishes (B8); and
+//   because frames are at least 20 ms apart while a full inbound queue drains in at most
+//   24 x 0.8 ms, at most one telemetry frame is ever handled ahead of an E-stop, which the
+//   #156 composition already counts (kTelemetryHandlerAllowance). A frame that cannot be queued is dropped
 //   and counted, the session continues and nothing is retried early (#156 overload policy:
 //   only a lost CommandResult ends the session). The Telemetry characteristic's Read value is
 //   the latest queued frame of the current session, and empty outside a session.
@@ -288,6 +297,8 @@ public:
             return;
         }
         send(session_.onCommandWrite(*verified, receipt, &authorizer_));
+        // After the result: a frame the delayed tick would have sent (see Telemetry above).
+        if (state() == LinkState::Ready) publishTelemetryIfDue(FromWrite::Yes);
     }
 
     void onEmergencyStopWrite(ConnectionHandle connection, std::span<const std::uint8_t> bytes) noexcept
@@ -328,43 +339,29 @@ public:
             telemetry_.count(telemetry::TelemetryCounter::TicksNotReady);
             return;
         }
-        const runtime::Instant now = clock_.nowMicroseconds();
-        // One status read: the decision and the frame see the same state.
-        const auto status = runtime_.status();
-        const auto measured = inputs_.measurements(now);
-        const telemetry::TelemetryKey key{status.state, status.commandExpired, measured.batteryLow};
-        const auto reason = scheduler_.due(now, key);
-        if (reason == telemetry::FrameReason::None) return;
-        protocol::v1::TelemetryValues values;
-        values.batteryLow = measured.batteryLow;
-        values.uptimeMilliseconds = telemetry::uptimeMilliseconds(now);
-        values.batteryMillivolts = measured.batteryMillivolts;
-        values.measuredLinearMillimetresPerSecond = measured.measuredLinearMillimetresPerSecond;
-        values.measuredAngularMilliradiansPerSecond = measured.measuredAngularMilliradiansPerSecond;
-        const auto frame = session_.telemetry(status, values);
-        if (!frame) {  // Not representable: no sequence was used and nothing is sent.
-            telemetry_.count(telemetry::TelemetryCounter::EncodeFailures);
-            scheduler_.attempted(now, key, false);
-            return;
-        }
-        // Session security (#157 review): every Telemetry frame is protected before it is
-        // queued. A refused frame is dropped and counted like one the stack could not queue.
-        std::array<std::uint8_t, kSecuredFrameMax> scratch{};
-        const auto protectedFrame = security_.protectOutgoing(*frame, scratch);
-        if (!protectedFrame) count(BleCounter::SecurityRefusals);
-        const bool queued = protectedFrame && link_.publishTelemetry(*owner_, *protectedFrame);
-        scheduler_.attempted(now, key, queued);
-        if (!queued) {
-            // Dropped and counted; its sequence is spent, so the desktop sees the loss as a gap.
-            telemetry_.count(telemetry::TelemetryCounter::NotifyFailures);
-            return;
-        }
-        telemetry_.countFrame(reason);
-        if (lastFrameAt_) telemetry_.recordGap(now - *lastFrameAt_, reason, scheduler_.period());
-        lastFrameAt_ = now;
+        publishTelemetryIfDue(FromWrite::No);
     }
 
     [[nodiscard]] LinkState state() const noexcept { return state_.load(std::memory_order_acquire); }
+
+    // Any task (the telemetry task, every millisecond): could a Telemetry frame be due at `now`
+    // for this runtime state? Conservative: true whenever the host's exact check could admit a
+    // frame (it may be up to a millisecond early, the host decides), never false then. Reads
+    // atomics only. batteryLow is not considered; the routine 5 ms wake covers it.
+    [[nodiscard]] bool telemetryMayBeDue(runtime::Instant now, runtime::MotionState motion,
+                                         bool commandExpired) const noexcept
+    {
+        if (state() != LinkState::Ready) return false;
+        if (!hasTelemetryAttempt_.load(std::memory_order_acquire)) return true;  // The session's first frame.
+        const std::uint32_t elapsedMs = millisecondsOf(now) - lastTelemetryAttemptMs_.load(std::memory_order_relaxed);
+        // Both values are floored to milliseconds, so the true elapsed time is less than one
+        // millisecond away from elapsedMs; adding one keeps the check from ever being late.
+        const std::uint32_t atMost = elapsedMs + 1;
+        if (atMost >= kPeriodicCheckMs) return true;
+        const auto sent = sentTelemetryKey_.load(std::memory_order_relaxed);
+        return (sent == kNoSentKey || sent != packTelemetryKey(motion, commandExpired)) && atMost >= kSpacingMs;
+    }
+
 
     [[nodiscard]] LinkStatus status() const noexcept
     {
@@ -414,6 +411,73 @@ private:
 
     [[nodiscard]] bool owns(ConnectionHandle connection) const noexcept { return owner_ && *owner_ == connection; }
 
+    enum class FromWrite : bool { No, Yes };
+
+    // ---- Published for telemetryMayBeDue() ----
+    static constexpr std::uint8_t kNoSentKey = 0xFF;
+    static constexpr std::uint32_t kSpacingMs = static_cast<std::uint32_t>(timing::kStateTelemetryMinSpacing.count());
+    static constexpr std::uint32_t kPeriodicCheckMs = static_cast<std::uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(timing::kTelemetryPeriodicEligibility).count());
+    [[nodiscard]] static std::uint32_t millisecondsOf(runtime::Instant at) noexcept
+    {
+        return static_cast<std::uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(at).count());
+    }
+    [[nodiscard]] static constexpr std::uint8_t packTelemetryKey(runtime::MotionState motion, bool expired) noexcept
+    {
+        return static_cast<std::uint8_t>(static_cast<std::uint8_t>(motion) | (expired ? 0x10U : 0x00U));
+    }
+    // After the scheduler recorded an attempt: publish its time and, when queued, its state.
+    void publishAttempt(runtime::Instant at, const std::optional<telemetry::TelemetryKey>& sent) noexcept
+    {
+        lastTelemetryAttemptMs_.store(millisecondsOf(at), std::memory_order_relaxed);
+        if (sent) sentTelemetryKey_.store(packTelemetryKey(sent->state, sent->commandExpired), std::memory_order_relaxed);
+        hasTelemetryAttempt_.store(true, std::memory_order_release);
+    }
+
+    // Decides with the scheduler whether a frame is due now and publishes it (callback context,
+    // session ready). Called by the telemetry tick (any reason) and at the end of every ordinary
+    // Command write (a due periodic or state-change frame, never the session's first frame).
+    void publishTelemetryIfDue(FromWrite fromWrite) noexcept
+    {
+        const runtime::Instant now = clock_.nowMicroseconds();
+        // One status read: the decision and the frame see the same state.
+        const auto status = runtime_.status();
+        const auto measured = inputs_.measurements(now);
+        const telemetry::TelemetryKey key{status.state, status.commandExpired, measured.batteryLow};
+        const auto reason = scheduler_.due(now, key);
+        if (reason == telemetry::FrameReason::None) return;
+        if (fromWrite == FromWrite::Yes && reason == telemetry::FrameReason::SessionStart) return;
+        protocol::v1::TelemetryValues values;
+        values.batteryLow = measured.batteryLow;
+        values.uptimeMilliseconds = telemetry::uptimeMilliseconds(now);
+        values.batteryMillivolts = measured.batteryMillivolts;
+        values.measuredLinearMillimetresPerSecond = measured.measuredLinearMillimetresPerSecond;
+        values.measuredAngularMilliradiansPerSecond = measured.measuredAngularMilliradiansPerSecond;
+        const auto frame = session_.telemetry(status, values);
+        if (!frame) {  // Not representable: no sequence was used and nothing is sent.
+            telemetry_.count(telemetry::TelemetryCounter::EncodeFailures);
+            scheduler_.attempted(now, key, false);
+            publishAttempt(now, std::nullopt);
+            return;
+        }
+        // Session security (#157 review): every Telemetry frame is protected before it is
+        // queued. A refused frame is dropped and counted like one the stack could not queue.
+        std::array<std::uint8_t, kSecuredFrameMax> scratch{};
+        const auto protectedFrame = security_.protectOutgoing(*frame, scratch);
+        if (!protectedFrame) count(BleCounter::SecurityRefusals);
+        const bool queued = protectedFrame && link_.publishTelemetry(*owner_, *protectedFrame);
+        scheduler_.attempted(now, key, queued);
+        publishAttempt(now, queued ? std::optional{key} : std::nullopt);
+        if (!queued) {
+            // Dropped and counted; its sequence is spent, so the desktop sees the loss as a gap.
+            telemetry_.count(telemetry::TelemetryCounter::NotifyFailures);
+            return;
+        }
+        telemetry_.countFrame(reason);
+        if (lastFrameAt_) telemetry_.recordGap(now - *lastFrameAt_, reason, scheduler_.period());
+        lastFrameAt_ = now;
+    }
+
     void updateReadiness() noexcept
     {
         const auto current = state();
@@ -434,6 +498,7 @@ private:
             securitySessionShown_.store(true, std::memory_order_relaxed);
             session_.open();
             scheduler_.sessionStarted();
+            sentTelemetryKey_.store(kNoSentKey, std::memory_order_relaxed);  // The session's first frame is due.
             lastFrameAt_.reset();
             link_.clearTelemetry();
             setState(LinkState::Ready);
@@ -595,6 +660,9 @@ private:
     std::atomic<LinkState> state_{LinkState::Stopped};
     std::atomic<bool> securitySessionShown_{false};
     std::atomic<bool> securityBypassedShown_{false};
+    std::atomic<std::uint32_t> lastTelemetryAttemptMs_{0};
+    std::atomic<std::uint8_t> sentTelemetryKey_{kNoSentKey};
+    std::atomic<bool> hasTelemetryAttempt_{false};
     std::atomic<bool> resultNotifyShown_{false};
     std::atomic<bool> telemetryNotifyShown_{false};
     std::atomic<std::uint16_t> mtu_{0};

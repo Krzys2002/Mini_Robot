@@ -18,7 +18,8 @@ using telemetry::TelemetryCounter;
 
 namespace {
 constexpr Instant kTick{timing::kTelemetryTickPeriod};
-static_assert(timing::kTelemetryTickPeriod == timing::kSafetyCheckPeriod, "Rig::run ticks telemetry every safety step");
+static_assert(timing::kTelemetryRoutinePostPeriod == timing::kSafetyCheckPeriod,
+              "Rig::run delivers the routine telemetry wake every safety step");
 
 struct Telemetry {
     std::uint16_t sequence{};
@@ -378,4 +379,121 @@ TEST(TelemetryPublicationTest, SpacingStatisticsAreReportedPerWindow)
     EXPECT_EQ(*window.maxIntervalUs, 100'000U);
     EXPECT_EQ(*window.periodicDeviationMaxUs, 0U);  // A fake clock has no lateness.
     EXPECT_FALSE(rig.ble->takeTelemetryWindow().maxIntervalUs);
+}
+
+// Review finding (#283, B10 under write bursts): while the host drained back-to-back writes,
+// the telemetry tick arrived late and the periodic deviation reached 10.6-14.0 ms. Ordinary
+// Command writes now publish a due frame after their result, so a burst that starves the tick
+// entirely still keeps every periodic gap within 100 +/- 2 ms.
+TEST(TelemetryPublicationTest, WriteBurstThatStarvesTheTickKeepsTheB10Deviation)
+{
+    Rig rig;
+    rig.makeReady();
+    rig.ble->onTelemetryTick();  // Session start frame.
+    ASSERT_EQ(rig.link.telemetryAttempts, 1);
+    constexpr Instant kWriteSpacing{800};  // One write per callback allowance (#156 B8).
+    std::vector<Instant> frames{rig.clock.time};
+    for (std::uint16_t i = 0; i < 1500; ++i) {  // 1.2 s of writes and no tick at all.
+        rig.clock.advance(kWriteSpacing);
+        const auto before = rig.link.telemetryAttempts;
+        rig.command(kOwner, headerFrame(MessageType::Stop, i));
+        ASSERT_EQ(parse(rig.link.notifications[rig.link.notifications.size() - (rig.link.telemetryAttempts - before) - 1]).code,
+                  ResultCode::Accepted) << "the result is queued first";
+        if (rig.link.telemetryAttempts != before) frames.push_back(rig.clock.time);
+    }
+    ASSERT_GE(frames.size(), 12U);
+    for (std::size_t i = 1; i < frames.size(); ++i) {
+        const auto gap = frames[i] - frames[i - 1];
+        const auto deviation = gap > Instant{timing::kTelemetryPeriod} ? gap - Instant{timing::kTelemetryPeriod}
+                                                                       : Instant{timing::kTelemetryPeriod} - gap;
+        EXPECT_LE(deviation, timing::kTelemetryPeriodDeviationMax) << i;
+    }
+}
+
+TEST(TelemetryPublicationTest, OnlyOrdinaryWritesOfAReadySessionPublishAndNeverTheEmergencyStop)
+{
+    Rig rig;
+    rig.makeReady();
+    rig.ble->onTelemetryTick();
+    ASSERT_EQ(rig.link.telemetryAttempts, 1);
+    rig.clock.advance(200ms);  // A periodic frame is overdue.
+    rig.estop(kOwner, {});
+    EXPECT_EQ(rig.link.telemetryAttempts, 1) << "the E-stop callback does only the latch and its result";
+    rig.command(kOwner, headerFrame(MessageType::ClearEmergencyStop, 0));
+    EXPECT_EQ(rig.link.telemetryAttempts, 2) << "the next ordinary write publishes it";
+    // Never more than one frame per spacing, however many writes arrive.
+    for (std::uint16_t i = 1; i < 20; ++i) {
+        rig.clock.advance(Instant{500});
+        rig.command(kOwner, headerFrame(MessageType::Stop, i));
+    }
+    EXPECT_EQ(rig.link.telemetryAttempts, 2);
+    rig.subscribe(kOwner, Characteristic::Telemetry, false);  // Unready: writes publish nothing.
+    rig.clock.advance(200ms);
+    rig.command(kOwner, headerFrame(MessageType::Stop, 30));
+    EXPECT_EQ(rig.link.telemetryAttempts, 2);
+}
+
+TEST(TelemetryPublicationTest, StateChangeDuringATickStarvedBurstIsSentWithinTheSpacing)
+{
+    Rig rig;
+    rig.makeReady();
+    rig.ble->onTelemetryTick();  // Session start frame, Idle.
+    const Instant start = rig.clock.time;
+    constexpr Instant kWriteSpacing{800};
+    rig.clock.advance(kWriteSpacing);
+    rig.command(kOwner, velocityFrame(0, kForward, kValidity));  // Idle -> Moving, no tick follows.
+    ASSERT_EQ(parse(rig.link.notifications.back()).code, ResultCode::Accepted);
+    rig.run(10ms);  // Control applies it; the state is now Moving.
+    ASSERT_EQ(rig.status().state, MotionState::Moving);
+    std::optional<Instant> sentAt;
+    for (std::uint16_t i = 1; i < 60 && !sentAt; ++i) {
+        rig.clock.advance(kWriteSpacing);
+        const auto before = rig.link.telemetryAttempts;
+        rig.command(kOwner, velocityFrame(i, kForward, kValidity));
+        if (rig.link.telemetryAttempts != before) sentAt = rig.clock.time;
+    }
+    ASSERT_TRUE(sentAt);
+    EXPECT_GE(*sentAt - start, Instant{timing::kStateTelemetryMinSpacing});
+    EXPECT_LE(*sentAt - start, Instant{timing::kStateTelemetryMinSpacing} + kWriteSpacing)
+        << "sent at the first write once the 20 ms spacing has passed";
+    const auto frames = telemetryFrames(rig.link);
+    ASSERT_EQ(frames.size(), 2U);
+    EXPECT_EQ(frames.back().state, static_cast<std::uint8_t>(MotionState::Moving));
+}
+
+// The telemetry task wakes the host every millisecond only when telemetryMayBeDue() says a
+// frame could be due, and every 5 ms regardless. Against a host woken every millisecond, the
+// gated one publishes exactly the same frames at exactly the same times: the pre-check never
+// loses or delays a frame.
+TEST(TelemetryPublicationTest, GatedMillisecondChecksPublishExactlyWhatUngatedChecksDo)
+{
+    const auto drive = [](bool gated) {
+        Rig rig;
+        rig.makeReady();
+        std::vector<std::pair<Instant, std::uint16_t>> frames;
+        std::size_t seen = 0;
+        std::uint16_t sequence = 0;
+        int wakes = 0;
+        for (std::int64_t ms = 1; ms <= 3000; ++ms) {
+            rig.clock.advance(1ms);
+            if (ms % 5 == 0) rig.runtime->safetyStep().step();
+            if (ms % 10 == 0) rig.runtime->controlStep().step();
+            if (ms % 337 == 0) rig.command(kOwner, velocityFrame(sequence++, kForward, kValidity));  // Moving, then expiry.
+            const auto status = rig.status();
+            const bool routine = ms % (timing::kTelemetryRoutinePostPeriod / timing::kTelemetryTickPeriod) == 0;
+            if (!gated || routine || rig.ble->telemetryMayBeDue(rig.clock.time, status.state, status.commandExpired)) {
+                ++wakes;
+                rig.ble->onTelemetryTick();
+            }
+            for (; seen < rig.link.notifications.size(); ++seen)
+                if (isTelemetry(rig.link.notifications[seen]))
+                    frames.emplace_back(rig.clock.time, parseTelemetry(rig.link.notifications[seen]).sequence);
+        }
+        return std::pair{frames, wakes};
+    };
+    const auto [ungated, allWakes] = drive(false);
+    const auto [gated, gatedWakes] = drive(true);
+    ASSERT_GE(ungated.size(), 30U);
+    EXPECT_EQ(gated, ungated);
+    EXPECT_LT(gatedWakes, allWakes / 3) << "the gate keeps host wake-ups near the routine 5 ms rate";
 }

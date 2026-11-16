@@ -28,6 +28,7 @@
 #include <freertos/task.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdarg>
 #include <cstddef>
@@ -93,6 +94,7 @@ public:
 
 private:
     std::optional<runtime::Instant> lastSample_{};
+    std::uint32_t checks_{0};
 };
 TelemetryTick telemetryTick;
 
@@ -182,6 +184,8 @@ telemetry::RobotTelemetryInputs telemetryInputs{battery};
 // identity (static storage, no heap); every callback runs in nimble_host.
 esp::NimBlePeripheral blePeripheral;
 std::optional<ble::PeripheralController> bleController;
+// Published once the controller runs, for the telemetry task (which starts before BLE does).
+std::atomic<const ble::PeripheralController*> bleControllerRunning{nullptr};
 // Session security (#157 review): the explicitly selected restricted-lab pass-through. It
 // permits everything and provides no authentication or encryption (ble/SessionSecurity.hpp).
 ble::RestrictedLabPassThroughSecurity bleSecurity;
@@ -217,6 +221,7 @@ BleStart startBle()
                           ble::kSecurityMode);
     if (!blePeripheral.begin(info->robotId, *record, *bleController)) return BleStart::StackFailed;
     bleController->start();
+    bleControllerRunning.store(&*bleController, std::memory_order_release);
     if (bleController->state() == ble::LinkState::SecurityRefused) return BleStart::SecurityRefused;
     return BleStart::Started;
 }
@@ -228,7 +233,18 @@ void TelemetryTick::step() noexcept
         battery.sample(now);
         lastSample_ = now;
     }
-    blePeripheral.requestTelemetryTick();  // Dropped until the peripheral is running.
+    // Every millisecond: wake the host when a frame could be due (the controller decides
+    // exactly), and every 5 ms regardless. Ticks are dropped until the peripheral is running.
+    constexpr std::uint32_t kChecksPerRoutinePost =
+        static_cast<std::uint32_t>(timing::kTelemetryRoutinePostPeriod / timing::kTelemetryTickPeriod);
+    const bool routine = checks_++ % kChecksPerRoutinePost == 0;
+    if (!routine) {
+        const auto* controller = bleControllerRunning.load(std::memory_order_acquire);
+        if (!controller) return;
+        const auto status = firmwareRuntime.status();
+        if (!controller->telemetryMayBeDue(now, status.state, status.commandExpired)) return;
+    }
+    blePeripheral.requestTelemetryTick();
 }
 
 class SerialMaintenanceOutput final : public provisioning::IMaintenanceOutput {
