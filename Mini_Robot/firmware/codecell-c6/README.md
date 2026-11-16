@@ -10,8 +10,9 @@ one command authority (`CommandProcessor`) is the only way to request motion, an
 a 5 ms safety supervisor and a 10 ms control task follow the #156 scheduling model.
 See [runtime and threading](../../docs/overview/firmware-runtime.md). The image has
 no BLE peripheral, codec or telemetry yet (#161, #163, #164), so nothing commands
-motion. Its drive adapter is inhibited until the validated actuator contract (#160),
-and it is not proof of safe electrical boot behaviour (#238). The runtime becomes
+motion. The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
+(#160). It wakes the H-bridges only with a valid provisioned profile, and it is not
+proof of safe electrical boot behaviour or of any physical motor limit (#238). The runtime becomes
 ready only with a validated, provisioned identity/configuration record (#159); an
 unprovisioned board stays in `Fault` with outputs disabled. Provision it over USB
 serial as described in [identity provisioning](../../docs/overview/firmware-provisioning.md). The separate
@@ -29,10 +30,11 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 | `include/FirmwareClock.hpp` | Portable C++20 clock contract and conversions, no SDK includes |
 | `include/runtime/` | Portable production runtime (#158): ports, safety state, actuator gate, command processor, mailbox, periodic steps and start-up orchestration |
 | `include/provisioning/` | Portable identity/configuration record, A/B atomic store, runtime configuration source and USB maintenance console (#159) |
+| `include/drive/` | Portable [bounded drive](../../docs/overview/firmware-drive.md) (#160): drive profile, kinematics and actuator map, rate limiter, motor HAL port and `BoundedDriveOutput` |
 | `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
 | `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
 | `pilot/`, `scripts/timing_pilot_host.py` | [#156 timing pilot](../../docs/testing/timing-pilot-156.md): bench measurement image and its Linux/BlueZ host driver; never a robot image |
-| `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS adapters: clock, critical section, periodic tasks, inhibited drive, NVS record storage and bond erase |
+| `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp`, `src/CodeCellMotorDriver.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS/board adapters: clock, critical section, periodic tasks, DRV8837 motor HAL (LEDC), NVS record storage and bond erase |
 | `CMakeLists.txt`, `tests/` | Independent GoogleTest host entry point (no Arduino, Qt or OpenCV) |
 
 All commands below run from the repository root.
@@ -212,9 +214,12 @@ Physical upload, monitoring, recovery and host USB behavior are validated in
 [#240](https://github.com/Krzys2002/Mini_Robot/issues/240); until that evidence
 exists, the steps below are the procedure to follow, not verified results.
 
-Safe output state: the image never initializes CodeCell or DriveCell, configures
-no drive pins and keeps its inhibited drive adapter disabled, so the application
-itself commands no motor output.
+Safe output state: the image never initializes CodeCell or DriveCell. At boot it sets
+the four bridge inputs low and wakes the bridges (GPIO18) only after a valid provisioned
+drive profile; an unprovisioned board never wakes them. No code in the image commands
+motion yet (no BLE peripheral, #163), and the USB console has no motion command. A
+**provisioned** board would drive within its record once commands exist, so keep motor
+power disconnected until #238 approves the supply and output bound.
 The electrical state of the drive outputs during reset, boot and download mode
 is not verified. Keep motor power disconnected while uploading or monitoring,
 and do not connect an unreviewed motor-power setup merely to upload.

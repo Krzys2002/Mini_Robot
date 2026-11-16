@@ -5,7 +5,9 @@
 // onboard target/distance execution in this image (enforced after linking by
 // scripts/production_image_policy.py). Motion commands can only enter through
 // FirmwareRuntime::commands(), which the BLE peripheral (#163) will call; until then
-// nothing in this image commands motion, and the drive adapter refuses to enable (#160).
+// nothing in this image commands motion. The drive is the bounded actuator contract
+// (#160): it wakes the H-bridges only after a valid provisioned profile, and no powered
+// motor acceptance exists yet (#238).
 // USB serial carries status output and the maintenance console only, never motion.
 #include <Arduino.h>
 #include <esp_system.h>
@@ -13,7 +15,9 @@
 #include <cstddef>
 #include <string_view>
 #include "EspProvisioningAdapters.hpp"
+#include "CodeCellMotorDriver.hpp"
 #include "EspRuntimeAdapters.hpp"
+#include "drive/BoundedDriveOutput.hpp"
 #include "provisioning/MaintenanceConsole.hpp"
 #include "provisioning/ProvisionedConfiguration.hpp"
 #include "runtime/FirmwareRuntime.hpp"
@@ -30,11 +34,13 @@ constexpr std::chrono::milliseconds kReporterPollPeriod{100};
 
 esp::EspFirmwareClock firmwareClock;
 esp::FreeRtosPlatform platform;
-esp::InhibitedDriveOutput drive;
+esp::CodeCellMotorDriver motors;
+drive::BoundedDriveOutput driveOutput{motors};
+bool motorsAttached{false};
 esp::NvsRecordStorage recordStorage;
 provisioning::ConfigStore configStore{recordStorage};
 provisioning::ProvisionedConfiguration configuration{configStore};
-runtime::FirmwareRuntime firmwareRuntime{{firmwareClock, platform, drive, configuration, nullptr}};
+runtime::FirmwareRuntime firmwareRuntime{{firmwareClock, platform, driveOutput, configuration, nullptr}};
 
 class SerialMaintenanceOutput final : public provisioning::IMaintenanceOutput {
 public:
@@ -67,11 +73,13 @@ void reportStatus(const runtime::RuntimeStatus& status)
     char robotId[16] = "none";
     if (const auto info = configuration.robotInfo())
         snprintf(robotId, sizeof robotId, "%lu", static_cast<unsigned long>(info->robotId));
-    Serial.printf("RUNTIME uptime_ms=%lu start=%s ready=%d state=%s output=%s fault=%s maintenance=%d "
-                  "provisioning=%s robot_id=%s accepted=%lu rejected=%lu expired=%lu overwrites=%lu\n",
+    const auto duty = driveOutput.lastDuty();
+    const char* output = status.stopRamp ? "stop_ramp" : (status.outputEnabled ? "enabled" : "disabled");
+    Serial.printf("RUNTIME uptime_ms=%lu start=%s ready=%d state=%s output=%s duty_m1=%d duty_m2=%d fault=%s "
+                  "maintenance=%d provisioning=%s robot_id=%s accepted=%lu rejected=%lu expired=%lu overwrites=%lu\n",
                   static_cast<unsigned long>(firmwareClock.now().count()),
                   startResult == runtime::StartResult::Running ? "running" : "faulted", status.ready ? 1 : 0,
-                  runtime::toString(status.state), status.outputEnabled ? "enabled" : "disabled",
+                  runtime::toString(status.state), output, static_cast<int>(duty.m1), static_cast<int>(duty.m2),
                   runtime::toString(status.fault), status.maintenance ? 1 : 0, provisioning::toString(boot.state),
                   robotId, static_cast<unsigned long>(counters[runtime::Counter::VelocityAccepted]),
                   static_cast<unsigned long>(counters[runtime::Counter::CommandRejected]),
@@ -82,7 +90,7 @@ void reportStatus(const runtime::RuntimeStatus& status)
 bool changed(const runtime::RuntimeStatus& a, const runtime::RuntimeStatus& b)
 {
     return a.state != b.state || a.fault != b.fault || a.ready != b.ready || a.outputEnabled != b.outputEnabled
-        || a.maintenance != b.maintenance;
+        || a.maintenance != b.maintenance || a.stopRamp != b.stopRamp;
 }
 
 // Fixed-size, non-blocking line reader; an overlong line is discarded whole.
@@ -109,11 +117,17 @@ void pollMaintenanceInput()
 
 void setup()
 {
-    // The runtime disables the drive before loading the configuration; serial comes after.
+    // Bridge inputs are attached low first (bridges still asleep); the runtime then disables
+    // the drive before loading the configuration and wakes the bridges only with a valid
+    // profile. A failed attach makes the boot disable fail, so the runtime faults. Serial
+    // comes after.
+    motorsAttached = motors.begin();
     startResult = firmwareRuntime.start();
     Serial.begin(kSerialBaudRate);
-    Serial.println("CodeCell C6 production runtime (#158/#159): BLE commands not yet available (#163); "
-                   "drive inhibited (#160); type help for maintenance");
+    Serial.println("CodeCell C6 production runtime (#158/#159/#160): BLE commands not yet available (#163); "
+                   "bounded drive from the provisioned profile, powered checks blocked (#238); "
+                   "type help for maintenance");
+    if (!motorsAttached) Serial.println("DRIVE attach=failed");
     const auto& boot = configuration.bootState();
     Serial.printf("PROVISIONING state=%s reason=%s generation=%lu pending=%s\n", provisioning::toString(boot.state),
                   provisioning::toString(boot.reason), static_cast<unsigned long>(boot.generation.value_or(0)),

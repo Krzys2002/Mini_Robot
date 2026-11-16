@@ -33,7 +33,8 @@ and `core arhiteture.md` do not establish implemented functionality.
 - Root builds place application artifacts under `build/<preset>/Mini_Robot/`;
   standalone builds place them under `Mini_Robot/build/<preset>/`.
 - Firmware lives under `Mini_Robot/firmware/`. `codecell-c6/` is the C6
-  production runtime (drive inhibited until #160, no BLE peripheral until #163);
+  production runtime (bounded open-loop drive since #160, powered checks in #238,
+  no BLE peripheral until #163);
   `ble-lifecycle/` is a separate connection fixture.
   The outdated T1 projects and HTTP/browser controller have been retired.
   Never link embedded production sources into desktop targets. Firmware host

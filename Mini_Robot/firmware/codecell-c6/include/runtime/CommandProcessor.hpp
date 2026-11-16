@@ -7,6 +7,7 @@
 #include "runtime/RuntimeDiagnostics.hpp"
 #include "runtime/RuntimePorts.hpp"
 #include "runtime/SetpointMailbox.hpp"
+#include <cmath>
 
 namespace codecell::runtime {
 
@@ -19,13 +20,24 @@ public:
 
     // Set from the validated configuration before the runtime becomes ready.
     void setValidityCeiling(milliseconds ceiling) noexcept { ceiling_ = ceiling; }
+    // Body limits from the validated drive profile (#160), the advertised maxLinear and
+    // maxAngular. Until set, every nonzero velocity is out of range (and the runtime is
+    // not ready anyway).
+    void setVelocityLimits(double maxLinearMetresPerSecond, double maxAngularRadiansPerSecond) noexcept
+    {
+        maxLinear_ = maxLinearMetresPerSecond;
+        maxAngular_ = maxAngularRadiansPerSecond;
+    }
 
     [[nodiscard]] CommandOutcome velocity(const BodyVelocity& velocity, milliseconds validFor,
                                           Instant receipt) noexcept override
     {
         if (!velocity.isFinite()) return reject(CommandOutcome::RejectedInvalid);
+        // Invalid body commands are rejected here, before they can reach the actuator path.
+        const bool withinLimits = std::abs(velocity.linearMetresPerSecond) <= maxLinear_
+            && std::abs(velocity.angularRadiansPerSecond) <= maxAngular_;
         std::uint32_t generation = 0;
-        const auto outcome = gate_.admitVelocity(receipt, validFor, ceiling_, generation);
+        const auto outcome = gate_.admitVelocity(receipt, validFor, ceiling_, withinLimits, generation);
         if (outcome != CommandOutcome::Accepted) return reject(outcome);
         // A Stop/E-stop/fault between admission and publication advances the generation,
         // so this snapshot is then refused by the gate instead of driving.
@@ -72,5 +84,7 @@ private:
     SetpointMailbox& mailbox_;
     RuntimeDiagnostics& diagnostics_;
     milliseconds ceiling_{timing::kCommandValidityCeiling};
+    double maxLinear_{0.0};
+    double maxAngular_{0.0};
 };
 } // namespace codecell::runtime

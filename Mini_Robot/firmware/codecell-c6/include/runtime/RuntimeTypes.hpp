@@ -13,7 +13,9 @@ using std::chrono::milliseconds;
 
 // Supervisory body-frame setpoint in SI units: metres per second and radians per
 // second (positive = counter-clockwise seen from above). Range limits belong to the
-// codec (#161) and the actuator contract (#160); this type only carries the value.
+// codec (#161) and the actuator contract (#160: CommandProcessor rejects values above the
+// provisioned body limits, and drive::BoundedDriveOutput bounds the wheels); this type only
+// carries the value.
 struct BodyVelocity {
     double linearMetresPerSecond{0.0};
     double angularRadiansPerSecond{0.0};
@@ -38,6 +40,8 @@ enum class FaultCode : std::uint8_t {
     ControlTaskStartFailed,
     DriveWriteFailed,            // The drive adapter refused a permitted write.
     ControlStalled,              // No control update within the stall limit while the drive was on.
+    DriveConfigurationRejected,  // The drive adapter refused the validated profile or could not enable (#160).
+    StopRampOverrun,             // A normal stop ramp was not at zero within the B6 enforcement limit (#160).
 };
 
 // Answer of the single motion-command authority. Mapping to v1 result codes is #161/#163.
@@ -47,6 +51,7 @@ enum class CommandOutcome : std::uint8_t {
     RejectedEmergencyStopLatched,
     RejectedFault,
     RejectedInvalid,               // Non-finite velocity or a non-positive validity window.
+    RejectedOutOfRange,            // |linear| or |angular| above the provisioned body limit (#160).
 };
 
 // Why a BLE session ended; every reason stops motion as for Stop and keeps the E-stop latch.
@@ -79,6 +84,8 @@ enum class SessionEndReason : std::uint8_t {
     case FaultCode::ControlTaskStartFailed: return "ControlTaskStartFailed";
     case FaultCode::DriveWriteFailed: return "DriveWriteFailed";
     case FaultCode::ControlStalled: return "ControlStalled";
+    case FaultCode::DriveConfigurationRejected: return "DriveConfigurationRejected";
+    case FaultCode::StopRampOverrun: return "StopRampOverrun";
     }
     return "Unknown";
 }

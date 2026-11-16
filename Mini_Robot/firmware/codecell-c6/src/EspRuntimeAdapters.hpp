@@ -88,15 +88,7 @@ private:
     std::size_t started_{0};
 };
 
-// Holds the drive disabled. The CodeCell/DriveCell actuator contract is not validated
-// yet (#160, powered checks #238), so this image configures no drive pin and refuses
-// every enable; a refused write faults the runtime. The electrical pin state during
-// reset and boot is not established by this adapter (#238).
-class InhibitedDriveOutput final : public runtime::IDriveOutput {
-public:
-    bool disable() noexcept override { return true; }
-    bool command(const runtime::BodyVelocity&) noexcept override { return false; }
-};
+// The drive output is drive::BoundedDriveOutput over CodeCellMotorDriver (#160).
 
 // The configuration source is provisioning::ProvisionedConfiguration over
 // EspProvisioningAdapters.hpp (#159).

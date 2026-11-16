@@ -5,7 +5,7 @@ top of the #155 build and the proposed [#156 timing budgets](../protocol/timing-
 This page describes the structure of the production image in
 [`firmware/codecell-c6`](../../firmware/codecell-c6/README.md). It does **not**
 establish physical stopping, electrical boot behaviour or protocol interoperability:
-those remain with #160–#166 and the powered gate
+those remain with #161–#166 and the powered gate
 [#238](https://github.com/Krzys2002/Mini_Robot/issues/238).
 
 ## What the production image does today
@@ -21,9 +21,10 @@ those remain with #160–#166 and the powered gate
 - Has exactly one motion-command entry point, `FirmwareRuntime::commands()`. No
   code in the image calls it yet: the BLE peripheral that will is #163, and the
   codec that decodes v1 frames for it is #161.
-- Uses an inhibited drive adapter. It configures no drive pin and refuses every
-  enable, because the CodeCell/DriveCell actuator contract is not validated yet
-  (#160). A refused enable puts the runtime in `Fault`.
+- Uses the [bounded drive](firmware-drive.md) (#160): body velocity to wheel intent,
+  saturation, rate and reversal limits and the approved output bound, from the
+  provisioned profile. It wakes the H-bridges only after a valid profile. Normal Stop
+  and expiry ramp to zero (B6); E-stop and faults disable at once.
 - Contains no Wi-Fi, access point, HTTP server or client, browser UI, OTA, or
   onboard distance/target execution. The retired T1 controller is not ported.
   A post-link check rejects the image if such code is linked (see
@@ -44,8 +45,8 @@ Provisioning logic is portable C++20 under
 | --- | --- | --- | --- |
 | Clock | `IFirmwareClock` (monotonic µs since boot) | `EspFirmwareClock` (`esp_timer`) | #155 |
 | Scheduler / RTOS | `IPlatform`: critical section, periodic tasks; every creation checked | `FreeRtosPlatform` (`portMUX`, `xTaskCreate`, `xTaskDelayUntil`) | #158 |
-| Drive | `IDriveOutput`: `disable()`, `command(BodyVelocity)` | `InhibitedDriveOutput` | #160 |
-| Inertial sensor (optional) | `IInertialSensor` | none wired | #160, if approved |
+| Drive | `IDriveOutput`: `configure()`, `disable()`, `command(BodyVelocity, now)`, `rampToStop(now)` | `drive::BoundedDriveOutput` over `CodeCellMotorDriver` ([bounded drive](firmware-drive.md)) | #160 |
+| Inertial sensor (optional) | `IInertialSensor` | none wired | Not approved yet |
 | Configuration | `IConfigurationSource` + `validate()` | `ProvisionedConfiguration` over `ConfigStore` and `NvsRecordStorage` ([provisioning](firmware-provisioning.md)) | #159 |
 | Maintenance | `FirmwareRuntime::enterMaintenance()`, `MaintenanceConsole` | USB serial line reader in `loopTask` | #159 |
 | BLE adapter | `IMotionCommandSink` (implemented by `CommandProcessor`) | not attached | #163 |
@@ -64,7 +65,7 @@ flowchart LR
     CP -->|generation-tagged setpoint| M[(SetpointMailbox depth 1)]
     C[ControlLoop p20, 10 ms] -->|copy| M
     C -->|apply snapshot| G
-    S[SafetySupervisor p22, 5 ms] -->|expiry, stall| G
+    S[SafetySupervisor p22, 5 ms] -->|expiry, stop ramp, stall| G
     G -->|only holder| D[IDriveOutput]
     G --- SS[SafetyState]
 ```
@@ -77,7 +78,8 @@ flowchart LR
   the receipt-relative deadline (capped by the configured ceiling, expiry at
   `now >= deadline`) and a **generation** counter.
 - **`CommandProcessor`** is the only `IMotionCommandSink`. It rejects non-finite
-  values and non-positive validity windows, asks the gate to admit Velocity, and
+  values, non-positive validity windows and values above the provisioned body limits
+  (`RejectedOutOfRange`, checked after state and validity), asks the gate to admit Velocity, and
   publishes the admitted setpoint with its generation. Stop, E-stop, ClearEmergencyStop
   and session ends go straight to the gate. It never writes the drive.
 - **`SetpointMailbox`** holds one setpoint. The newest admitted setpoint wins and an
@@ -85,8 +87,8 @@ flowchart LR
   consuming.
 - **`ControlLoop`** (the actuator update) reads the optional sensor, copies the
   setpoint, reads the clock, and calls `ActuatorGate::apply()` once per period.
-- **`SafetySupervisor`** calls `ActuatorGate::supervise()`: deadline expiry and the
-  control-stall check, independent of control progress.
+- **`SafetySupervisor`** calls `ActuatorGate::supervise()`: deadline expiry, the
+  stop-ramp enforcement (B6) and the control-stall check, independent of control progress.
 - **`FirmwareRuntime`** wires these together and owns start-up.
 
 ### Why a stale copy cannot re-enable the outputs
@@ -100,7 +102,9 @@ section, at the moment of the write:
 - the snapshot's generation equals the current one;
 - `now` is before the deadline.
 
-Otherwise it disables the drive. A snapshot that the control task copied before a
+Otherwise it does not drive the snapshot: an enabled drive takes one step of the normal
+stop ramp toward zero (see [two ways to end motion](firmware-drive.md#two-ways-to-end-motion)),
+and a disabled one stays disabled. A snapshot that the control task copied before a
 Stop, an E-stop or a fault is therefore refused even if it is applied afterwards, and
 clearing the latch does not resume the setpoint left in the mailbox. E-stop disables
 the drive inside the same critical section before the latch becomes visible, so once
@@ -114,16 +118,19 @@ and its write (`StopLikeEventBetweenSnapshotCopyAndWriteAlwaysWins`).
 
 1. Disable the drive.
 2. Load the provisioned record (#159) and validate the resulting runtime configuration
-   against the budget (`RuntimeConfig.hpp`). The record's `maxCommandValidityMs` becomes
-   the validity ceiling; the other values are the budget defaults.
-3. Create the handoff critical section.
-4. Start the safety supervisor, then the control task.
-5. Mark ready.
+   against the budget and the drive profile rules (`RuntimeConfig.hpp`). The record's
+   `maxCommandValidityMs` becomes the validity ceiling and its actuator data the drive
+   profile; the other values are the budget defaults.
+3. Configure the drive with the profile; only then are the bridges woken (#160).
+4. Create the handoff critical section.
+5. Start the safety supervisor, then the control task.
+6. Mark ready.
 
-Commands before step 5 are rejected with `RejectedNotReady`. If any step fails, the
+Commands before step 6 are rejected with `RejectedNotReady`. If any step fails, the
 runtime enters `Fault` with the drive disabled, records the first `FaultCode`
 (`DriveDisableFailed`, `ConfigurationUnavailable`, `ConfigurationInvalid`,
-`SynchronizationUnavailable`, `SupervisorTaskStartFailed`, `ControlTaskStartFailed`),
+`DriveConfigurationRejected`, `SynchronizationUnavailable`, `SupervisorTaskStartFailed`,
+`ControlTaskStartFailed`),
 and never attempts normal motion. Later commands are rejected with `RejectedFault`,
 and a supervisor that already runs keeps the outputs off. A configuration error also
 keeps its `ConfigError`. Calling `start()` again returns the first result. Faults
@@ -135,17 +142,18 @@ the drive and clears readiness, so Velocity is rejected with `RejectedNotReady`.
 E-stop latch and faults are kept, and `markReady()` has no effect afterwards.
 
 At run time a refused drive write (`DriveWriteFailed`), a failed disable
-(`DriveDisableFailed`) or a control task that stops updating while the drive is on
-(`ControlStalled`, B7) also enter `Fault`.
+(`DriveDisableFailed`), a control task that stops updating while the drive is on
+(`ControlStalled`, B7) or a stop ramp that is not at zero within 120 ms of its
+decision (`StopRampOverrun`, B6) also enter `Fault`.
 
 ## Scheduling model and handoffs (#156)
 
 | Context | Priority | Period | Work | Budget |
 | --- | --- | --- | --- | --- |
 | BLE controller (`ble_ll_task`) | 23 | — | Radio | Platform |
-| `mr_safety` (`SafetySupervisor`) | 22 | 5 ms | Expiry, control stall | B3, B4, B7, B18 |
+| `mr_safety` (`SafetySupervisor`) | 22 | 5 ms | Expiry, stop-ramp enforcement, control stall | B3, B4, B6, B7, B18 |
 | `nimble_host` (BLE callbacks, #163) | 21 | — | `IMotionCommandSink` calls, E-stop first | B8, B9 |
-| `mr_control` (`ControlLoop`) | 20 | 10 ms | Sensor, copy setpoint, gated write | B7, B9 |
+| `mr_control` (`ControlLoop`) | 20 | 10 ms | Sensor, copy setpoint, one bounded drive step or stop-ramp step | B6, B7, B9 |
 | Arduino `loopTask` | 1 | 100 ms poll | Serial status line (log drain); USB maintenance console and its NVS writes (#159), only with outputs disabled | B13 |
 
 - Priorities, periods and the stall limit come from `TimingBudget.hpp`. `validate()`
@@ -159,7 +167,9 @@ At run time a refused drive write (`DriveWriteFailed`), a failed disable
   or make a non-blocking drive write, so no timing-critical path waits indefinitely
   and no lock is held across a blocking call. The #156 pilot measured a
   critical-section copy at ≤ 9 µs. `IDriveOutput` implementations must keep this
-  contract: no allocation, lock, wait, logging or radio call (#160).
+  contract: no allocation, lock, wait, logging or radio call. The bounded drive (#160)
+  does a few floating-point operations and four LEDC duty writes per step; its time
+  inside the section is not measured yet (#166).
 - There is no queue on the motion path apart from the depth-1 mailbox (B12). A
   command flood between two control cycles leaves one setpoint; motion is never
   queued. A CommandResult queue exhaustion is reported by the BLE adapter as
@@ -199,7 +209,8 @@ environment that goes through the same `ActuatorGate`.
 ## Verification
 
 Host tests (`core` label) run the orchestration with fakes: `FirmwareRuntimeTest`,
-`RuntimeComponentsTest` and, for provisioning and maintenance, `ProvisioningRuntimeTest` in
+`RuntimeComponentsTest`, `ActuatorRuntimeTest` (the real [bounded drive](firmware-drive.md#verification))
+and, for provisioning and maintenance, `ProvisioningRuntimeTest` in
 [`tests/`](../../firmware/codecell-c6/tests/FirmwareRuntimeTest.cpp). They cover each
 injected start-up failure (no nonzero output afterwards), the single command
 authority, stale snapshots past their deadline, stop-like events between copy and

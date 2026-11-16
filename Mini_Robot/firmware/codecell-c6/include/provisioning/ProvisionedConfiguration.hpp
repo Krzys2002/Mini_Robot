@@ -5,8 +5,11 @@
 // becomes ready: an absent, corrupt, partial or out-of-version record cannot arm outputs.
 //
 // The advertised maxCommandValidityMs is also the enforced validity ceiling, so Robot
-// Info can never promise a longer validity than the watchdog applies. bootState() is the
+// Info can never promise a longer validity than the watchdog applies. Likewise the
+// advertised maxLinear/maxAngular are the body limits the drive enforces (#160), and the
+// drive profile is the record's calibrated actuator data in SI units. bootState() is the
 // record this image runs with until the next reset; maintenance writes never change it.
+#include "drive/DriveProfile.hpp"
 #include "provisioning/ConfigStore.hpp"
 #include "provisioning/RobotIdentity.hpp"
 #include "runtime/RuntimeConfig.hpp"
@@ -15,10 +18,26 @@
 
 namespace codecell::provisioning {
 
+// The record stores the output bound in DriveCell percent; the drive uses a fraction.
+[[nodiscard]] constexpr drive::DriveProfile driveProfileFor(const ValidatedRobotConfig& config) noexcept
+{
+    drive::DriveProfile profile{};
+    profile.trackWidthMetres = config.trackWidthMetres();
+    profile.maxWheelSpeedMetresPerSecond = config.maxWheelSpeedMetresPerSecond();
+    profile.maxOutputFraction =
+        static_cast<double>(config.maxDriveOutputPercent()) / static_cast<double>(kDriveOutputPercentFullScale);
+    profile.maxLinearMetresPerSecond = config.maxLinearMetresPerSecond();
+    profile.maxAngularRadiansPerSecond = config.maxAngularRadiansPerSecond();
+    profile.leftReversed = config.leftWheelReversed();
+    profile.rightReversed = config.rightWheelReversed();
+    return profile;
+}
+
 [[nodiscard]] constexpr runtime::RuntimeConfig runtimeConfigFor(const ValidatedRobotConfig& config) noexcept
 {
     runtime::RuntimeConfig result{};
     result.commandValidityCeiling = config.maxCommandValidity();
+    result.driveProfile = driveProfileFor(config);
     return result;
 }
 

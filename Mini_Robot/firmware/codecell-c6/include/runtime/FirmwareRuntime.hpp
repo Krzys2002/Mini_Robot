@@ -7,8 +7,9 @@
 // start() order, each step checked; any failure leaves the runtime in Fault with the
 // drive disabled, reports the first FaultCode and never starts normal motion:
 //   1. disable the drive;          2. load and validate the configuration;
-//   3. create the critical section; 4. start the safety supervisor, then the control task;
-//   5. mark ready (commands are rejected with RejectedNotReady before this).
+//   3. configure the drive with the validated profile (#160);
+//   4. create the critical section; 5. start the safety supervisor, then the control task;
+//   6. mark ready (commands are rejected with RejectedNotReady before this).
 // A supervisor that already runs when a later step fails keeps the outputs off.
 #include "runtime/ActuatorGate.hpp"
 #include "runtime/CommandProcessor.hpp"
@@ -40,7 +41,7 @@ public:
         : clock_(dependencies.clock),
           platform_(dependencies.platform),
           configuration_(dependencies.configuration),
-          gate_(dependencies.drive, diagnostics_),
+          gate_(dependencies.drive, diagnostics_, dependencies.clock),
           commands_(gate_, mailbox_, diagnostics_),
           supervisor_(gate_, dependencies.clock),
           control_(gate_, mailbox_, dependencies.clock, dependencies.inertialSensor, diagnostics_)
@@ -89,7 +90,11 @@ private:
             return fail(FaultCode::ConfigurationInvalid);
         }
         config_ = loaded;
+        if (!gate_.configureDrive(config_->driveProfile, config_->controlPeriod))
+            return fail(FaultCode::DriveConfigurationRejected);
         commands_.setValidityCeiling(config_->commandValidityCeiling);
+        commands_.setVelocityLimits(config_->driveProfile.maxLinearMetresPerSecond,
+                                    config_->driveProfile.maxAngularRadiansPerSecond);
         supervisor_.setStallLimit(config_->controlStallLimit);
 
         ICriticalSection* section = platform_.createCriticalSection();

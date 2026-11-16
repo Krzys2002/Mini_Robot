@@ -264,3 +264,42 @@ TEST(ProvisioningRuntimeTest, OrdinaryOperationPerformsNoFlashWrites)
     boot.runtime.commands().sessionEnded(SessionEndReason::Disconnected);
     EXPECT_EQ(storage.mutations(), afterProvisioning);
 }
+
+// #160: the drive is configured from the record's calibrated actuator data, in SI units,
+// and the advertised body limits are the ones the command authority enforces.
+TEST(ProvisioningRuntimeTest, ProvisionedRecordConfiguresTheDriveProfile)
+{
+    FakeRecordStorage storage;
+    storage.put(Slot::A, encode(validConfig(), 1));
+    Boot boot{storage};
+    ASSERT_EQ(boot.start(), StartResult::Running);
+    ASSERT_TRUE(boot.drive.configured);
+    const auto& profile = *boot.drive.configured;
+    EXPECT_DOUBLE_EQ(profile.trackWidthMetres, 0.06);
+    EXPECT_DOUBLE_EQ(profile.maxWheelSpeedMetresPerSecond, 0.2);
+    EXPECT_DOUBLE_EQ(profile.maxOutputFraction, 0.4) << "40 DriveCell percent";
+    EXPECT_DOUBLE_EQ(profile.maxLinearMetresPerSecond, 0.15);
+    EXPECT_DOUBLE_EQ(profile.maxAngularRadiansPerSecond, 3.0);
+    EXPECT_FALSE(profile.leftReversed);
+    EXPECT_TRUE(profile.rightReversed);
+    EXPECT_EQ(drive::validate(profile), drive::DriveProfileError::None);
+    EXPECT_EQ(boot.runtime.commands().velocity({0.151, 0.0}, 100ms, boot.clock.nowMicroseconds()),
+              CommandOutcome::RejectedOutOfRange);
+    EXPECT_EQ(boot.velocity(), CommandOutcome::Accepted);
+}
+
+// Every record the provisioning validator accepts also yields a valid drive profile, so
+// a provisioned robot can never fail drive validation on rounding alone.
+TEST(ProvisioningRuntimeTest, RecordLimitsAtTheirExactBoundariesStayValidDriveProfiles)
+{
+    RobotConfig config = validConfig();
+    config.maxLinearMillimetresPerSecond = config.maxWheelSpeedMillimetresPerSecond;
+    // omega * track / 2 == wheel exactly: 200 mm/s * 2 / 60 mm = 6.666 rad/s -> 6666 mrad/s fits.
+    config.maxAngularMilliradiansPerSecond = 6'666;
+    for (const std::uint8_t percent : {std::uint8_t{1}, std::uint8_t{100}}) {
+        config.maxDriveOutputPercent = percent;
+        const auto validated = ValidatedRobotConfig::validated(config);
+        ASSERT_TRUE(validated) << toString(validate(config));
+        EXPECT_EQ(drive::validate(driveProfileFor(*validated)), drive::DriveProfileError::None) << int{percent};
+    }
+}

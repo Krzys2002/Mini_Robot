@@ -5,7 +5,8 @@ Status: implemented by [#159](https://github.com/Krzys2002/Mini_Robot/issues/159
 [production runtime](firmware-runtime.md) (#158). This page covers the persistent
 `RobotId`, the validated configuration record, the USB maintenance path, and how robot
 identities relate to the desktop's AprilTag association. Nothing here establishes physical
-motion, stopping or calibration. The drive adapter stays inhibited until #160, and BLE
+motion, stopping or calibration. The [bounded drive](firmware-drive.md) (#160) uses the
+calibrated actuator fields below, and BLE
 publication of Robot Info and advertising is #161/#163.
 
 ## What a robot stores
@@ -31,16 +32,19 @@ no built-in fallback configuration and an unset value can never arm the outputs.
 The ranges come only from the [v1 protocol](../protocol/robot-protocol.md#robot-info-record)
 and the [timing budgets](../protocol/timing-budgets.md). The firmware does not invent physical
 limits. The calibrated values themselves (geometry, polarity, the output bound, and the wheel
-speed reached at that bound) are measured and entered per robot. Until #160/#167 and the
+speed reached at that bound) are measured and entered per robot. Until #167 and the
 powered gate [#238](https://github.com/Krzys2002/Mini_Robot/issues/238) supply measurements,
-any value entered is provisional and the drive stays inhibited.
+any value entered is provisional. Since #160 a provisioned robot wakes its H-bridges
+and drives within these values, so a provisioned board must not get motor power until
+#238 has approved the supply and output bound.
 
 Advertised limits are consistent with enforcement by construction:
 
 - The runtime's validity ceiling is taken from `maxCommandValidityMs`. Robot Info therefore
   never advertises a longer window than the watchdog applies.
 - `maxLinear` and `maxAngular` must be reachable within the provisioned wheel speed.
-  Combined-motion saturation remains the drive adapter's job (#160).
+  Combined-motion saturation is the drive's job: it scales both wheels together
+  ([bounded drive](firmware-drive.md#conversion-pipeline)).
 
 The validated view (`ValidatedRobotConfig`) returns SI values: metres, metres per second,
 radians per second and `std::chrono` durations. Integer wire and storage units stay in the

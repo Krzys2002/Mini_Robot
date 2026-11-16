@@ -3,6 +3,7 @@
 // adapters live in src/ and are the only code allowed to call Arduino, ESP-IDF,
 // FreeRTOS, CodeCell/DriveCell or radio APIs. Host tests substitute fakes.
 #include "FirmwareClock.hpp"
+#include "drive/DriveProfile.hpp"
 #include "runtime/RuntimeConfig.hpp"
 #include "runtime/RuntimeTypes.hpp"
 #include <cstddef>
@@ -10,18 +11,34 @@
 
 namespace codecell::runtime {
 
-// Drive outputs. Only ActuatorGate holds this reference, and it calls both functions
-// inside its critical section, so implementations must be short non-blocking writes:
-// no allocation, lock, wait, logging or radio call. #160 owns the CodeCell drive HAL,
-// the body-to-wheel conversion, wheel limits and ramps behind this boundary.
+// Progress of one normal stop-ramp step (#160, #156 B6).
+enum class StopRampStep : std::uint8_t {
+    Ramping,  // The commanded output moved toward zero and is not zero yet.
+    AtRest,   // The commanded output is zero on every wheel.
+    Refused,  // The write failed; the runtime faults and disables.
+};
+
+// Drive outputs. Only ActuatorGate holds this reference, and apart from configure() it
+// calls every function inside its critical section, so implementations must be short
+// non-blocking writes: no allocation, lock, wait, logging or radio call. The bounded
+// CodeCell implementation (#160) is drive::BoundedDriveOutput: body-to-wheel conversion,
+// saturation, rate and reversal limits and the actuator map live behind this boundary.
 class IDriveOutput {
 public:
     virtual ~IDriveOutput() = default;
-    // Switch the drive outputs off immediately (no ramp). Idempotent. False means the
-    // adapter could not confirm the disable; the runtime then reports a fault.
+    // Applies the validated drive profile once during start-up, before any task runs and
+    // before the runtime is ready. False means the adapter refused it; the runtime faults.
+    [[nodiscard]] virtual bool configure(const drive::DriveProfile& profile,
+                                         std::chrono::milliseconds controlPeriod) noexcept = 0;
+    // Switch the drive outputs off immediately (no ramp) and forget any ramp state.
+    // Idempotent. False means the adapter could not confirm the disable; the runtime then
+    // reports a fault. E-stop, faults, maintenance and boot use only this path.
     [[nodiscard]] virtual bool disable() noexcept = 0;
-    // Enable and drive at the given body velocity. False means the write was refused.
-    [[nodiscard]] virtual bool command(const BodyVelocity& velocity) noexcept = 0;
+    // One bounded, rate-limited step toward the given body velocity at `now`. False means
+    // the write was refused.
+    [[nodiscard]] virtual bool command(const BodyVelocity& velocity, Instant now) noexcept = 0;
+    // One step of the normal stop ramp toward zero at `now` (Stop, expiry, session end).
+    [[nodiscard]] virtual StopRampStep rampToStop(Instant now) noexcept = 0;
 };
 
 // Optional local inertial measurement (for example the CodeCell IMU). It is read by the

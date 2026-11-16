@@ -2,9 +2,12 @@
 // Runtime scheduling configuration (#158). Defaults come from the #156 budget table in
 // TimingBudget.hpp; validation rejects any value that would break those bounds. A
 // configuration that fails validation never starts a task and never arms the drive.
-// Persistent provisioning (#159) supplies commandValidityCeiling from the validated
-// record (provisioning/ProvisionedConfiguration.hpp); the other values stay budget defaults.
+// Persistent provisioning (#159) supplies commandValidityCeiling and the drive profile
+// (#160) from the validated record (provisioning/ProvisionedConfiguration.hpp); the other
+// values stay budget defaults. The default drive profile is invalid on purpose, so a
+// default RuntimeConfig schedules correctly but can never arm the outputs.
 #include "TimingBudget.hpp"
+#include "drive/DriveProfile.hpp"
 #include <cstddef>
 #include <cstdint>
 
@@ -25,6 +28,7 @@ struct RuntimeConfig {
     std::chrono::milliseconds commandValidityCeiling{timing::kCommandValidityCeiling};
     TaskConfig safetyTask{timing::kSafetyPriority, kDefaultTaskStackBytes};
     TaskConfig controlTask{timing::kControlPriority, kDefaultTaskStackBytes};
+    drive::DriveProfile driveProfile{};  // Geometry, actuator map, output bound and body limits (#160).
 };
 
 enum class ConfigError : std::uint8_t {
@@ -36,9 +40,11 @@ enum class ConfigError : std::uint8_t {
     ValidityCeilingOutOfRange,  // Must be within [1 ms, budget ceiling].
     PriorityOrderViolated,      // B18: BLE controller > safety > nimble_host > control > log drain.
     StackSizeZero,
+    DriveProfileInvalid,        // drive::validate() rejected the profile (#160).
 };
 
-[[nodiscard]] constexpr ConfigError validate(const RuntimeConfig& config) noexcept
+// The scheduling rules alone (#158): periods, stall limit, ceiling, priorities, stacks.
+[[nodiscard]] constexpr ConfigError validateScheduling(const RuntimeConfig& config) noexcept
 {
     using std::chrono::milliseconds;
     for (const auto period : {config.safetyCheckPeriod, config.controlPeriod}) {
@@ -61,5 +67,15 @@ enum class ConfigError : std::uint8_t {
     return ConfigError::None;
 }
 
-static_assert(validate(RuntimeConfig{}) == ConfigError::None, "the budget defaults must be a valid configuration");
+// Everything the runtime needs before it may become ready.
+[[nodiscard]] constexpr ConfigError validate(const RuntimeConfig& config) noexcept
+{
+    if (const auto error = validateScheduling(config); error != ConfigError::None) return error;
+    if (drive::validate(config.driveProfile) != drive::DriveProfileError::None) return ConfigError::DriveProfileInvalid;
+    return ConfigError::None;
+}
+
+static_assert(validateScheduling(RuntimeConfig{}) == ConfigError::None, "the budget defaults must schedule correctly");
+static_assert(validate(RuntimeConfig{}) == ConfigError::DriveProfileInvalid,
+              "no drive profile is invented: a default configuration cannot arm the outputs");
 } // namespace codecell::runtime
