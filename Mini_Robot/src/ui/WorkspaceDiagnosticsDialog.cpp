@@ -200,15 +200,15 @@ int WorkspaceSurveyModel::rowCount(const QModelIndex& p) const
 {
     return p.isValid() || !acquisition_ ? 0 : static_cast<int>(acquisition_->references.size());
 }
-int WorkspaceSurveyModel::columnCount(const QModelIndex& p) const { return p.isValid() ? 0 : 7; }
+int WorkspaceSurveyModel::columnCount(const QModelIndex& p) const { return p.isValid() ? 0 : ColumnCount; }
 QVariant WorkspaceSurveyModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (role != Qt::DisplayRole)
         return {};
     if (orientation == Qt::Vertical)
         return section + 1;
-    const QStringList labels{"Surveyed Check",         "ID / role",  "World X (m)", "World Y (m)",
-                             "Absolute residual (mm)", "% diagonal", "Source"};
+    const QStringList labels{"Surveyed Check", "ID / role", "World X (m)", "World Y (m)",
+        "Radial (mm)", "X error (mm)", "Y error (mm)", "X vs ±5 mm", "Y vs ±5 mm", "% diagonal", "Source"};
     return section >= 0 && section < labels.size() ? QVariant{labels[section]} : QVariant{};
 }
 QVariant WorkspaceSurveyModel::data(const QModelIndex& index, int role) const
@@ -219,10 +219,21 @@ QVariant WorkspaceSurveyModel::data(const QModelIndex& index, int role) const
     const auto& r = acquisition_->references[static_cast<std::size_t>(index.row())];
     if (role == Qt::CheckStateRole && index.column() == 0 && r.check)
         return selected_.contains(r.id) ? Qt::Checked : Qt::Unchecked;
-    if (role == Qt::ToolTipRole)
-        return "Select only held-out references whose stored world coordinates were independently surveyed. "
-               "Shared board spacing, anchors or orientation alone are correlated evidence. Selection does "
-               "not alter calibration or certify independence.";
+    const auto mapped=acquisition_->profile.homography
+        ? projectWorkspacePoint(*acquisition_->profile.homography,r.point.image) : std::nullopt;
+    const double dx=mapped ? mapped->x.value-r.point.world.x.value : 0;
+    const double dy=mapped ? mapped->y.value-r.point.world.y.value : 0;
+    const auto target=[](double value) {
+        return std::abs(value)<=WorkspaceObservedAxisToleranceMeters ? QStringLiteral("within") : QStringLiteral("exceeds");
+    };
+    if (role == Qt::ToolTipRole) {
+        QString residual=mapped ? QStringLiteral("Observed residuals only\nX: %1 mm (%2 ±5 mm)\nY: %3 mm (%4 ±5 mm)\nRadial: %5 mm\n")
+            .arg(1000*dx,0,'g',17).arg(target(dx)).arg(1000*dy,0,'g',17).arg(target(dy))
+            .arg(1000*std::hypot(dx,dy),0,'g',17) : QStringLiteral("Residuals unavailable.\n");
+        return residual+"Select only held-out references whose stored world coordinates were independently surveyed. "
+            "Shared board measurements can have correlated errors. Observed tolerance comparisons do not certify "
+            "physical accuracy or interpolated/model estimates.";
+    }
     if (role != Qt::DisplayRole)
         return {};
     switch (index.column()) {
@@ -234,26 +245,14 @@ QVariant WorkspaceSurveyModel::data(const QModelIndex& index, int role) const
         return r.point.world.x.value;
     case 3:
         return r.point.world.y.value;
-    case 4: {
-        if (!acquisition_->profile.homography)
-            return {};
-        auto p = projectWorkspacePoint(*acquisition_->profile.homography, r.point.image);
-        if (!p) return {};
-        const double dx = p->x.value-r.point.world.x.value, dy = p->y.value-r.point.world.y.value;
-        return QStringLiteral("radial %1 mm; X %2 mm (%3); Y %4 mm (%5) · observed only")
-            .arg(1000*std::hypot(dx,dy)).arg(1000*dx)
-            .arg(std::abs(dx)<=WorkspaceObservedAxisToleranceMeters ? "within ±5 mm" : "exceeds ±5 mm")
-            .arg(1000*dy).arg(std::abs(dy)<=WorkspaceObservedAxisToleranceMeters ? "within ±5 mm" : "exceeds ±5 mm");
-    }
-    case 5: {
-        if (!acquisition_->profile.homography)
-            return {};
-        const auto p = projectWorkspacePoint(*acquisition_->profile.homography, r.point.image);
-        if (!p)
-            return {};
-        const auto relative = workspaceRelativeErrorPercent(
-            std::hypot(p->x.value - r.point.world.x.value, p->y.value - r.point.world.y.value),
-            acquisition_->profile.bounds);
+    case RadialError: return mapped ? QVariant{QString::number(1000*std::hypot(dx,dy),'g',8)} : QVariant{};
+    case XError: return mapped ? QVariant{QString::number(1000*dx,'g',8)} : QVariant{};
+    case YError: return mapped ? QVariant{QString::number(1000*dy,'g',8)} : QVariant{};
+    case XTarget: return mapped ? QVariant{target(dx)} : QVariant{QStringLiteral("unavailable")};
+    case YTarget: return mapped ? QVariant{target(dy)} : QVariant{QStringLiteral("unavailable")};
+    case RelativeError: {
+        if (!mapped) return {};
+        const auto relative=workspaceRelativeErrorPercent(std::hypot(dx,dy),acquisition_->profile.bounds);
         return relative ? QVariant{*relative} : QVariant{QStringLiteral("unavailable")};
     }
     default:
@@ -323,7 +322,10 @@ WorkspaceDiagnosticsDialog::WorkspaceDiagnosticsDialog(WorkspaceDiagnosticsContr
     table->setObjectName("surveyReferences");
     survey_ = new WorkspaceSurveyModel(table);
     table->setModel(survey_);
-    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setWordWrap(false);
+    table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     table->setMinimumHeight(110);
     table->setMaximumHeight(170);
     layout->addWidget(table);

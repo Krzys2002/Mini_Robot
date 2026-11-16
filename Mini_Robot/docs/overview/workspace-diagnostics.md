@@ -202,3 +202,9 @@ and new height/extrinsic, mounting/heading, survey and temporal evidence.
 Plane/mount transforms belong to #270, reference/survey identity to #271 and timing
 to #272. These diagnostics are supporting work, not prerequisites for those issues.
 Physical model acceptance (#265) remains NOT RUN; body localization remains #224/#63.
+
+The survey table presents radial error, signed X error, signed Y error, and the
+two observed ±5 mm comparisons in separate columns. Columns size to their content
+and remain horizontally scrollable; complete high-precision residual values and
+comparison semantics are available in every row tooltip. These are observed
+reference comparisons, not certification of unsupported/interpolated/model cells.

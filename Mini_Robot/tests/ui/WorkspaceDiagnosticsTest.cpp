@@ -14,6 +14,8 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QTableView>
+#include <QHeaderView>
+#include <QFontMetrics>
 #include <QTemporaryDir>
 #include <QTest>
 #include <atomic>
@@ -154,10 +156,10 @@ TEST(WorkspaceDiagnosticsUiTest, EvidenceControlsAreExplicitAndResetOnCalibratio
     EXPECT_TRUE(dialog.findChild<QLabel*>("mapIdentity")->text().contains("Calibration revision SHA-256"));
     auto* model = table->model();
     EXPECT_EQ(model->rowCount(), 13);
-    const auto residual=model->data(model->index(4,4)).toString();
-    EXPECT_TRUE(residual.contains("X "));
-    EXPECT_TRUE(residual.contains("Y "));
-    EXPECT_TRUE(residual.contains("observed only"));
+    const auto residual=model->data(model->index(4,WorkspaceSurveyModel::XError),Qt::ToolTipRole).toString();
+    EXPECT_TRUE(residual.contains("X:"));
+    EXPECT_TRUE(residual.contains("Y:"));
+    EXPECT_TRUE(residual.contains("Observed residuals only"));
     EXPECT_TRUE(residual.contains("±5 mm"));
     EXPECT_FALSE(model->setData(model->index(0, 0), Qt::Checked, Qt::CheckStateRole));
     for (int row = 4; row < 13; ++row)
@@ -226,3 +228,34 @@ TEST(WorkspaceDiagnosticsUiTest, WorkerExceptionsAndOversizedRequestsRemainRecov
     EXPECT_FALSE(c.profile());
 }
 } // namespace
+
+TEST(WorkspaceDiagnosticsUiTest, SignedAxisResidualsAndNearToleranceTargetsAreReadableAtActualTableSize)
+{
+    auto a=diagnosticsAcquisition(0.001);
+    const std::array<std::array<double,2>,4> errors{{{0.004999,-0.005001},{-0.004999,0.005001},{0.005001,-0.004999},{-0.005001,0.004999}}};
+    for (std::size_t i=0;i<errors.size();++i) {
+        auto& ref=a->references[4+i];
+        const auto mapped=projectWorkspacePoint(*a->profile.homography,ref.point.image); ASSERT_TRUE(mapped);
+        ref.point.world={Meters{mapped->x.value-errors[i][0]},Meters{mapped->y.value-errors[i][1]}};
+    }
+    WorkspaceDiagnosticsController c; c.setCalibration(a->profile,a);
+    ASSERT_TRUE(until([&]{return !c.busy();})); WorkspaceDiagnosticsDialog dialog(c); dialog.resize(1000,800); dialog.show();
+    QApplication::processEvents(); auto* table=dialog.findChild<QTableView*>("surveyReferences"); ASSERT_NE(table,nullptr);
+    auto* model=table->model(); ASSERT_EQ(model->columnCount(),WorkspaceSurveyModel::ColumnCount);
+    for (std::size_t i=0;i<errors.size();++i) {
+        const int row=static_cast<int>(4+i);
+        EXPECT_NEAR(model->index(row,WorkspaceSurveyModel::XError).data().toDouble(),errors[i][0]*1000,1e-10);
+        EXPECT_NEAR(model->index(row,WorkspaceSurveyModel::YError).data().toDouble(),errors[i][1]*1000,1e-10);
+        EXPECT_EQ(model->index(row,WorkspaceSurveyModel::XTarget).data().toString(),std::abs(errors[i][0])<0.005 ? "within" : "exceeds");
+        EXPECT_EQ(model->index(row,WorkspaceSurveyModel::YTarget).data().toString(),std::abs(errors[i][1])<0.005 ? "within" : "exceeds");
+        const auto tip=model->index(row,WorkspaceSurveyModel::XError).data(Qt::ToolTipRole).toString();
+        EXPECT_TRUE(tip.contains("X:")); EXPECT_TRUE(tip.contains("Y:")); EXPECT_TRUE(tip.contains("Radial:")); EXPECT_TRUE(tip.contains("±5 mm"));
+        for (int col:{WorkspaceSurveyModel::XError,WorkspaceSurveyModel::YError,WorkspaceSurveyModel::XTarget,WorkspaceSurveyModel::YTarget}) {
+            const auto index=model->index(row,col); table->scrollTo(index,QAbstractItemView::EnsureVisible); QApplication::processEvents();
+            EXPECT_GE(table->columnWidth(col)-8,QFontMetrics(table->font()).horizontalAdvance(index.data().toString()));
+            EXPECT_TRUE(table->viewport()->rect().contains(table->visualRect(index)));
+        }
+    }
+    const auto screenshot=qEnvironmentVariable("MICRO_ROBOT_AXIS_RESIDUAL_SCREENSHOT");
+    if (!screenshot.isEmpty()) EXPECT_TRUE(dialog.grab().save(screenshot));
+}
