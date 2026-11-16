@@ -123,22 +123,26 @@ and its write (`StopLikeEventBetweenSnapshotCopyAndWriteAlwaysWins`).
 
 `FirmwareRuntime::start()` runs once from `setup()`:
 
-1. Disable the drive.
-2. Load the provisioned record (#159) and validate the resulting runtime configuration
+1. Register the pre-restart shutdown hook with the platform (`IPlatform::registerShutdownHook`;
+   production: an ESP-IDF shutdown handler run by `esp_restart()`). From here on a deliberate
+   restart powers the drive down first, even if a later step fails.
+2. Disable the drive. Then, if step 1 failed, fail start-up (`ShutdownHookUnavailable`, #281
+   review): the image would otherwise become motion-ready without that guarantee.
+3. Load the provisioned record (#159) and validate the resulting runtime configuration
    against the budget and the drive profile rules (`RuntimeConfig.hpp`). The record's
    `maxCommandValidityMs` becomes the validity ceiling and its actuator data the drive
    profile; the other values are the budget defaults.
-3. Configure the drive with the profile; only then are the bridges woken (#160).
-4. Create the handoff critical section.
-5. Start the safety supervisor (subscribed to the 50 ms task watchdog, #162), then the
+4. Configure the drive with the profile; only then are the bridges woken (#160).
+5. Create the handoff critical section.
+6. Start the safety supervisor (subscribed to the 50 ms task watchdog, #162), then the
    control task.
-6. Mark ready.
+7. Mark ready.
 
-Commands before step 6 are rejected with `RejectedNotReady`. If any step fails, the
+Commands before step 7 are rejected with `RejectedNotReady`. If any step fails, the
 runtime enters `Fault` with the drive disabled, records the first `FaultCode`
-(`DriveDisableFailed`, `ConfigurationUnavailable`, `ConfigurationInvalid`,
-`DriveConfigurationRejected`, `SynchronizationUnavailable`, `SupervisorTaskStartFailed`,
-`ControlTaskStartFailed`),
+(`DriveDisableFailed`, `ShutdownHookUnavailable`, `ConfigurationUnavailable`,
+`ConfigurationInvalid`, `DriveConfigurationRejected`, `SynchronizationUnavailable`,
+`SupervisorTaskStartFailed`, `ControlTaskStartFailed`),
 and never attempts normal motion. Later commands are rejected with `RejectedFault`,
 and a supervisor that already runs keeps the outputs off. A configuration error also
 keeps its `ConfigError`. Calling `start()` again returns the first result. Faults
@@ -156,8 +160,9 @@ At run time a refused drive write (`DriveWriteFailed`), a failed disable
 (`DriveDisableFailed`), a control task that stops updating while the drive is on or
 while the runtime is ready (`ControlStalled`, B7) or a stop ramp that is not at zero
 within 120 ms of its decision (`StopRampOverrun`, B6) also enter `Fault`.
-`shutdown()`, run by `esp_restart()` through an ESP-IDF shutdown handler, ends motion
-and the session and powers the drive down before a deliberate restart.
+`shutdown()`, run by `esp_restart()` through the shutdown hook registered in step 1,
+ends motion and the session and powers the drive down before a deliberate restart. The
+boot line reports `shutdown_handler=registered` or `failed`.
 
 ## Scheduling model and handoffs (#156)
 

@@ -172,6 +172,14 @@ public:
     }
     int watchdogReleases{0};
     void releaseTaskWatchdog() noexcept override { ++watchdogReleases; }
+    bool failShutdownHook{false};
+    IShutdownHook* shutdownHook{nullptr};
+    bool registerShutdownHook(IShutdownHook& hook) noexcept override
+    {
+        if (failShutdownHook) return false;
+        shutdownHook = &hook;
+        return true;
+    }
     [[nodiscard]] IPeriodicStep* task(const char* name) const
     {
         for (const auto& t : tasks)

@@ -515,6 +515,22 @@ TEST(SafetyFaultTest, ShutdownEndsMotionAndTheSessionAndPowersDownInsideTheCall)
     EXPECT_FALSE(rig.drive.enabled);
 }
 
+// The hook the platform runs inside esp_restart() is the runtime's shutdown.
+TEST(SafetyFaultTest, RegisteredRestartHookShutsDownADrivingRuntime)
+{
+    Rig rig;
+    ASSERT_NE(rig.platform.shutdownHook, nullptr);
+    const auto session = rig.commands().openSession();
+    ASSERT_EQ(rig.velocity(session, kForward, timing::kCommandValidityCeiling), CommandOutcome::Accepted);
+    rig.run(20ms);
+    ASSERT_TRUE(rig.drive.enabled);
+    rig.platform.shutdownHook->beforeRestart();
+    EXPECT_FALSE(rig.drive.enabled);
+    EXPECT_TRUE(rig.drive.poweredDown);
+    EXPECT_FALSE(rig.status().ready);
+    EXPECT_EQ(rig.velocity(session), CommandOutcome::RejectedNotReady);
+}
+
 // A reset (any cause: task watchdog, brownout, panic, power cycle) is a new boot with fresh
 // RAM. It returns to zero output and never restores the previous intent, session or latch.
 TEST(SafetyFaultTest, ResetReturnsToZeroOutputIdleAndRestoresNothing)

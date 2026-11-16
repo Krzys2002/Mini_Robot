@@ -110,6 +110,19 @@ public:
         return true;
     }
 
+    // One hook per image; esp_register_shutdown_handler() is checked, never assumed.
+    bool registerShutdownHook(runtime::IShutdownHook& hook) noexcept override
+    {
+        runtime::IShutdownHook* expected = nullptr;
+        if (!shutdownHook_.compare_exchange_strong(expected, &hook, std::memory_order_acq_rel))
+            return expected == &hook;
+        if (esp_register_shutdown_handler(&FreeRtosPlatform::runShutdownHook) != ESP_OK) {
+            shutdownHook_.store(nullptr, std::memory_order_release);
+            return false;
+        }
+        return true;
+    }
+
     // Each watched task unsubscribes itself on its next step (no feed can race the removal);
     // this waits for that, at most one watchdog timeout, polling once per tick.
     void releaseTaskWatchdog() noexcept override
@@ -122,6 +135,13 @@ public:
     }
 
 private:
+    // Runs inside esp_restart(), in the caller's task.
+    static void runShutdownHook()
+    {
+        if (auto* hook = shutdownHook_.load(std::memory_order_acquire)) hook->beforeRestart();
+    }
+    inline static std::atomic<runtime::IShutdownHook*> shutdownHook_{nullptr};
+
     struct Task {
         runtime::IPeriodicStep* body{nullptr};
         TickType_t periodTicks{0};

@@ -107,6 +107,13 @@ struct TaskSpec {
     bool watchdog{false};
 };
 
+// Work that must run inside every deliberate restart, before the chip resets (#162).
+class IShutdownHook {
+public:
+    virtual ~IShutdownHook() = default;
+    virtual void beforeRestart() noexcept = 0;
+};
+
 // Scheduler/RTOS boundary. Every creation is checked: a failure is returned, never
 // ignored or retried silently, and the runtime then stays in Fault with the drive off.
 class IPlatform {
@@ -124,6 +131,11 @@ public:
     // so that flash writes, which stall the whole single-core chip, cannot trigger a reset
     // in the middle of provisioning. Idempotent.
     virtual void releaseTaskWatchdog() noexcept = 0;
+    // Registers `hook` to run inside every deliberate restart (production: an ESP-IDF
+    // shutdown handler, run by esp_restart()) before the reset. `hook` must outlive the
+    // program. False if it cannot be registered: the runtime then faults and never becomes
+    // ready, because its deliberate-restart guarantee would be missing.
+    [[nodiscard]] virtual bool registerShutdownHook(IShutdownHook& hook) noexcept = 0;
 };
 
 // Configuration source: the validated provisioned record (#159). nullopt means no usable

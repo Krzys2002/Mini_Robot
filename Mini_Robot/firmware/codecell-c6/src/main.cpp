@@ -69,11 +69,6 @@ provisioning::MaintenanceConsole console{configStore, maintenanceTarget, mainten
 
 runtime::StartResult startResult{runtime::StartResult::Faulted};
 const char* resetReason{"unknown"};
-bool shutdownHandlerRegistered{false};
-
-// Runs inside esp_restart() (maintenance restart or any other deliberate restart), in the
-// caller's task: ends motion and the session and powers the drive down before the reset.
-void shutdownRuntime() { firmwareRuntime.shutdown(); }
 std::chrono::milliseconds lastReport{};
 runtime::RuntimeStatus lastStatus{};
 bool reported{false};
@@ -138,12 +133,11 @@ extern "C" void IRAM_ATTR esp_task_wdt_isr_user_handler(void) { esp::CodeCellMot
 void setup()
 {
     resetReason = esp::resetReasonName(esp_reset_reason());
-    // Registered before anything can move: from here on a deliberate restart shuts down first.
-    shutdownHandlerRegistered = esp_register_shutdown_handler(&shutdownRuntime) == ESP_OK;
-    // Bridge inputs are attached low first (bridges still asleep); the runtime then disables
-    // the drive before loading the configuration and wakes the bridges only with a valid
-    // profile. A failed attach makes the boot disable fail, so the runtime faults. Serial
-    // comes after.
+    // Bridge inputs are attached low first (bridges still asleep); the runtime then registers
+    // the pre-restart shutdown hook (a checked start step: without it the runtime faults and
+    // never becomes ready), disables the drive, loads the configuration and wakes the
+    // bridges only with a valid profile. A failed attach makes the boot disable fail, so the
+    // runtime faults. Serial comes after.
     motorsAttached = motors.begin();
     startResult = firmwareRuntime.start();
     Serial.begin(kSerialBaudRate);
@@ -151,7 +145,7 @@ void setup()
                    "bounded drive from the provisioned profile, powered checks blocked (#238); "
                    "type help for maintenance");
     Serial.printf("BOOT reset_reason=%s shutdown_handler=%s\n", resetReason,
-                  shutdownHandlerRegistered ? "registered" : "failed");
+                  firmwareRuntime.shutdownHookRegistered() ? "registered" : "failed");
     if (!motorsAttached) Serial.println("DRIVE attach=failed");
     const auto& boot = configuration.bootState();
     Serial.printf("PROVISIONING state=%s reason=%s generation=%lu pending=%s\n", provisioning::toString(boot.state),

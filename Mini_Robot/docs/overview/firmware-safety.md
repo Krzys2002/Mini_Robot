@@ -138,7 +138,7 @@ desktop still has to discard its own queue (v1 session rules).
 
 | Failure | Detection | Fault code |
 | --- | --- | --- |
-| Start-up step | `start()` checks each step | `DriveDisableFailed`, `ConfigurationUnavailable`, `ConfigurationInvalid`, `DriveConfigurationRejected`, `SynchronizationUnavailable`, `SupervisorTaskStartFailed`, `ControlTaskStartFailed` |
+| Start-up step | `start()` checks each step | `DriveDisableFailed`, `ShutdownHookUnavailable`, `ConfigurationUnavailable`, `ConfigurationInvalid`, `DriveConfigurationRejected`, `SynchronizationUnavailable`, `SupervisorTaskStartFailed`, `ControlTaskStartFailed` |
 | Control task stalled while driving (B7), or while ready at rest | Supervisor heartbeat: no control update for 30 ms | `ControlStalled` |
 | Stop ramp not at zero 120 ms after the decision (B6) | Supervisor | `StopRampOverrun` |
 | Drive refused a permitted write or a ramp step | Gate | `DriveWriteFailed` |
@@ -190,9 +190,13 @@ desktop still has to discard its own queue (v1 session rules).
   wakes the bridges. Every boot starts `Idle` with no session, no setpoint, no latch and
   `commandExpired` clear (`ResetReturnsToZeroOutputIdleAndRestoresNothing`). A token
   from before the reset is not a session of the new boot.
-- **Deliberate restart.** `main.cpp` registers `FirmwareRuntime::shutdown()` as an
-  ESP-IDF shutdown handler, so `esp_restart()` (for example the maintenance `restart`)
-  first ends motion and the session and disables and powers down the drive.
+- **Deliberate restart.** `start()` registers `FirmwareRuntime::shutdown()` through the
+  platform, as an ESP-IDF shutdown handler, as its first step: before the boot disable and
+  before the bridges can wake. `esp_restart()` (for example the maintenance `restart`) therefore first
+  ends motion and the session and disables and powers down the drive. Registration is a
+  checked start-up step: if it fails, the runtime faults with `ShutdownHookUnavailable`,
+  the bridges are never woken and the robot never becomes ready
+  (`FailedShutdownHookRegistrationStopsStartupBeforeTheDriveIsConfigured`).
 - **Reset reason.** The boot line (`BOOT reset_reason=…`) and every status line
   (`reset=…`) report `esp_reset_reason()`, for example `power_on`, `task_watchdog`,
   `brownout` or `panic`. It is diagnostic only: no reason restores or refuses anything.
@@ -240,7 +244,9 @@ Each of these must measure outputs, not status flags.
 
 Bench check, 2026-11-15 (USB only, battery and motors disconnected, one CodeCell C6 Drive;
 production image SHA-256 `c1558a83…`). This shows serial status and reset behaviour only;
-no pin was measured.
+no pin was measured. It is the image **before** the #281 review fix, in which `main.cpp`
+registered the shutdown handler itself and a failure was only printed. The checked
+registration inside `start()` is host-tested and cross-compiled only, not run on the board.
 
 1. A full 8 MB flash backup was taken.
 2. **Unprovisioned boot:** `BOOT reset_reason=usb shutdown_handler=registered`, then

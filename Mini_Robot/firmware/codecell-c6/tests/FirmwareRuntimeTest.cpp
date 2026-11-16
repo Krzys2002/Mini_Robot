@@ -150,6 +150,8 @@ INSTANTIATE_TEST_SUITE_P(
     InjectedInitialization, StartupFailureTest,
     testing::Values(
         InjectedFailure{"DriveDisable", [](Rig& r) { r.drive.failDisable = true; }, FaultCode::DriveDisableFailed, 0},
+        InjectedFailure{"ShutdownHookRegistration", [](Rig& r) { r.platform.failShutdownHook = true; },
+                        FaultCode::ShutdownHookUnavailable, 0},
         InjectedFailure{"ConfigMissing", [](Rig& r) { r.configuration.value.reset(); },
                         FaultCode::ConfigurationUnavailable, 0},
         InjectedFailure{"ConfigInvalid",
@@ -162,6 +164,48 @@ INSTANTIATE_TEST_SUITE_P(
         InjectedFailure{"ControlTask", [](Rig& r) { r.platform.failTaskNamed = kControlTaskName; },
                         FaultCode::ControlTaskStartFailed, 1}),
     [](const testing::TestParamInfo<InjectedFailure>& info) { return std::string{info.param.name}; });
+
+// Review finding (#281): a failed shutdown-hook registration was only printed, and the image
+// still became motion-ready without its deliberate-restart protection.
+TEST(FirmwareRuntimeTest, FailedShutdownHookRegistrationStopsStartupBeforeTheDriveIsConfigured)
+{
+    Rig rig;
+    rig.platform.failShutdownHook = true;
+    ASSERT_EQ(rig.rt().start(), StartResult::Faulted);
+    EXPECT_FALSE(rig.rt().shutdownHookRegistered());
+    EXPECT_EQ(rig.rt().status().fault, FaultCode::ShutdownHookUnavailable);
+    EXPECT_FALSE(rig.drive.configured) << "the bridges are never woken";
+    EXPECT_FALSE(rig.rt().config().has_value());
+    EXPECT_TRUE(rig.platform.tasks.empty());
+    EXPECT_FALSE(rig.drive.enabled);
+    EXPECT_TRUE(rig.drive.poweredDown) << "the fault powers the drive down";
+    EXPECT_EQ(rig.velocity(kForward), CommandOutcome::RejectedFault);
+    EXPECT_EQ(rig.clear(), CommandOutcome::RejectedFault);
+    EXPECT_FALSE(everCommandedNonzero(rig.drive));
+}
+
+TEST(FirmwareRuntimeTest, ShutdownHookIsRegisteredBeforeAnyOtherStartupStep)
+{
+    // Every later step can fail and the hook is already in place, including a boot disable
+    // that could not be confirmed, where the drive state is least certain.
+    for (const bool failDisable : {true, false}) {
+        Rig rig;
+        rig.drive.failDisable = failDisable;
+        rig.drive.failConfigure = !failDisable;
+        ASSERT_EQ(rig.rt().start(), StartResult::Faulted);
+        EXPECT_EQ(rig.rt().status().fault,
+                  failDisable ? FaultCode::DriveDisableFailed : FaultCode::DriveConfigurationRejected);
+        EXPECT_TRUE(rig.rt().shutdownHookRegistered()) << failDisable;
+        ASSERT_NE(rig.platform.shutdownHook, nullptr) << failDisable;
+        rig.platform.shutdownHook->beforeRestart();
+        EXPECT_TRUE(rig.drive.poweredDown) << failDisable;
+    }
+
+    Rig ok;
+    ASSERT_EQ(ok.rt().start(), StartResult::Running);
+    EXPECT_TRUE(ok.rt().shutdownHookRegistered());
+    ASSERT_NE(ok.platform.shutdownHook, nullptr);
+}
 
 TEST(FirmwareRuntimeTest, InvalidConfigurationReportsWhichRuleFailed)
 {
