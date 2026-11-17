@@ -189,7 +189,8 @@ micro_robot_target_defaults(micro_robot_robot_manager)
 micro_robot_platform_boundary(micro_robot_robot_manager)
 
 add_library(micro_robot_control_loop STATIC control/IController.hpp
-    control/ControlLoop.hpp control/ControlLoop.cpp)
+    control/ControlLoop.hpp control/ControlLoop.cpp
+    control/GoalPointController.hpp control/GoalPointController.cpp)
 target_link_libraries(micro_robot_control_loop PUBLIC micro_robot_robot_manager)
 micro_robot_target_defaults(micro_robot_control_loop)
 micro_robot_platform_boundary(micro_robot_control_loop)
