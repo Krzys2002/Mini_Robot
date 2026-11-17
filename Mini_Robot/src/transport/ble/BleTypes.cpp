@@ -1,4 +1,5 @@
 #include "transport/ble/BleTypes.hpp"
+#include "transport/ble/BleWire.hpp"
 
 #include <charconv>
 
@@ -18,25 +19,27 @@ std::string validateBleGattLayout(const std::array<BleCharacteristicCapabilities
 }
 std::optional<RobotId> advertisedBleRobotId(const std::string& name)
 {
-    if (!name.starts_with("MR-") || name.size() == 3) return {};
+    constexpr auto prefix = ble_wire::advertisedNamePrefix;
+    if (!name.starts_with(prefix) || name.size() == prefix.size()) return {};
     std::uint32_t id{};
-    const auto [end, error] = std::from_chars(name.data() + 3, name.data() + name.size(), id);
+    const auto [end, error] = std::from_chars(name.data() + prefix.size(), name.data() + name.size(), id);
     if (error != std::errc{} || end != name.data() + name.size()) return {};
     return RobotId{id};
 }
 BleInfoResult validateBleRobotInfo(std::span<const std::uint8_t> b, RobotId expected)
 {
-    if (b.size() != 18 || b[0] != 1 || b[1] > b[2] || b[1] > 1 || b[2] < 1)
+    using namespace ble_wire;
+    // The advertised version range must include the only version this desktop speaks.
+    if (b.size() != robotInfoLength || b[infoFormatOffset] != robotInfoFormat
+        || b[minimumVersionOffset] > b[maximumVersionOffset] || b[minimumVersionOffset] > version
+        || b[maximumVersionOffset] < version)
         return {{}, true, "Unsupported Robot Info length, format or protocol version range"};
-    const auto u16 = [&b](std::size_t i) {
-        return static_cast<std::uint16_t>(b[i] | (static_cast<std::uint16_t>(b[i + 1]) << 8));
-    };
-    const auto id = static_cast<std::uint32_t>(b[3]) | (static_cast<std::uint32_t>(b[4]) << 8)
-        | (static_cast<std::uint32_t>(b[5]) << 16) | (static_cast<std::uint32_t>(b[6]) << 24);
+    const auto id = read32(b, robotIdOffset);
     if (id != expected.value()) return {{}, false, "Robot Info identity differs from the requested RobotId"};
-    BleRobotInfo info{RobotId{id}, u16(10), u16(12), u16(14), u16(16)};
-    if (!info.maximumLinearMillimetersPerSecond || info.maximumLinearMillimetersPerSecond > 32767
-        || !info.maximumAngularMilliradiansPerSecond || info.maximumAngularMilliradiansPerSecond > 32767
+    BleRobotInfo info{RobotId{id}, read16(b, maximumLinearOffset), read16(b, maximumAngularOffset),
+        read16(b, maximumValidityOffset), read16(b, telemetryPeriodOffset)};
+    if (!info.maximumLinearMillimetersPerSecond || info.maximumLinearMillimetersPerSecond > maximumSigned
+        || !info.maximumAngularMilliradiansPerSecond || info.maximumAngularMilliradiansPerSecond > maximumSigned
         || !info.maximumValidityMilliseconds || !info.telemetryPeriodMilliseconds)
         return {{}, false, "Robot Info contains invalid actuator/watchdog/telemetry limits"};
     return {info, false, {}};

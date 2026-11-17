@@ -49,6 +49,8 @@ signals:
     void discoveryError(QString message);
     void phaseChanged(micro_robot::RobotId id, micro_robot::BlePhase phase);
 private:
+    // Truncation to whole milliseconds must not fire the velocity pacing timer early.
+    static constexpr std::chrono::milliseconds PumpTimerRoundUp{1};
     struct Session {
         std::uint64_t token{};
         ConnectionState state{ConnectionState::Disconnected};
