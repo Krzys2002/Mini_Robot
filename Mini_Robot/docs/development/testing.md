@@ -616,3 +616,5 @@ Run core and host presets. A focused host selection is `ctest --preset macos -R 
 ## PR #286 review regressions
 
 `WorkspaceDiagnosticsV4IntegrationTest.*` pairs v4 geometry with preserved v3 evidence and checks unchanged tabletop diagnostics/distance plus mismatched-frame rejection. `ElevatedLocalizationTest.TabletopCorrespondenceValidationAcceptsUnchangedV4DerivedGeometry` and `ElevatedLocalizationUiTest.VerifyLoadedV4PreservesBodyGeometryAndOriginalAcquisition` exercise domain and normal loaded-profile Verify paths without changing body geometry, active profiles or original evidence. These are software regressions; physical checks remain NOT RUN.
+
+`ReferenceMarkersTest.TabletopVerificationRetainsUnchangedV5RegistryAndBodyBindings` also covers the inherited Verify correction on an unchanged v5 profile, with full body/registry metadata retained and separately validated during Check evaluation.

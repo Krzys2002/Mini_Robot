@@ -218,6 +218,7 @@ std::string validateWorkspaceHomographyInput(const WorkspaceHomographyInput& inp
     // Validate tabletop correspondence metadata independently of the old estimate
     // and its derived extrinsics. Verification still validates the full active
     // profile in evaluateWorkspaceChecks; this copy must not break its bindings.
+    profile.references.reset();
     profile.localization.reset();
     profile.homography.reset();
     if (auto error = validateWorkspaceCalibrationProfile(profile); !error.empty())

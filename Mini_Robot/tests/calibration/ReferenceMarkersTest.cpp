@@ -148,3 +148,15 @@ TEST(ReferenceMarkersTest, SameXYAtDifferentMeasuredHeightsAreDifferentThreeDime
     check.heightMeters=survey.surfaceHeightMeters; check.image=survey.references[0].image;
     EXPECT_FALSE(validateExtrinsicSurvey(survey,p.intrinsics).empty());
 }
+
+TEST(ReferenceMarkersTest, TabletopVerificationRetainsUnchangedV5RegistryAndBodyBindings) {
+    const auto p=commissionedReferenceProfile(); WorkspaceHomographyInput input{p,{},{}};
+    for(const auto point:workspaceCorners(p.bounds)) input.fitPoints.push_back({*unprojectWorkspacePoint(*p.homography,point),point});
+    for(const auto point:std::array<WorldPoint2D,2>{WorldPoint2D{Meters{-.2},Meters{0}},WorldPoint2D{Meters{.2},Meters{0}}})
+        input.checkPoints.push_back({*unprojectWorkspacePoint(*p.homography,point),point});
+    const auto before=serializeWorkspaceProfile(p);
+    EXPECT_TRUE(validateWorkspaceHomographyInput(input).empty())<<validateWorkspaceHomographyInput(input);
+    const auto errors=evaluateWorkspaceChecks(input.profile,input.checkPoints); ASSERT_TRUE(errors);
+    EXPECT_NEAR(errors->rmsMeters,0,1e-12);
+    EXPECT_EQ(serializeWorkspaceProfile(input.profile),before);
+}

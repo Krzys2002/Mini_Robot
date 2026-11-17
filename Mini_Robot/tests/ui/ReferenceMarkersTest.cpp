@@ -14,6 +14,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <atomic>
+#include <algorithm>
 #include <future>
 #include <gtest/gtest.h>
 using namespace micro_robot;

@@ -166,11 +166,13 @@ Reference snapshots contain no retained rasters or unbounded history; keep raw
 images and independent survey records in the external experiment evidence.
 
 The detector/camera boundary, WorldModel Pose2D, travel bounds, planning,
-RobotManager and transport contracts remain unchanged. The optional pending
-#267/#269/#273 diagnostics integration still needs its known tabletop-binding
-comparison adaptation from #270. Its maps/distances remain tabletop z=0 and
-must not claim propagated robot-body accuracy. This issue does not add those
-optional PRs to its approved #286 parent chain.
+RobotManager and transport contracts remain unchanged. Diagnostics/distance pairing now uses the exact tabletop portion of the active
+profile, so an unchanged v3 manual/chessboard sidecar remains compatible with
+v5 reference metadata. Normal Verify validates only tabletop metadata in its
+input copy while preserving and separately validating the complete original
+body/reference profile. Maps and distance uncertainty remain tabletop z=0,
+not propagated robot-body accuracy; the original records are never relabelled.
+No separate integration patch is required after the reviewed parent update.
 
 ## Validation and remaining physical work
 
