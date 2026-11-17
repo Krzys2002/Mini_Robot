@@ -46,6 +46,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_transport_mock_tests` | `core` | [Robot discovery and the shared transport contract](../overview/robot-communication.md#mock-transport-tests): scans, snapshots, ambiguity, private peer mapping, link loss, and the same `IRobotTransport` checks against simulation and a test-only radio backend |
 | `micro_robot_simulation_tests` | `core` | Deterministic backends, fake camera factory, and substitution |
 | `micro_robot_world_tests` | `core` | World registry, pose update rules, controlled-time tracker lifecycle and measurement invalidation |
+| `LiveVisualControlTest.*`, `LiveVisualSimulationTest.*`, `ControlTraceWriterTest.*` in `micro_robot_tests` | `ui` | [Live visual feedback](../overview/live-visual-control.md): accepted metric/filtered-pose bridge, target/status panel, motion arbitration, loss/recovery/arrival, real SimulationTransport and bounded asynchronous trace handoff |
 | `micro_robot_logging_tests` | `core` | [Logging](../overview/logging.md): format, levels, channels, sink failures, file sink including non-ASCII directories |
 | `micro_robot_replay_tests` | `replay` | Generated-video decoding, repeatability, lifecycle, looping, weak sinks, and failure recovery |
 | `micro_robot_configuration_tests` | `core` | [Configuration](../overview/configuration.md): defaults, parsing, invalid values, missing/unreadable files, non-ASCII/spaced/relative/symlinked paths, verbatim log paths, example file |
@@ -60,6 +61,20 @@ Enable `-DMICRO_ROBOT_BUILD_BLE=ON` for BLE adapter/lifecycle tests, then run
 `ctest --test-dir build -L ble --output-on-failure --no-tests=error`. On macOS
 with Qt 6.5+, this label also checks the production app's Bluetooth usage
 description and statically imported permission plugin without requesting access.
+
+Issue #76 also adds a fake-driven production BLE integration case,
+`BleTransportTest.VisualMetricFeedbackReachesBleWithDomainWireCorrelationAndStop`,
+plus core regressions for accepted-only metric provenance and optional domain
+command/Stop sequence correlation. These are software handoff tests, not over-air
+or physical stopping evidence. Physical #76 acceptance is tracked in existing #80,
+with actuator/safety gates #167/#228 still required; all physical checks NOT RUN.
+
+Focused target-panel rendering:
+
+```sh
+QT_SCALE_FACTOR=1.5 MICRO_ROBOT_VISUAL_CONTROL_SCREENSHOT=/tmp/visual-panel.png build/macos/Mini_Robot/tests/micro_robot_tests '--gtest_filter=LiveVisualControlTest.TargetPanel*'
+QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests '--gtest_filter=LiveVisualControlTest.TargetPanel*'
+```
 Core-only builds keep fifteen Robot Info/GATT and message-codec tests without Qt,
 including the shared [v1 byte vectors](../protocol/fixtures/v1-frames.txt) that the
 firmware codec tests also read.
