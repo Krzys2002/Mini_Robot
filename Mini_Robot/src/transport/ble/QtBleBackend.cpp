@@ -1,4 +1,5 @@
 #include "transport/ble/QtBleBackend.hpp"
+#include "transport/ble/BleWire.hpp"
 
 #include <QBluetoothDeviceDiscoveryAgent>
 #include <QBluetoothDeviceInfo>
@@ -17,11 +18,20 @@
 
 namespace micro_robot {
 namespace {
+// Project UUID base (ble-gatt.md); %1 is the 16-bit ble_gatt suffix as four hex digits.
+constexpr auto uuidTemplate = "4d52%1-1f2a-4032-8415-63a5fef8a0dc";
+constexpr int uuidSuffixDigits = 4, uuidSuffixBase = 16;
 QBluetoothUuid uuid(unsigned suffix)
 {
-    return QBluetoothUuid{QStringLiteral("4d52%1-1f2a-4032-8415-63a5fef8a0dc")
-        .arg(suffix, 4, 16, QLatin1Char('0'))};
+    return QBluetoothUuid{QString::fromLatin1(uuidTemplate)
+        .arg(suffix, uuidSuffixDigits, uuidSuffixBase, QLatin1Char('0'))};
 }
+// Qt treats a zero LE discovery timeout as "scan until stopped"; BleTransport owns the timeout.
+constexpr int scanUntilStopped = 0;
+// CCCD value 0x0001, little-endian: notifications on, indications off.
+QByteArray notificationsEnabled() { return QByteArray::fromHex("0100"); }
+using namespace ble_gatt;
+static_assert(notificationCopyLimit == 21, "v1 backend notification copy bound is frozen");
 class QtBleBackend final : public IBleBackend {
 public:
     ~QtBleBackend() override
@@ -89,8 +99,8 @@ public:
         });
         QObject::connect(link->controller, &QLowEnergyController::discoveryFinished, link, [this, link] {
             if (!usable(link)) return;
-            if (!link->controller->services().contains(uuid(1))) { fail(link, "Robot Control service is missing"); return; }
-            link->service = link->controller->createServiceObject(uuid(1), link);
+            if (!link->controller->services().contains(uuid(robotControlService))) { fail(link, "Robot Control service is missing"); return; }
+            link->service = link->controller->createServiceObject(uuid(robotControlService), link);
             if (!link->service) { fail(link, "Cannot create Robot Control service"); return; }
             QObject::connect(link->service, &QLowEnergyService::errorOccurred, link,
                 [this, link](QLowEnergyService::ServiceError error) {
@@ -107,7 +117,7 @@ public:
                 });
             QObject::connect(link->service, &QLowEnergyService::characteristicRead, link,
                 [this, link](const QLowEnergyCharacteristic& characteristic, const QByteArray& value) {
-                    if (!usable(link) || !link->readingInfo || characteristic.uuid() != uuid(2)) return;
+                    if (!usable(link) || !link->readingInfo || characteristic.uuid() != uuid(robotInfoCharacteristic)) return;
                     link->readingInfo = false;
                     const auto result = validateBleRobotInfo(
                         {reinterpret_cast<const std::uint8_t*>(value.constData()), static_cast<std::size_t>(value.size())},
@@ -119,21 +129,21 @@ public:
                     }
                     link->info = *result.info;
                     emit phaseChanged(link->token, BlePhase::EnablingNotifications);
-                    link->subscription = 1;
-                    link->service->writeDescriptor(link->resultCccd, QByteArray::fromHex("0100"));
+                    link->subscription = Subscription::CommandResult;
+                    link->service->writeDescriptor(link->resultCccd, notificationsEnabled());
                 });
             QObject::connect(link->service, &QLowEnergyService::descriptorWritten, link,
                 [this, link](const QLowEnergyDescriptor& descriptor, const QByteArray& value) {
                     if (!usable(link)) return;
-                    if ((link->subscription == 1 && descriptor != link->resultCccd)
-                        || (link->subscription == 2 && descriptor != link->telemetryCccd)
-                        || link->subscription == 0) return;
-                    if (value != QByteArray::fromHex("0100")) { fail(link, "BLE notification subscription was refused"); return; }
-                    if (link->subscription == 1) {
-                        link->subscription = 2;
-                        link->service->writeDescriptor(link->telemetryCccd, QByteArray::fromHex("0100"));
+                    if ((link->subscription == Subscription::CommandResult && descriptor != link->resultCccd)
+                        || (link->subscription == Subscription::Telemetry && descriptor != link->telemetryCccd)
+                        || link->subscription == Subscription::Idle) return;
+                    if (value != notificationsEnabled()) { fail(link, "BLE notification subscription was refused"); return; }
+                    if (link->subscription == Subscription::CommandResult) {
+                        link->subscription = Subscription::Telemetry;
+                        link->service->writeDescriptor(link->telemetryCccd, notificationsEnabled());
                     } else {
-                        link->subscription = 0;
+                        link->subscription = Subscription::Idle;
                         link->established = true;
                         emit ready(link->token, link->info);
                     }
@@ -141,17 +151,21 @@ public:
             QObject::connect(link->service, &QLowEnergyService::characteristicChanged, link,
                 [this, link](const QLowEnergyCharacteristic& characteristic, const QByteArray& bytes) {
                     if (!usable(link)) return;
-                    const auto endpoint = characteristic.uuid() == uuid(5) ? BleEndpoint::Telemetry : BleEndpoint::CommandResult;
-                    if (characteristic.uuid() != uuid(5) && characteristic.uuid() != uuid(6)) return;
-                    // Retain at most one overlength byte so malformed lengths are
-                    // rejected without copying an arbitrarily large payload.
-                    emit notification(link->token, endpoint, bytes.left(21), MonotonicClock::now());
+                    const auto endpoint = characteristic.uuid() == uuid(telemetryCharacteristic)
+                        ? BleEndpoint::Telemetry : BleEndpoint::CommandResult;
+                    if (characteristic.uuid() != uuid(telemetryCharacteristic)
+                        && characteristic.uuid() != uuid(commandResultCharacteristic)) return;
+                    // Retain at most one byte beyond a default-MTU payload so malformed
+                    // lengths are rejected without copying an arbitrarily large payload.
+                    emit notification(link->token, endpoint, bytes.left(notificationCopyLimit), MonotonicClock::now());
                 });
             QObject::connect(link->service, &QLowEnergyService::characteristicWritten, link,
                 [this, link](const QLowEnergyCharacteristic& characteristic, const QByteArray& bytes) {
                     if (!usable(link)) return;
-                    if (characteristic.uuid() != uuid(3) && characteristic.uuid() != uuid(4)) return;
-                    auto& pending = characteristic.uuid() == uuid(4) ? link->emergencyWrite : link->ordinaryWrite;
+                    if (characteristic.uuid() != uuid(commandCharacteristic)
+                        && characteristic.uuid() != uuid(emergencyStopCharacteristic)) return;
+                    auto& pending = characteristic.uuid() == uuid(emergencyStopCharacteristic)
+                        ? link->emergencyWrite : link->ordinaryWrite;
                     if (!pending || pending->bytes != bytes) return;
                     const auto sequence = pending->sequence;
                     pending.reset();
@@ -194,7 +208,8 @@ public:
         const auto& frame = *encoded.frame;
         const QByteArray bytes(reinterpret_cast<const char*>(frame.bytes.data()), static_cast<qsizetype>(frame.bytes.size()));
         if (frame.withResponse) pending = PendingWrite{request.sequence, bytes};
-        link->service->writeCharacteristic(link->service->characteristic(uuid(request.emergencyStop ? 4 : 3)), bytes,
+        const auto target = request.emergencyStop ? emergencyStopCharacteristic : commandCharacteristic;
+        link->service->writeCharacteristic(link->service->characteristic(uuid(target)), bytes,
             frame.withResponse ? QLowEnergyService::WriteWithResponse : QLowEnergyService::WriteWithoutResponse);
         if (!frame.withResponse) emit written(token, request.sequence);
         return {true, now, TransportErrorCode::BackendFailure, {}};
@@ -213,6 +228,8 @@ public:
     }
 private:
     struct PendingWrite { std::uint16_t sequence{}; QByteArray bytes; };
+    // CCCD subscription step: Command Result first, then Telemetry; Idle otherwise.
+    enum class Subscription { Idle, CommandResult, Telemetry };
     struct Link : QObject {
         Link(QObject* parent, std::uint64_t value, RobotId id) : QObject(parent), token(value), expected(id) {}
         std::uint64_t token;
@@ -221,7 +238,7 @@ private:
         QLowEnergyService* service{};
         QLowEnergyDescriptor resultCccd, telemetryCccd;
         bool active{true}, closing{}, failed{}, readingInfo{}, established{};
-        int subscription{};
+        Subscription subscription{Subscription::Idle};
         BleRobotInfo info;
         std::optional<PendingWrite> ordinaryWrite, emergencyWrite;
     };
@@ -237,10 +254,10 @@ private:
         if (scanToken_ != token) return;
         scanner_ = std::make_unique<QBluetoothDeviceDiscoveryAgent>();
         // Adapter owns the actual timeout, including permission and cancellation.
-        scanner_->setLowEnergyDiscoveryTimeout(0);
+        scanner_->setLowEnergyDiscoveryTimeout(scanUntilStopped);
         const auto discovered = [this, token](const QBluetoothDeviceInfo& info) {
             if (scanToken_ != token || !(info.coreConfigurations() & QBluetoothDeviceInfo::LowEnergyCoreConfiguration)
-                || !info.serviceUuids().contains(uuid(1))) return;
+                || !info.serviceUuids().contains(uuid(robotControlService))) return;
             const auto key = !info.deviceUuid().isNull() ? info.deviceUuid().toString().toStdString()
                 : info.address().toString().toStdString();
             if (key.empty() || (info.deviceUuid().isNull() && info.address().isNull())) return;
@@ -264,12 +281,12 @@ private:
     }
     void inspectService(Link* link)
     {
-        if (link->readingInfo || link->subscription || link->established) return;
+        if (link->readingInfo || link->subscription != Subscription::Idle || link->established) return;
         using C = QLowEnergyCharacteristic;
         const QBluetoothUuid cccd{QBluetoothUuid::DescriptorType::ClientCharacteristicConfiguration};
-        std::array<BleCharacteristicCapabilities, 5> layout{};
+        std::array<BleCharacteristicCapabilities, characteristicCount> layout{};
         for (unsigned i = 0; i < layout.size(); ++i) {
-            const auto characteristic = link->service->characteristic(uuid(i + 2));
+            const auto characteristic = link->service->characteristic(uuid(robotInfoCharacteristic + i));
             const auto p = characteristic.properties();
             layout[i] = {characteristic.isValid(), p.testFlag(C::Read), p.testFlag(C::Write),
                 p.testFlag(C::WriteNoResponse), p.testFlag(C::Notify), characteristic.descriptor(cccd).isValid()};
@@ -278,12 +295,12 @@ private:
             fail(link, QString::fromStdString(error));
             return;
         }
-        link->resultCccd = link->service->characteristic(uuid(6)).descriptor(cccd);
-        link->telemetryCccd = link->service->characteristic(uuid(5)).descriptor(cccd);
+        link->resultCccd = link->service->characteristic(uuid(commandResultCharacteristic)).descriptor(cccd);
+        link->telemetryCccd = link->service->characteristic(uuid(telemetryCharacteristic)).descriptor(cccd);
         if (!link->resultCccd.isValid() || !link->telemetryCccd.isValid()) { fail(link, "Missing notification CCCD"); return; }
         link->readingInfo = true;
         emit phaseChanged(link->token, BlePhase::ReadingIdentity);
-        link->service->readCharacteristic(link->service->characteristic(uuid(2)));
+        link->service->readCharacteristic(link->service->characteristic(uuid(robotInfoCharacteristic)));
     }
     std::unique_ptr<QBluetoothDeviceDiscoveryAgent> scanner_;
     std::uint64_t scanToken_{};

@@ -58,3 +58,27 @@ static_assert(telemetryPeriodOffset + sizeof(std::uint16_t) == robotInfoLength);
         | (static_cast<std::uint32_t>(b[i + 2]) << 16) | (static_cast<std::uint32_t>(b[i + 3]) << 24);
 }
 } // namespace micro_robot::ble_wire
+
+// GATT identifiers (docs/protocol/ble-gatt.md). UUIDs share one project base and
+// differ only in this 16-bit suffix; Qt UUID types stay inside the Qt backend.
+namespace micro_robot::ble_gatt {
+inline constexpr std::uint16_t robotControlService = 0x0001, robotInfoCharacteristic = 0x0002,
+    commandCharacteristic = 0x0003, emergencyStopCharacteristic = 0x0004,
+    telemetryCharacteristic = 0x0005, commandResultCharacteristic = 0x0006;
+// Characteristics are validated as one layout, Robot Info through Command Result in UUID order.
+inline constexpr std::size_t characteristicCount = commandResultCharacteristic - robotInfoCharacteristic + 1;
+[[nodiscard]] constexpr std::size_t layoutIndex(std::uint16_t characteristic) noexcept
+{
+    return static_cast<std::size_t>(characteristic - robotInfoCharacteristic);
+}
+// All v1 payloads fit the default 23-byte ATT MTU, less the 3-byte notification header.
+inline constexpr std::size_t defaultAttMtu = 23, attNotificationHeaderLength = 3;
+inline constexpr std::size_t defaultNotificationPayload = defaultAttMtu - attNotificationHeaderLength;
+// Backend copy bound: one byte beyond the default payload keeps every overlength
+// frame rejectable without copying an arbitrarily large notification.
+inline constexpr std::size_t notificationCopyLimit = defaultNotificationPayload + 1;
+static_assert(characteristicCount == 5);
+static_assert(ble_wire::telemetryLength <= defaultNotificationPayload);
+static_assert(ble_wire::resultLength <= defaultNotificationPayload);
+static_assert(ble_wire::robotInfoLength <= defaultNotificationPayload);
+} // namespace micro_robot::ble_gatt
