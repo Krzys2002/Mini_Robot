@@ -82,7 +82,7 @@ public:
 
     [[nodiscard]] bool canActivate() const
     {
-        return !shuttingDown_ && !busy_ && draft_ && draft_->homography
+        return !shuttingDown_ && !busy_ && !localizationValidationRequired_ && draft_ && draft_->homography
             && (!draft_->references || (draft_->localization && draft_->references->acquisition && draft_->references->validatedLocalizationRevision==draft_->localization->revision))
             && (draft_->acquisitionId.empty() || (draftAcquisition_ && draftAcquisition_->id==draft_->acquisitionId));
     }
@@ -102,7 +102,7 @@ public:
 
     [[nodiscard]] bool canSave() const
     {
-        return !shuttingDown_ && !busy_ && persistent_ && draft_ && draft_->homography;
+        return !shuttingDown_ && !busy_ && !localizationValidationRequired_ && persistent_ && draft_ && draft_->homography;
     }
 
     [[nodiscard]] bool canLoad() const
@@ -141,6 +141,7 @@ private:
     std::optional<ElevatedLocalization> lastLocalizationDraft_;
     ReferenceFramePtr latestReferenceFrame_;
     std::string pendingReferenceRevision_;
+    bool localizationValidationRequired_{}; // Retained retry geometry is not an activatable/savable result.
     std::shared_ptr<ICalibrationUndistorter> undistorter_;
     std::shared_ptr<IWorkspaceProfileStore> store_;
     std::shared_ptr<ICalibrationDetector> detector_;

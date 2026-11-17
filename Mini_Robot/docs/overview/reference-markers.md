@@ -115,7 +115,8 @@ rotation and scale-like residual patterns are supported; equal residual directio
 is not required. The data alone cannot distinguish camera/table movement from
 shared reference-support movement or a correlated survey error. It must not be
 presented as proof that the camera moved. An isolated moved marker alone cannot
-confirm global drift. Lost/invalid evidence breaks a pending persistence run;
+confirm global drift. Lost/invalid evidence, including detector failures between scheduled assessments,
+breaks a pending persistence run;
 gaps longer than maximum evidence age reset it. Confirmed drift survives later
 healthy-looking frames, occlusion and source restart for the same configuration.
 
@@ -136,6 +137,11 @@ latched monitor; merely seeing references again, adjusting a draft, restarting
 input or pressing Activate on an unchanged active calibration does not silently
 clear it. The old active profile remains unchanged until replacement. Monitor
 results never overwrite commissioning evidence or refit geometry.
+
+A rejected fit retains the previous geometry/mount context so detector acquisition
+continues and corrected observations can be retried without reloading. That
+context is retry input only: Activate and Save stay disabled until a successful
+solve (or explicit replacement of the draft). The active profile is unchanged.
 
 ## Persistence and boundaries
 

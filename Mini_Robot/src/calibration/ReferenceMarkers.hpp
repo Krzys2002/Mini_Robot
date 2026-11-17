@@ -80,6 +80,7 @@ class ReferenceMonitor final {
 public:
     void configure(const ReferenceConfiguration&,std::string calibrationRevision,std::uint64_t inputGeneration);
     [[nodiscard]] bool due(Timestamp now) const;
+    void unavailable(Timestamp when,std::uint64_t frameSequence,std::string reason);
     PlacementReport observe(const ReferenceFrame&,const ReferenceConfiguration&,const WorkspaceCalibrationProfile&);
     [[nodiscard]] PlacementReport status(Timestamp now,const ReferencePolicy&) const;
 private:

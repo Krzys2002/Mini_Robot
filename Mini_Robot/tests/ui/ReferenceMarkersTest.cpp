@@ -29,13 +29,18 @@ class ReferenceNoopUndistorter final:public ICalibrationUndistorter {
 class ReferenceDetector final:public IMarkerDetector {
 public:
     WorkspaceCalibrationProfile geometry=referenceProfile();
-    std::shared_future<void> gate; std::atomic<int> calls{}; std::atomic<double> cameraShift{};
+    std::shared_future<void> gate; std::atomic<int> calls{}; std::atomic<double> cameraShift{}; std::atomic<bool> corruptChecks{};
     MarkerDetections detect(const Frame& input) override {
         ++calls; if(gate.valid()) gate.wait();
         auto actual=*geometry.localization; actual.translationMeters[0]+=cameraShift.load();
         auto f=referenceFrame(geometry,input.capturedAt,&actual);
         MarkerDetections result;
-        for(const auto& row:f.observations) result.markers.push_back({MarkerFamily::AprilTag36h11,row.id,row.raw,{}});
+        for(const auto& row:f.observations) {
+            auto corners=row.raw;
+            if(corruptChecks && std::any_of(geometry.references->markers.begin(),geometry.references->markers.end(),[&](const auto& m){return m.id==row.id && m.role==ReferenceRole::IndependentCheck;}))
+                for(auto& corner:corners) corner.u+=20;
+            result.markers.push_back({MarkerFamily::AprilTag36h11,row.id,corners,{}});
+        }
         std::array<MarkerCorner,4> corners;
         const double front[]{1,1,-1,-1},right[]{-1,1,1,-1};
         for(std::size_t i=0;i<4;++i) {
@@ -190,4 +195,22 @@ TEST(ReferenceWorkflowTest, ExpiryObserverInputChangeCannotRestoreObsoleteStatus
     });
     ASSERT_TRUE(QTest::qWaitFor([&]{return switched;},2000));
     EXPECT_TRUE(f.vision->description().contains("inactive")); EXPECT_FALSE(f.workspace->latestReferenceFrame());
+}
+
+TEST(ReferenceWorkflowTest, RejectedFitPreservesRetryGeometryAndAcquisitionWithoutPermittingActivation) {
+    ReferenceWorkflow f; f.detector->corruptChecks=true; f.frame();
+    ASSERT_TRUE(QTest::qWaitFor([&]{return bool(f.workspace->latestReferenceFrame());}));
+    const auto originalGeometry=f.workspace->draftProfile()->localization;
+    f.workspace->calculateReferences(); ASSERT_TRUE(QTest::qWaitFor([&]{return !f.workspace->busy();}));
+    ASSERT_TRUE(f.workspace->message().contains("rejected"))<<f.workspace->message().toStdString();
+    ASSERT_TRUE(f.workspace->draftProfile()->localization)<<"Rejected fit must retain the acquisition/mount context for retry.";
+    EXPECT_EQ(f.workspace->draftProfile()->localization->revision,originalGeometry->revision);
+    EXPECT_FALSE(f.workspace->canActivate()); EXPECT_FALSE(f.workspace->canSave());
+    EXPECT_FALSE(f.workspace->profile());
+    const auto sequence=f.sequence; f.detector->corruptChecks=false; QTest::qWait(210); f.frame();
+    ASSERT_TRUE(QTest::qWaitFor([&]{return f.workspace->latestReferenceFrame() && f.workspace->latestReferenceFrame()->frameSequence>sequence;}));
+    f.workspace->calculateReferences(); ASSERT_TRUE(QTest::qWaitFor([&]{return !f.workspace->busy();}));
+    ASSERT_TRUE(f.workspace->canActivate())<<f.workspace->message().toStdString(); EXPECT_TRUE(f.workspace->canSave());
+    EXPECT_EQ(f.workspace->draftProfile()->references->validatedLocalizationRevision,f.workspace->draftProfile()->localization->revision);
+    EXPECT_FALSE(f.workspace->profile()); // Successful retry still needs explicit Activate.
 }

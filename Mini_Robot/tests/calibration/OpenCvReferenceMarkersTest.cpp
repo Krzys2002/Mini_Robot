@@ -81,3 +81,22 @@ TEST(OpenCvReferenceMarkersTest, UndistortsNativeReferenceCornersOnceAndHandlesC
         EXPECT_DOUBLE_EQ(frame->observations[i].raw[j].u,raw.markers[i].corners[j].u);
     }
 }
+
+TEST(OpenCvReferenceMarkersTest, DetectorErrorBreaksPendingDriftConfirmationEvenBetweenAssessmentCadences) {
+    const auto p=commissionedReferenceProfile(); auto moved=*p.localization; moved.translationMeters[0]+=.012;
+    OpenCvMetricObservationConverter converter;
+    const auto convert=[&](MarkerDetections frame){return converter.convert(frame,p.intrinsics.sourceId,RobotMarkerMap{},p);};
+    EXPECT_EQ(convert(detections(p,Timestamp{}+10s,&moved)).placement->state,PlacementConsistency::SuspectedDrift);
+    EXPECT_EQ(convert(detections(p,Timestamp{}+10s+200ms,&moved)).placement->state,PlacementConsistency::SuspectedDrift);
+    auto error=detections(p,Timestamp{}+10s+250ms); error.error="detector failed";
+    const auto unavailable=convert(error); EXPECT_TRUE(unavailable.measurements.empty());
+    EXPECT_TRUE(unavailable.placement);
+    if(unavailable.placement) { EXPECT_EQ(unavailable.placement->state,PlacementConsistency::InsufficientEvidence); EXPECT_FALSE(unavailable.placement->permitsMeasurements); }
+    EXPECT_NE(convert(detections(p,Timestamp{}+10s+400ms,&moved)).status,MetricObservationStatus::PlacementDrift);
+    EXPECT_EQ(convert(detections(p,Timestamp{}+10s+450ms,&moved)).placement->state,PlacementConsistency::SuspectedDrift);
+    EXPECT_EQ(convert(detections(p,Timestamp{}+10s+650ms,&moved)).placement->state,PlacementConsistency::SuspectedDrift);
+    EXPECT_EQ(convert(detections(p,Timestamp{}+10s+850ms,&moved)).placement->state,PlacementConsistency::ConfirmedDrift);
+    error.capturedAt=Timestamp{}+10s+900ms;
+    const auto latched=convert(error); ASSERT_TRUE(latched.placement);
+    EXPECT_EQ(latched.placement->state,PlacementConsistency::ConfirmedDrift); EXPECT_FALSE(latched.placement->permitsMeasurements);
+}

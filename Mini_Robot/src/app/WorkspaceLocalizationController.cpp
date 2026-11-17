@@ -12,6 +12,7 @@ void WorkspaceCalibrationController::localizationInputsChanged() {
     ++generation_;
     if (draft_ && draft_->localization) {
         lastLocalizationDraft_=draft_->localization;
+        localizationValidationRequired_=true;
         draft_->localization.reset();
     }
     publish(QStringLiteral("Localization draft invalidated. Active calibration is unchanged until explicit Activate."));
@@ -43,7 +44,7 @@ void WorkspaceCalibrationController::calculateLocalization(ExtrinsicSolveInput i
     profile.references.reset(); // Solver consumes the frozen measured input, not a stale registry activation.
     const auto solver=extrinsicsSolver_;
     const auto generation=++generation_; busy_=true;
-    draft_->localization.reset();
+    localizationValidationRequired_=true; // Keep the previous geometry for acquisition/retry only.
     publish(QStringLiteral("Estimating both planar camera poses and checking measured references on the calibration worker…"));
     QMetaObject::invokeMethod(workerContext_,[this,solver,profile,input=std::move(input),generation] {
         ExtrinsicSolveOutcome outcome;
@@ -68,6 +69,7 @@ void WorkspaceCalibrationController::calculateLocalization(ExtrinsicSolveInput i
                 return;
             }
             draft_->localization=std::move(outcome.calibration);
+            localizationValidationRequired_=false;
             if(draft_->references && pendingReferenceRevision_==draft_->localization->revision)
                 draft_->references->validatedLocalizationRevision=draft_->localization->revision;
             pendingReferenceRevision_.clear();

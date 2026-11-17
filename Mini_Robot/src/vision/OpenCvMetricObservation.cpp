@@ -21,14 +21,18 @@ MetricObservationBatch OpenCvMetricObservationConverter::convert(const MarkerDet
     if (sourceId != profile->intrinsics.sourceId
         || detections.width != profile->intrinsics.width || detections.height != profile->intrinsics.height)
         return {MetricObservationStatus::InvalidCalibration, {}, "Incompatible workspace calibration"};
-    if (!detections.error.empty())
-        return {MetricObservationStatus::InvalidGeometry, {}, detections.error};
     MetricObservationBatch batch{MetricObservationStatus::Valid, {}, {}};
     if(profile->references) {
         const auto& config=*profile->references;
         if(auto error=validateReferenceConfiguration(config,*profile,map.profile()); !error.empty())
             return {MetricObservationStatus::InvalidCalibration,{},error};
         monitor_.configure(config,profile->localization?profile->localization->revision:std::string{},detections.inputGeneration);
+        if(!detections.error.empty()) {
+            monitor_.unavailable(detections.capturedAt,detections.frameSequence,detections.error);
+            batch.placement=monitor_.status(detections.capturedAt,config.policy);
+            batch.status=batch.placement->state==PlacementConsistency::ConfirmedDrift?MetricObservationStatus::PlacementDrift:MetricObservationStatus::InvalidGeometry;
+            batch.error=detections.error; return batch;
+        }
         if(monitor_.due(detections.capturedAt)) {
             batch.references=referenceObservations(detections,sourceId,map,*profile);
             if(batch.references) batch.placement=monitor_.observe(*batch.references,config,*profile);
@@ -39,6 +43,7 @@ MetricObservationBatch OpenCvMetricObservationConverter::convert(const MarkerDet
             batch.error=batch.placement->message; return batch;
         }
     }
+    if(!detections.error.empty()) return {MetricObservationStatus::InvalidGeometry,{},detections.error};
     auto robotDetections=detections;
     if(profile->references) std::erase_if(robotDetections.markers,[&](const auto& observation) {
         return std::any_of(profile->references->markers.begin(),profile->references->markers.end(),[&](const auto& marker) { return marker.family==observation.family && marker.id==observation.id; });

@@ -37,7 +37,7 @@ void WorkspaceCalibrationController::publish(QString message)
 
 void WorkspaceCalibrationController::invalidate(bool clearFrame)
 {
-    latestReferenceFrame_.reset(); pendingReferenceRevision_.clear();
+    latestReferenceFrame_.reset(); pendingReferenceRevision_.clear(); localizationValidationRequired_=false;
     ++generation_;
     draft_.reset();
     if (clearFrame) {
@@ -325,6 +325,7 @@ void WorkspaceCalibrationController::calculate()
     const auto acquisition = acquisitionSnapshot(input.profile);
     const auto generation = ++generation_;
     draft_.reset();
+    localizationValidationRequired_=false;
     busy_ = true;
     publish(QStringLiteral("Calculating image-to-world homography…"));
     QMetaObject::invokeMethod(

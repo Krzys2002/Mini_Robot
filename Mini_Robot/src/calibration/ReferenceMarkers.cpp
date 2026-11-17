@@ -172,10 +172,19 @@ void ReferenceMonitor::configure(const ReferenceConfiguration& config,std::strin
         configurationKey_=key; calibrationRevision_=std::move(revision); driftLatched_=false;
         lastAssessment_.reset(); driftStarted_.reset(); driftSamples_=0; report_={};
     }
+    report_.registryRevision=config.revision; report_.calibrationRevision=calibrationRevision_;
     if(generation!=generation_) {
         generation_=generation; lastAssessment_.reset(); driftStarted_.reset(); driftSamples_=0;
         report_.permitsMeasurements=false; report_.state=driftLatched_?PlacementConsistency::ConfirmedDrift:PlacementConsistency::Unvalidated;
     }
+}
+void ReferenceMonitor::unavailable(Timestamp when,std::uint64_t frameSequence,std::string reason) {
+    driftStarted_.reset(); driftSamples_=0;
+    lastAssessment_=when; // Keep cadence bounded even when an error occurs between scheduled checks.
+    report_.assessedAt=when; report_.frameSequence=frameSequence; report_.visible=report_.outliers=0;
+    report_.permitsMeasurements=false; report_.state=PlacementConsistency::InsufficientEvidence;
+    report_.message=std::move(reason);
+    // driftLatched_ deliberately survives; only explicit revalidation can clear it.
 }
 bool ReferenceMonitor::due(Timestamp now) const { return !lastAssessment_ || now-*lastAssessment_>=cadence_; }
 PlacementReport ReferenceMonitor::status(Timestamp now,const ReferencePolicy& policy) const {
