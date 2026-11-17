@@ -623,8 +623,11 @@ Remaining acceptance and optional cleanup, by audit finding:
 - 5, 9: authenticated BLE (#165), powered acceptance (#238), interrupt-masked timing
   and physical stopping require security and bench work. Restricted-lab mode
   remains unauthenticated; SecureRequired remains fail-closed.
-- 13 (#296): codec and transport frame/result constants use `BleWire.hpp`; backend UUID
-  and subscription identifiers and a few byte offsets remain future cleanup.
+- 13 (#296): codec, Robot Info, transport and Qt backend use named desktop definitions
+  in `BleWire.hpp` (`ble_wire` frame/record layout, `ble_gatt` UUID suffixes and the
+  21-byte notification copy bound). Bytes and behaviour are unchanged; the desktop
+  definitions stay independent of firmware headers. Linux/GCC host results for this
+  cleanup are recorded in its PR.
 - 14: retain independent desktop/firmware codecs, guarded by shared byte vectors.
 - 18 (#297): firmware endian helper consolidation remains optional cleanup.
 - 20: retain the unwired optional inertial interface; no production feedback claim.
