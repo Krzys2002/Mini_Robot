@@ -50,6 +50,8 @@ MarkerDetections OpenCvAprilTagDetector::detect(const Frame& frame)
     MarkerDetections result;
     result.frameSequence = frame.sequence;
     result.capturedAt = frame.capturedAt;
+    result.provenance.observedAt=frame.capturedAt; result.provenance.timing=frame.timing;
+    result.provenance.frameSequence=frame.sequence; result.provenance.width=frame.width; result.provenance.height=frame.height;
     result.width = frame.width;
     result.height = frame.height;
     if (!isValidFrame(frame) || frame.width > impl_->config.maximumDimension

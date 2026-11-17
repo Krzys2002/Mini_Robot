@@ -119,9 +119,12 @@ TEST(VisionDebugViewTest, DialogShowsIndependentIdsQualityAgeTimingAndOutputFps)
     auto preview = debugPreview(); preview->outputFramesPerSecond = 25.0;
     emit vision.previewAvailable("camera-a", preview);
     const auto text = dialog.findChild<QPlainTextEdit*>("visionDiagnostics")->toPlainText();
+    EXPECT_TRUE(text.contains("Mapped exposure to output ms p50/p95/p99: unavailable"));
+    EXPECT_TRUE(text.contains("predicted-current pose/horizon/uncertainty unavailable"));
+    EXPECT_TRUE(text.contains("unknown observation clock"));
     EXPECT_TRUE(text.contains("Source camera-a"));
     EXPECT_TRUE(text.contains("frame 42"));
-    EXPECT_TRUE(text.contains("Age "));
+    EXPECT_TRUE(text.contains("Observation age "));
     EXPECT_TRUE(text.contains("detector 2.00 ms"));
     EXPECT_TRUE(text.contains("output FPS 25.0"));
     EXPECT_TRUE(text.contains("Tag 0 · Robot 1 · min edge 60.0 px · margin unavailable"));

@@ -26,6 +26,17 @@ public:
     void receiveFrame(FramePtr frame);
     void setMetricConverter(std::unique_ptr<IMetricObservationConverter> converter);
     void setWorkspaceCalibration(std::optional<WorkspaceCalibrationProfile> profile);
+    void setQualityGates(LocalizationQualityGates gates);
+    [[nodiscard]] const LocalizationQualityGates& qualityGates() const { return qualityGates_; }
+    void setDebugEnabled(bool enabled);
+    void recordTrackingRejection(RobotId id,std::string reason) { metrics_.rejection(id,std::move(reason)); }
+    void recordOverlayPaint(Duration d) { metrics_.overlayPaint(d); }
+    void recordDiagnostics(Duration d) { metrics_.diagnostics(d); }
+    void setFrameLoggingEnabled(bool enabled);
+    [[nodiscard]] bool debugEnabled() const { return debugEnabled_; }
+    [[nodiscard]] bool frameLoggingEnabled() const { return frameLoggingEnabled_; }
+    [[nodiscard]] LocalizationReport localizationReport(Timestamp now) const { return metrics_.report(now); }
+    bool recordPublication(const MetricObservationBatch&, const std::vector<RobotId>& accepted, const std::vector<RobotId>& rejected, Timestamp, Timestamp);
     [[nodiscard]] std::uint64_t inputGeneration() const noexcept { return generation_; }
     [[nodiscard]] bool busy() const noexcept { return busy_; }
     [[nodiscard]] bool isStopped() const { return worker_.isFinished(); }
@@ -48,6 +59,12 @@ private:
     LogChannel log_;
     RobotMarkerMap markerMap_;
     VisionOutputRate outputRate_;
+    LocalizationMetrics metrics_;
+    LocalizationQualityGates qualityGates_;
+    bool debugEnabled_{true}, frameLoggingEnabled_{true};
+    std::uint64_t statisticsEpoch_{};
+    Timestamp pendingEnqueued_{};
+    std::shared_ptr<const std::string> calibrationRevision_;
     std::shared_ptr<IMarkerDetector> detector_;
     std::shared_ptr<IMetricObservationConverter> metricConverter_;
     std::optional<WorkspaceCalibrationProfile> workspace_;

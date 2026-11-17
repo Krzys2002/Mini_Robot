@@ -37,8 +37,9 @@ PoseUpdateResult WorldModel::updatePose(RobotId id, const Pose2D& pose, Timestam
 PoseUpdateResult WorldModel::updateTrackedPose(RobotId id, const Pose2D& pose,
                                              Timestamp capturedAt, TrackingThresholds thresholds,
                                              std::optional<Pose2D> rawPose, double continuousHeading,
-                                             std::optional<PlanarVelocity> velocity, std::optional<double> quality)
+                                             std::optional<PlanarVelocity> velocity, std::optional<double> quality, std::optional<MeasurementProvenance> provenance, std::optional<Timestamp> publishedAt)
 {
+    if ((provenance && provenance->observedAt!=capturedAt) || (publishedAt && *publishedAt<capturedAt)) return PoseUpdateResult::InvalidPose;
     if (thresholds.staleAfter <= Duration::zero() || thresholds.lostAfter <= thresholds.staleAfter)
         return PoseUpdateResult::InvalidPose;
     if (!std::isfinite(continuousHeading)
@@ -48,7 +49,7 @@ PoseUpdateResult WorldModel::updateTrackedPose(RobotId id, const Pose2D& pose,
         || (rawPose && (!std::isfinite(rawPose->x.value) || !std::isfinite(rawPose->y.value)
             || !std::isfinite(rawPose->heading.value)))) return PoseUpdateResult::InvalidPose;
     const auto result = updatePose(id, pose, capturedAt);
-    if (result == PoseUpdateResult::Applied) robots_.at(id).tracking = TrackingMetadata{thresholds, false, rawPose, velocity, quality, continuousHeading};
+    if (result == PoseUpdateResult::Applied) robots_.at(id).tracking = TrackingMetadata{thresholds, false, rawPose, velocity, quality, continuousHeading, std::move(provenance), publishedAt};
     return result;
 }
 void WorldModel::invalidateTracking(RobotId id)

@@ -1,6 +1,9 @@
 #include "app/VisionController.hpp"
 
 #include <QMetaObject>
+#include "calibration/WorkspaceProfile.hpp"
+#include <set>
+#include <algorithm>
 
 #include <stdexcept>
 #include <utility>
@@ -39,6 +42,7 @@ void VisionController::invalidate()
     ++generation_;
     pending_.reset();
     outputRate_.reset();
+    metrics_.reset(); ++statisticsEpoch_;
     lastSequence_.reset();
     width_ = height_ = 0;
     emit observationsAvailable(sourceId_, {});
@@ -65,18 +69,55 @@ void VisionController::setWorkspaceCalibration(std::optional<WorkspaceCalibratio
 {
     if (shuttingDown_) return;
     invalidate();
+    calibrationRevision_.reset();
+    if(profile && validateWorkspaceCalibrationProfile(*profile).empty()) {
+        try { calibrationRevision_=std::make_shared<const std::string>(serializeWorkspaceProfile(*profile)); }
+        catch(const std::exception& e) { log_.warning(std::string{"Calibration revision unavailable: "}+e.what()); }
+    }
     workspace_ = std::move(profile);
+}
+void VisionController::setQualityGates(LocalizationQualityGates gates) {
+    validateQualityGates(gates);
+    if(shuttingDown_) return;
+    invalidate(); qualityGates_=std::move(gates);
+}
+void VisionController::setDebugEnabled(bool enabled) {
+    if(shuttingDown_ || debugEnabled_==enabled) return;
+    debugEnabled_=enabled; metrics_.reset(); ++statisticsEpoch_;
+    if(!enabled) emit previewAvailable(sourceId_,{});
+}
+void VisionController::setFrameLoggingEnabled(bool enabled) {
+    if(shuttingDown_ || frameLoggingEnabled_==enabled) return;
+    frameLoggingEnabled_=enabled; metrics_.reset(); ++statisticsEpoch_;
+}
+bool VisionController::recordPublication(const MetricObservationBatch& batch,
+    const std::vector<RobotId>& accepted,const std::vector<RobotId>& rejected,Timestamp start,Timestamp end) {
+    if(batch.provenance.inputGeneration!=generation_ || batch.timing.statisticsEpoch!=statisticsEpoch_ || shuttingDown_) return false;
+    const auto instrumentationStart=MonotonicClock::now();
+    auto failures=rejected;
+    for(const auto& row:batch.diagnostics) if(row.robotId && row.reason!=MeasurementRejection::None) {
+        failures.push_back(*row.robotId); metrics_.rejection(*row.robotId,measurementRejectionName(row.reason));
+    }
+    std::sort(failures.begin(),failures.end()); failures.erase(std::unique(failures.begin(),failures.end()),failures.end());
+    metrics_.publication(batch.provenance,start,end,accepted,failures,batch.missingRobots);
+    metrics_.instrumentation(MonotonicClock::now()-instrumentationStart);
+    return true;
 }
 void VisionController::receiveFrame(FramePtr frame)
 {
     if (shuttingDown_ || !streaming_ || !frame) return;
     if (!isValidFrame(*frame)) {
+        ++metrics_.invalidFrames;
         log_.warning("AprilTag input rejected: invalid frame");
         describe(QStringLiteral("AprilTag: invalid input frame"));
         return;
     }
     if (width_ && (width_ != frame->width || height_ != frame->height)) invalidate();
-    if (lastSequence_ && (frame->sequence <= *lastSequence_ || frame->capturedAt <= lastCapture_)) return;
+    if (lastSequence_ && (frame->sequence <= *lastSequence_ || frame->capturedAt <= lastCapture_)) { ++metrics_.outOfOrder; return; }
+    if(lastSequence_) metrics_.sequenceGaps+=frame->sequence-*lastSequence_-1;
+    pendingEnqueued_=MonotonicClock::now();
+    metrics_.input(frame->timing.receivedAt.value_or(pendingEnqueued_));
+    if(pending_) ++metrics_.pendingReplaced;
     lastSequence_ = frame->sequence;
     lastCapture_ = frame->capturedAt;
     width_ = frame->width;
@@ -95,7 +136,11 @@ void VisionController::dispatch()
     const auto converter = metricConverter_;
     const auto workspace = workspace_;
     const auto sourceName = sourceId_.toStdString();
-    QMetaObject::invokeMethod(workerContext_, [this, detector, markerMap, converter, workspace, sourceName, frame, generation] {
+    const auto enqueued=pendingEnqueued_;
+    const auto debugEnabled=debugEnabled_;
+    const auto revision=calibrationRevision_;
+    const auto statisticsEpoch=statisticsEpoch_;
+    QMetaObject::invokeMethod(workerContext_, [this, detector, markerMap, converter, workspace, sourceName, frame, generation, enqueued, debugEnabled, revision, statisticsEpoch] {
         const auto start = MonotonicClock::now();
         auto result = std::make_shared<MarkerDetections>();
         try {
@@ -111,8 +156,11 @@ void VisionController::dispatch()
         result->width = frame->width;
         result->height = frame->height;
         result->processingTime = MonotonicClock::now() - start;
-        auto preview = makeVisionDebugFrame(frame, result, markerMap);
-        MetricObservationBatchPtr metric;
+        result->provenance={sourceName,frame->sequence,generation,frame->width,frame->height,frame->capturedAt,frame->timing,
+            workspace?std::optional<std::string>{workspace->frameId}:std::nullopt,{},revision};
+        PipelineTiming timing; timing.statisticsEpoch=statisticsEpoch; timing.enqueuedAt=enqueued; timing.detectionStarted=start;
+        timing.detectionFinished=MonotonicClock::now(); timing.converted=bool(converter); timing.debugEnabled=debugEnabled;
+        std::shared_ptr<MetricObservationBatch> metric;
         if (converter) {
             try {
                 metric = std::make_shared<MetricObservationBatch>(converter->convert(*result, sourceName, markerMap, workspace));
@@ -122,13 +170,36 @@ void VisionController::dispatch()
                 metric = std::make_shared<MetricObservationBatch>(MetricObservationBatch{MetricObservationStatus::InvalidGeometry, {}, "Metric conversion failed"});
             }
         }
-        QMetaObject::invokeMethod(this, [this, generation, result = std::move(result), preview = std::move(preview), metric = std::move(metric)] {
+        timing.conversionFinished=MonotonicClock::now();
+        if(metric) {
+            metric->provenance=result->provenance;
+            for(auto& m:metric->measurements) {
+                const auto mount=m.provenance.mountingRevision;
+                m.provenance=result->provenance; m.provenance.mountingRevision=mount;
+            }
+            std::set<RobotId> visible;
+            for(const auto& m:result->markers) if(auto id=markerMap.robotFor(m.family,m.id)) visible.insert(*id);
+            const auto& profile=markerMap.profile();
+            for(std::uint32_t i=0;i<profile.markerCount;++i) {
+                RobotId id{profile.firstRobotId+i}; if(result->error.empty() && !visible.contains(id)) metric->missingRobots.push_back(id);
+            }
+        }
+        auto preview=debugEnabled?makeVisionDebugFrame(frame,result,markerMap):nullptr;
+        timing.preparedAt=MonotonicClock::now(); timing.debugPreparation=timing.preparedAt-timing.conversionFinished;
+        QMetaObject::invokeMethod(this, [this, generation, timing, result = std::move(result), preview = std::move(preview), metric = std::move(metric)]() mutable {
             busy_ = false;
             if (generation == generation_ && !shuttingDown_ && streaming_) {
                 if (!result->error.empty()) log_.warning(result->error);
-                log_.debug("AprilTag source=" + sourceId_.toStdString() + " frame=" + std::to_string(result->frameSequence)
+                const auto logStart=MonotonicClock::now();
+                if(frameLoggingEnabled_) log_.debug("AprilTag source=" + sourceId_.toStdString() + " frame=" + std::to_string(result->frameSequence)
                     + " markers=" + std::to_string(result->markers.size()) + " processing_us="
                     + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(result->processingTime).count()));
+                timing.logging=MonotonicClock::now()-logStart; timing.loggingEnabled=frameLoggingEnabled_;
+                if(metric) {
+                    applyQualityGates(*metric,qualityGates_,MonotonicClock::now());
+                    metric->timing=timing;
+                }
+                const auto deliveryStart=MonotonicClock::now();
                 describe(result->error.empty()
                     ? QStringLiteral("AprilTag frame %1: %2 tags, %3 ms").arg(result->frameSequence).arg(result->markers.size())
                         .arg(std::chrono::duration<double, std::milli>(result->processingTime).count(), 0, 'f', 2)
@@ -144,6 +215,7 @@ void VisionController::dispatch()
                             .arg(r.duplicateRobot).arg(r.unassignedId).arg(r.unsupportedFamily));
                     }
                 }
+                if(!debugEnabled_) preview.reset();
                 if (preview && generation == generation_ && !shuttingDown_) {
                     preview->inputGeneration = generation;
                     preview->outputFramesPerSecond = outputRate_.record(MonotonicClock::now());
@@ -152,11 +224,19 @@ void VisionController::dispatch()
                 // A synchronous description observer can invalidate the input.
                 if (generation == generation_ && !shuttingDown_)
                     emit observationsAvailable(source, result);
-                if (generation == generation_ && !shuttingDown_)
+                if (generation == generation_ && !shuttingDown_) {
+                    if(metric) applyQualityGates(*metric,qualityGates_,MonotonicClock::now());
                     emit metricObservationsAvailable(source, metric);
+                }
                 // Observation consumers can also invalidate synchronously.
                 if (generation == generation_ && !shuttingDown_)
                     emit previewAvailable(source, preview);
+                timing.delivery=MonotonicClock::now()-deliveryStart;
+                if(generation==generation_ && timing.statisticsEpoch==statisticsEpoch_ && !shuttingDown_) {
+                    const auto instrumentationStart=MonotonicClock::now();
+                    metrics_.pipeline(timing,!result->error.empty(),metric && metric->status!=MetricObservationStatus::Valid);
+                    metrics_.instrumentation(MonotonicClock::now()-instrumentationStart);
+                }
             }
             dispatch();
         }, Qt::QueuedConnection);

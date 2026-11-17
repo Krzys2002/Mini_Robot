@@ -42,6 +42,6 @@ MetricObservationResult metricObservation(const RobotObservation& observation,
         return {MetricObservationStatus::InvalidGeometry, {}};
     return {MetricObservationStatus::Valid, MetricPoseMeasurement{observation.robotId,
         {center->x, center->y, normalizeAngle(Radians{std::atan2(dy, dx)})},
-        observation.capturedAt, observation.frameSequence, observation.minimumEdgePixels, observation.decisionMargin}};
+        observation.capturedAt, observation.frameSequence, observation.minimumEdgePixels, observation.decisionMargin, observation.provenance}};
 }
 } // namespace micro_robot

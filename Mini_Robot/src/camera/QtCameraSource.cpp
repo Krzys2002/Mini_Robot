@@ -232,7 +232,8 @@ private:
         auto frame = std::make_shared<const Frame>(Frame{
             sequence_++, capturedAt, static_cast<std::uint32_t>(image.width()),
             static_cast<std::uint32_t>(image.height()), stride, PixelFormat::Rgba8,
-            std::make_shared<const std::vector<std::byte>>(std::move(pixels))});
+            std::make_shared<const std::vector<std::byte>>(std::move(pixels)),
+            FrameTiming{capturedAt, {}, ObservationTimeSource::Receipt, {}, {}, false}});
         const auto mailbox = mailbox_;
         {
             std::lock_guard lock{mailbox->mutex};

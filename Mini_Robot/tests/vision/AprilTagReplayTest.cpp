@@ -48,6 +48,9 @@ TEST(AprilTagReplayTest, DecodesRecordedFramesThroughTheSameDetectorContract)
         ASSERT_EQ(result.markers.size(), 1U);
         EXPECT_EQ(result.markers[0].id, i == 0 ? 0 : 15);
         EXPECT_EQ(result.capturedAt, start + std::chrono::milliseconds{40 * i});
+        EXPECT_EQ(result.provenance.timing.observationSource,ObservationTimeSource::ReplayTimeline);
+        EXPECT_EQ(result.provenance.timing.receivedAt,start+std::chrono::milliseconds{40*i});
+        EXPECT_FALSE(result.provenance.timing.exposureAt); EXPECT_EQ(result.provenance.observedAt,result.capturedAt);
     }
     EXPECT_GT(sink->results[1].frameSequence, sink->results[0].frameSequence);
     source.stop();

@@ -13,8 +13,18 @@ inline QMetaObject::Connection connectVisionTracking(VisionController& vision, R
     std::function<Timestamp()> clock = [] { return MonotonicClock::now(); })
 {
     return QObject::connect(&vision, &VisionController::metricObservationsAvailable, &context,
-        [&tracker, refresh = std::move(refresh), clock = std::move(clock)](const QString&, MetricObservationBatchPtr batch) {
-            ingestMetricBatch(tracker, batch, clock());
+        [&vision, &tracker, refresh = std::move(refresh), clock = std::move(clock)](const QString&, MetricObservationBatchPtr batch) {
+            if(batch && batch->provenance.inputGeneration!=vision.inputGeneration()) return;
+            const auto start=clock();
+            auto filtered=batch?std::make_shared<MetricObservationBatch>(*batch):nullptr;
+            if(filtered) applyQualityGates(*filtered,vision.qualityGates(),start);
+            const auto result=ingestMetricBatch(tracker,filtered,start);
+            const auto completed=clock();
+            if(filtered) {
+                if(vision.recordPublication(*filtered,result.accepted,result.rejected,start,completed))
+                for(const auto& [id,outcome]:result.outcomes) if(outcome!=TrackerUpdate::Applied)
+                    vision.recordTrackingRejection(id,trackerUpdateName(outcome));
+            }
             refresh();
         });
 }

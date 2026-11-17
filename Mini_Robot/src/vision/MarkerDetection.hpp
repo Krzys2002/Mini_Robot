@@ -24,6 +24,7 @@ struct MarkerDetections {
     Duration processingTime{}; // Conversion + detection + result mapping; no queue delay.
     std::vector<MarkerObservation> markers;
     std::string error; // Empty with zero markers is a successful negative observation.
+    MeasurementProvenance provenance{};
 };
 using MarkerDetectionsPtr = std::shared_ptr<const MarkerDetections>;
 
