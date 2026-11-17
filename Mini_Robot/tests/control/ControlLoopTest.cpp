@@ -265,6 +265,20 @@ TEST_F(ControlLoopTest, MissingTargetInvalidTargetConfigurationAndUntrackedRobot
     invalid = config; invalid.maximumObservationAge = Duration::zero();
     EXPECT_THROW((ControlLoop{id, world, robots, policy, invalid}), std::invalid_argument);
 }
+TEST_F(ControlLoopTest, DomainSequencesCorrelateVelocityAndStopWithoutClaimingWireOrder)
+{
+    std::uint64_t sequence = 41;
+    ControlLoop correlated{id, world, robots, policy, config, [this] { return now; }, [&] { return sequence++; }};
+    ASSERT_TRUE(correlated.setTarget(target)); ASSERT_TRUE(correlated.start()); ASSERT_TRUE(correlated.poll());
+    EXPECT_EQ(correlated.lastCycle()->commandSequence, 41u);
+    transport.advanceTo(now);
+    EXPECT_EQ(transport.lastSentCommand(id)->metadata.sequence, 41u);
+    correlated.stop();
+    EXPECT_EQ(correlated.lastCycle()->stopSequence, 42u);
+    now += 1ms; transport.advanceTo(now);
+    EXPECT_EQ(transport.lastSentCommand(id)->metadata.sequence, 42u);
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.lastSentCommand(id)->payload));
+}
 TEST(ControlLoopTestStandalone, TargetRequiresAnInstalledWorkspaceFrame)
 {
     WorldModel world;
