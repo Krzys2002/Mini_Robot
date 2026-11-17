@@ -372,6 +372,28 @@ TEST(BleTransportTest, ConfigurationAndConstructionDoNotTouchBluetoothHardware)
     EXPECT_EQ(transport.connectionState(robot), ConnectionState::Disconnected);
     EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity(),
                                restrictedLab(BleTransportConfig{0ms})}), std::invalid_argument);
+    // Tracked commands must stay below half the uint16 wire sequence range.
+    BleTransportConfig tracked;
+    tracked.maximumTrackedCommands = 32767;
+    EXPECT_NO_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity(),
+                                  restrictedLab(tracked)}));
+    tracked.maximumTrackedCommands = 32768;
+    EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity(),
+                               restrictedLab(tracked)}), std::invalid_argument);
+}
+TEST(BleTransportTest, RejectsBackendRobotInfoLimitsOutsideTheSignedWireRange)
+{
+    for (const bool linear : {true, false}) {
+        for (const std::uint16_t limit : {std::uint16_t{32767}, std::uint16_t{32768}}) {
+            Fixture f;
+            f.connecting();
+            BleRobotInfo info{robot, 300, 6000, 500, 100};
+            (linear ? info.maximumLinearMillimetersPerSecond : info.maximumAngularMilliradiansPerSecond) = limit;
+            emit f.backend->IBleBackend::ready(f.backend->links.at(robot), info); drain();
+            EXPECT_EQ(f.transport->connectionState(robot) == ConnectionState::Connected, limit == 32767)
+                << (linear ? "linear " : "angular ") << limit;
+        }
+    }
 }
 TEST(BleTransportTest, CancelsQueuedCallbacksOnDestructionAndUsesWeakSinks)
 {
