@@ -89,7 +89,8 @@ void BleTransport::pump(RobotId id)
             QObject::connect(session.pumpTimer.get(), &QTimer::timeout, this, [this, id] { schedulePump(id); });
         }
         const auto remaining = config_.minimumVelocityInterval - (now - *session.lastVelocityAt);
-        session.pumpTimer->start(static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count() + 1));
+        session.pumpTimer->start(static_cast<int>((std::chrono::duration_cast<std::chrono::milliseconds>(remaining)
+            + PumpTimerRoundUp).count()));
         return;
     }
     const auto command = std::exchange(session.pending, {});
