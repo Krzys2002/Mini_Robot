@@ -13,7 +13,9 @@ MetricObservationBatch OpenCvMetricObservationConverter::convert(const MarkerDet
     const std::optional<WorkspaceCalibrationProfile>& profile)
 {
     if (!profile || !profile->homography) return {};
-    if (!validateWorkspaceCalibrationProfile(*profile).empty() || sourceId != profile->intrinsics.sourceId
+    if (const auto error=validateWorkspaceCalibrationProfile(*profile); !error.empty())
+        return {MetricObservationStatus::InvalidCalibration, {}, error};
+    if (sourceId != profile->intrinsics.sourceId
         || detections.width != profile->intrinsics.width || detections.height != profile->intrinsics.height)
         return {MetricObservationStatus::InvalidCalibration, {}, "Incompatible workspace calibration"};
     if (!detections.error.empty())
@@ -42,6 +44,8 @@ MetricObservationBatch OpenCvMetricObservationConverter::convert(const MarkerDet
             auto result = metricObservation(observation, corners, profile);
             if (result.measurement) batch.measurements.push_back(*result.measurement);
             else if (result.status == MetricObservationStatus::OutsideWorkspace) ++batch.rejected.outsideWorkspace;
+            else if (result.status == MetricObservationStatus::UnknownMount) ++batch.rejected.unknownMount;
+            else if (result.status == MetricObservationStatus::UnsupportedRay) ++batch.rejected.unsupportedRay;
             else ++batch.rejected.invalidGeometry;
         }
     } catch (const std::exception& error) {

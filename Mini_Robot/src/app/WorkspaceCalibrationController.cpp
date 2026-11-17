@@ -467,7 +467,7 @@ void WorkspaceCalibrationController::save()
         return;
     const auto profile = *draft_;
     const auto acquisition = !profile.acquisitionId.empty()
-        ? (boundaryConfirmed_ ? acquisitionSnapshot(profile) : draftAcquisition_) : nullptr;
+        ? (profile.localization ? draftAcquisition_ : (boundaryConfirmed_ ? acquisitionSnapshot(profile) : draftAcquisition_)) : nullptr;
     const auto generation = generation_;
     busy_ = true;
     publish(QStringLiteral("Saving workspace profile…"));
@@ -527,7 +527,7 @@ void WorkspaceCalibrationController::load()
                         result.error = "Loaded workspace identity/transform mismatch.";
                     if (!result.profile->acquisitionId.empty()) {
                         if (!result.acquisition) result.error="Linked acquisition provenance is missing.";
-                        else if (serializeWorkspaceProfile(result.acquisition->profile)!=serializeWorkspaceProfile(*result.profile))
+                        else if (tabletopProfileBinding(result.acquisition->profile)!=tabletopProfileBinding(*result.profile))
                             result.error="Linked acquisition/profile binding mismatch.";
                         else if (auto error=validateWorkspaceAcquisition(*result.acquisition); !error.empty()) result.error=error;
                     }

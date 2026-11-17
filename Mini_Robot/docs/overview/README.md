@@ -68,3 +68,5 @@
 
 Implementation constraints and platform policy are defined in
 [AGENTS.md](../../AGENTS.md).
+
+- [Elevated parallel tags and measured axle/body geometry](elevated-localization.md): v4 survey/extrinsics/mount workflow, migration and physical limits (#270).

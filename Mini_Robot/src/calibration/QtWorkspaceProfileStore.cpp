@@ -38,7 +38,7 @@ WorkspaceAcquisitionLoadOutcome QtWorkspaceProfileStore::readAcquisition(const W
     const auto bytes = file.read(static_cast<qint64>(MaximumWorkspaceAcquisitionBytes)+1);
     if (file.error()!=QFileDevice::NoError) return {{},file.errorString().toStdString()};
     auto result = parseWorkspaceAcquisition({bytes.constData(),static_cast<std::size_t>(bytes.size())});
-    if (result.record && serializeWorkspaceProfile(result.record->profile)!=serializeWorkspaceProfile(profile))
+    if (result.record && tabletopProfileBinding(result.record->profile)!=tabletopProfileBinding(profile))
         return {{},"Linked acquisition belongs to another calibration/frame/optical binding."};
     return result;
 }
@@ -103,7 +103,7 @@ std::string QtWorkspaceProfileStore::saveAcquisition(const WorkspaceCalibrationP
                                                     const WorkspaceAcquisitionRecord& record)
 {
     try {
-        if (serializeWorkspaceProfile(record.profile)!=serializeWorkspaceProfile(profile))
+        if (tabletopProfileBinding(record.profile)!=tabletopProfileBinding(profile))
             return "Acquisition snapshot/profile mismatch.";
         const auto text = serializeWorkspaceAcquisition(record);
         if (!QDir{}.mkpath(directory_)) return "Cannot create workspace acquisition directory.";

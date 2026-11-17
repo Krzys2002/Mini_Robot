@@ -225,3 +225,7 @@ owns reference/survey identity, and [#272](https://github.com/Krzys2002/Mini_Rob
 owns timing. These successors do not depend on the map/distance diagnostic stack.
 
 Physical side-camera acceptance (#261) remains NOT RUN.
+
+## Elevated robot tags
+
+The [v4 height-aware localization workflow](elevated-localization.md) estimates camera extrinsics from measured, height-labelled references and applies per-robot tag-to-body geometry. Legacy tabletop H and sidecar meanings remain unchanged; they alone do not yield corrected axle/body poses.

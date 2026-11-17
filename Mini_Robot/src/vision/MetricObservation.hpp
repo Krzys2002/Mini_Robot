@@ -7,6 +7,7 @@
 namespace micro_robot {
 // Undistorted native-K corners, ordered as the decoded marker TL, TR, BR, BL.
 // The caller must undistort corners before computing their projective center.
+enum class MetricPoseReference { TabletopTagCenter, AxleBodyCenter };
 struct MetricPoseMeasurement {
     RobotId robotId;
     Pose2D pose;
@@ -14,9 +15,11 @@ struct MetricPoseMeasurement {
     std::uint64_t frameSequence;
     double minimumEdgePixels;
     std::optional<double> decisionMargin;
+    MetricPoseReference reference{MetricPoseReference::TabletopTagCenter};
+    std::string cameraId{}, worldFrameId{}, calibrationRevision{}, mountingRevision{};
 };
 
-enum class MetricObservationStatus { Valid, Uncalibrated, InvalidCalibration, InvalidGeometry, OutsideWorkspace };
+enum class MetricObservationStatus { Valid, Uncalibrated, InvalidCalibration, InvalidGeometry, OutsideWorkspace, UnknownMount, UnsupportedRay };
 struct MetricObservationResult {
     MetricObservationStatus status{MetricObservationStatus::Uncalibrated};
     std::optional<MetricPoseMeasurement> measurement;
@@ -25,12 +28,14 @@ struct MetricObservationResult {
 // Pure boundary for already-undistorted geometry; no raw pixel pose leaves it.
 // Returns a measurement, never tracked state. Center and all corners must lie
 // inside the workspace; a horizon crossing or collapsed heading is rejected.
+// V4 additionally checks native image support and publishes the measured body
+// transform with revision metadata. Legacy measurements remain tabletop-tag-only.
 [[nodiscard]] MetricObservationResult metricObservation(
     const RobotObservation& observation, const std::array<MarkerCorner, 4>& undistortedCorners,
     const std::optional<WorkspaceCalibrationProfile>& calibration);
 // Fixed-size per-frame counters; no marker identities or unbounded diagnostics retained.
 struct MetricRejections {
-    std::size_t unsupportedFamily{}, unassignedId{}, duplicateRobot{}, invalidGeometry{}, outsideWorkspace{};
+    std::size_t unsupportedFamily{}, unassignedId{}, duplicateRobot{}, invalidGeometry{}, outsideWorkspace{}, unknownMount{}, unsupportedRay{};
 };
 struct MetricObservationBatch {
     MetricObservationStatus status{MetricObservationStatus::Uncalibrated};

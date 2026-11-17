@@ -5,6 +5,12 @@ reports are scope/history, not evidence that future modules are present.
 
 | Source file | Behavior guide |
 | --- | --- |
+| [src/calibration/ElevatedLocalization.hpp](../../src/calibration/ElevatedLocalization.hpp) | [Elevated tag / axle-body localization](elevated-localization.md) |
+| [src/calibration/ElevatedLocalization.cpp](../../src/calibration/ElevatedLocalization.cpp) | [Elevated tag / axle-body localization](elevated-localization.md) |
+| [src/calibration/OpenCvExtrinsicsSolver.hpp](../../src/calibration/OpenCvExtrinsicsSolver.hpp) | [Elevated tag / axle-body localization](elevated-localization.md) |
+| [src/calibration/OpenCvExtrinsicsSolver.cpp](../../src/calibration/OpenCvExtrinsicsSolver.cpp) | [Elevated tag / axle-body localization](elevated-localization.md) |
+| [src/app/WorkspaceLocalizationController.cpp](../../src/app/WorkspaceLocalizationController.cpp) | [Elevated tag / axle-body localization](elevated-localization.md) |
+| [src/ui/ElevatedLocalizationDialog.cpp](../../src/ui/ElevatedLocalizationDialog.cpp) | [Elevated tag / axle-body localization](elevated-localization.md) |
 | [src/app/CameraSelectionController.cpp](../../src/app/CameraSelectionController.cpp) | [Camera selection](camera-selection.md) |
 | [src/app/CameraSelectionController.hpp](../../src/app/CameraSelectionController.hpp) | [Camera selection](camera-selection.md) |
 | [src/app/Info.plist.in](../../src/app/Info.plist.in) | [macOS discovery metadata](camera-discovery.md#macos-and-verification) |

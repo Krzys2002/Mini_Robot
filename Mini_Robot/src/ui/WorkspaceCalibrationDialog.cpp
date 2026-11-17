@@ -3,6 +3,7 @@
 #include "ui/WorkspaceDistanceDialog.hpp"
 #include "ui/WorkspaceReferenceModel.hpp"
 #include "ui/WorkspaceBoardPanel.hpp"
+#include "ui/ElevatedLocalizationDialog.hpp"
 #include <QScrollArea>
 #include <QMessageBox>
 #include <QFormLayout>
@@ -215,6 +216,12 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
         if (row<0 || static_cast<std::size_t>(row)>=controller_.references().size()) return {};
         return controller_.references()[static_cast<std::size_t>(row)].id;
     },this);
+    auto* localization = new QPushButton("Elevated tag / axle-body geometry…", this);
+    localization->setObjectName("elevatedLocalization");
+    layout->addWidget(localization);
+    connect(localization, &QPushButton::clicked, this, [this] {
+        ElevatedLocalizationDialog dialog{controller_, this}; dialog.exec();
+    });
     layout->addWidget(board_); connect(board_,&QGroupBox::toggled,this,[this]{refresh();});
     points_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     points_->setMaximumHeight(160); layout->addWidget(points_);

@@ -589,6 +589,9 @@ void DesktopController::setWorkspaceCalibration(const std::optional<WorkspaceCal
     }
     workspaceCalibrationDescription_ = QStringLiteral("transform available for %1 · explicit metric frame")
         .arg(QString::fromStdString(profile->workspaceId));
+    workspaceCalibrationDescription_ += profile->localization
+        ? QStringLiteral(" · height-corrected axle/body centre")
+        : QStringLiteral(" · tabletop tag centre only (no height/mount correction)");
     world_.setWorkspaceFrame(profile->bounds, profile->frameId);
     if (initialized_) publishWorld();
 }
