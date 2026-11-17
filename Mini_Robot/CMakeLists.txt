@@ -63,21 +63,6 @@ micro_robot_check_platform_boundaries("${PROJECT_SOURCE_DIR}/src")
 
 include(CTest)
 if(BUILD_TESTING)
-    find_package(GTest CONFIG QUIET)
-    if(NOT GTest_FOUND)
-        include(FetchContent)
-        # Match the default MSVC runtime used by the application.
-        set(gtest_force_shared_crt ON CACHE BOOL "Use shared MSVC runtime" FORCE)
-        set(INSTALL_GTEST OFF CACHE BOOL "Disable GoogleTest installation" FORCE)
-        set(BUILD_GMOCK OFF CACHE BOOL "GoogleMock is not used by this project" FORCE)
-        FetchContent_Declare(
-            googletest
-            URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-            TIMEOUT 60
-            INACTIVITY_TIMEOUT 15
-        )
-        FetchContent_MakeAvailable(googletest)
-    endif()
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MicroRobotGoogleTest.cmake")
     add_subdirectory(tests)
 endif()

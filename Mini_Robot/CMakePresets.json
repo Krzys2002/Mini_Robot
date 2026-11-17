@@ -31,7 +31,8 @@
       "displayName": "macOS (Apple Clang, Debug)",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "clang++"
+        "CMAKE_CXX_COMPILER": "clang++",
+        "MICRO_ROBOT_BUILD_BLE": "ON"
       },
       "condition": {
         "type": "equals",
@@ -44,7 +45,8 @@
       "displayName": "Linux (GCC, Debug)",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "g++"
+        "CMAKE_CXX_COMPILER": "g++",
+        "MICRO_ROBOT_BUILD_BLE": "ON"
       },
       "condition": {
         "type": "equals",
@@ -57,7 +59,8 @@
       "displayName": "Linux (Clang, Debug)",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "clang++"
+        "CMAKE_CXX_COMPILER": "clang++",
+        "MICRO_ROBOT_BUILD_BLE": "ON"
       },
       "condition": {
         "type": "equals",
@@ -71,7 +74,8 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "MICRO_ROBOT_CAMERA_BACKEND": "Qt"
+        "MICRO_ROBOT_CAMERA_BACKEND": "Qt",
+        "MICRO_ROBOT_BUILD_BLE": "ON"
       },
       "condition": {
         "type": "equals",
@@ -97,7 +101,9 @@
     {
       "name": "desktop",
       "configurePreset": "desktop",
-      "targets": ["micro_robot_desktop"]
+      "targets": [
+        "micro_robot_desktop"
+      ]
     },
     {
       "name": "macos",
