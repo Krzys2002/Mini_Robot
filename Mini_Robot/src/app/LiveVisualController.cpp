@@ -6,6 +6,21 @@
 #include <stdexcept>
 
 namespace micro_robot {
+namespace {
+QString operationalStateLabel(ControlOperationalState state)
+{
+    switch (state) {
+    case ControlOperationalState::Ready: return QStringLiteral("READY");
+    case ControlOperationalState::Running: return QStringLiteral("RUNNING");
+    case ControlOperationalState::Paused: return QStringLiteral("PAUSED");
+    case ControlOperationalState::LostTracking: return QStringLiteral("LOST_TRACKING");
+    case ControlOperationalState::LostConnection: return QStringLiteral("LOST_CONNECTION");
+    case ControlOperationalState::EStop: return QStringLiteral("ESTOP");
+    case ControlOperationalState::Fault: return QStringLiteral("FAULT");
+    }
+    return QStringLiteral("FAULT");
+}
+}
 LiveVisualSettings LiveVisualSettings::fromApplication(const ApplicationConfig& c)
 {
     LiveVisualSettings settings;
@@ -42,6 +57,28 @@ LiveVisualController::LiveVisualController(DesktopController& desktop, WorldMode
 }
 LiveVisualController::~LiveVisualController() { stop(); }
 bool LiveVisualController::running() const { return loop_ && loop_->state() == ControlLoopState::Running; }
+ControlOperationalState LiveVisualController::operationalState() const
+{
+    const auto session = robots_.session(selected_);
+    if (session && (session->emergencyStopRequested || session->safety == DesktopSafetyState::EmergencyStop))
+        return ControlOperationalState::EStop;
+    if (session && session->connection == ConnectionState::Fault)
+        return ControlOperationalState::Fault;
+    if (!session || !session->connectRequested || session->removing
+        || session->connection != ConnectionState::Connected
+        || session->safety == DesktopSafetyState::Disconnected
+        || session->safety == DesktopSafetyState::LostConnection)
+        return ControlOperationalState::LostConnection;
+    if (session->safetyFault || session->safety == DesktopSafetyState::Fault)
+        return ControlOperationalState::Fault;
+    const auto tracking = world_.tracking(selected_, clock_());
+    const auto robot = world_.robot(selected_);
+    if (!streaming_ || !provenance_ || tracking.status != TrackingStatus::Fresh || !tracking.age
+        || *tracking.age >= settings_.loop.maximumObservationAge
+        || !robot || robot->poseUpdatedAt != provenance_->capturedAt)
+        return ControlOperationalState::LostTracking;
+    return loop_ ? loop_->operationalState() : ControlOperationalState::Ready;
+}
 std::optional<ControlCycle> LiveVisualController::lastCycle() const { return loop_ ? loop_->lastCycle() : std::nullopt; }
 void LiveVisualController::setInput(const QString& source, bool streaming)
 {
@@ -93,7 +130,7 @@ bool LiveVisualController::start()
         status_ = QStringLiteral("Live visual control disabled for this transport — physical acceptance is incomplete");
         publish(); return false;
     }
-    if (!ready()) { status_ = QStringLiteral("Not ready — need a target, calibrated live measurement and ready robot session"); publish(); return false; }
+    if (!ready()) { status_ = QStringLiteral("%1 — explicit Start requires target, fresh measurement and safe session").arg(operationalStateLabel(operationalState())); publish(); return false; }
     desktop_.cancelManualDrive();
     policy_.reset();
     scheduler_.reset(); loop_.reset();
@@ -176,7 +213,8 @@ void LiveVisualController::record()
 void LiveVisualController::publish()
 {
     const auto robot = world_.robot(selected_);
-    description_ = QStringLiteral("Robot %1 · %2").arg(selected_.value()).arg(status_);
+    description_ = QStringLiteral("Robot %1 · %2 — %3").arg(selected_.value())
+        .arg(operationalStateLabel(operationalState()), status_);
     if (robot && robot->pose) description_ += QStringLiteral("\nActual: x %1 m · y %2 m · heading %3 rad")
         .arg(robot->pose->x.value, 0, 'f', 3).arg(robot->pose->y.value, 0, 'f', 3).arg(robot->pose->heading.value, 0, 'f', 3);
     else description_ += QStringLiteral("\nActual pose unavailable");

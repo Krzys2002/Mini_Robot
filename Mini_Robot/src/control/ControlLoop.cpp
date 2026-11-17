@@ -55,12 +55,57 @@ std::optional<ControlCycleResult> ControlLoop::gate(Timestamp now) const
     return {};
 }
 
+ControlOperationalState ControlLoop::classify(ControlCycleResult reason) const
+{
+    switch (reason) {
+    case ControlCycleResult::Stopped:
+    case ControlCycleResult::FrameChanged:
+        return ControlOperationalState::Paused;
+    case ControlCycleResult::TrackingUnavailable:
+        return ControlOperationalState::LostTracking;
+    case ControlCycleResult::SessionUnavailable:
+    case ControlCycleResult::SubmissionRejected: {
+        const auto session = robots_.session(id_);
+        if (session && (session->emergencyStopRequested
+            || session->safety == DesktopSafetyState::EmergencyStop))
+            return ControlOperationalState::EStop;
+        if (session && session->connection == ConnectionState::Fault)
+            return ControlOperationalState::Fault;
+        if (!session || !session->connectRequested || session->removing
+            || session->connection != ConnectionState::Connected
+            || session->safety == DesktopSafetyState::Disconnected
+            || session->safety == DesktopSafetyState::LostConnection)
+            return ControlOperationalState::LostConnection;
+        if (session->safetyFault || session->safety == DesktopSafetyState::Fault)
+            return ControlOperationalState::Fault;
+        return ControlOperationalState::Fault;
+    }
+    case ControlCycleResult::InvalidClock:
+    case ControlCycleResult::ControllerUnavailable:
+    case ControlCycleResult::ControllerFailure:
+    case ControlCycleResult::InvalidOutput:
+        return ControlOperationalState::Fault;
+    case ControlCycleResult::Submitted:
+        return ControlOperationalState::Running;
+    }
+    return ControlOperationalState::Fault;
+}
+
 bool ControlLoop::start()
 {
     if (state_ == ControlLoopState::Running) return true;
     const auto now = clock_();
-    if (!target_ || gate(now)) return false;
+    if (!target_) {
+        operationalState_ = ControlOperationalState::Ready;
+        return false;
+    }
+    if (const auto reason = gate(now)) {
+        state_ = ControlLoopState::Inhibited;
+        operationalState_ = classify(*reason);
+        return false;
+    }
     state_ = ControlLoopState::Running;
+    operationalState_ = ControlOperationalState::Running;
     nextDue_ = now;
     lastNow_ = now;
     return true;
@@ -69,6 +114,7 @@ bool ControlLoop::start()
 void ControlLoop::inhibit(ControlCycle cycle, ControlCycleResult reason, Timestamp now)
 {
     state_ = ControlLoopState::Inhibited;
+    operationalState_ = classify(reason);
     cycle.finishedAt = now;
     cycle.result = reason;
     // Stop submission is an attempt, never evidence of delivery/physical stopping.

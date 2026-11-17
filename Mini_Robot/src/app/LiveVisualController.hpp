@@ -31,6 +31,7 @@ public:
     void receiveMeasurements(const MetricObservationBatchPtr& batch);
     void refresh();
     [[nodiscard]] bool running() const;
+    [[nodiscard]] ControlOperationalState operationalState() const;
     [[nodiscard]] QString description() const { return description_; }
     [[nodiscard]] std::optional<ControlCycle> lastCycle() const;
 public slots:

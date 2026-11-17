@@ -100,8 +100,11 @@ TEST_F(LiveVisualControlTest, MetricBridgeUsesFilteredPoseAndLogsOriginalProvena
 }
 TEST_F(LiveVisualControlTest, StaleLostAndCameraInvalidationStopAndNeverAutoResume)
 {
-    run(); now += 250ms; visual.refresh();
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::Ready);
+    run(); EXPECT_EQ(visual.operationalState(), ControlOperationalState::Running);
+    now += 250ms; visual.refresh();
     EXPECT_FALSE(visual.running());
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::LostTracking);
     EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.commands.back().second.payload));
     now += 1ms; sample(0, 0);
     EXPECT_FALSE(visual.running());
@@ -117,6 +120,7 @@ TEST_F(LiveVisualControlTest, DisconnectAndReconnectRequireNewStart)
 {
     run(); now += 1ms;
     transport.publishState(RobotId{1}, ConnectionState::Disconnected, now);
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::LostConnection);
     EXPECT_FALSE(visual.running()); EXPECT_FALSE(visual.start());
     EXPECT_TRUE(robots.connect(RobotId{1}));
     now += 1ms; transport.publishState(RobotId{1}, ConnectionState::Connected, now);
@@ -130,6 +134,7 @@ TEST_F(LiveVisualControlTest, ManualInputAndStopTakeExclusiveMotionAuthority)
     EXPECT_DOUBLE_EQ(std::get<VelocityCommand>(transport.commands.back().second.payload).linearMetersPerSecond, -.05);
     ASSERT_TRUE(visual.start()); visual.refresh();
     desktop.stopManualDrive(); EXPECT_FALSE(visual.running());
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::Paused);
     EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.commands.back().second.payload));
 }
 TEST_F(LiveVisualControlTest, SelectionAmbiguityFaultEstopAndShutdownInterruptVisualCommands)
@@ -143,7 +148,9 @@ TEST_F(LiveVisualControlTest, SelectionAmbiguityFaultEstopAndShutdownInterruptVi
     EXPECT_FALSE(visual.running()); EXPECT_FALSE(visual.start());
     desktop.selectRobot(1); ASSERT_TRUE(visual.setTarget(1, 0, 0));
     now += 1ms; sample(0, 0); ASSERT_TRUE(visual.start());
-    desktop.emergencyStop(); EXPECT_FALSE(visual.running()); EXPECT_FALSE(visual.start());
+    desktop.emergencyStop(); EXPECT_FALSE(visual.running());
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::EStop);
+    EXPECT_FALSE(visual.start());
     desktop.shutdown(); EXPECT_FALSE(visual.running()); EXPECT_FALSE(visual.start());
 }
 TEST_F(LiveVisualControlTest, EmergencyStopLatchesManagerBeforeInterruptingVisualControl)
@@ -173,6 +180,7 @@ TEST_F(LiveVisualControlTest, ReportedRobotFaultImmediatelyStopsAndCannotRearm)
 {
     run();
     transport.publishTelemetry({RobotId{1}, now, {}, {}, {}, {}, RobotOperatingState::Fault});
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::Fault);
     EXPECT_FALSE(visual.running()); EXPECT_FALSE(visual.start());
     EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.commands.back().second.payload));
 }

@@ -37,6 +37,26 @@ its RobotId, stop it before switching to manual/another loop, and stop it before
 destroying dependencies. This issue does not implement an application-wide
 manual/autonomous mode arbiter. E-stop remains independent in RobotManager.
 
+## Operational states and re-arming
+
+The Qt-free service exposes a typed operational state alongside its scheduler
+lifecycle:
+
+| State | Meaning and command policy |
+| --- | --- |
+| Ready | Not armed. A Start request must pass target, frame, tracking-age and manager-session checks. |
+| Running | Explicitly armed. Every poll gates before policy evaluation and again before submission; every finite output is bounded. |
+| Paused | Operator Stop or workspace-frame replacement. No command is generated until a fresh explicit Start; a changed frame also needs a new target. |
+| LostTracking | No accepted pose is fresh within maximumObservationAge, or live camera provenance is unavailable. Stop is attempted and fresh frames alone do not re-arm. |
+| LostConnection | The selected manager session is absent, disconnected, removing or not requested. Stop is attempted; reconnect alone does not re-arm. |
+| EStop | RobotManager's E-stop latch/request is active. Normal commands remain inhibited until the manager reports an accepted explicit clear; a separate Start is still required. |
+| Fault | Manager safety fault, invalid/backwards clock, unavailable/throwing policy, non-finite output, or rejected command. Recovery must restore all gates and requires explicit Start. |
+
+Any failed runtime gate exits Running before normal command submission and
+attempts Stop through RobotManager. Stop submission is only an adapter handoff.
+The state records why motion is inhibited; it does not assert physical stopping.
+No transition from a non-running state automatically returns to Running.
+
 ## Timing and safety
 
 `ControlLoopConfig` supplies a positive whole-millisecond period, command validity
