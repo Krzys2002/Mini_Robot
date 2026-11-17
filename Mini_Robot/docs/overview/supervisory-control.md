@@ -4,7 +4,8 @@ Issue #74 provides an opt-in service and scheduler. It does not select a product
 control policy, add target-selection UI, or activate autonomous movement in
 `main.cpp`. A [baseline goal-point policy](goal-point-controller.md) is supplied
 separately by #75; production activation and physical closed-loop commissioning
-remain separate work. The existing manual-drive composition is unchanged.
+remain separate work. #76 adds [live application composition](live-visual-control.md)
+and explicit manual/visual motion arbitration.
 
 ## Boundaries and ownership
 

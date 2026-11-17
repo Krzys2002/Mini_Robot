@@ -79,6 +79,9 @@ The current layers are:
   simulation by default. Native command writes recheck freshness at API handoff;
   incoming notifications receive a steady-clock timestamp.
 - `micro_robot_desktop_controller`: Qt Core adapters using interface references;
+  LiveVisualController composes accepted metric provenance, goal policy, scheduler
+  and DesktopController motion arbitration; ControlTraceWriter provides a bounded
+  worker handoff for per-cycle log writes;
   its opt-in `QtControlLoopScheduler` drives the supervisory service on the
   model/manager owner thread, with prompt nonblocking policy callbacks;
   DesktopController coordinates the demo/model through RobotManager and owns the active camera source,

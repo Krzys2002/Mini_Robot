@@ -2,9 +2,9 @@
 
 Issue #75 supplies `GoalPointController`, a forward-only `IController`
 implementation for the [supervisory loop](supervisory-control.md). It adds no BLE,
-GUI, camera, motor, planner or clock dependency. Production composition/target UI
-and physical closed-loop commissioning remain separate work; `main.cpp` does not
-automatically activate this controller.
+GUI, camera, motor, planner or clock dependency. Physical closed-loop commissioning remains separate work. #76 adds
+[live application composition and target UI](live-visual-control.md); `main.cpp` never starts
+motion automatically.
 
 ## Inputs, errors and arrival
 

@@ -8,6 +8,8 @@ Source: [main.cpp](../../src/app/main.cpp),
 [MainWindow.cpp](../../src/ui/MainWindow.cpp).
 
 Build and launch using the [development guide](../development/build.md).
+The [live visual-control guide](live-visual-control.md) describes robot/target
+selection, explicit Start/Stop, metric gates and physical acceptance ownership.
 The current application demonstrates the implemented M1 foundation. It requires no camera,
 Bluetooth adapter, calibration, ESP32, or configuration file. An optional
 [configuration file](configuration.md) selects the robot ID, simulation timing,
@@ -17,8 +19,9 @@ The optional [BLE connection mode](ble-connection.md) uses `--ble` in a build
 configured with `MICRO_ROBOT_BUILD_BLE=ON`. Connect/disconnect use the same
 controller and buttons; setup phases are logged. This mode does not supply
 simulated telemetry; validated real battery/velocity telemetry
-reaches the controller through the [BLE message adapter](ble-messages.md). No
-manual motion controls are added. The behavior below describes default simulation.
+reaches the controller through the [BLE message adapter](ble-messages.md).
+Manual and visual commands share RobotManager; default simulation does not
+establish physical safety acceptance.
 
 ## Camera selection
 
