@@ -13,7 +13,7 @@
 // watchdog. A watchdog expiry first sleeps both bridges from the ISR, then panics and resets;
 // esp_restart() runs the runtime's shutdown first. Every boot starts Idle with outputs off
 // and nothing restored; the boot and status lines report the reset reason.
-// Telemetry (#164): a priority-5 telemetry task ticks every 5 ms and the BLE host decides
+// Telemetry (#164): a priority-5 telemetry task ticks every 1 ms and the BLE host decides
 // and queues Telemetry frames on the shared robot counter. Battery and measured velocity are
 // reported as unknown: no battery conversion is validated and no velocity sensor exists.
 // USB serial carries status output and the maintenance console only, never motion. Every line
@@ -84,7 +84,7 @@ bool motorsAttached{false};
 esp::NvsRecordStorage recordStorage;
 provisioning::ConfigStore configStore{recordStorage};
 provisioning::ProvisionedConfiguration configuration{configStore};
-// The telemetry task's step (priority 5, every 5 ms): sample the battery port once per
+// The telemetry task's step (priority 5, every 1 ms): sample the battery port once per
 // telemetry period (no sensor is wired, so nothing is read), then ask the host to evaluate
 // the schedule. It never touches the session or the drive. Defined below, once the BLE
 // peripheral exists; until the peripheral is running a tick does nothing.

@@ -58,7 +58,7 @@ Enable `-DMICRO_ROBOT_BUILD_BLE=ON` for BLE adapter/lifecycle tests, then run
 `ctest --test-dir build -L ble --output-on-failure --no-tests=error`. On macOS
 with Qt 6.5+, this label also checks the production app's Bluetooth usage
 description and statically imported permission plugin without requesting access.
-Core-only builds keep fifteen Robot Info/GATT and message-codec tests without Qt,
+Core-only builds keep nineteen Robot Info/GATT and message-codec tests without Qt,
 including the shared [v1 byte vectors](../protocol/fixtures/v1-frames.txt) that the
 firmware codec tests also read.
 Physical checks are listed in the [connection guide](../overview/ble-connection.md)
@@ -288,6 +288,14 @@ Use `linux-clang` in place of `linux-gcc` for the Clang job. For the core job,
 install only `build-essential cmake ninja-build libgtest-dev` and use the commands in
 [regression suite](#regression-suite).
 
+## Pull request core validation
+
+`pr-verification.yml` runs the root and standalone `core` presets on pull requests
+and manual dispatch, including portable firmware host tests through the core tree.
+The full BLE desktop suite runs daily on master. Host desktop presets enable BLE
+and require Qt Bluetooth. Successful local tests do not establish hosted CI availability;
+account billing and runner access must be resolved by the repository owner.
+
 ## Windows continuous integration
 
 The reusable `.github/workflows/windows-build-test.yml` uses the daily caller
@@ -296,7 +304,7 @@ and read-only checkout. Its Windows jobs remain master-only and run on
 
 | Job (status check name) | Preset | Compiler | Builds |
 | --- | --- | --- | --- |
-| `Windows Server 2022 / MSVC / Desktop + tests` | `windows-msvc` | MSVC `cl` | Desktop, replay, and all test targets |
+| `Windows Server 2022 / MSVC / Desktop + tests` | `windows-msvc` | MSVC `cl` | Desktop, replay, BLE, and all test targets |
 | `Windows Server 2022 / MSVC / Core without Qt and OpenCV` | `core` | MSVC `cl` | Core libraries and their tests |
 
 The desktop job installs Ninja and OpenCV through Chocolatey, installs Qt 6.8.3
@@ -596,3 +604,63 @@ These are deterministic software checks. Physical side-camera accuracy and new
 native-display checks belong to #261 and remain NOT RUN. The
 [oblique-camera audit](../overview/oblique-tabletop.md) records sources, geometry
 and plane/height/extrapolation limits.
+
+## Audit follow-up (2026-11-17)
+
+The November 16 audit prompted fixes to test portability, Stop freshness, repeated
+Fault handling, BLE link recovery, idle drive writes, early runtime locking,
+dependency pins, PR/root validation, host BLE coverage and stale tracking docs.
+IDE state and LaTeX intermediates were untracked while preserving local files.
+
+Recovery runs in the BLE host context at most once per second while Closing or
+AdvertisingFailed. It never restores the ended session. Idle control skips
+redundant disable writes; explicit boot, E-stop, fault and shutdown still disable.
+
+Remaining acceptance and optional cleanup, by audit finding:
+
+- 1: account billing/runner access requires owner action (follow-up #295). Workflow changes do not
+  prove a successful hosted CI run.
+- 5, 9: authenticated BLE (#165), powered acceptance (#238), interrupt-masked timing
+  and physical stopping require security and bench work. Restricted-lab mode
+  remains unauthenticated; SecureRequired remains fail-closed.
+- 13 (#296): codec and transport frame/result constants use `BleWire.hpp`; backend UUID
+  and subscription identifiers and a few byte offsets remain future cleanup.
+- 14: retain independent desktop/firmware codecs, guarded by shared byte vectors.
+- 18 (#297): firmware endian helper consolidation remains optional cleanup.
+- 20: retain the unwired optional inertial interface; no production feedback claim.
+- 24: the retired passphrase is public history and must never be reused.
+- 26 (#298): firmware tests use project warning flags (`/W4` or `-Wall -Wextra -Wpedantic`);
+  the audit's additional GCC shadow/conversion cleanup remains separate.
+- 28: portable firmware tests intentionally run in desktop core and through an
+  independent entry point. Desktop targets never link embedded production sources.
+
+Local follow-up validation uses macOS/AppleClang. GCC 15, Linux, Windows, radio,
+camera and powered motor validation require their respective hosts/hardware.
+PlatformIO cross-builds were not repeated in this environment.
+
+Executed follow-up checks (macOS, AppleClang 21):
+
+- Root: `cmake --preset core`, `cmake --build --preset core --parallel 6`,
+  `ctest --preset core` — 672/672 passed.
+- Standalone `Mini_Robot/`: the same core configure/build/test sequence, with
+  `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` pointing at the existing root macOS source
+  checkout for offline configuration — 672/672 passed.
+- Root: `cmake --preset macos`, `cmake --build --preset macos --parallel 6`,
+  `ctest --preset macos` — 987 cases, zero failures; two opt-in audits skipped.
+- Independent firmware: configure `Mini_Robot/firmware/codecell-c6` into
+  `build/firmware-host-c6` with the existing GoogleTest source checkout, build,
+  then `ctest --test-dir build/firmware-host-c6 --output-on-failure` — 335/335 passed.
+- `python3 -m unittest discover -s .github/scripts/tests` — 44 passed.
+- `python3 .github/scripts/check_firmware_pins.py` and `git diff --check` — passed.
+
+Graph status/update reported an extraction-policy mismatch requiring a rebuild;
+source inspection was used and no graph coverage claims are made.
+
+GitHub follow-ups: [CI/platform validation #295](https://github.com/Krzys2002/Mini_Robot/issues/295),
+[desktop BLE constants #296](https://github.com/Krzys2002/Mini_Robot/issues/296),
+[firmware endian helpers #297](https://github.com/Krzys2002/Mini_Robot/issues/297),
+and [strict GCC warnings #298](https://github.com/Krzys2002/Mini_Robot/issues/298).
+Reuse [security #165](https://github.com/Krzys2002/Mini_Robot/issues/165),
+[conformance/timing #166](https://github.com/Krzys2002/Mini_Robot/issues/166),
+and [powered bench #238](https://github.com/Krzys2002/Mini_Robot/issues/238)
+for the existing security and physical acceptance scope.

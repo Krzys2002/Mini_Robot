@@ -106,11 +106,11 @@ sensor or motor feedback. Hardware capability still requires actual validation.
 
 | Feedback channel | Current status | Evidence | Classification |
 | --- | --- | --- | --- |
-| IMU yaw/rotation | Used by firmware (`Motion_RotationRead`) for heading control | `T1-ESP-C6/src/controller.cpp` | **Available: IMU heading feedback** |
-| IMU linear acceleration | Used for optional distance integration (`Motion_LinearAccRead`) | `T1-ESP-C6/src/controller.cpp` | **Available: IMU linear-accel estimate (drift-prone)** |
-| Wheel encoders / wheel speed sensors | No encoder API usage or wheel feedback signal in current firmware | `T1-ESP-C6/src/controller.cpp`, `T1-ESP-C6/src/controller.h` | **Not available (open-loop wheel drive)** |
-| Battery voltage and level API | Exposed through CodeCell API (`BatteryVoltageRead`, `BatteryLevelRead`) | `T1-ESP-C6/src/controller.cpp` | **Available but accuracy UNVERIFIED** |
-| IMU axis orientation against robot forward | Current firmware assumes forward axis is sensor X; comment notes Y may be required depending on mounting | `T1-ESP-C6/src/controller.cpp` | **UNRESOLVED mounting verification** |
+| IMU yaw/rotation | Used by firmware (`Motion_RotationRead`) for heading control | [historical `T1-ESP-C6/src/controller.cpp`](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/src/controller.cpp) | **Available: IMU heading feedback** |
+| IMU linear acceleration | Used for optional distance integration (`Motion_LinearAccRead`) | [historical `T1-ESP-C6/src/controller.cpp`](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/src/controller.cpp) | **Available: IMU linear-accel estimate (drift-prone)** |
+| Wheel encoders / wheel speed sensors | No encoder API usage or wheel feedback signal in current firmware | [historical `T1-ESP-C6/src/controller.cpp`](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/src/controller.cpp), [historical `T1-ESP-C6/src/controller.h`](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/src/controller.h) | **Not available (open-loop wheel drive)** |
+| Battery voltage and level API | Exposed through CodeCell API (`BatteryVoltageRead`, `BatteryLevelRead`) | [historical `T1-ESP-C6/src/controller.cpp`](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/src/controller.cpp) | **Available but accuracy UNVERIFIED** |
+| IMU axis orientation against robot forward | Current firmware assumes forward axis is sensor X; comment notes Y may be required depending on mounting | [historical `T1-ESP-C6/src/controller.cpp`](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/src/controller.cpp) | **UNRESOLVED mounting verification** |
 
 Resulting control classification for #154 acceptance:
 
@@ -140,8 +140,8 @@ features of the fresh firmware skeleton and are not electrical verification:
 
 Evidence files:
 
-- `T1-ESP-C6/src/Main.cpp`
-- `T1-ESP-C6/src/controller.cpp`
+- [historical `T1-ESP-C6/src/Main.cpp`](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/src/Main.cpp)
+- [historical `T1-ESP-C6/src/controller.cpp`](https://github.com/Krzys2002/Mini_Robot/blob/7c04e3b7246cb45326e08a7d3763e1c93aedda20/T1-ESP-C6/src/controller.cpp)
 
 Physical electrical confirmation status:
 
