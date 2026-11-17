@@ -1,4 +1,5 @@
 #include "transport/ble/BleProtocol.hpp"
+#include "transport/ble/BleWire.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +14,7 @@ void append16(std::vector<std::uint8_t>& b, std::uint16_t value)
 }
 std::vector<std::uint8_t> header(std::uint8_t type, std::uint16_t sequence)
 {
-    std::vector<std::uint8_t> b{1, type}; // Explicit domain-v1 -> wire-v1 mapping.
+    std::vector<std::uint8_t> b{ble_wire::version, type}; // Explicit domain-v1 -> wire-v1 mapping.
     append16(b, sequence);
     return b;
 }
@@ -23,10 +24,10 @@ std::uint16_t read16(std::span<const std::uint8_t> b, std::size_t i)
 }
 std::optional<double> signedMeasurement(std::uint16_t raw)
 {
-    if (raw == 0x8000) return {};
+    if (raw == ble_wire::unknownMeasurement) return {};
     // Portable signed conversion, independent of host endianness/representation.
-    const int value = raw > 32767 ? static_cast<int>(raw) - 65536 : raw;
-    return value / 1000.0;
+    const int value = raw > ble_wire::maximumSigned ? static_cast<int>(raw) - ble_wire::signedModulus : raw;
+    return value / ble_wire::milliPerUnit;
 }
 } // namespace
 BleEncodeResult encodeBleCommand(const RobotCommand& command, const BleRobotInfo& limits,
@@ -35,9 +36,12 @@ BleEncodeResult encodeBleCommand(const RobotCommand& command, const BleRobotInfo
     const auto invalid = [](const char* message) { return BleEncodeResult{{}, TransportErrorCode::InvalidCommand, message}; };
     if (!isSupportedTransportModelVersion(command.metadata.modelVersion))
         return {{}, TransportErrorCode::UnsupportedVersion, "Unsupported transport domain model version"};
+    // Stop removes motion and has no wire validity field. Never age it out.
+    if (std::holds_alternative<StopCommand>(command.payload))
+        return {EncodedBleCommand{header(ble_wire::stop, sequence)}, TransportErrorCode::InvalidCommand, {}};
     if (!limits.maximumValidityMilliseconds || !limits.maximumLinearMillimetersPerSecond
-        || limits.maximumLinearMillimetersPerSecond > 32767 || !limits.maximumAngularMilliradiansPerSecond
-        || limits.maximumAngularMilliradiansPerSecond > 32767)
+        || limits.maximumLinearMillimetersPerSecond > ble_wire::maximumSigned || !limits.maximumAngularMilliradiansPerSecond
+        || limits.maximumAngularMilliradiansPerSecond > ble_wire::maximumSigned)
         return invalid("Invalid advertised BLE command limits");
     if (command.validFor <= Duration::zero() || command.issuedAt > now)
         return invalid("Command validity is nonpositive or issued in the future");
@@ -51,10 +55,10 @@ BleEncodeResult encodeBleCommand(const RobotCommand& command, const BleRobotInfo
     if (remaining < 1) return invalid("Command has less than one millisecond of validity remaining");
     EncodedBleCommand frame;
     const auto* velocity = std::get_if<VelocityCommand>(&command.payload);
-    frame.bytes = header(velocity ? 2 : 1, sequence);
+    frame.bytes = header(velocity ? ble_wire::velocity : ble_wire::stop, sequence);
     if (velocity) {
-        const double linear = velocity->linearMetersPerSecond * 1000;
-        const double angular = velocity->angularRadiansPerSecond * 1000;
+        const double linear = velocity->linearMetersPerSecond * ble_wire::milliPerUnit;
+        const double angular = velocity->angularRadiansPerSecond * ble_wire::milliPerUnit;
         if (!std::isfinite(linear) || !std::isfinite(angular)
             || std::abs(linear) > limits.maximumLinearMillimetersPerSecond
             || std::abs(angular) > limits.maximumAngularMilliradiansPerSecond)
@@ -68,62 +72,62 @@ BleEncodeResult encodeBleCommand(const RobotCommand& command, const BleRobotInfo
 }
 EncodedBleCommand encodeBleEmergencyStop(std::uint16_t sequence)
 {
-    return {header(3, sequence), BleEndpoint::EmergencyStop, true};
+    return {header(ble_wire::emergencyStop, sequence), BleEndpoint::EmergencyStop, true};
 }
 EncodedBleCommand encodeBleEmergencyClear(std::uint16_t sequence)
 {
-    return {header(4, sequence), BleEndpoint::Command, true};
+    return {header(ble_wire::emergencyClear, sequence), BleEndpoint::Command, true};
 }
 BleDecodeResult decodeBleNotification(BleEndpoint endpoint, std::span<const std::uint8_t> b)
 {
     const auto invalid = [](const char* message) { return BleDecodeResult{{}, TransportErrorCode::BackendFailure, message}; };
     if (b.size() < 2) return invalid("Malformed BLE notification header");
-    if (b[0] != 1) return {{}, TransportErrorCode::UnsupportedVersion, "Unsupported BLE wire version"};
+    if (b[0] != ble_wire::version) return {{}, TransportErrorCode::UnsupportedVersion, "Unsupported BLE wire version"};
     const bool telemetry = endpoint == BleEndpoint::Telemetry;
-    if ((!telemetry && endpoint != BleEndpoint::CommandResult) || b[1] != (telemetry ? 0x80 : 0x81))
+    if ((!telemetry && endpoint != BleEndpoint::CommandResult) || b[ble_wire::typeOffset] != (telemetry ? ble_wire::telemetry : ble_wire::commandResult))
         return invalid("Unknown or wrong-channel BLE message type");
-    if (b.size() != (telemetry ? 18U : 9U)) return invalid("Malformed BLE notification length");
-    const auto state = b[telemetry ? 4 : 8];
-    if (state > 3) return invalid("Unknown robot state; treat as Fault");
+    if (b.size() != (telemetry ? ble_wire::telemetryLength : ble_wire::resultLength)) return invalid("Malformed BLE notification length");
+    const auto state = b[telemetry ? ble_wire::telemetryStateOffset : ble_wire::resultStateOffset];
+    if (state > static_cast<unsigned>(BleRobotState::Fault)) return invalid("Unknown robot state; treat as Fault");
     DecodedBleFrame frame;
-    frame.sequence = read16(b, 2);
+    frame.sequence = read16(b, ble_wire::sequenceOffset);
     if (telemetry) {
         BleTelemetryFrame value;
         value.state = static_cast<BleRobotState>(state);
-        value.commandExpired = (b[5] & 1) != 0;
-        value.batteryLow = (b[5] & 2) != 0;
-        if (b[5] & 4) value.lastAcceptedSequence = read16(b, 6);
+        value.commandExpired = (b[ble_wire::flagsOffset] & ble_wire::expiredFlag) != 0;
+        value.batteryLow = (b[ble_wire::flagsOffset] & ble_wire::batteryLowFlag) != 0;
+        if (b[ble_wire::flagsOffset] & ble_wire::hasSequenceFlag) value.lastAcceptedSequence = read16(b, ble_wire::lastSequenceOffset);
         value.uptimeMilliseconds = static_cast<std::uint32_t>(b[8]) | (static_cast<std::uint32_t>(b[9]) << 8)
             | (static_cast<std::uint32_t>(b[10]) << 16) | (static_cast<std::uint32_t>(b[11]) << 24);
-        if (const auto battery = read16(b, 12); battery != 0xffff) value.batteryVolts = battery / 1000.0;
-        value.linearMetersPerSecond = signedMeasurement(read16(b, 14));
-        value.angularRadiansPerSecond = signedMeasurement(read16(b, 16));
+        if (const auto battery = read16(b, ble_wire::batteryOffset); battery != ble_wire::unknownBattery) value.batteryVolts = battery / ble_wire::milliPerUnit;
+        value.linearMetersPerSecond = signedMeasurement(read16(b, ble_wire::linearOffset));
+        value.angularRadiansPerSecond = signedMeasurement(read16(b, ble_wire::angularOffset));
         frame.payload = value;
     } else {
-        if (b[7] > 8) return invalid("Unknown command result code; treated as rejection");
-        frame.payload = BleCommandResultFrame{read16(b, 4), b[6], b[7], static_cast<BleRobotState>(state)};
+        if (b[ble_wire::resultCodeOffset] > ble_wire::robotFault) return invalid("Unknown command result code; treated as rejection");
+        frame.payload = BleCommandResultFrame{read16(b, ble_wire::resultSequenceOffset), b[ble_wire::resultTypeOffset], b[ble_wire::resultCodeOffset], static_cast<BleRobotState>(state)};
     }
     return {std::move(frame), TransportErrorCode::BackendFailure, {}};
 }
 TransportErrorCode bleRejectionCode(std::uint8_t result) noexcept
 {
-    if (result == 1) return TransportErrorCode::UnsupportedVersion;
-    if (result == 7) return TransportErrorCode::EmergencyStopLatched;
-    if (result == 8) return TransportErrorCode::RobotFault;
-    if (result >= 4 && result <= 6) return TransportErrorCode::InvalidCommand;
+    if (result == ble_wire::unsupportedVersion) return TransportErrorCode::UnsupportedVersion;
+    if (result == ble_wire::emergencyStopLatched) return TransportErrorCode::EmergencyStopLatched;
+    if (result == ble_wire::robotFault) return TransportErrorCode::RobotFault;
+    if (result >= ble_wire::staleSequence && result <= ble_wire::outOfRange) return TransportErrorCode::InvalidCommand;
     return TransportErrorCode::BackendFailure;
 }
 const char* bleResultName(std::uint8_t result) noexcept
 {
     constexpr const char* names[]{"Accepted", "UnsupportedVersion", "UnknownMessageType", "MalformedLength",
         "StaleSequence", "InvalidValidity", "OutOfRange", "EmergencyStopLatched", "RobotFault"};
-    return result <= 8 ? names[result] : "UnknownResult";
+    return result <= ble_wire::robotFault ? names[result] : "UnknownResult";
 }
 std::optional<BleSequenceUpdate> BleReceiveSequence::accept(std::uint16_t sequence)
 {
     if (!last_) { last_ = sequence; unwrapped_ = sequence; return BleSequenceUpdate{unwrapped_, 0}; }
     const auto difference = static_cast<std::uint16_t>(sequence - *last_);
-    if (!difference || difference >= 32768 || unwrapped_ > std::numeric_limits<std::uint64_t>::max() - difference) return {};
+    if (!difference || difference >= ble_wire::sequenceHalfRange || unwrapped_ > std::numeric_limits<std::uint64_t>::max() - difference) return {};
     last_ = sequence;
     unwrapped_ += difference;
     return BleSequenceUpdate{unwrapped_, static_cast<std::uint16_t>(difference - 1)};

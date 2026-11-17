@@ -344,6 +344,7 @@ TEST(BleTransportTest, CommandsRequireConnectionValidFreshIntentAndSupportedVers
 {
     Fixture f;
     RobotCommand command;
+    command.payload = VelocityCommand{}; // Invalid freshness applies to motion only.
     f.transport->sendCommand(robot, command);
     EXPECT_TRUE(f.events->errors.empty()); drain();
     ASSERT_EQ(f.events->errors.size(), 1U);
@@ -1093,4 +1094,35 @@ TEST(BleSessionSecurityTest, RefusedSessionNeverConnectsButStillReassertsALatche
     ASSERT_FALSE(f.backend->writes.empty());
     EXPECT_TRUE(f.backend->writes.front().request.emergencyStop);
     EXPECT_FALSE(f.transport->securityStatus(robot));
+}
+
+TEST(BleAuditRegression, QueuedStopSurvivesExpiredValidityAtNativeHandoff)
+{
+    Fixture f;
+    f.ready();
+    f.backend->completeWrites = false;
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    f.transport->sendCommand(robot, {StopCommand{}, MonotonicClock::now(), 1ms}); drain();
+    f.backend->dispatchDelay = 1s;
+    emit f.backend->written(f.backend->links.at(robot), f.backend->writes.front().request.sequence);
+    drain();
+    ASSERT_EQ(f.backend->writes.size(), 2U);
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(f.backend->writes.back().request.command.payload));
+}
+TEST(BleAuditRegression, FaultFramesConfirmInhibitionAndReportOncePerSession)
+{
+    Fixture f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    for (std::uint16_t sequence = 0; sequence < 10; ++sequence) {
+        emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(sequence, 3), MonotonicClock::now());
+        drain();
+    }
+    EXPECT_TRUE(f.backend->writes.empty());
+    EXPECT_EQ(std::count_if(f.events->errors.begin(), f.events->errors.end(), [](const auto& error) {
+        return error.code == TransportErrorCode::RobotFault;
+    }), 1);
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    EXPECT_TRUE(f.backend->writes.empty());
 }

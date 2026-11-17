@@ -51,10 +51,11 @@ public:
     virtual void disconnect(RobotId id) = 0;
 
     // Bounded pending intent: newest Velocity replaces older unsent Velocity;
+    // BLE Stop is dispatched regardless of age; it only removes motion.
     // Stop replaces any unsent intent and cannot be overwritten by Velocity
     // before dispatch. Stop is an ordinary command, not an emergency-stop latch.
     // Copy the command before returning if retained for asynchronous dispatch.
-    // Return does not mean delivery or execution. Invalid/stale commands or a
+    // Return does not mean delivery or execution. Invalid commands, stale motion commands or a
     // disconnected destination report an error event. Backend validates finite
     // setpoints, supported domain modelVersion, and positive validFor, and checks
     // freshness again before dispatch. Unsupported versions report
