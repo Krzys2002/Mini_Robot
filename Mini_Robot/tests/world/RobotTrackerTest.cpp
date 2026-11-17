@@ -85,6 +85,23 @@ TEST(MetricTrackingTest, ValidMeasurementsAgeAndInputInvalidationStopsTracking)
     ingestMetricBatch(tracker, batch, at(1400ms));
     EXPECT_EQ(world.tracking(RobotId{1}, at(1400ms)).status, TrackingStatus::Fresh);
 }
+TEST(MetricTrackingTest, OnlyAppliedMeasurementsAreReturnedForControlProvenance)
+{
+    WorldModel world;
+    RobotTracker tracker(world, thresholds);
+    auto batch = std::make_shared<MetricObservationBatch>();
+    batch->status = MetricObservationStatus::Valid;
+    batch->measurements.push_back({RobotId{1}, pose, at(1s), 1, 20, {}});
+    const auto accepted = ingestMetricBatch(tracker, batch, at(1s));
+    ASSERT_TRUE(accepted); ASSERT_EQ(accepted->measurements.size(), 1u);
+    EXPECT_EQ(accepted->measurements[0].frameSequence, 1u);
+    const auto duplicate = ingestMetricBatch(tracker, batch, at(1100ms));
+    ASSERT_TRUE(duplicate); EXPECT_TRUE(duplicate->measurements.empty());
+    batch->measurements[0].capturedAt = at(2s);
+    const auto future = ingestMetricBatch(tracker, batch, at(1100ms));
+    ASSERT_TRUE(future); EXPECT_TRUE(future->measurements.empty());
+    EXPECT_FALSE(ingestMetricBatch(tracker, {}, at(1200ms)));
+}
 
 TEST(PoseSmoothingTest, WrapSafeAndRawDiagnostics)
 {

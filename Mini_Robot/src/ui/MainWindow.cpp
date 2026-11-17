@@ -1,5 +1,6 @@
 #include "ui/MainWindow.hpp"
 #include "ui/RobotControlPanel.hpp"
+#include "ui/VisualControlPanel.hpp"
 #include <QScrollArea>
 #include "ui/CalibrationWizard.hpp"
 #include "ui/VisionDebugView.hpp"
@@ -79,7 +80,7 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     cameraLayout->addLayout(cameraButtons);
     layout->addWidget(cameraGroup);
 
-    auto* worldGroup = new QGroupBox(QStringLiteral("WorldModel — static demo pose"), central);
+    auto* worldGroup = new QGroupBox(QStringLiteral("WorldModel — tracked metric pose"), central);
     auto* worldLayout = new QVBoxLayout(worldGroup);
     auto* worldDescription = new QLabel(QStringLiteral("No registered robots"), worldGroup);
     worldDescription->setObjectName(QStringLiteral("worldDescription"));
@@ -166,6 +167,11 @@ void MainWindow::bindVision(VisionController& vision)
         dialog->show();
         dialog->raise();
     });
+}
+
+void MainWindow::bindVisualControl(LiveVisualController& control)
+{
+    contentLayout_->insertWidget(contentLayout_->count() - 1, new VisualControlPanel(control, this));
 }
 
 void MainWindow::bindCalibration(CalibrationController& calibration)

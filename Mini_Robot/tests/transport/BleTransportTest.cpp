@@ -4,6 +4,8 @@
 #include "transport/ble/QtBleBackend.hpp"
 #if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
 #include "app/DesktopController.hpp"
+#include "app/LiveVisualController.hpp"
+#include "tracking/MetricTracking.hpp"
 #endif
 
 #include <QCoreApplication>
@@ -1094,3 +1096,46 @@ TEST(BleSessionSecurityTest, RefusedSessionNeverConnectsButStillReassertsALatche
     EXPECT_TRUE(f.backend->writes.front().request.emergencyStop);
     EXPECT_FALSE(f.transport->securityStatus(robot));
 }
+
+#if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
+namespace {
+TEST(BleTransportTest, VisualMetricFeedbackReachesBleWithDomainWireCorrelationAndStop)
+{
+    Fixture f;
+    WorldModel world;
+    RobotManager robots{*f.transport, world};
+    DesktopController desktop{robots, world, robot, f.logger.channel("desktop")};
+    desktop.initialize(MonotonicClock::now());
+    LiveVisualController visual{desktop, world, robots, LiveVisualSettings::fromApplication({})};
+    ASSERT_TRUE(robots.connect(robot)); drain();
+    f.backend->found(); f.backend->finish(); drain();
+    ASSERT_TRUE(f.backend->links.contains(robot));
+    emit f.backend->ready(f.backend->links.at(robot)); drain();
+    ASSERT_EQ(robots.connectionState(robot), ConnectionState::Connected);
+    world.setWorkspaceFrame(WorkspaceBounds{Meters{2}, Meters{2}}, "metric-frame");
+    visual.setInput("fake-camera", true);
+    RobotTracker tracker{world, {250ms, 1s}};
+    const auto now = MonotonicClock::now();
+    auto batch = std::make_shared<MetricObservationBatch>();
+    batch->status = MetricObservationStatus::Valid;
+    batch->measurements.push_back({robot, {}, now, 42, 20, {}});
+    ingestMetricBatch(tracker, batch, now);
+    visual.receiveMeasurements(batch);
+    ASSERT_TRUE(visual.setTarget(1, 0, 0));
+    ASSERT_TRUE(visual.start()); visual.refresh(); drain();
+    ASSERT_FALSE(f.backend->writes.empty());
+    const auto motion = f.backend->writes.back();
+    ASSERT_TRUE(std::holds_alternative<VelocityCommand>(motion.request.command.payload));
+    EXPECT_GT(std::get<VelocityCommand>(motion.request.command.payload).linearMetersPerSecond, 0);
+    ASSERT_TRUE(motion.request.command.metadata.sequence);
+    EXPECT_EQ(motion.request.command.metadata.sequence, visual.lastCycle()->commandSequence);
+    EXPECT_TRUE(f.logs->contains("domain_sequence=" + std::to_string(*motion.request.command.metadata.sequence)));
+    EXPECT_TRUE(f.logs->contains("wire_sequence="));
+    visual.setInput("fake-camera", false); drain();
+    EXPECT_FALSE(visual.running());
+    ASSERT_FALSE(f.backend->writes.empty());
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(f.backend->writes.back().request.command.payload));
+    desktop.shutdown();
+}
+} // namespace
+#endif
