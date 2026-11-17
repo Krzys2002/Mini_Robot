@@ -4,15 +4,20 @@
 #include <charconv>
 
 namespace micro_robot {
-std::string validateBleGattLayout(const std::array<BleCharacteristicCapabilities, 5>& layout)
+std::string validateBleGattLayout(const std::array<BleCharacteristicCapabilities, ble_gatt::characteristicCount>& layout)
 {
+    using namespace ble_gatt;
     constexpr const char* names[]{"Robot Info", "Command", "Emergency Stop", "Telemetry", "Command Result"};
+    static_assert(std::size(names) == characteristicCount);
+    constexpr auto info = layoutIndex(robotInfoCharacteristic), command = layoutIndex(commandCharacteristic),
+        emergency = layoutIndex(emergencyStopCharacteristic), telemetry = layoutIndex(telemetryCharacteristic),
+        result = layoutIndex(commandResultCharacteristic);
     for (std::size_t i = 0; i < layout.size(); ++i) {
         const auto& c = layout[i];
-        const bool valid = c.present && (i != 0 || c.read)
-            && ((i != 1 && i != 2) || (c.write && c.writeWithoutResponse))
-            && (i != 3 || (c.read && c.notify && c.cccd))
-            && (i != 4 || (c.notify && c.cccd));
+        const bool valid = c.present && (i != info || c.read)
+            && ((i != command && i != emergency) || (c.write && c.writeWithoutResponse))
+            && (i != telemetry || (c.read && c.notify && c.cccd))
+            && (i != result || (c.notify && c.cccd));
         if (!valid) return std::string{"Missing characteristic, required properties or CCCD: "} + names[i];
     }
     return {};
