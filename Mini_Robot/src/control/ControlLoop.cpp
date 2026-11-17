@@ -17,8 +17,8 @@ bool finite(const Pose2D& pose)
 }
 
 ControlLoop::ControlLoop(RobotId id, WorldModel& world, RobotManager& robots, IController& controller,
-                         ControlLoopConfig config, Clock clock)
-    : id_(id), world_(world), robots_(robots), controller_(controller), config_(config), clock_(std::move(clock))
+                         ControlLoopConfig config, Clock clock, Sequence sequence)
+    : id_(id), world_(world), robots_(robots), controller_(controller), config_(config), clock_(std::move(clock)), sequence_(std::move(sequence))
 {
     if (!clock_ || config.period.count() <= 0 || config.commandValidity <= config.period
         || config.maximumObservationAge <= Duration::zero()
@@ -72,7 +72,9 @@ void ControlLoop::inhibit(ControlCycle cycle, ControlCycleResult reason, Timesta
     cycle.finishedAt = now;
     cycle.result = reason;
     // Stop submission is an attempt, never evidence of delivery/physical stopping.
-    cycle.stopSubmission = robots_.stop(id_, now, config_.commandValidity);
+    if (sequence_) cycle.stopSequence = sequence_();
+    cycle.stopSubmission = robots_.sendCommand(id_, {StopCommand{}, now, config_.commandValidity,
+        {currentTransportModelVersion, cycle.stopSequence}});
     last_ = cycle;
 }
 
@@ -133,7 +135,9 @@ bool ControlLoop::poll()
         std::abs(v.angularRadiansPerSecond) / config_.maximumAngularRadiansPerSecond});
     cycle.bounded = VelocityCommand{v.linearMetersPerSecond / scale, v.angularRadiansPerSecond / scale};
     cycle.finishedAt = finished;
-    cycle.submission = robots_.sendCommand(id_, {*cycle.bounded, finished, config_.commandValidity});
+    if (sequence_) cycle.commandSequence = sequence_();
+    cycle.submission = robots_.sendCommand(id_, {*cycle.bounded, finished, config_.commandValidity,
+        {currentTransportModelVersion, cycle.commandSequence}});
     if (*cycle.submission != CommandSubmission::Submitted) {
         inhibit(cycle, ControlCycleResult::SubmissionRejected, finished); return true;
     }
