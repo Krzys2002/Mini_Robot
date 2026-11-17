@@ -16,6 +16,7 @@ struct ControlLoopConfig {
 };
 
 enum class ControlLoopState { Stopped, Running, Inhibited };
+enum class ControlOperationalState { Ready, Running, Paused, LostTracking, LostConnection, EStop, Fault };
 enum class ControlCycleResult {
     Submitted, Stopped, InvalidClock, TrackingUnavailable, SessionUnavailable,
     FrameChanged, ControllerUnavailable, ControllerFailure, InvalidOutput, SubmissionRejected
@@ -61,11 +62,13 @@ public:
     // before a scheduled deadline. No automatic restart after any inhibition.
     [[nodiscard]] bool poll();
     [[nodiscard]] ControlLoopState state() const noexcept { return state_; }
+    [[nodiscard]] ControlOperationalState operationalState() const noexcept { return operationalState_; }
     [[nodiscard]] const ControlLoopConfig& config() const noexcept { return config_; }
     [[nodiscard]] std::optional<ControlCycle> lastCycle() const { return last_; }
 
 private:
     [[nodiscard]] std::optional<ControlCycleResult> gate(Timestamp now) const;
+    [[nodiscard]] ControlOperationalState classify(ControlCycleResult reason) const;
     void inhibit(ControlCycle cycle, ControlCycleResult reason, Timestamp now);
     RobotId id_;
     WorldModel& world_;
@@ -77,6 +80,7 @@ private:
     std::optional<Pose2D> target_;
     std::optional<std::string> frame_;
     ControlLoopState state_{ControlLoopState::Stopped};
+    ControlOperationalState operationalState_{ControlOperationalState::Ready};
     Timestamp nextDue_{};
     std::optional<Timestamp> lastNow_;
     std::optional<ControlCycle> last_;
