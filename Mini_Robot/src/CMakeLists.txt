@@ -47,6 +47,10 @@ add_library(micro_robot_calibration STATIC
     calibration/WorkspaceCalibration.cpp
     calibration/TabletopHomography.cpp
     calibration/TabletopHomography.hpp
+    calibration/WorkspaceDistance.hpp
+    calibration/WorkspaceDistance.cpp
+    calibration/WorkspaceDiagnostics.hpp
+    calibration/WorkspaceDiagnostics.cpp
     calibration/WorkspaceAcquisition.hpp
     calibration/WorkspaceAcquisition.cpp
     calibration/ElevatedLocalization.hpp
@@ -112,7 +116,8 @@ target_sources(micro_robot_transport_api INTERFACE
 micro_robot_platform_boundary(micro_robot_transport_api)
 
 add_library(micro_robot_ble_contract STATIC transport/ble/BleTypes.hpp transport/ble/BleTypes.cpp
-    transport/ble/BleProtocol.hpp transport/ble/BleProtocol.cpp)
+    transport/ble/BleProtocol.hpp transport/ble/BleProtocol.cpp
+    transport/ble/BleSessionSecurity.hpp transport/ble/BleSessionSecurity.cpp)
 target_link_libraries(micro_robot_ble_contract PUBLIC micro_robot_transport_api)
 micro_robot_target_defaults(micro_robot_ble_contract)
 micro_robot_platform_boundary(micro_robot_ble_contract)
@@ -262,6 +267,11 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     add_library(micro_robot_desktop_controller STATIC
         app/VisionController.hpp
         app/VisionController.cpp
+        app/WorkspaceDistanceController.hpp
+        app/WorkspaceDistanceController.cpp
+        app/WorkspaceDiagnosticsController.hpp
+        app/WorkspaceDiagnosticsController.cpp
+        app/WorkspaceCalibrationControllerMeasurement.cpp
         app/WorkspaceCalibrationControllerAcquisition.cpp
         app/WorkspaceLocalizationController.cpp
         app/WorkspaceCalibrationController.cpp
@@ -285,6 +295,10 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
+        ui/WorkspaceDistanceDialog.hpp
+        ui/WorkspaceDistanceDialog.cpp
+        ui/WorkspaceDiagnosticsDialog.hpp
+        ui/WorkspaceDiagnosticsDialog.cpp
         ui/WorkspaceBoardPanel.hpp
         ui/WorkspaceBoardPanel.cpp
         ui/WorkspaceReferenceModel.hpp
@@ -293,6 +307,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/ElevatedLocalizationDialog.hpp
         ui/WorkspaceCalibrationDialog.cpp
         ui/WorkspaceCalibrationDialog.hpp
+        ui/WorkspaceLengthUnit.hpp
         ui/CalibrationWizard.hpp
         ui/CalibrationWizard.cpp
         ui/RobotControlPanel.hpp

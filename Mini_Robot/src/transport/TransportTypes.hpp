@@ -61,6 +61,16 @@ enum class TransportErrorCode {
     RobotFault, EmergencyStopLatched
 };
 
+// What a transport can say about the protection of one robot session (#157). Adapters
+// without a security layer report nothing. A restricted-lab pass-through reports
+// bypassed=true and never authenticated or encrypted.
+struct TransportSecurityStatus {
+    std::string profile;     // For example "restricted-lab-pass-through".
+    bool authenticated{false};
+    bool encrypted{false};
+    bool bypassed{true};      // No authentication or payload protection was performed.
+};
+
 struct TransportError {
     RobotId robotId;
     TransportOperation operation;

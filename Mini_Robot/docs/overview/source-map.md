@@ -142,9 +142,27 @@ in [platform boundaries](platform-boundaries.md).
 - [V4L2 physical identity](../../src/camera/V4l2Identity.hpp),
   [implementation](../../src/camera/V4l2Identity.cpp): filesystem-only adapter helper
   used by Linux capture; [profile behavior](calibration-profiles.md#physical-camera-identity-and-review-corrections).
-- [Prototype actuator gate](../../../T1-ESP-C6/include/ActuatorSafety.hpp): owned by
-  the legacy firmware, with the actual controller compiled against host fakes in
-  its separate CMake test target; [firmware guide](../../../T1-ESP-C6/README.md).
+- [Firmware clock contract](../../firmware/codecell-c6/include/FirmwareClock.hpp) and
+  [production runtime](../../firmware/codecell-c6/include/runtime/FirmwareRuntime.hpp)
+  and [identity/configuration provisioning](../../firmware/codecell-c6/include/provisioning/ConfigStore.hpp)
+  and [bounded drive](../../firmware/codecell-c6/include/drive/BoundedDriveOutput.hpp)
+  and [v1 codec and command session](../../firmware/codecell-c6/include/protocol/V1CommandSession.hpp)
+  and [BLE peripheral controller](../../firmware/codecell-c6/include/ble/PeripheralController.hpp)
+  and [telemetry scheduler](../../firmware/codecell-c6/include/telemetry/TelemetryScheduler.hpp),
+  [battery policy](../../firmware/codecell-c6/include/telemetry/BatteryMonitor.hpp) and
+  [diagnostic report lines](../../firmware/codecell-c6/include/diagnostics/StatusReport.hpp):
+  portable C6 firmware logic with independent host tests; the ESP-IDF/FreeRTOS
+  adapters are only in `firmware/codecell-c6/src/`, and embedded production
+  sources are not linked into desktop targets. See the
+  [firmware guide](../../firmware/codecell-c6/README.md) and
+  [runtime and threading](firmware-runtime.md) and
+  [identity provisioning](firmware-provisioning.md) and
+  [bounded drive](firmware-drive.md) and [v1 codec](firmware-protocol.md) and
+  [safety enforcement](firmware-safety.md) and [BLE peripheral](firmware-ble.md) and
+  [telemetry and diagnostics](firmware-telemetry.md).
+- [Shared v1 byte vectors](../protocol/fixtures/v1-frames.txt): the #64 example frames
+  plus derived sentinel/extrema frames, read by both the desktop and firmware codec tests.
+
 
 ## Implementation limits
 
@@ -176,3 +194,20 @@ that it already exists.
 | [WorkspaceCalibrationController.hpp](../../src/app/WorkspaceCalibrationController.hpp), [WorkspaceCalibrationController.cpp](../../src/app/WorkspaceCalibrationController.cpp), [WorkspaceCalibrationControllerAcquisition.cpp](../../src/app/WorkspaceCalibrationControllerAcquisition.cpp) | `micro_robot_desktop_controller`: [exact-frame acquisition/lifecycle](workspace-chessboard.md#operator-procedure) |
 | [WorkspaceCalibrationDialog.cpp](../../src/ui/WorkspaceCalibrationDialog.cpp), [WorkspaceBoardPanel.hpp](../../src/ui/WorkspaceBoardPanel.hpp), [WorkspaceBoardPanel.cpp](../../src/ui/WorkspaceBoardPanel.cpp) | `micro_robot_ui`: [boundary/board review and labelled zoom](workspace-chessboard.md#operator-procedure) |
 | [WorkspaceReferenceModel.hpp](../../src/ui/WorkspaceReferenceModel.hpp), [WorkspaceReferenceModel.cpp](../../src/ui/WorkspaceReferenceModel.cpp) | `micro_robot_ui`: [large typed reference table](workspace-chessboard.md#capacity-and-the-requested-1525-locations) |
+
+### Workspace diagnostics
+
+| Sources | Owner / contract |
+| --- | --- |
+| [WorkspaceDiagnostics.hpp](../../src/calibration/WorkspaceDiagnostics.hpp), [WorkspaceDiagnostics.cpp](../../src/calibration/WorkspaceDiagnostics.cpp) | `micro_robot_calibration`: [scale, error interpolation and conditional prediction](workspace-diagnostics.md#reusable-prediction-contract-for-distance-reporting) |
+| [WorkspaceDiagnosticsController.hpp](../../src/app/WorkspaceDiagnosticsController.hpp), [WorkspaceDiagnosticsController.cpp](../../src/app/WorkspaceDiagnosticsController.cpp) | `micro_robot_desktop_controller`: [bounded worker, identity/invalidation and export](workspace-diagnostics.md#bounded-work-invalidation-and-export) |
+| [WorkspaceDiagnosticsDialog.hpp](../../src/ui/WorkspaceDiagnosticsDialog.hpp), [WorkspaceDiagnosticsDialog.cpp](../../src/ui/WorkspaceDiagnosticsDialog.cpp) | `micro_robot_ui`: [map rendering and explicit survey table/settings](workspace-diagnostics.md#evidence-and-operator-procedure) |
+
+### Two-point workspace distance
+
+| Sources | Owner / contract |
+| --- | --- |
+| [WorkspaceDistance.hpp](../../src/calibration/WorkspaceDistance.hpp), [WorkspaceDistance.cpp](../../src/calibration/WorkspaceDistance.cpp) | `micro_robot_calibration`: [pixel mapping, disk support and distance bounds](workspace-distance.md#distance-and-selection-propagation) |
+| [WorkspaceDistanceController.hpp](../../src/app/WorkspaceDistanceController.hpp), [WorkspaceDistanceController.cpp](../../src/app/WorkspaceDistanceController.cpp) | `micro_robot_desktop_controller`: [endpoint lifecycle and active evidence](workspace-distance.md#pixel-and-frame-conventions) |
+| [WorkspaceCalibrationControllerMeasurement.cpp](../../src/app/WorkspaceCalibrationControllerMeasurement.cpp) | `micro_robot_desktop_controller`: [separate measurement-frame capture](workspace-distance.md#pixel-and-frame-conventions) |
+| [WorkspaceDistanceDialog.hpp](../../src/ui/WorkspaceDistanceDialog.hpp), [WorkspaceDistanceDialog.cpp](../../src/ui/WorkspaceDistanceDialog.cpp) | `micro_robot_ui`: [camera/world selection, editing and uncertainty display](workspace-distance.md#operator-procedure) |

@@ -1,0 +1,32 @@
+# Protocol version 1 byte vectors shared by both endpoints (#161).
+#
+# The desktop codec tests (#66, tests/transport/BleProtocolVectorsTest.cpp) and the
+# firmware codec tests (#161, firmware/codecell-c6/tests/ProtocolCodecTest.cpp) both
+# read this file. A change here changes the v1 contract: version 1 is frozen, so
+# existing lines must never be edited (robot-protocol.md, "Version evolution").
+#
+# Format, one vector per line:
+#   <name> <kind> <source> <key>=<value> ... | <hex bytes in transmission order>
+# kind:   stop, velocity, estop, clear_estop (desktop to robot);
+#         telemetry, result, robot_info (robot to desktop).
+# source: published = the robot-protocol.md "Example frames" table (#64);
+#         derived   = built from the published layouts to cover sentinels and extrema.
+# Values use the wire units and JSON key names of the spec. `null` is an unknown value
+# (the 0xFFFF / 0x8000 sentinels) or, for last_seq, hasAcceptedCommand clear.
+# Command vectors outside the limits of robot_info_id7 must be rejected by the desktop
+# encoder and decode as frames whose range check fails on the robot.
+
+velocity_seq258 velocity published seq=258 linear_mm_s=150 angular_mrad_s=-500 valid_for_ms=250 | 01 02 02 01 96 00 0C FE FA 00
+stop_seq259 stop published seq=259 | 01 01 03 01
+estop_seq260 estop published seq=260 | 01 03 04 01
+telemetry_seq7 telemetry published seq=7 state=moving command_expired=false battery_low=false last_seq=258 uptime_ms=123456 battery_mv=3912 linear_mm_s=148 angular_mrad_s=null | 01 80 07 00 01 04 02 01 40 E2 01 00 48 0F 94 00 00 80
+result_seq8 result published seq=8 cmd_seq=258 cmd_type=2 result=0 state=moving | 01 81 08 00 02 01 02 00 01
+robot_info_id7 robot_info published info_format=1 min_version=1 max_version=1 robot_id=7 firmware=0.1.0 max_linear_mm_s=300 max_angular_mrad_s=6000 max_validity_ms=500 telemetry_period_ms=100 | 01 01 01 07 00 00 00 00 01 00 2C 01 70 17 F4 01 64 00
+
+clear_estop_seq4660 clear_estop derived seq=4660 | 01 04 34 12
+velocity_signed_limits velocity derived seq=65535 linear_mm_s=32767 angular_mrad_s=-32767 valid_for_ms=65535 | 01 02 FF FF FF 7F 01 80 FF FF
+velocity_unknown_sentinel velocity derived seq=0 linear_mm_s=-32768 angular_mrad_s=0 valid_for_ms=1 | 01 02 00 00 00 80 00 00 01 00
+telemetry_all_unknown telemetry derived seq=65535 state=estop command_expired=true battery_low=true last_seq=null uptime_ms=4294967295 battery_mv=null linear_mm_s=null angular_mrad_s=null | 01 80 FF FF 02 03 00 00 FF FF FF FF FF FF 00 80 00 80
+telemetry_signed_limits telemetry derived seq=1 state=idle command_expired=false battery_low=false last_seq=65535 uptime_ms=0 battery_mv=0 linear_mm_s=32767 angular_mrad_s=-32767 | 01 80 01 00 00 04 FF FF 00 00 00 00 00 00 FF 7F 01 80
+result_unreadable_rejection result derived seq=9 cmd_seq=0 cmd_type=0 result=3 state=fault | 01 81 09 00 00 00 00 03 03
+robot_info_limits robot_info derived info_format=1 min_version=1 max_version=1 robot_id=4294967295 firmware=255.255.255 max_linear_mm_s=32767 max_angular_mrad_s=32767 max_validity_ms=65535 telemetry_period_ms=65535 | 01 01 01 FF FF FF FF FF FF FF FF 7F FF 7F FF FF FF FF

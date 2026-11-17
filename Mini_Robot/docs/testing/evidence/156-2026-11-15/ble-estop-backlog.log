@@ -1,0 +1,42 @@
+# #156 timing pilot raw log (host monotonic s, UTC wall clock, source, line).
+# Board/adapter addresses are redacted. Load-generator payload lines (LOADLOG/LOGTEST)
+# are replaced by one count line per run; every PILOT line is kept verbatim.
+4148.237103 2026-11-15T11:58:33.936+00:00 host> ble on 20 5
+4148.237679 2026-11-15T11:58:33.937+00:00 robot Saved PC:0x4080ad2c
+4148.237836 2026-11-15T11:58:33.937+00:00 robot SPIWP:0xee
+4148.239503 2026-11-15T11:58:33.939+00:00 robot mode:DIO, clock div:2
+4148.241966 2026-11-15T11:58:33.941+00:00 robot load:0x40875730,len:0x1278
+4148.244309 2026-11-15T11:58:33.944+00:00 robot load:0x4086b910,len:0xdd0
+4148.246759 2026-11-15T11:58:33.946+00:00 robot load:0x4086e610,len:0x3154
+4148.248770 2026-11-15T11:58:33.948+00:00 robot entry 0x4086b910
+4148.435576 2026-11-15T11:58:34.135+00:00 robot PILOT boot reset_reason=11 uptime_us=15819 (measurement image, no actuator/sensor access)
+4148.526568 2026-11-15T11:58:34.226+00:00 robot PILOT ble started=1 name=MR-PILOT-156
+4148.527511 2026-11-15T11:58:34.227+00:00 robot PILOT ble heap free=313264 min_free=313180 largest_block=294900 unit=bytes
+4148.527702 2026-11-15T11:58:34.227+00:00 robot PILOT done
+4148.527743 2026-11-15T11:58:34.227+00:00 host> telem 100
+4148.529287 2026-11-15T11:58:34.229+00:00 robot PILOT telem period_ms=100
+4148.529485 2026-11-15T11:58:34.229+00:00 robot PILOT done
+4149.244957 2026-11-15T11:58:34.944+00:00 host connected /org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX
+4149.245082 2026-11-15T11:58:34.944+00:00 host BLE start mode=flood period_ms=0.0 seconds=0.2 write_mtu=256
+4150.906890 2026-11-15T11:58:36.606+00:00 host BLE mode=flood period_ms=0.0 sent=7548 results=395 unmatched=0 telemetry=13 send_duration_s=0.204 rate_hz=36954.2
+4150.907066 2026-11-15T11:58:36.606+00:00 host SUMMARY write_to_result_notification n=395 min=27.935 p50=627.023 p99=1191.921 max=1193.916 mean=624.899 unit=ms
+4150.907180 2026-11-15T11:58:36.606+00:00 host SUMMARY telemetry_host_interarrival n=12 min=87.917 p50=91.951 p99=120.193 max=120.193 mean=99.756 unit=ms
+4150.907857 2026-11-15T11:58:36.607+00:00 host BLE start mode=estop period_ms=1000.0 seconds=20.0 write_mtu=256
+4172.864458 2026-11-15T11:58:58.564+00:00 host SUMMARY estop_write_request_response n=1 min=20956.350 p50=20956.350 p99=20956.350 max=20956.350 mean=20956.350 unit=ms
+4173.872612 2026-11-15T11:58:59.572+00:00 host BLE mode=estop period_ms=1000.0 sent=1 results=7025 unmatched=7024 telemetry=230 send_duration_s=21.957 rate_hz=0.0
+4173.872724 2026-11-15T11:58:59.572+00:00 host SUMMARY write_to_result_notification n=1 min=20955.001 p50=20955.001 p99=20955.001 max=20955.001 mean=20955.001 unit=ms
+4173.872946 2026-11-15T11:58:59.572+00:00 host SUMMARY telemetry_host_interarrival n=229 min=85.116 p50=92.044 p99=121.818 max=122.873 mean=99.947 unit=ms
+4173.873061 2026-11-15T11:58:59.572+00:00 host> ble
+4173.873971 2026-11-15T11:58:59.573+00:00 robot PILOT ble connect interval_ms=30.00 latency=0 timeout_ms=400
+4173.874754 2026-11-15T11:58:59.574+00:00 robot PILOT ble params interval_ms=30.00 latency=0 timeout_ms=400
+4173.875994 2026-11-15T11:58:59.575+00:00 robot PILOT ble write_interarrival n=7547 min=283 p50=735 p99=24575 p999=28671 max=29267 neg=0 unit=us
+4173.877290 2026-11-15T11:58:59.577+00:00 robot PILOT ble write_callback_duration n=7549 min=179 p50=239 p99=367 p999=383 max=583 neg=0 unit=us
+4173.878524 2026-11-15T11:58:59.578+00:00 robot PILOT ble result_notify_call n=7549 min=162 p50=215 p99=351 p999=367 max=374 neg=0 unit=us
+4173.879755 2026-11-15T11:58:59.579+00:00 robot PILOT ble receipt_to_consumer n=5382 min=218 p50=287 p99=431 p999=447 max=673 neg=0 unit=us
+4173.880901 2026-11-15T11:58:59.580+00:00 robot PILOT ble estop_receipt_to_gate_stub n=1 min=1 p50=1 p99=1 p999=1 max=1 neg=0 unit=us
+4173.882137 2026-11-15T11:58:59.581+00:00 robot PILOT ble telemetry_notify_call n=247 min=162 p50=191 p99=703 p999=831 max=831 neg=0 unit=us
+4173.883447 2026-11-15T11:58:59.583+00:00 robot PILOT ble telemetry_period_abs_deviation n=253 min=0 p50=431 p99=511 p999=779 max=779 neg=0 unit=us
+4173.885168 2026-11-15T11:58:59.584+00:00 robot PILOT ble counts writes=7548 estops=1 handoffs=5382 result_notify_failures=0 telemetry_sent=247 telemetry_failures=0 connected=1
+4173.885400 2026-11-15T11:58:59.585+00:00 robot PILOT done
+4176.034110 2026-11-15T11:59:01.733+00:00 host disconnect call_ms=2148.646
+4177.035131 2026-11-15T11:59:02.734+00:00 robot PILOT ble disconnect reason=531 since_last_write_us=4220260

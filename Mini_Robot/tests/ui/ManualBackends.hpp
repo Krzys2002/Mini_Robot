@@ -81,6 +81,8 @@ public:
         const auto found = states_.find(id);
         return found == states_.end() ? ConnectionState::Disconnected : found->second;
     }
+    std::optional<TransportSecurityStatus> security;  // Reported for every robot when set.
+    std::optional<TransportSecurityStatus> securityStatus(RobotId) const override { return security; }
     void connect(RobotId id) override { connectRequests.push_back(id); }
     void disconnect(RobotId id) override { disconnectRequests.push_back(id); }
     void sendCommand(RobotId id, const RobotCommand& command) override

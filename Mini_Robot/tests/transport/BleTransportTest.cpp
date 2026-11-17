@@ -56,7 +56,9 @@ public:
                 ? BleEncodeResult{encodeBleEmergencyClear(request.sequence), TransportErrorCode::InvalidCommand, {}}
                 : encodeBleCommand(request.command, BleRobotInfo{robot, 300, 6000, 500, 100}, request.sequence, now);
         if (!encoded.frame) return {false, {}, encoded.code, encoded.error};
-        writes.push_back({token, request, *encoded.frame});
+        auto frame = *encoded.frame;
+        if (auto refused = applyBleOutgoingProtection(request, frame)) return {false, {}, TransportErrorCode::InvalidCommand, *refused};
+        writes.push_back({token, request, frame});
         if (completeWrites) emit written(token, request.sequence);
         return {true, now, TransportErrorCode::BackendFailure, {}};
     }
@@ -104,18 +106,29 @@ public:
         return std::any_of(records.begin(), records.end(), [&](const auto& r) { return r.message.find(text) != std::string::npos; });
     }
 };
+BleTransportConfig restrictedLab(BleTransportConfig config = {})
+{
+    config.securityMode = BleSecurityMode::RestrictedLabPassThrough;
+    return config;
+}
 struct Fixture {
     Logger logger{LogLevel::Debug};
     std::shared_ptr<MemoryLog> logs = std::make_shared<MemoryLog>();
     FakeBleBackend* backend{};
     std::unique_ptr<BleTransport> transport;
     std::shared_ptr<Events> events = std::make_shared<Events>();
-    explicit Fixture(BleTransportConfig config = {})
+    // Default: the explicitly selected restricted-lab pass-through, as in the application.
+    explicit Fixture(BleTransportConfig config = {}, std::shared_ptr<IBleSessionSecurity> security = {})
     {
         auto implementation = std::make_unique<FakeBleBackend>();
         backend = implementation.get();
         logger.addSink(logs);
-        transport = std::make_unique<BleTransport>(std::move(implementation), config, logger.channel("ble"));
+        if (!security) {
+            security = makeRestrictedLabPassThroughSecurity();
+            config.securityMode = BleSecurityMode::RestrictedLabPassThrough;
+        }
+        transport = std::make_unique<BleTransport>(std::move(implementation), std::move(security), config,
+                                                   logger.channel("ble"));
         events->transport = transport.get();
         transport->setEventSink(events);
     }
@@ -351,10 +364,11 @@ TEST(BleTransportTest, CommandsRequireConnectionValidFreshIntentAndSupportedVers
 TEST(BleTransportTest, ConfigurationAndConstructionDoNotTouchBluetoothHardware)
 {
     auto backend = makeQtBleBackend(); // Native scanner/controller allocated only on request.
-    BleTransport transport{std::move(backend)};
+    BleTransport transport{std::move(backend), makeRestrictedLabPassThroughSecurity(), restrictedLab()};
     EXPECT_FALSE(transport.discovering());
     EXPECT_EQ(transport.connectionState(robot), ConnectionState::Disconnected);
-    EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), BleTransportConfig{0ms}}), std::invalid_argument);
+    EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity(),
+                               restrictedLab(BleTransportConfig{0ms})}), std::invalid_argument);
 }
 TEST(BleTransportTest, CancelsQueuedCallbacksOnDestructionAndUsesWeakSinks)
 {
@@ -886,3 +900,197 @@ TEST(BleTransportSafetyTest, ClearThenRepeatedEmergencyRefreshesControlsWithoutI
     controller.shutdown(); drain();
 }
 #endif
+
+// --- Session-security extension points (#157 review of PR #274) ---------------------------
+// These prove the hooks are wired into the real adapter paths. They are NOT cryptographic
+// security validation: the pass-through provides no authentication or encryption.
+namespace {
+class SpySecurity final : public IBleSessionSecurity {
+public:
+    bool refuseSession{}, refuseVelocity{}, refuseClear{}, refuseOutgoing{}, refuseIncoming{};
+    int sessions{}, ended{}, velocityChecks{}, clearChecks{}, incoming{};
+    std::vector<BleEndpoint> outgoing;
+    const char* profile() const noexcept override { return "spy"; }
+    bool isPassThrough() const noexcept override { return false; }
+    BleSecuritySession beginSession(RobotId, const BleRobotInfo&) override
+    {
+        ++sessions;
+        if (refuseSession) return {false, {}, "spy refused the session"};
+        return {true, {"spy", true, true, false}, {}};
+    }
+    BleSecurityDecision authorize(RobotId, BleSecuredOperation operation) override
+    {
+        const bool refused = operation == BleSecuredOperation::Velocity ? (++velocityChecks, refuseVelocity)
+                                                                         : (++clearChecks, refuseClear);
+        return {!refused, false, refused ? "spy refused" : ""};
+    }
+    BleProtectedPayload protectOutgoing(RobotId, BleEndpoint endpoint, std::span<const std::uint8_t> bytes) override
+    {
+        outgoing.push_back(endpoint);
+        if (refuseOutgoing) return {std::nullopt, false, "spy refused the frame"};
+        std::vector<std::uint8_t> marked(bytes.begin(), bytes.end());
+        marked.push_back(0xA5);  // Visible at the native write: protection ran there.
+        return {std::move(marked), false, {}};
+    }
+    BleProtectedPayload verifyIncoming(RobotId, BleEndpoint, std::span<const std::uint8_t> bytes) override
+    {
+        ++incoming;
+        if (refuseIncoming) return {std::nullopt, false, "spy refused the notification"};
+        return {std::vector<std::uint8_t>(bytes.begin(), bytes.end()), false, {}};
+    }
+    void endSession(RobotId) override { ++ended; }
+};
+struct SpyFixture {
+    std::shared_ptr<SpySecurity> spy = std::make_shared<SpySecurity>();
+    Fixture f;
+    // The spy is not the pass-through, so it may run where security is required.
+    SpyFixture() : f(BleTransportConfig{}, spy) {}
+};
+} // namespace
+
+TEST(BleSessionSecurityTest, PassThroughLeavesBytesUnchangedAndReportsInsecurity)
+{
+    RestrictedLabPassThroughSecurity security;
+    const std::vector<std::uint8_t> frame{0x01, 0x02, 0x03};
+    const auto session = security.beginSession(robot, {});
+    EXPECT_TRUE(session.established);
+    EXPECT_FALSE(session.status.authenticated);
+    EXPECT_FALSE(session.status.encrypted);
+    EXPECT_TRUE(session.status.bypassed);
+    EXPECT_EQ(session.status.profile, kRestrictedLabSecurityProfile);
+    for (const auto operation : {BleSecuredOperation::Velocity, BleSecuredOperation::EmergencyClear}) {
+        const auto decision = security.authorize(robot, operation);
+        EXPECT_TRUE(decision.permitted);
+        EXPECT_TRUE(decision.bypassed);
+    }
+    const auto out = security.protectOutgoing(robot, BleEndpoint::Command, frame);
+    ASSERT_TRUE(out.bytes);
+    EXPECT_EQ(*out.bytes, frame);
+    EXPECT_TRUE(out.bypassed);
+    const auto in = security.verifyIncoming(robot, BleEndpoint::Telemetry, frame);
+    ASSERT_TRUE(in.bytes);
+    EXPECT_EQ(*in.bytes, frame);
+    EXPECT_TRUE(in.bypassed);
+}
+
+TEST(BleSessionSecurityTest, SecureRequiredRefusesThePassThroughAndFailsClosed)
+{
+    const RestrictedLabPassThroughSecurity passThrough;
+    const SpySecurity secureStandIn;
+    EXPECT_TRUE(bleSecuritySelectionError(BleSecurityMode::SecureRequired, &passThrough));
+    EXPECT_TRUE(bleSecuritySelectionError(BleSecurityMode::SecureRequired, nullptr));
+    EXPECT_TRUE(bleSecuritySelectionError(BleSecurityMode::RestrictedLabPassThrough, nullptr));
+    EXPECT_TRUE(bleSecuritySelectionError(BleSecurityMode::RestrictedLabPassThrough, &secureStandIn));
+    EXPECT_FALSE(bleSecuritySelectionError(BleSecurityMode::RestrictedLabPassThrough, &passThrough));
+    EXPECT_FALSE(bleSecuritySelectionError(BleSecurityMode::SecureRequired, &secureStandIn));
+    // The default configuration requires security: the pass-through is never chosen silently.
+    EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity()}),
+                 std::invalid_argument);
+    EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), nullptr, restrictedLab()}), std::invalid_argument);
+}
+
+TEST(BleSessionSecurityTest, RestrictedLabSessionWarnsAndReportsInsecureStatus)
+{
+    Fixture f;
+    EXPECT_TRUE(f.logs->contains(kRestrictedLabSecurityWarning)) << "startup warning";
+    EXPECT_FALSE(f.transport->securityStatus(robot));
+    f.ready();
+    const auto status = f.transport->securityStatus(robot);
+    ASSERT_TRUE(status);
+    EXPECT_TRUE(status->bypassed);
+    EXPECT_FALSE(status->authenticated);
+    EXPECT_FALSE(status->encrypted);
+    EXPECT_TRUE(f.logs->contains("authenticated=no encrypted=no"));
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    const auto plain = encodeBleCommand(f.backend->writes[0].request.command, BleRobotInfo{robot, 300, 6000, 500, 100},
+                                        0, MonotonicClock::now());
+    ASSERT_TRUE(plain.frame);
+    const auto& sent = f.backend->writes[0].frame.bytes;
+    ASSERT_EQ(sent.size(), plain.frame->bytes.size()) << "the pass-through adds nothing to the v1 frame";
+    EXPECT_TRUE(std::equal(sent.begin(), sent.begin() + 4, plain.frame->bytes.begin())) << "same v1 header";
+}
+
+TEST(BleSessionSecurityTest, HooksRunOnTheRealSessionCommandAndNotificationPaths)
+{
+    SpyFixture s;
+    auto& f = s.f;
+    f.ready();
+    EXPECT_EQ(s.spy->sessions, 1);
+    ASSERT_TRUE(f.transport->securityStatus(robot));
+    EXPECT_EQ(f.transport->securityStatus(robot)->profile, "spy");
+
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    EXPECT_EQ(s.spy->velocityChecks, 1);
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    EXPECT_EQ(f.backend->writes[0].frame.bytes.back(), 0xA5) << "protection applied at the native write";
+
+    f.transport->sendCommand(robot, {StopCommand{}, MonotonicClock::now(), 250ms}); drain();
+    ASSERT_EQ(f.backend->writes.size(), 2U);
+    EXPECT_EQ(s.spy->velocityChecks, 1) << "Stop is not subject to authorization";
+    EXPECT_EQ(f.backend->writes[1].frame.bytes.back(), 0xA5) << "Stop is still protected";
+
+    const auto token = f.backend->links.at(robot);
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0), MonotonicClock::now()); drain();
+    EXPECT_EQ(s.spy->incoming, 1);
+    EXPECT_EQ(f.events->telemetry, 1);
+
+    f.transport->disconnect(robot); drain();
+    emit f.backend->closed(token); drain();
+    EXPECT_EQ(s.spy->ended, 1);
+    EXPECT_FALSE(f.transport->securityStatus(robot)) << "teardown invalidates the security session";
+}
+
+TEST(BleSessionSecurityTest, RefusalsPreventMotionClearAndDeliveryButNeverTheEmergencyStop)
+{
+    SpyFixture s;
+    auto& f = s.f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    s.spy->refuseVelocity = true;
+    f.transport->sendCommand(robot, freshVelocity()); drain();
+    EXPECT_TRUE(f.backend->writes.empty()) << "a refused Velocity is never written";
+    ASSERT_FALSE(f.events->errors.empty());
+    EXPECT_NE(f.events->errors.back().message.find("session security"), std::string::npos);
+
+    // E-stop: no authorization and no protection, even with every check refusing.
+    s.spy->refuseOutgoing = s.spy->refuseIncoming = s.spy->refuseClear = true;
+    const auto outgoingBefore = s.spy->outgoing.size();
+    f.transport->requestEmergencyStop(robot); drain();
+    ASSERT_EQ(f.backend->writes.size(), 1U);
+    EXPECT_TRUE(f.backend->writes[0].request.emergencyStop);
+    EXPECT_FALSE(f.backend->writes[0].request.protect);
+    EXPECT_EQ(f.backend->writes[0].frame.bytes, encodeBleEmergencyStop(f.backend->writes[0].request.sequence).bytes);
+    EXPECT_EQ(s.spy->outgoing.size(), outgoingBefore);
+
+    // A refused notification is not delivered (here the E-stop telemetry the clear needs).
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0, 2), MonotonicClock::now()); drain();
+    EXPECT_EQ(f.events->telemetry, 0);
+    s.spy->refuseIncoming = false;
+    emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(1, 2), MonotonicClock::now()); drain();
+    EXPECT_EQ(f.events->telemetry, 1);
+
+    const auto writes = f.backend->writes.size();
+    EXPECT_FALSE(f.transport->requestEmergencyClear(robot, 1)) << "a refused Clear is not sent";
+    EXPECT_EQ(f.backend->writes.size(), writes);
+    EXPECT_EQ(s.spy->clearChecks, 1);
+
+    s.spy->refuseClear = false;  // Authorized, but its frame protection refuses: still not sent.
+    EXPECT_FALSE(f.transport->requestEmergencyClear(robot, 2));
+    EXPECT_EQ(f.backend->writes.size(), writes);
+}
+
+TEST(BleSessionSecurityTest, RefusedSessionNeverConnectsButStillReassertsALatchedEmergencyStop)
+{
+    SpyFixture s;
+    auto& f = s.f;
+    s.spy->refuseSession = true;
+    f.transport->requestEmergencyStop(robot); drain();
+    f.connecting();
+    emit f.backend->ready(f.backend->links.at(robot)); drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Fault);
+    EXPECT_EQ(std::count(f.events->states.begin(), f.events->states.end(), ConnectionState::Connected), 0);
+    ASSERT_FALSE(f.backend->writes.empty());
+    EXPECT_TRUE(f.backend->writes.front().request.emergencyStop);
+    EXPECT_FALSE(f.transport->securityStatus(robot));
+}
