@@ -10,11 +10,13 @@ namespace micro_robot {
 // Multi-camera support requires per-source invalidation and explicit fusion ownership.
 inline QMetaObject::Connection connectVisionTracking(VisionController& vision, RobotTracker& tracker,
     QObject& context, std::function<void()> refresh,
-    std::function<Timestamp()> clock = [] { return MonotonicClock::now(); })
+    std::function<Timestamp()> clock = [] { return MonotonicClock::now(); },
+    std::function<void(const MetricObservationBatchPtr&)> afterIngest = {})
 {
     return QObject::connect(&vision, &VisionController::metricObservationsAvailable, &context,
-        [&tracker, refresh = std::move(refresh), clock = std::move(clock)](const QString&, MetricObservationBatchPtr batch) {
-            ingestMetricBatch(tracker, batch, clock());
+        [&tracker, refresh = std::move(refresh), clock = std::move(clock), afterIngest = std::move(afterIngest)](const QString&, MetricObservationBatchPtr batch) {
+            const auto accepted = ingestMetricBatch(tracker, batch, clock());
+            if (afterIngest) afterIngest(accepted);
             refresh();
         });
 }

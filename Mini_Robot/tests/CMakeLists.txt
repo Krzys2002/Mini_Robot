@@ -92,6 +92,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         calibration/QtWorkspaceProfileStoreTest.cpp
         ui/VisionControllerTest.cpp
         ui/ControlLoopSchedulerTest.cpp
+        ui/LiveVisualControlTest.cpp
         ui/VisionDebugViewTest.cpp
         ui/WorkspaceDistanceTest.cpp
         ui/WorkspaceDiagnosticsTest.cpp

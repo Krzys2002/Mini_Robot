@@ -1,4 +1,6 @@
 #include "app/VisionTracking.hpp"
+#include "app/LiveVisualController.hpp"
+#include "app/ControlTraceWriter.hpp"
 #include "ui/MainWindow.hpp"
 #include "app/DesktopController.hpp"
 #include "app/CalibrationController.hpp"
@@ -201,7 +203,11 @@ int main(int argc, char* argv[])
     });
     RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter},
                          {config.tracking.positionAlpha, config.tracking.headingAlpha}};
-    connectVisionTracking(vision, tracker, controller, [&controller] { controller.refreshWorld(); });
+    ControlTraceWriter controlTrace{logger.channel("visual-control")};
+    LiveVisualController visualControl{controller, world, robots, LiveVisualSettings::fromApplication(config),
+        [&controlTrace](std::string line) { (void)controlTrace.enqueue(std::move(line)); }};
+    connectVisionTracking(vision, tracker, visualControl, [&controller] { controller.refreshWorld(); },
+        MonotonicClock::now, [&visualControl](const MetricObservationBatchPtr& batch) { visualControl.receiveMeasurements(batch); });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &vision, &VisionController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
@@ -236,6 +242,7 @@ int main(int argc, char* argv[])
             });
     }
     MainWindow window{controller};
+    window.bindVisualControl(visualControl);
     window.bindVision(vision);
     if (arguments.isSet(bleOption)) window.setWindowTitle(QStringLiteral("Micro Robot — BLE connections"));
     window.bindCalibration(calibration);
@@ -244,6 +251,7 @@ int main(int argc, char* argv[])
     QTimer trackingDisplayTimer;
     trackingDisplayTimer.setInterval(100);
     QObject::connect(&trackingDisplayTimer, &QTimer::timeout, &controller, &DesktopController::refreshWorld);
+    QObject::connect(&trackingDisplayTimer, &QTimer::timeout, &visualControl, &LiveVisualController::refresh);
     QTimer simulationTimer;
     simulationTimer.setInterval(config.simulation.updateInterval);
 
@@ -266,6 +274,7 @@ int main(int argc, char* argv[])
     });
     QObject::connect(&application, &QGuiApplication::lastWindowClosed, &window, [&] {
         closing = true;
+        visualControl.stop();
         vision.shutdown();
         calibration.shutdown();
         workspace.shutdown();
@@ -281,6 +290,7 @@ int main(int argc, char* argv[])
         if (simulation) simulation->advanceTo(now);
     });
     QObject::connect(&application, &QCoreApplication::aboutToQuit, &window, [&] {
+        visualControl.stop();
         appLog.info("Application shutting down");
         simulationTimer.stop();
         trackingDisplayTimer.stop();
@@ -305,6 +315,7 @@ int main(int argc, char* argv[])
     }
 
     const int exitCode = application.exec();
+    appLog.info("Control trace dropped_records=" + std::to_string(controlTrace.dropped()));
     appLog.info("Application shutdown complete (exit code " + std::to_string(exitCode) + ")");
     return exitCode;
 }
