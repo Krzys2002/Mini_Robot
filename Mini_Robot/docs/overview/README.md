@@ -56,6 +56,7 @@
   verified board/motor facts, unresolved safety blockers, and the bench envelope
   used before powered motion acceptance.
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
+- [Supervisory control service](supervisory-control.md): replaceable policy, timed cycles, safety gates and opt-in Qt scheduler.
 - [World module](modules/world.md): robot registry, tabletop frame, metric bounds and workspace-calibration model.
 - [WorldModel behavior](world-model.md): registration, poses and snapshots.
 - [Robot tracking](robot-tracking.md): measurement age, loss and reappearance.
