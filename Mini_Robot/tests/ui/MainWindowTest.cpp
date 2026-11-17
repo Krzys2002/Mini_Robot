@@ -465,6 +465,32 @@ TEST(DesktopIntegrationTest, AlternativeBackendsSupportPendingStatesAndCancellat
     transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{5s});
 }
 
+// #157: a session without authentication or encryption is labelled for the operator; a
+// transport without a security layer (simulation) keeps the plain state text.
+TEST(DesktopIntegrationTest, ConnectedStatusLabelsAnUnauthenticatedUnencryptedSession)
+{
+    Logger logger;
+    test::ManualTransport transport;
+    transport.security = TransportSecurityStatus{"restricted-lab-pass-through", false, false, true};
+    WorldModel world;
+    RobotManager robots{transport, world};
+    DesktopController controller{robots, world, RobotId{1}, logger.channel("controller")};
+    MainWindow window{controller};
+    controller.initialize(Timestamp{1s});
+    const auto status = [&] { return window.findChild<QLabel*>(QStringLiteral("connectionStatus"))->text(); };
+    window.findChild<QPushButton*>(QStringLiteral("connectRobot"))->click();
+    transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{2s});
+    EXPECT_TRUE(status().startsWith(QStringLiteral("Connected")));
+    EXPECT_TRUE(status().contains(QStringLiteral("INSECURE")));
+    EXPECT_TRUE(status().contains(QStringLiteral("restricted-lab-pass-through")));
+    EXPECT_TRUE(status().contains(QStringLiteral("unauthenticated, unencrypted")));
+    transport.security = TransportSecurityStatus{"future-secure", true, true, false};
+    transport.publishState(RobotId{1}, ConnectionState::Connected, Timestamp{3s});
+    EXPECT_EQ(status(), QStringLiteral("Connected"));
+    controller.shutdown();
+    transport.publishState(RobotId{1}, ConnectionState::Disconnected, Timestamp{4s});
+}
+
 TEST(DesktopIntegrationTest, ShutdownWaitsForEveryManagedRobotWithoutMixingSelectedTelemetry)
 {
     Logger logger;

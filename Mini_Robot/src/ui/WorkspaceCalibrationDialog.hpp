@@ -1,6 +1,8 @@
 #pragma once
 #include "app/WorkspaceCalibrationController.hpp"
 #include <QDialog>
+#include "ui/WorkspaceLengthUnit.hpp"
+#include <QPointer>
 #include <limits>
 class QLineEdit;
 class QComboBox;
@@ -16,6 +18,8 @@ inline constexpr int MaximumWorkspaceOverlayReferenceLabels = 64;
 class WorkspaceImageView;
 class WorkspaceReferenceModel;
 class WorkspaceBoardPanel;
+class WorkspaceDiagnosticsDialog;
+class WorkspaceDistanceDialog;
 
 class WorkspaceCalibrationDialog final : public QDialog {
     Q_OBJECT
@@ -31,12 +35,23 @@ private:
     WorkspaceCalibrationController& controller_;
     WorkspaceImageView* image_{};
     QLineEdit* identity_{};
-    QDoubleSpinBox *width_{}, *height_{}, *originX_{}, *originY_{};
+    QLineEdit *width_{}, *height_{}, *originX_{}, *originY_{};
+    QComboBox* units_{};
+    WorkspaceLengthUnit unit_{WorkspaceLengthUnit::Meters};
+    std::optional<WorkspaceBounds> shownBounds_;
+    bool configuring_{};
+    QString inputError_;
+    void changeUnit(int index);
+    void updateUnitLabels();
     QComboBox* originCorner_{};
     QTableWidget* corners_{};
     QTableView* points_{};
     WorkspaceReferenceModel* referenceModel_{};
     WorkspaceBoardPanel* board_{};
+    QPointer<WorkspaceDiagnosticsDialog> diagnosticsDialog_;
+    QPointer<WorkspaceDistanceDialog> distanceDialog_;
+    QPushButton* distance_{};
+    QPushButton* diagnostics_{};
     QLabel* message_{};
     QPushButton *freeze_{}, *calculate_{}, *save_{}, *load_{}, *verify_{}, *activate_{};
     QPushButton *confirm_{}, *undo_{}, *reset_{}, *reselect_{}, *originPick_{}, *add_{}, *remove_{};
@@ -44,6 +59,5 @@ private:
     std::uint64_t shownRevision_{std::numeric_limits<std::uint64_t>::max()};
     FramePtr shownFrame_;
     static constexpr double MaximumWorkspaceDimensionMeters = 1000;
-    static constexpr int CoordinateDisplayDecimals = 9;
 };
 } // namespace micro_robot

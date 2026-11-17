@@ -103,3 +103,21 @@ acceptance. Physical reference and printed-tag evidence belongs to the separate
 [#259](https://github.com/Krzys2002/Mini_Robot/issues/259) (corner/origin workflow) and
 [#224](https://github.com/Krzys2002/Mini_Robot/issues/224) (metric tags); all new physical
 checks remain NOT RUN until executed.
+
+## Spatial scale/error diagnostics
+
+The active transform exposes [directional px/cm, survey error maps and a conditional
+prediction contract](workspace-diagnostics.md). Independent survey confirmation and
+model assumptions are explicit; fit residuals are not an accuracy guarantee.
+Exports retain the complete calibration/acquisition identity and sampled masks.
+Physical acceptance is owned by [#265](https://github.com/Krzys2002/Mini_Robot/issues/265),
+with all new physical/native-display checks NOT RUN.
+
+## Two-point diagnostic
+
+An explicitly active calibration also supports [two-point planar distance](workspace-distance.md)
+in a separate frozen undistorted camera image or the signed world diagram. Measurement
+freeze retains calibration data; world endpoints persist across view-only changes.
+Conditional ± combines surveyed calibration evidence and justified selection disks;
+missing evidence produces distance with uncertainty unavailable. Physical acceptance
+is tracked in [#268](https://github.com/Krzys2002/Mini_Robot/issues/268), all new checks NOT RUN.

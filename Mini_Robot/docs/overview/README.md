@@ -25,10 +25,33 @@
 - [Manual robot control](manual-robot-control.md): discovery/selection, connection, bounded hold-to-drive, Stop/E-stop, validation and physical limits.
 - [Robot communication](robot-communication.md): platform-neutral robot discovery,
   Qt Bluetooth review for Linux/macOS, control isolation, and mock transport tests.
+- [Workspace distance](workspace-distance.md): two endpoints in frozen camera/world views, selection bounds and conditional distance intervals.
+- [Workspace diagnostics](workspace-diagnostics.md): directional px/cm, independent survey error maps, bounded exports and conditional prediction contract.
 - [Workspace chessboard acquisition](workspace-chessboard.md): flat-board anchors/orientation, repeated placements, 1,525-location coverage, capacity and v3 provenance.
 
 - [Side-mounted tabletop audit](oblique-tabletop.md): known oblique geometry, fit coverage, recovery advice and plane/parallax limits.
 - [Tabletop homography](tabletop-homography.md): paired undistorted image/world points, residuals, workspace profile save/load and commissioning.
+- [CodeCell C6 production runtime](firmware-runtime.md): boundaries, single safety/actuator
+  authority, start-up failures, scheduling model and the production image policy (#158).
+- [CodeCell C6 identity provisioning](firmware-provisioning.md): persistent RobotId,
+  validated configuration record, atomic storage and rollback, USB maintenance path
+  and the RobotId/AprilTag association (#159).
+- [CodeCell C6 v1 codec and command validation](firmware-protocol.md): decoding of
+  untrusted command frames, robot frame and Robot Info encoding, validation order,
+  sequence rules, the E-stop characteristic and the shared byte vectors (#161).
+- [CodeCell C6 bounded drive](firmware-drive.md): actuator contract from body velocity
+  to PWM duty, saturation, rate/reversal limits, the output bound, the stop ramp versus
+  immediate disable, and the DRV8837 board facts (#160).
+- [CodeCell C6 safety: watchdog, E-stop, faults and recovery](firmware-safety.md): the
+  robot-local invariant, session readiness, the command watchdog and its bounds, the
+  E-stop latch, fault power-down, the supervisor task watchdog and reset/brownout
+  behaviour (#162).
+- [CodeCell C6 BLE peripheral and session lifecycle](firmware-ble.md): the v1 GATT server,
+  advertising, one central per robot, CCCD readiness, the E-stop path, one CommandResult
+  per frame and the overload policy, link-parameter hints and their reports (#163).
+- [CodeCell C6 telemetry and local diagnostics](firmware-telemetry.md): v1 Telemetry fields,
+  units and availability, the schedule and congestion policy, the battery policy, and the
+  bounded serial diagnostics with task jitter, stack and heap (#164).
 - [CodeCell C6 hardware profile and limits (#154)](../testing/codecell-c6-hardware-154.md):
   verified board/motor facts, unresolved safety blockers, and the bench envelope
   used before powered motion acceptance.

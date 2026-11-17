@@ -58,6 +58,8 @@ public:
     [[nodiscard]] std::optional<RobotSession> session(RobotId id) const;
     [[nodiscard]] std::map<RobotId, RobotSession> sessions() const;
     [[nodiscard]] ConnectionState connectionState(RobotId id) const;
+    // Session security as reported by the transport, for operator status only (#157).
+    [[nodiscard]] std::optional<TransportSecurityStatus> securityStatus(RobotId id) const;
     // Submitted means handed to adapter, never delivered/executed. Adapter owns
     // command validation, dispatch-time freshness, wire sequence and watchdogs.
     [[nodiscard]] CommandSubmission sendCommand(RobotId id, const RobotCommand& command);

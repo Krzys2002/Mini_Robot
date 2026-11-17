@@ -145,7 +145,12 @@ int main(int argc, char* argv[])
     SimulationTransport* simulation = nullptr; // Non-owning alias, only in simulation mode.
     if (arguments.isSet(bleOption)) {
 #if defined(MICRO_ROBOT_HAS_BLE)
-        auto ble = std::make_unique<BleTransport>(makeQtBleBackend(), BleTransportConfig{}, logger.channel("ble"));
+        // Explicit restricted-lab selection (#157): the pass-through permits everything and
+        // provides no authentication or encryption. No secure policy exists yet.
+        BleTransportConfig bleConfig;
+        bleConfig.securityMode = BleSecurityMode::RestrictedLabPassThrough;
+        auto ble = std::make_unique<BleTransport>(makeQtBleBackend(), makeRestrictedLabPassThroughSecurity(),
+                                                  bleConfig, logger.channel("ble"));
         QObject::connect(ble.get(), &BleTransport::phaseChanged, &application,
             [appLog](RobotId id, BlePhase phase) { appLog.info(std::string{"BLE setup: "} + blePhaseName(phase), id); });
         transport = std::move(ble);
@@ -194,7 +199,8 @@ int main(int argc, char* argv[])
     QObject::connect(&workspace, &WorkspaceCalibrationController::profileChanged, &vision, [&] {
         vision.setWorkspaceCalibration(workspace.profile());
     });
-    RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter}};
+    RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter},
+                         {config.tracking.positionAlpha, config.tracking.headingAlpha}};
     connectVisionTracking(vision, tracker, controller, [&controller] { controller.refreshWorld(); });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
                      &vision, &VisionController::setInput);

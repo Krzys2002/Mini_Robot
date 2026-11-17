@@ -45,7 +45,7 @@ Review hardware reports for private device information before sharing them.
 ## 2. Compile and upload the fixture
 
 The [fixture README](../../firmware/ble-lifecycle/README.md) states its exact
-limitations. Its PlatformIO settings mirror the supplied T1-ESP-C6 reference;
+limitations. Its PlatformIO settings are independent of the production firmware;
 the platform/library releases are pinned. Run:
 
 ```sh

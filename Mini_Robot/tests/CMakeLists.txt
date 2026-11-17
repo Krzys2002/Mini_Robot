@@ -14,8 +14,11 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_VISION)
 endif()
 
 add_executable(micro_robot_ble_contract_tests transport/BleTypesTest.cpp transport/BleProtocolTest.cpp
-    transport/BleLifecycleFixtureTest.cpp)
+    transport/BleProtocolVectorsTest.cpp transport/BleLifecycleFixtureTest.cpp)
 target_link_libraries(micro_robot_ble_contract_tests PRIVATE micro_robot_ble_contract GTest::gtest_main)
+# Shared v1 byte vectors (#161), also read by the firmware codec host tests.
+target_compile_definitions(micro_robot_ble_contract_tests PRIVATE
+    MICRO_ROBOT_PROTOCOL_V1_VECTORS="${PROJECT_SOURCE_DIR}/docs/protocol/fixtures/v1-frames.txt")
 micro_robot_target_defaults(micro_robot_ble_contract_tests)
 gtest_discover_tests(micro_robot_ble_contract_tests DISCOVERY_MODE PRE_TEST)
 
@@ -43,7 +46,7 @@ endif()
 add_executable(micro_robot_calibration_tests calibration/CalibrationCaptureTest.cpp
     calibration/IntrinsicCalibrationTest.cpp calibration/CalibrationProfileTest.cpp
     calibration/WorkspaceCalibrationTest.cpp calibration/TabletopHomographyTest.cpp
-    calibration/WorkspaceAcquisitionTest.cpp)
+    calibration/WorkspaceAcquisitionTest.cpp calibration/WorkspaceDiagnosticsTest.cpp calibration/WorkspaceDistanceTest.cpp)
 target_link_libraries(micro_robot_calibration_tests PRIVATE micro_robot_calibration GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_calibration_tests)
 gtest_discover_tests(micro_robot_calibration_tests DISCOVERY_MODE PRE_TEST)
@@ -89,6 +92,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         calibration/QtWorkspaceProfileStoreTest.cpp
         ui/VisionControllerTest.cpp
         ui/VisionDebugViewTest.cpp
+        ui/WorkspaceDistanceTest.cpp
+        ui/WorkspaceDiagnosticsTest.cpp
         ui/WorkspaceCalibrationTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
@@ -274,12 +279,6 @@ target_link_libraries(micro_robot_camera_identity_tests PRIVATE micro_robot_came
 micro_robot_target_defaults(micro_robot_camera_identity_tests)
 gtest_discover_tests(micro_robot_camera_identity_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
-# Compile the real legacy controller against deterministic Arduino/CodeCell fakes.
-# This complements firmware compilation; it does not establish physical stop time.
-add_executable(micro_robot_firmware_safety_tests firmware/ActuatorSafetyTest.cpp
-    "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/src/controller.cpp")
-target_include_directories(micro_robot_firmware_safety_tests PRIVATE firmware/fakes
-    "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/include" "${PROJECT_SOURCE_DIR}/../T1-ESP-C6/src")
-target_link_libraries(micro_robot_firmware_safety_tests PRIVATE GTest::gtest_main)
-micro_robot_target_defaults(micro_robot_firmware_safety_tests)
-gtest_discover_tests(micro_robot_firmware_safety_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+# Pure firmware host tests only; no embedded production source in desktop targets.
+add_subdirectory("${PROJECT_SOURCE_DIR}/firmware/codecell-c6/tests"
+    "${CMAKE_CURRENT_BINARY_DIR}/firmware-host")

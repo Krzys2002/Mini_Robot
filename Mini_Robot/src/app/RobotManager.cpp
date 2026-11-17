@@ -115,6 +115,10 @@ ConnectionState RobotManager::connectionState(RobotId id) const
     const auto found = sessions_.find(id);
     return found == sessions_.end() ? ConnectionState::Disconnected : found->second.connection;
 }
+std::optional<TransportSecurityStatus> RobotManager::securityStatus(RobotId id) const
+{
+    return transport_.securityStatus(id);
+}
 CommandSubmission RobotManager::sendCommand(RobotId id, const RobotCommand& command)
 {
     if (shuttingDown_) return CommandSubmission::ShuttingDown;

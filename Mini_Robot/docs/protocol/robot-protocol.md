@@ -3,8 +3,10 @@
 Status: specification for [issue #64](https://github.com/Krzys2002/Mini_Robot/issues/64).
 The desktop [BLE lifecycle](../overview/ble-connection.md) validates Robot Info
 and establishes GATT readiness. Desktop [message handling](../overview/ble-messages.md)
-implements frame encoding/decoding and writes. ESP32-C6 firmware and physical
-command-delivery acceptance remain outstanding. The BLE carriage of
+implements frame encoding/decoding and writes. The portable ESP32-C6
+[codec and command validation](../overview/firmware-protocol.md) (#161) implements
+the robot side of these rules, and the [C6 BLE peripheral](../overview/firmware-ble.md)
+(#163) carries them and [publishes telemetry](../overview/firmware-telemetry.md) (#164); powered and desktop command-delivery acceptance remains outstanding. The BLE carriage of
 these frames is defined in [BLE GATT contract](ble-gatt.md).
 
 This document defines the bytes exchanged between the desktop and one robot. It
@@ -25,15 +27,24 @@ Key words: **must**/**must not** are mandatory for a conforming implementation;
 | Session | One connection between one desktop and one robot. Sequence state is per session. |
 | `robotId` | Unsigned 32-bit application identity, equal to the domain `RobotId` value. |
 
-- Each robot stores its `robotId` in non-volatile memory at provisioning time.
+- Each robot stores its `robotId` in non-volatile memory at provisioning time
+  ([firmware provisioning](../overview/firmware-provisioning.md)).
   The operator must keep IDs unique within the arena. `robotId` is independent of
   BLE addresses, platform peripheral UUIDs, or Zigbee short addresses.
 - The authoritative identity is the `robotId` field of the
   [Robot Info](#robot-info-record) record, read once per session before any
-  command. Advertised names are only discovery hints.
+  command. Advertised names are only discovery hints. Identity is not
+  authentication: version 1 has no controller authorization, and the
+  [restricted-lab security profile](security-profile.md) governs its use.
 - Frames do not repeat `robotId`: a session is point-to-point, so every frame on
   it belongs to the identified robot. A future multi-robot gateway (for example
   Zigbee) must add its own addressing outside these frames.
+- Each robot permits one accepted application-controller connection, not observer
+  or secondary application sessions. The BLE stack's physical-link capacity does
+  not change that limit: non-owner ordinary commands and subscription changes have
+  no effect, but any connected central's dedicated E-stop write still latches
+  ([F1](security-profile.md#5-enforceable-firmware-rules)). One desktop may connect
+  to several different robots.
 
 ## Encoding rules
 
@@ -310,7 +321,11 @@ response ([#70](https://github.com/Krzys2002/Mini_Robot/issues/70)).
 ### Illustrative defaults
 
 These values are starting points for bring-up. They belong in configuration or
-firmware build settings, not as literals scattered through modules.
+firmware build settings, not as literals scattered through modules. The
+production firmware's proposed values, with their derivation and stopping
+bounds, are in the [timing budgets](timing-budgets.md): a 250 ms
+`maxCommandValidityMs` and a 100 ms `telemetryPeriodMs`. Choosing those values
+changes no v1 rule.
 
 | Parameter | Owner | Default |
 | --- | --- | --- |
@@ -327,7 +342,9 @@ firmware build settings, not as literals scattered through modules.
   disables outputs, latches, and sends a CommandResult and then telemetry
   showing `EmergencyStop`.
 - The robot accepts the message on the dedicated Emergency Stop path regardless of
-  sequence, validity, robot state, or planner activity on the desktop. On that
+  connection ownership, readiness, sequence, validity, robot state, authorization
+  or planner activity on the desktop. This includes a rejected non-owner awaiting
+  termination, whose ordinary Command writes have no effect. On that
   path even an unparsable payload latches the robot (see [BLE GATT](ble-gatt.md#emergency-stop-characteristic)).
 - While latched, the robot rejects Velocity with `EmergencyStopLatched`. Stop is
   accepted with no effect, and EmergencyStop is accepted again. Only
@@ -376,7 +393,9 @@ Hex bytes in transmission order. The limits in the Robot Info example are illust
 | CommandResult, seq 8, for Velocity 258, `Accepted`, `Moving` | `01 81 08 00 02 01 02 00 01` |
 | Robot Info, ID 7, firmware 0.1.0, 300 mm/s, 6000 mrad/s, 500 ms, 100 ms | `01 01 01 07 00 00 00 00 01 00 2C 01 70 17 F4 01 64 00` |
 
-Implementations should use these frames as encoder and decoder test vectors.
+Implementations should use these frames as encoder and decoder test vectors. They
+are also in machine-readable form in [`fixtures/v1-frames.txt`](fixtures/v1-frames.txt),
+which both the desktop and firmware tests read.
 
 ## JSON bring-up representation
 

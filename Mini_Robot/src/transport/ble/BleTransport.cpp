@@ -8,10 +8,13 @@
 #include <utility>
 
 namespace micro_robot {
-BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, BleTransportConfig config,
-                           std::optional<LogChannel> log)
-    : backend_(std::move(backend)), config_(config), log_(std::move(log))
+BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, std::shared_ptr<IBleSessionSecurity> security,
+                           BleTransportConfig config, std::optional<LogChannel> log)
+    : backend_(std::move(backend)), security_(std::move(security)), config_(config), log_(std::move(log))
 {
+    // Fail closed: no automatic fallback to the pass-through when security is required.
+    if (const auto refused = bleSecuritySelectionError(config.securityMode, security_.get()))
+        throw std::invalid_argument(*refused);
     const auto validTimeout = [](auto duration) {
         return duration.count() > 0 && duration.count() <= std::numeric_limits<int>::max();
     };
@@ -30,6 +33,11 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, BleTransportCon
     qRegisterMetaType<BleRobotInfo>();
     qRegisterMetaType<BleEndpoint>();
     qRegisterMetaType<Timestamp>();
+    if (log_) {
+        log_->info(std::string{"BLE session security: mode="} + bleSecurityModeName(config_.securityMode)
+                   + " profile=" + security_->profile());
+        if (security_->isPassThrough()) log_->warning(kRestrictedLabSecurityWarning);
+    }
     scanTimer_.setSingleShot(true);
     QObject::connect(&scanTimer_, &QTimer::timeout, this, [this] { finishScan(false); });
     QObject::connect(backend_.get(), &IBleBackend::deviceFound, this,
@@ -69,6 +77,21 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, BleTransportCon
         }
         session.info = info;
         session.nativeReady = true;
+        // Security session before Connected. A refused session never becomes Connected; a
+        // latched E-stop is still re-asserted first, because no security step may block it.
+        const auto established = security_->beginSession(*id, info);
+        if (!established.established) {
+            if (session.emergencyRequested) sendEmergencyStop(*id);
+            fault(*id, TransportErrorCode::BackendFailure, "BLE session security refused: " + established.reason);
+            return;
+        }
+        session.security = established.status;
+        if (log_) {
+            log_->info(std::string{"BLE session security: profile="} + established.status.profile
+                       + " authenticated=" + (established.status.authenticated ? "yes" : "no")
+                       + " encrypted=" + (established.status.encrypted ? "yes" : "no"), *id);
+            if (established.status.bypassed) log_->warning(kRestrictedLabSecurityWarning, *id);
+        }
         if (session.emergencyRequested) {
             armTimeout(*id, config_.phaseTimeout);
             sendEmergencyStop(*id);
@@ -108,7 +131,7 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, BleTransportCon
             return;
         }
         auto& session = sessions_.at(*id);
-        clearIo(session);
+        clearIo(*id, session);
         session.timer->stop();
         backend_->release(token);
         session.token = 0;
@@ -170,7 +193,7 @@ void BleTransport::fault(RobotId id, TransportErrorCode code, const std::string&
     auto& session = sessions_.at(id);
     const auto operation = operationOverride ? *operationOverride : session.state == ConnectionState::Disconnecting
         ? TransportOperation::Disconnect : TransportOperation::Connect;
-    clearIo(session);
+    clearIo(id, session);
     if (session.timer) session.timer->stop();
     const auto token = std::exchange(session.token, 0);
     backend_->release(token);
@@ -204,7 +227,7 @@ void BleTransport::beginConnect(RobotId id)
     if (session.state == ConnectionState::Connected || session.state == ConnectionState::Connecting
         || session.state == ConnectionState::Disconnecting) return;
     session.token = ++nextToken_;
-    clearIo(session);
+    clearIo(id, session);
     changePhase(id, BlePhase::Scanning);
     changeState(id, ConnectionState::Connecting);
     beginScan();
@@ -263,7 +286,7 @@ void BleTransport::beginDisconnect(RobotId id)
         || connectionState(id) == ConnectionState::Disconnecting) return;
     auto& session = sessions_.at(id);
     const bool scanning = session.phase == BlePhase::Scanning;
-    clearIo(session);
+    clearIo(id, session);
     changePhase(id, BlePhase::Disconnecting);
     changeState(id, ConnectionState::Disconnecting);
     if (scanning) {
