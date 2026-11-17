@@ -107,12 +107,6 @@ struct CommandDecodeResult {
 
 // True for a well-formed version 1 EmergencyStop frame. The Emergency Stop
 // characteristic latches on any write; this only decides which sequence to echo.
-[[nodiscard]] constexpr bool isWellFormedEmergencyStop(std::span<const std::uint8_t> bytes) noexcept
-{
-    const auto decoded = decodeCommand(bytes);
-    return decoded.frame && decoded.frame->type == MessageType::EmergencyStop;
-}
-
 // ---- Validity and range limits (step 5, after sequence and state) ---------------------
 
 // The limits a robot advertises in Robot Info and must enforce.

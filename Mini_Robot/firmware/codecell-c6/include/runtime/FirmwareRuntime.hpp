@@ -6,13 +6,14 @@
 //
 // start() order, each step checked; any failure leaves the runtime in Fault with the
 // drive disabled, reports the first FaultCode and never starts normal motion:
+//   First bind synchronization; if unavailable, no task (including reporting) starts.
 //   1. register the pre-restart shutdown hook (shutdown() inside esp_restart(), #162), so
 //      that from here on a deliberate restart powers the drive down first, even when a
 //      later step fails;
 //   2. disable the drive; then fail if step 1 did (the hook is a required guarantee);
 //   3. load and validate the configuration;
 //   4. configure the drive with the validated profile (#160);
-//   5. create the critical section; 6. start the safety supervisor (subscribed to the task
+//   5. require the critical section; 6. start the safety supervisor (subscribed to the task
 //      watchdog, B17), then the control task, then the telemetry task when one is given
 //      (#164 review: mandatory telemetry is part of the checked start-up, so a robot whose
 //      telemetry cannot run never becomes motion-ready);
@@ -116,7 +117,7 @@ private:
     // failure changes nothing, because the runtime is already faulted.
     void startTelemetryForReporting() noexcept
     {
-        if (!telemetryTask_ || telemetryTaskStarted_ || !telemetryTask_->step) return;
+        if (!synchronizationReady_ || !telemetryTask_ || telemetryTaskStarted_ || !telemetryTask_->step) return;
         if (gate_.status().fault == FaultCode::TelemetryTaskStartFailed) return;
         telemetryTaskStarted_ = platform_.startPeriodicTask(telemetryTask_->spec, *telemetryTask_->step);
     }
@@ -129,6 +130,13 @@ private:
 
     StartResult startOnce() noexcept
     {
+        // Bind before any fallible initialization can start fault-reporting telemetry.
+        ICriticalSection* section = platform_.createCriticalSection();
+        if (section) {
+            gate_.bind(*section);
+            mailbox_.bind(*section);
+            synchronizationReady_ = true;
+        }
         shutdownHookRegistered_ = platform_.registerShutdownHook(shutdownHook_);
         if (!gate_.disableAtBoot()) return fail(FaultCode::DriveDisableFailed);
         if (!shutdownHookRegistered_) return fail(FaultCode::ShutdownHookUnavailable);
@@ -147,10 +155,7 @@ private:
                                     config_->driveProfile.maxAngularRadiansPerSecond);
         supervisor_.setStallLimit(config_->controlStallLimit);
 
-        ICriticalSection* section = platform_.createCriticalSection();
         if (!section) return fail(FaultCode::SynchronizationUnavailable);
-        gate_.bind(*section);
-        mailbox_.bind(*section);
 
         const TaskSpec safety{kSafetyTaskName, config_->safetyTask.priority, config_->safetyTask.stackBytes,
                               config_->safetyCheckPeriod, true};
@@ -190,6 +195,7 @@ private:
     ShutdownHook shutdownHook_{*this};
     bool shutdownHookRegistered_{false};
     bool telemetryTaskStarted_{false};
+    bool synchronizationReady_{false};
     std::optional<RuntimeConfig> config_{};
     std::optional<ConfigError> configError_{};
     std::optional<StartResult> result_{};

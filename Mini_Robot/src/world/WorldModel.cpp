@@ -69,7 +69,7 @@ TrackingInfo WorldModel::tracking(RobotId id, Timestamp now) const
     const auto found = robots_.find(id);
     if (found == robots_.end() || !found->second.tracking || !found->second.poseUpdatedAt) return {};
     const auto& state = found->second;
-    if (now < *state.poseUpdatedAt) return {TrackingStatus::Lost, {}};
+    if (now < *state.poseUpdatedAt) return {TrackingStatus::Lost, {}, {}};
     const auto age = now - *state.poseUpdatedAt;
     const double confidence = state.tracking->measurementQuality.value_or(1.0)
         * std::max(0.0, 1.0 - std::chrono::duration<double>(age).count()

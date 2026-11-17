@@ -26,9 +26,8 @@ recorded-video replay, intrinsic camera calibration and profiles, AprilTag pixel
 observations and debug overlays, a metric WorldModel, simulated transport,
 RobotManager sessions, optional Qt BLE transport, configuration, and logging.
 
-The full vision-to-motion loop is unfinished: observations do not yet update
-calibrated tracked WorldModel poses or drive a closed-loop controller. The desktop
-still injects demo pose data. BLE connection-fixture acceptance does not establish
+Calibrated observations feed RobotTracker and metric WorldModel poses. The full
+vision-to-motion loop and closed-loop controller remain unfinished. BLE connection-fixture acceptance does not establish
 motor, watchdog, or emergency-stop acceptance. See
 [current capabilities and limits](Mini_Robot/docs/overview/capabilities.md).
 
@@ -124,6 +123,8 @@ directory when changing toolchains.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
+| `MICRO_ROBOT_ENABLE_FIRMWARE_TOOLS` | ON | Optional build-only PlatformIO targets when available |
+| `MICRO_ROBOT_CAMERA_BACKEND` | Platform default | Native camera adapter selection (Qt or Linux V4L2) |
 | `BUILD_TESTING` | ON | GoogleTest/CTest suites |
 | `MICRO_ROBOT_BUILD_DESKTOP` | ON | Qt desktop and UI tests |
 | `MICRO_ROBOT_BUILD_REPLAY` | ON | OpenCV recorded-video adapter |

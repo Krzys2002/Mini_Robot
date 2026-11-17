@@ -5,7 +5,7 @@
 The main application is `Mini_Robot/`. Read `Mini_Robot/AGENTS.md` before editing
 that subtree; its architecture, safety, C++ and issue-workflow rules also apply
 when changing the root desktop build integration. Preserve unrelated user edits.
-The `micro-robot-swarm-desktop` skill is stored locally at
+The optional, gitignored `micro-robot-swarm-desktop` skill is stored locally at
 [`Mini_Robot/.codex/skills/micro-robot-swarm/SKILL.md`](Mini_Robot/.codex/skills/micro-robot-swarm/SKILL.md).
 Read it and the relevant references for issue implementation.
 

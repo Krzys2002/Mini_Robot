@@ -110,7 +110,9 @@ flowchart LR
     UI -->|selection requests| Selection
     Selection -->|create source for device| Factory
     Selection -->|hand over / clear source| Controller
-    Main -->|explicit demo pose| Controller[DesktopController]
+    Main -->|compose| Controller[DesktopController]
+    Vision[Calibrated vision observations] --> Tracker[RobotTracker]
+    Tracker --> World[WorldModel]
     Controller -->|owns| Camera
     Camera -->|frame metadata and state events| Controller
     Transport -->|connection and telemetry events| Manager[RobotManager]

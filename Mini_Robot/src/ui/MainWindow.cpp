@@ -79,7 +79,7 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     cameraLayout->addLayout(cameraButtons);
     layout->addWidget(cameraGroup);
 
-    auto* worldGroup = new QGroupBox(QStringLiteral("WorldModel — static demo pose"), central);
+    auto* worldGroup = new QGroupBox(QStringLiteral("WorldModel — tracked metric poses"), central);
     auto* worldLayout = new QVBoxLayout(worldGroup);
     auto* worldDescription = new QLabel(QStringLiteral("No registered robots"), worldGroup);
     worldDescription->setObjectName(QStringLiteral("worldDescription"));

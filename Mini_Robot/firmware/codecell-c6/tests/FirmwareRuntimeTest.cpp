@@ -534,7 +534,9 @@ TEST(FirmwareRuntimeTest, FailedDisableAfterStartFaultsTheRuntime)
     Rig rig;
     ASSERT_EQ(rig.rt().start(), StartResult::Running);
     rig.drive.failDisable = true;
-    rig.control();  // Idle: the gate disables, which now fails.
+    rig.control(); // Idle does not repeat an already confirmed disable.
+    EXPECT_EQ(rig.rt().status().fault, FaultCode::None);
+    EXPECT_EQ(rig.rt().commands().emergencyStop(), CommandOutcome::Accepted); // Explicit safety action must still disable and detect failure.
     EXPECT_EQ(rig.rt().status().fault, FaultCode::DriveDisableFailed);
     EXPECT_EQ(rig.velocity(kForward), CommandOutcome::RejectedFault);
 }

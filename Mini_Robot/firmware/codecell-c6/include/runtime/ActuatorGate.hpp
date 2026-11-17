@@ -60,7 +60,7 @@ public:
         return disableLocked();
     }
 
-    // Start-up only (single-threaded, before bind() and any task): hands the validated
+    // Start-up only (single-threaded, before any task): hands the validated
     // profile to the drive adapter. False means the adapter refused it.
     [[nodiscard]] bool configureDrive(const drive::DriveProfile& profile, milliseconds controlPeriod) noexcept
     {
@@ -224,10 +224,7 @@ private:
     // enabled one starts the ramp, keeping the earliest decision time when one runs.
     void beginStopLocked(Instant now) noexcept
     {
-        if (!outputEnabled_) {
-            disableLocked();
-            return;
-        }
+        if (!outputEnabled_) return; // Boot/explicit safety actions already disabled the drive.
         if (stopping_) return;
         stopping_ = true;
         stopDecision_ = now;
