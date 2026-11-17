@@ -125,19 +125,24 @@ invalidates its generation, clears tracker measurements, and drops late results.
 The single WorldModel still owns Pose2D; no 3D state or independent pose authority
 is introduced. Future common-world multi-camera fusion (#108) remains separate.
 
-## Integration with pending diagnostics (#267/#269/#273)
+## Tabletop verification and diagnostics
 
-Those optional diagnostics/distance PRs are not prerequisites of #270. Their
-current diagnostics implementation compares the *complete* runtime profile with
-the acquisition profile. A v4 extension therefore needs a narrow integration
-adaptation when those siblings become available: in `WorkspaceDiagnostics.cpp`,
-compare `tabletopProfileBinding(acquisition->profile)` with
-`tabletopProfileBinding(d->profile)`. Keep the runtime v4 profile and original
-v3 acquisition separate; do not overwrite the latter to make a comparison pass.
-Diagnostic scale/error maps and distance uncertainty remain **tabletop z=0**,
-not propagated robot-body accuracy. A combined-tree regression must verify
-unchanged acquisition bytes, retained v4 geometry and unchanged tabletop scales.
-This branch stays on approved parent #264; it does not import those optional PRs.
+Verify checks tabletop correspondences independently of the derived v4 geometry.
+Its input-validation copy excludes the old H and localization extension; the
+original complete profile is still validated when evaluating held-out checks.
+Neither the active/draft body transform nor its acquisition provenance is changed
+by verification. Invalid camera metadata and mismatched original profiles remain
+rejected.
+
+Diagnostics and distance measurements pair an active v4 profile with its original
+v3 sidecar using the exact `tabletopProfileBinding`: camera/K/resolution, signed
+frame/bounds, H and acquisition identity. Comparing the entire extended profile
+would incorrectly reject an unchanged sidecar. The original evidence is never
+rewritten to make a comparison pass. Distance/cache/export revision identity still
+uses the complete active profile, so derived-geometry changes remain distinguishable.
+Scale/error maps and distance uncertainty remain **tabletop z=0**, not propagated
+robot-body accuracy. The compatibility adaptation is now part of the implementation,
+including regressions for verification, sidecar bytes and nominal distance.
 
 ## Verification and physical acceptance
 

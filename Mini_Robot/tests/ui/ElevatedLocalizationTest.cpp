@@ -24,12 +24,13 @@ class NoopHomography final:public IWorkspaceHomographySolver {
     WorkspaceHomographyOutcome solve(const WorkspaceHomographyInput&) override { return {{},"unused"}; }
 };
 class NoopUndistorter final:public ICalibrationUndistorter {
-    UndistortedPreviewOutcome undistort(const Frame&,const IntrinsicCalibration&) override { return {{},"unused"}; }
+    UndistortedPreviewOutcome undistort(const Frame& frame,const IntrinsicCalibration&) override { return {std::make_shared<Frame>(frame),{}}; }
 };
 class MemoryWorkspace final:public IWorkspaceProfileStore {
 public:
     WorkspaceCalibrationProfile stored=elevatedProfile();
-    WorkspaceProfileLoadOutcome load(std::string_view,const IntrinsicCalibration&) override { return {ProfileLoadState::Loaded,stored,{}}; }
+    std::shared_ptr<WorkspaceAcquisitionRecord> acquisition;
+    WorkspaceProfileLoadOutcome load(std::string_view,const IntrinsicCalibration&) override { return {ProfileLoadState::Loaded,stored,{},acquisition}; }
     std::string save(const WorkspaceCalibrationProfile& p) override { stored=p; return {}; }
 };
 class GatedExtrinsics final:public IExtrinsicsSolver {
@@ -186,4 +187,34 @@ TEST(ElevatedLocalizationUiTest, MountReplacementClearsTrackingAndDropsOldWorker
     now+=20ms; vision.receiveFrame(frame(2)); ASSERT_TRUE(QTest::qWaitFor([&]{return !vision.busy();}));
     EXPECT_EQ(published,1); EXPECT_EQ(revision,"new-mount"); EXPECT_EQ(world.tracking(RobotId{0},now).status,TrackingStatus::Fresh);
     vision.shutdown(); ASSERT_TRUE(QTest::qWaitFor([&]{return vision.isStopped();}));
+}
+
+TEST(ElevatedLocalizationUiTest, VerifyLoadedV4PreservesBodyGeometryAndOriginalAcquisition) {
+    LocalFixture f; auto p=elevatedProfile(); auto geometry=*p.localization;
+    p.localization.reset(); p.acquisitionId="verification-evidence";
+    WorkspaceBoundary boundary;
+    const auto corners=workspaceCorners(p.bounds);
+    auto record=std::make_shared<WorkspaceAcquisitionRecord>(WorkspaceAcquisitionRecord{p.acquisitionId,p,{},{}});
+    for(std::size_t i=0;i<corners.size();++i) {
+        const auto pixel=unprojectWorkspacePoint(*p.homography,corners[i]); ASSERT_TRUE(pixel);
+        boundary[i]=*pixel; record->references.push_back({i+1,{*pixel,corners[i]},false,true,{}});
+    }
+    p.boundary=boundary; record->profile=p;
+    std::uint64_t id=5;
+    for(const auto& ref:geometry.survey.references) if(ref.check)
+        record->references.push_back({id++,{ref.image,*projectWorkspacePoint(*p.homography,ref.image)},true,false,{}});
+    geometry.tabletopBinding=tabletopProfileBinding(p); p.localization=geometry;
+    f.store->stored=p; f.store->acquisition=record;
+    f.controller.load(); ASSERT_TRUE(QTest::qWaitFor([&]{return !f.controller.busy();}));
+    ASSERT_TRUE(f.controller.draftProfile())<<f.controller.message().toStdString(); f.controller.activate();
+    auto frame=std::make_shared<Frame>(); frame->width=p.intrinsics.width; frame->height=p.intrinsics.height;
+    frame->strideBytes=frame->width; frame->pixelFormat=PixelFormat::Gray8; frame->sequence=1; frame->capturedAt=MonotonicClock::now();
+    frame->pixels=std::make_shared<const std::vector<std::byte>>(static_cast<std::size_t>(frame->width)*frame->height);
+    f.controller.receiveFrame(frame); f.controller.freezeBoard(); ASSERT_TRUE(QTest::qWaitFor([&]{return !f.controller.busy();}));
+    ASSERT_TRUE(f.controller.canVerify()); const auto original=serializeWorkspaceAcquisition(*record);
+    f.controller.verify(); ASSERT_TRUE(QTest::qWaitFor([&]{return !f.controller.busy();}));
+    EXPECT_TRUE(f.controller.message().startsWith("Independent check RMS"))<<f.controller.message().toStdString();
+    EXPECT_EQ(serializeWorkspaceProfile(*f.controller.draftProfile()),serializeWorkspaceProfile(p));
+    EXPECT_EQ(serializeWorkspaceProfile(*f.controller.profile()),serializeWorkspaceProfile(p));
+    EXPECT_EQ(serializeWorkspaceAcquisition(*f.controller.draftAcquisition()),original);
 }

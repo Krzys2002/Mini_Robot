@@ -64,3 +64,16 @@ TEST(ElevatedLocalizationTest, V4RoundtripPreservesLegacyBindingAndRejectsMissin
     const auto geometry=serializeElevatedLocalization(*p.localization);
     EXPECT_FALSE(parseElevatedLocalization(geometry+"extra"));
 }
+
+TEST(ElevatedLocalizationTest, TabletopCorrespondenceValidationAcceptsUnchangedV4DerivedGeometry) {
+    const auto p=elevatedProfile(); WorkspaceHomographyInput input{p,{},{}};
+    for(const auto& ref:p.localization->survey.references) {
+        const auto world=projectWorkspacePoint(*p.homography,ref.image); ASSERT_TRUE(world);
+        (ref.check?input.checkPoints:input.fitPoints).push_back({ref.image,*world});
+    }
+    const auto before=serializeWorkspaceProfile(p);
+    EXPECT_TRUE(validateWorkspaceHomographyInput(input).empty())<<validateWorkspaceHomographyInput(input);
+    EXPECT_EQ(serializeWorkspaceProfile(input.profile),before);
+    input.profile.intrinsics.cameraMatrix[0]=0;
+    EXPECT_FALSE(validateWorkspaceHomographyInput(input).empty());
+}

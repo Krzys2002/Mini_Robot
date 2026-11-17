@@ -256,3 +256,48 @@ TEST(WorkspaceDiagnosticsTest, MaximumDatasetAndGridAreRetainedWithoutTruncation
                                      .count());
 }
 } // namespace
+
+#include "ElevatedFixtures.hpp"
+#include "calibration/WorkspaceDistance.hpp"
+TEST(WorkspaceDiagnosticsV4IntegrationTest, KeepsOriginalTabletopEvidenceWhenBodyGeometryIsAdded)
+{
+    using namespace micro_robot;
+    using namespace micro_robot::test;
+    auto p = elevatedProfile();
+    auto geometry = *p.localization;
+    p.localization.reset();
+    p.acquisitionId = "unchanged-tabletop-evidence";
+    auto record = std::make_shared<WorkspaceAcquisitionRecord>(WorkspaceAcquisitionRecord{p.acquisitionId, p, {}, {}});
+    std::uint64_t id = 1;
+    for (const auto& reference : geometry.survey.references) {
+        const auto mapped = projectWorkspacePoint(*p.homography, reference.image);
+        ASSERT_TRUE(mapped);
+        record->references.push_back({id++, {reference.image, *mapped}, reference.check, false, {}});
+    }
+    const auto original = serializeWorkspaceAcquisition(*record);
+    const auto legacy = buildWorkspaceDiagnostics(p, record);
+    ASSERT_TRUE(legacy.result) << legacy.error;
+    geometry.tabletopBinding = tabletopProfileBinding(p);
+    p.localization = geometry;
+    const auto upgraded = buildWorkspaceDiagnostics(p, record);
+    ASSERT_TRUE(upgraded.result) << upgraded.error;
+    EXPECT_EQ(serializeWorkspaceAcquisition(*record), original);
+    EXPECT_EQ(upgraded.result->diagnosticPlane, "tabletop z=0");
+    EXPECT_FALSE(upgraded.result->acquisition->profile.localization);
+    EXPECT_TRUE(upgraded.result->profile.localization);
+    const auto a = sampleWorkspaceDiagnostics(*legacy.result, {});
+    const auto b = sampleWorkspaceDiagnostics(*upgraded.result, {});
+    EXPECT_EQ(a.xPixelsPerCentimeter, b.xPixelsPerCentimeter);
+    EXPECT_EQ(a.yPixelsPerCentimeter, b.yPixelsPerCentimeter);
+    std::array<WorkspaceDistanceEndpoint,2> endpoints;
+    endpoints[0].world={Meters{-.1},Meters{0}};
+    endpoints[1].world={Meters{.1},Meters{0}};
+    for(auto& endpoint:endpoints) endpoint.selection.space=WorkspaceSelectionSpace::WorldMeters;
+    const auto distance=measureWorkspaceDistance(*upgraded.result,endpoints);
+    ASSERT_TRUE(distance.result)<<distance.error;
+    EXPECT_NEAR(distance.result->distanceMeters,.2,1e-12);
+    EXPECT_EQ(distance.result->diagnosticPlane,"tabletop z=0");
+    auto foreign=std::make_shared<WorkspaceAcquisitionRecord>(*record);
+    foreign->profile.frameId="another-frame";
+    EXPECT_FALSE(buildWorkspaceDiagnostics(p,foreign).result);
+}
