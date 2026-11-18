@@ -28,6 +28,18 @@ LiveVisualSettings simulationVisualSettings()
     settings.motionEnabled = true;
     return settings;
 }
+TEST(LiveVisualSettingsTest, SharesConfiguredManualSpeedCapsWithPolicyAndLoop)
+{
+    ApplicationConfig config;
+    config.manual.maximumLinearMetersPerSecond = 0.025;
+    config.manual.maximumAngularRadiansPerSecond = 0.4;
+
+    const auto settings = LiveVisualSettings::fromApplication(config);
+    EXPECT_DOUBLE_EQ(settings.goal.maximumLinearMetersPerSecond, 0.025);
+    EXPECT_DOUBLE_EQ(settings.loop.maximumLinearMetersPerSecond, 0.025);
+    EXPECT_DOUBLE_EQ(settings.goal.maximumAngularRadiansPerSecond, 0.4);
+    EXPECT_DOUBLE_EQ(settings.loop.maximumAngularRadiansPerSecond, 0.4);
+}
 struct LiveVisualControlTest : testing::Test {
     Timestamp now{1s};
     Logger logger;

@@ -9,6 +9,8 @@ namespace micro_robot {
 LiveVisualSettings LiveVisualSettings::fromApplication(const ApplicationConfig& c)
 {
     LiveVisualSettings settings;
+    // ManualControlConfig is the single app-level source for both the policy's
+    // request caps and the loop's final submission caps.
     settings.loop = {std::min(period, c.manual.refreshInterval), c.manual.commandValidity, c.tracking.staleAfter,
         c.manual.maximumLinearMetersPerSecond, c.manual.maximumAngularRadiansPerSecond};
     settings.goal = {c.visualControl.positionGainPerSecond, c.visualControl.bearingGainPerSecond,
