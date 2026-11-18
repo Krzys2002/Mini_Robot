@@ -253,8 +253,9 @@ TEST(StatusReportTest, EveryLineFitsWithWorstCaseValuesAndCarriesOnlyItsKeys)
                            "log_dropped_bytes", "log_written", "log_high_water", "log_capacity"});
 
     const auto identity = identityLine({kMax32, {255, 255, 255}, "0123456789abcdef", "power_glitch", kMax32, kMax32});
-    expectBoundedWithKeys(identity, "IDENTITY", {"robot_id", "firmware", "build", "reset", "session", "uptime_ms"});
-    EXPECT_NE(identity.view().find("robot_id=4294967295 firmware=255.255.255 build=0123456789abcdef"), std::string::npos);
+    expectBoundedWithKeys(identity, "IDENTITY", {"robot_id", "firmware", "build", "profile", "reset", "session", "uptime_ms"});
+    EXPECT_NE(identity.view().find("robot_id=4294967295 firmware=255.255.255 build=0123456789abcdef profile=restricted-lab-v1"),
+              std::string::npos);
 }
 
 TEST(StatusReportTest, UnknownValuesAreSpelledOutNotInvented)

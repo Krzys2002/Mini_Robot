@@ -5,7 +5,7 @@ add_executable(codecell_firmware_host_tests FirmwareClockTest.cpp LatencyHistogr
     BoundedDriveOutputTest.cpp ActuatorRuntimeTest.cpp ProtocolCodecTest.cpp ProtocolSequenceTest.cpp
     ProtocolSessionTest.cpp ProtocolFuzzTest.cpp SafetyEnforcementTest.cpp BleProfileTest.cpp
     BlePeripheralTest.cpp TelemetrySchedulerTest.cpp BatteryMonitorTest.cpp TelemetryPublicationTest.cpp
-    DiagnosticsReportTest.cpp)
+    DiagnosticsReportTest.cpp RestrictedLabEnforcementTest.cpp)
 target_include_directories(codecell_firmware_host_tests PRIVATE ../include)
 target_compile_features(codecell_firmware_host_tests PRIVATE cxx_std_20)
 if(MSVC)
