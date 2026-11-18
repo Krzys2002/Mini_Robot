@@ -40,7 +40,8 @@ public:
                                                      Timestamp capturedAt, TrackingThresholds thresholds,
                                                      std::optional<Pose2D> rawPose = {}, double continuousHeading = 0,
                                                      std::optional<PlanarVelocity> velocity = {},
-                                                     std::optional<double> quality = {});
+                                                     std::optional<double> quality = {},
+                                        std::optional<MeasurementProvenance> provenance = {}, std::optional<Timestamp> publishedAt = {});
     void invalidateTracking(RobotId id);
     // Explicit active-frame replacement: old coordinates cannot survive in a new frame.
     // Registry/transport identity remains intact. Owner thread only.

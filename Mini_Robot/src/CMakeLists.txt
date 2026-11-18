@@ -12,6 +12,7 @@ target_sources(micro_robot_common INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Units.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Angle.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/common/Time.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/common/MeasurementProvenance.hpp"
 )
 micro_robot_platform_boundary(micro_robot_common)
 
@@ -99,7 +100,9 @@ micro_robot_platform_boundary(micro_robot_vision_api)
 add_library(micro_robot_vision_observation STATIC
     vision/RobotObservation.hpp vision/RobotObservation.cpp
     vision/MetricObservation.hpp vision/MetricObservation.cpp
-    vision/VisionDebugFrame.hpp vision/VisionDebugFrame.cpp)
+    vision/VisionDebugFrame.hpp vision/VisionDebugFrame.cpp
+    vision/LocalizationMetrics.hpp vision/LocalizationMetrics.cpp
+    vision/LocalizationQuality.cpp)
 target_link_libraries(micro_robot_vision_observation PUBLIC micro_robot_vision_api micro_robot_calibration)
 micro_robot_target_defaults(micro_robot_vision_observation)
 micro_robot_platform_boundary(micro_robot_vision_observation)

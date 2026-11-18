@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vision/VisionDebugFrame.hpp"
+#include "vision/MetricObservation.hpp"
 
 #include <QDialog>
 #include <QTimer>
@@ -20,6 +21,8 @@ public:
     // Detector coordinates address pixel centers; QImage's rectangle addresses
     // pixel edges. Include the half-pixel offset under the same uniform scale.
     [[nodiscard]] QPointF imageToView(ImagePoint point) const;
+signals:
+    void paintCompleted(micro_robot::Duration duration);
 protected:
     void paintEvent(QPaintEvent*) override;
 private:
@@ -40,6 +43,7 @@ private:
     QPlainTextEdit* diagnostics_{};
     QString sourceId_;
     VisionDebugFramePtr preview_;
+    MetricObservationBatchPtr metric_;
     QTimer ageTimer_;
 };
 } // namespace micro_robot

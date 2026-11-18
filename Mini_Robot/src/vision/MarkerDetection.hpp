@@ -25,6 +25,7 @@ struct MarkerDetections {
     std::vector<MarkerObservation> markers;
     std::string error; // Empty with zero markers is a successful negative observation.
     std::uint64_t inputGeneration{}; // Owning vision worker generation; never inferred from source ID.
+    MeasurementProvenance provenance{};
 };
 using MarkerDetectionsPtr = std::shared_ptr<const MarkerDetections>;
 

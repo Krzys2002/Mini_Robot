@@ -1,5 +1,6 @@
 #pragma once
 #include "common/Time.hpp"
+#include "common/MeasurementProvenance.hpp"
 #include "common/Pose2D.hpp"
 #include <optional>
 
@@ -26,5 +27,7 @@ struct TrackingMetadata {
     std::optional<PlanarVelocity> velocity;
     std::optional<double> measurementQuality; // [0,1], absent if unknown
     double continuousHeading{}; // unfiltered, unwrapped radians for diagnostics
+    std::optional<MeasurementProvenance> provenance;
+    std::optional<Timestamp> publishedAt; // Owner publication boundary; raw/filtered still observedAt.
 };
 } // namespace micro_robot

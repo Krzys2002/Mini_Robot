@@ -39,10 +39,12 @@ MetricObservationResult metricObservation(const RobotObservation& observation,
         const WorldPoint2D body{Meters{center->x.value+cosine*mount->bodyForwardMeters-sine*mount->bodyLeftMeters},
                                Meters{center->y.value+sine*mount->bodyForwardMeters+cosine*mount->bodyLeftMeters}};
         if (!calibration->bounds.contains(body)) return {MetricObservationStatus::OutsideWorkspace,{}};
+        auto provenance = observation.provenance;
+        provenance.mountingRevision = mount->revision;
         return {MetricObservationStatus::Valid,MetricPoseMeasurement{observation.robotId,
             {body.x,body.y,normalizeAngle(Radians{tagHeading+mount->bodyHeadingOffsetRadians})},
             observation.capturedAt,observation.frameSequence,observation.minimumEdgePixels,observation.decisionMargin,
-            MetricPoseReference::AxleBodyCenter,calibration->intrinsics.sourceId,calibration->frameId,e.revision,mount->revision}};
+            MetricPoseReference::AxleBodyCenter,calibration->intrinsics.sourceId,calibration->frameId,e.revision,mount->revision,std::move(provenance)}};
     }
     const auto& h = *calibration->homography;
     std::array<WorldPoint2D, 4> world;
@@ -74,6 +76,6 @@ MetricObservationResult metricObservation(const RobotObservation& observation,
     return {MetricObservationStatus::Valid, MetricPoseMeasurement{observation.robotId,
         {center->x, center->y, normalizeAngle(Radians{std::atan2(dy, dx)})},
         observation.capturedAt, observation.frameSequence, observation.minimumEdgePixels, observation.decisionMargin,
-        MetricPoseReference::TabletopTagCenter,calibration->intrinsics.sourceId,calibration->frameId,calibration->acquisitionId,{}}};
+        MetricPoseReference::TabletopTagCenter,calibration->intrinsics.sourceId,calibration->frameId,calibration->acquisitionId,{},observation.provenance}};
 }
 } // namespace micro_robot

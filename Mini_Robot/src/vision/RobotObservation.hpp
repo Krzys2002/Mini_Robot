@@ -62,6 +62,7 @@ struct RobotObservation {
     Timestamp capturedAt{}; // Source capture time of the frame.
     double minimumEdgePixels{}; // Shortest projected edge, for sampling budgets.
     std::optional<double> decisionMargin; // Detector-native; empty when unsupported.
+    MeasurementProvenance provenance{};
 };
 
 struct MarkerGeometry {

@@ -92,7 +92,7 @@ RobotObservations observeRobots(const MarkerDetections& detections, const RobotM
         } else if (const auto geometry = markerGeometry(marker.corners)) {
             result.robots.push_back({*id, marker.family, marker.id, marker.corners,
                 geometry->center, geometry->imageHeading, detections.frameSequence,
-                detections.capturedAt, geometry->minimumEdgePixels, marker.decisionMargin});
+                detections.capturedAt, geometry->minimumEdgePixels, marker.decisionMargin, detections.provenance});
         } else {
             result.rejected.push_back({marker, MarkerRejection::InvalidGeometry});
         }

@@ -13,6 +13,10 @@ offline builds, pass `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`
 pointing to an already available GoogleTest source checkout. Set
 `-DBUILD_TESTING=OFF` to omit test targets and GoogleTest discovery/download.
 
+## Localization timing/provenance (#272)
+
+Run core and macOS/available host presets, plus standalone core in a separate build directory. Focused selection: `ctest --preset macos -R "LocalizationMetricsTest|LocalizationQualityTest|RobotTrackerProvenanceTest|VisionTimingTest|VisionControllerTest|VisionTrackingIntegrationTest|VisionDebugViewTest|AprilTagReplayTest" --output-on-failure`. Headless Qt can use `QT_QPA_PLATFORM=offscreen`. The first three suites remain Qt/OpenCV-free. Coverage includes unknown/mapped exposure and invalid clocks, exact rolling percentiles, bounded memory, unequal per-robot useful cadence/absence/rejections, disabled costs, worker overload/lifecycle, exact revision changes and raw/filtered timestamp retention. See [definitions and physical handoff](../overview/localization-timing.md). Physical #63/#236 checks remain NOT RUN.
+
 ## Build and run
 
 From the repository's `Mini_Robot` directory:
