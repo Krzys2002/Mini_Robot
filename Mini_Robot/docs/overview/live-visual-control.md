@@ -55,6 +55,35 @@ accepted measurement for the selected robot. Resizing preserves the metric targe
 Identity ambiguity, robot fault/error and session loss also interrupt. A different
 robot clears the old target/provenance; a different frame requires a new target.
 
+## Metric path editing (#81)
+
+The shared preview also supports a separate path-edit mode. In that mode, the
+single preview click handler routes accepted clicks to waypoint editing, so a
+waypoint cannot set a goal. Letterbox clicks are ignored. **Draw path** is enabled
+only for a fresh preview matching the active camera, resolution, calibration
+revision and workspace, with a registered selected robot and both image mapping
+adapters installed. Each accepted click then uses the same guards as goal
+mapping and stores only a `WorldPoint2D` in metres in the Qt-free `MetricPath`
+model. Points outside the calibrated travel bounds are rejected. Aspect-fit
+resizes and widget scaling change only the view, never the stored path. The
+preview instruction explains waypoint clicks while path editing is active.
+
+When editing an existing path in the same scope, **Draw path** starts from a copy
+of the finished path. **Undo waypoint** removes the last draft point. **Clear
+path** clears the draft during editing or removes the finished path while idle.
+**Finish path** captures the draft as the finished metric path, and **Cancel
+drawing** discards only the draft, preserving the finished path. Robot selection,
+camera source, resolution, workspace frame or calibration revision changes
+discard both paths. The derived raw-pixel overlay is recomputed only after path
+edits or scope changes and is hidden while preview metadata is invalid or stale.
+It uses the inverse workspace homography and injected OpenCV lens-distortion
+adapter. This feature edits and displays geometry only: it does not smooth,
+execute, persist across application restarts or issue motion commands.
+
+The panel retains its original constructor and `presentPreview` entry point.
+Automation can identify controls by `pathEditorBegin`, `pathEditorUndo`,
+`pathEditorClear`, `pathEditorFinish` and `pathEditorCancel`.
+
 The core loop rechecks age/session/E-stop/fault/frame gates before calculation
 and submission. Timer and measurement-driven polls share its phase/deadline.
 Arrival submits zero then Stop and ends the run. Stale/lost/invalidated tracking
