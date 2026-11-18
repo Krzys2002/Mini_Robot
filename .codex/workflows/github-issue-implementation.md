@@ -173,14 +173,30 @@ testing subagent to own test design, test changes where warranted and test
 execution. For issues that need no new tests, assign it the applicable existing
 checks and have it explain what those checks cover.
 
-Select GPT-6 Luna (`gpt-6-luna`) explicitly for every implementation and testing
-subagent, including replacements, regardless of the main agent's model. Prefer
-`high` reasoning when the client supports that setting. Use Codex's supported
-model selection mechanism and verify the selection where the client exposes it.
-If the client cannot select GPT-6 Luna or spawn subagents, report the limitation
-and ask before substituting another model or doing the delegated work yourself.
-Continue independent planning or read-only investigation while waiting.
-See [OpenAI's Codex subagent guide](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+Choose the lowest-cost available model that fits each assignment, including
+replacements, independently of the main agent's model. Base the choice on the
+models and reasoning levels the current Codex client exposes:
+
+- For focused implementation and test work, prefer GPT-6 Luna (`gpt-6-luna`)
+  at `high` reasoning. If Luna is unavailable, use GPT-6.1 Terra
+  (`gpt-6.1-terra`) at `medium` when supported. Use Terra at `low` for
+  well-defined work such as mechanical edits, straightforward regression tests,
+  and running known checks. If the client exposes Terra only at `low`, use it
+  for those assignments.
+- Use GPT-6.2 Sol (`gpt-6.2-sol`), or GPT-6.1 Sol (`gpt-6.1-sol`) if needed,
+  when the cheaper models or suitable reasoning levels are unavailable or the
+  assignment needs deeper analysis. Start at `medium` for normal implementation
+  and test design. Use `high` for complex cross-module behavior, subtle failure
+  paths, or safety-sensitive logic.
+
+Select the model explicitly and verify it where the client exposes the
+selection. Moving between the listed options needs no extra approval. If none
+fits or subagents cannot be spawned, report the limitation and ask before using
+an unlisted model or doing the delegated work yourself. Continue independent
+planning or read-only investigation while waiting. Report the models and
+reasoning levels used in the final summary.
+See [OpenAI's Codex subagent guide](https://learn.chatgpt.com/docs/agent-configuration/subagents)
+and [Codex pricing](https://learn.chatgpt.com/docs/pricing#token-rates).
 
 - Give each subagent the issue requirements, relevant repository instructions,
   base and worktree, interface assumptions, owned files, and expected checks.
@@ -280,10 +296,12 @@ and follow it to implement Krzys2002/Mini_Robot issue #<NUMBER>.
 Use the current task's worktree. Start by retrieving the issue and checking
 its native blockers and their linked PRs. Ask before stacking on an unmerged PR.
 Act as the main agent. Own the plan, integration, strict code and test review,
-and final verification. Spawn GPT-6 Luna (gpt-6-luna) implementation subagents
-for distinct work packages and exactly one GPT-6 Luna testing subagent,
-regardless of your own model. Give them clear file ownership. Send review
-findings back to the responsible subagents, then review and verify their fixes.
+and final verification. Spawn implementation subagents for distinct work
+packages and exactly one testing subagent. Follow the workflow's model and
+reasoning guidance for each assignment. Prefer Luna where available, use
+Terra for suitable work when Luna is unavailable, and use Sol when needed.
+Give agents clear file ownership. Send review findings back to the responsible
+subagents, then review and verify their fixes.
 Do not push or create/update a PR without my explicit approval.
 ```
 
