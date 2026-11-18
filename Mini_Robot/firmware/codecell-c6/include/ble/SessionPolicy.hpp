@@ -1,13 +1,14 @@
 #pragma once
-// Session readiness policy of the v1 BLE peripheral (#163). It applies the restricted-lab
-// v1 security profile proposed by #157 (maintainer decision of 2026-11-07, PR #274, not yet
-// merged): v1 has no pairing, bonding, encryption, controller keys or authenticated
-// ownership, and nothing here is authentication. The only enforceable controls are session
-// exclusivity (one connected central, F1) and the v1 readiness rule (both CCCDs, F2).
-// Final enforcement and its attack tests belong to #165.
+// Session readiness policy of the v1 BLE peripheral (#163) and the single definition of the
+// security profile (F10, #165). It applies the restricted-lab v1 security profile of
+// docs/protocol/security-profile.md (maintainer decision of 2026-11-07): v1 has no pairing,
+// bonding, encryption, controller keys or authenticated ownership, and nothing here is
+// authentication. The only enforceable controls are session exclusivity (one connected
+// central, F1) and the v1 readiness rule (both CCCDs, F2).
 //
 // Portable C++20, no radio types.
 #include <cstdint>
+#include <string_view>
 
 namespace codecell::ble {
 
@@ -25,6 +26,18 @@ inline constexpr SecurityProfile kSecurityProfile = SecurityProfile::RestrictedL
     }
     return "unknown";
 }
+
+// The identifier the boot log and diagnostics print (F10).
+inline constexpr std::string_view kSecurityProfileId{toString(kSecurityProfile)};
+static_assert(kSecurityProfileId == "restricted-lab-v1", "the only approved security profile is restricted-lab-v1");
+
+// The production environment declares the profile it is built for in platformio.ini
+// (-DCODECELL_SECURITY_PROFILE=\"restricted-lab-v1\"). Any other identifier fails the build; there
+// is no secure profile to select and no fallback.
+#ifdef CODECELL_SECURITY_PROFILE
+static_assert(std::string_view{CODECELL_SECURITY_PROFILE} == kSecurityProfileId,
+              "CODECELL_SECURITY_PROFILE must be restricted-lab-v1: no other security profile exists (F10)");
+#endif
 
 // What the peripheral knows about the connection when readiness is decided.
 struct ReadinessInputs {

@@ -237,6 +237,7 @@ struct IdentityReport {
     const char* resetReason{"unknown"};
     std::uint32_t session{0};
     std::uint32_t uptimeMilliseconds{0};
+    std::string_view profile{ble::kSecurityProfileId};  // F10: the security profile of this image.
 };
 
 [[nodiscard]] inline ReportLine identityLine(const IdentityReport& r) noexcept
@@ -244,9 +245,10 @@ struct IdentityReport {
     ReportLine line;
     appendf(line, "IDENTITY");
     appendOptional(line, "robot_id", r.robotId);
-    appendf(line, " firmware=%u.%u.%u build=%.*s reset=%s session=%lu uptime_ms=%lu", r.firmware.major,
-            r.firmware.minor, r.firmware.patch, static_cast<int>(r.build.size()), r.build.data(), r.resetReason,
-            ul(r.session), ul(r.uptimeMilliseconds));
+    appendf(line, " firmware=%u.%u.%u build=%.*s profile=%.*s reset=%s session=%lu uptime_ms=%lu", r.firmware.major,
+            r.firmware.minor, r.firmware.patch, static_cast<int>(r.build.size()), r.build.data(),
+            static_cast<int>(r.profile.size()), r.profile.data(), r.resetReason, ul(r.session),
+            ul(r.uptimeMilliseconds));
     return line;
 }
 } // namespace codecell::diagnostics
