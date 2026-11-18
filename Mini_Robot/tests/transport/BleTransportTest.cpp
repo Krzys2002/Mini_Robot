@@ -379,6 +379,33 @@ TEST(BleTransportTest, ConfigurationAndConstructionDoNotTouchBluetoothHardware)
     EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity(),
                                restrictedLab(tracked)}), std::invalid_argument);
 }
+TEST(BleTransportTest, QtBackendCapsOversizedNotificationsAt21BytesAndTheyStayRejected)
+{
+    // The copy the Qt backend emits for every received notification (QtBleBackend.cpp).
+    for (const auto& valid : {telemetryBytes(1), resultBytes(1)}) {
+        const auto endpoint = valid.size() == 18 ? BleEndpoint::Telemetry : BleEndpoint::CommandResult;
+        EXPECT_EQ(boundBleNotificationCopy(valid), valid); // Exact v1 frames pass unchanged.
+        auto oversized = valid;
+        while (oversized.size() < 64) {
+            oversized.append('\0');
+            const auto copy = boundBleNotificationCopy(oversized);
+            EXPECT_EQ(copy.size(), std::min<qsizetype>(oversized.size(), 21)) << oversized.size();
+            EXPECT_EQ(copy, oversized.left(copy.size())) << oversized.size();
+            const std::span<const std::uint8_t> view{reinterpret_cast<const std::uint8_t*>(copy.constData()),
+                                                     static_cast<std::size_t>(copy.size())};
+            EXPECT_FALSE(decodeBleNotification(endpoint, view).frame) << oversized.size();
+        }
+    }
+    Fixture f;
+    f.ready();
+    auto oversized = telemetryBytes(20);
+    oversized.append(QByteArray(46, '\0'));
+    emit f.backend->notification(f.backend->links.at(robot), BleEndpoint::Telemetry,
+                                 boundBleNotificationCopy(oversized), MonotonicClock::now()); drain();
+    ASSERT_EQ(f.events->errors.size(), 1U);
+    EXPECT_EQ(f.events->errors[0].operation, TransportOperation::ReceiveTelemetry);
+    EXPECT_EQ(f.events->telemetry, 0);
+}
 TEST(BleTransportTest, RejectsBackendRobotInfoLimitsOutsideTheSignedWireRange)
 {
     for (const bool linear : {true, false}) {

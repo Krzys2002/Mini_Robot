@@ -59,6 +59,11 @@ TEST(BleProtocolTest, RecomputesRemainingValidityAtDispatchAndRejectsDeadlineAnd
     EXPECT_EQ(aged.frame->bytes[8], 149); // floor, never round upward.
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, now + 250ms).frame);
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, now + 249ms + 1us).frame);
+    // Exactly one millisecond left is the smallest valid validForMs and is still sent.
+    const auto lastMillisecond = encodeBleCommand(command, limits, 0, now + 249ms);
+    ASSERT_TRUE(lastMillisecond.frame) << lastMillisecond.error;
+    EXPECT_EQ(lastMillisecond.frame->bytes[8], 1);
+    EXPECT_EQ(lastMillisecond.frame->bytes[9], 0);
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, now - 1ns).frame);
     command.validFor = Duration::zero();
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, now).frame);
@@ -211,11 +216,13 @@ TEST(BleProtocolTest, AcceptsEveryDefinedRobotStateAndDecodesTheFullUptimeWidth)
     }
     auto bytes = telemetry;
     bytes[8] = 0x78; bytes[9] = 0x56; bytes[10] = 0x34; bytes[11] = 0x12;
-    EXPECT_EQ(std::get<BleTelemetryFrame>(decodeBleNotification(BleEndpoint::Telemetry, bytes).frame->payload)
-                  .uptimeMilliseconds, 0x12345678U);
+    const auto ordered = decodeBleNotification(BleEndpoint::Telemetry, bytes);
+    ASSERT_TRUE(ordered.frame) << ordered.error;
+    EXPECT_EQ(std::get<BleTelemetryFrame>(ordered.frame->payload).uptimeMilliseconds, 0x12345678U);
     bytes[8] = bytes[9] = bytes[10] = bytes[11] = 0xff;
-    EXPECT_EQ(std::get<BleTelemetryFrame>(decodeBleNotification(BleEndpoint::Telemetry, bytes).frame->payload)
-                  .uptimeMilliseconds, 0xffffffffU);
+    const auto maximum = decodeBleNotification(BleEndpoint::Telemetry, bytes);
+    ASSERT_TRUE(maximum.frame) << maximum.error;
+    EXPECT_EQ(std::get<BleTelemetryFrame>(maximum.frame->payload).uptimeMilliseconds, 0xffffffffU);
 }
 TEST(BleProtocolTest, SharedReceiveCounterHandlesGapsDuplicatesWrapAndHalfRange)
 {
