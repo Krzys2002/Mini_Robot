@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <array>
 #include <cmath>
+#include <deque>
 #include <limits>
 #include <numbers>
 #include <stdexcept>
@@ -16,7 +17,7 @@ namespace {
 using namespace micro_robot;
 using namespace std::chrono_literals;
 constexpr double pi = std::numbers::pi;
-const GoalPointControllerConfig config{1.0, 3.0, 2.0, .25, 1.5, Meters{.005}, Radians{.01}, Radians{pi / 3.0}, true};
+const GoalPointControllerConfig config{1.0, 3.0, 2.0, .25, 1.5, Meters{.005}, Radians{.01}, Radians{pi / 3.0}, true, Meters{.01}};
 Pose2D pose(double x, double y, double heading) { return {Meters{x}, Meters{y}, Radians{heading}}; }
 
 TEST(GoalPointControllerTest, WorldAndRobotErrorsUseMetersAndShortestSignedRadians)
@@ -55,9 +56,24 @@ TEST(GoalPointControllerTest, ForwardSpeedIsReducedWhileTurningAndNeverReverses)
     const auto result = controller.evaluate(pose(0, 0, 0), pose(.1, .1, 0));
     ASSERT_TRUE(result);
     EXPECT_EQ(result->state, GoalControlState::Approaching);
-    EXPECT_NEAR(result->command.linearMetersPerSecond, .1, 1e-12);
+    EXPECT_NEAR(result->command.linearMetersPerSecond,
+        std::hypot(.1, .1) * (std::cos(pi / 4) - .5) / .5, 1e-12);
     EXPECT_GT(result->command.angularRadiansPerSecond, 0);
     EXPECT_LE(result->command.angularRadiansPerSecond, config.maximumAngularRadiansPerSecond);
+}
+TEST(GoalPointControllerTest, TurnBoundaryBringsForwardSpeedContinuouslyToZero)
+{
+    GoalPointController controller{config};
+    constexpr double epsilon = 1e-6;
+    const double angle = config.turnInPlaceAngle.value;
+    const auto below = controller.evaluate({}, pose(std::cos(angle - epsilon), std::sin(angle - epsilon), 0));
+    const auto at = controller.evaluate({}, pose(std::cos(angle), std::sin(angle), 0));
+    ASSERT_TRUE(below); ASSERT_TRUE(at);
+    EXPECT_EQ(below->state, GoalControlState::Approaching);
+    EXPECT_EQ(at->state, GoalControlState::TurningToPoint);
+    EXPECT_GT(below->command.linearMetersPerSecond, 0.0);
+    EXPECT_LT(below->command.linearMetersPerSecond, 1e-5);
+    EXPECT_DOUBLE_EQ(at->command.linearMetersPerSecond, 0.0);
 }
 TEST(GoalPointControllerTest, BehindRobotTurnsInPlaceWithDeterministicCounterclockwiseTie)
 {
@@ -104,6 +120,30 @@ TEST(GoalPointControllerTest, PoseGoalAlignsInPlaceWhilePointGoalIgnoresFinalHea
     pointConfig.alignFinalHeading = false;
     GoalPointController point{pointConfig};
     EXPECT_EQ(point.evaluate(pose(1, 2, 0), pose(1, 2, pi))->state, GoalControlState::Arrived);
+}
+TEST(GoalPointControllerTest, HeadingAlignmentUsesPositionExitHysteresis)
+{
+    GoalPointController controller{config};
+    ControlInput input{RobotState{RobotId{1}, Timestamp{}, pose(0, 0, 0), Timestamp{}, {}},
+        {}, pose(.004, 0, .2), Timestamp{}};
+    input.tracking.status = TrackingStatus::Fresh;
+    ASSERT_TRUE(controller.calculate(input));
+    ASSERT_EQ(controller.controlState(), GoalControlState::AligningHeading);
+
+    input.target = pose(.007, 0, .2);
+    const auto held = controller.calculate(input);
+    ASSERT_TRUE(held);
+    EXPECT_EQ(controller.controlState(), GoalControlState::AligningHeading);
+    EXPECT_DOUBLE_EQ(held->linearMetersPerSecond, 0.0);
+
+    input.target = pose(.011, 0, .2);
+    ASSERT_TRUE(controller.calculate(input));
+    EXPECT_EQ(controller.controlState(), GoalControlState::Approaching);
+
+    controller.reset();
+    input.target = pose(.007, 0, .2);
+    ASSERT_TRUE(controller.calculate(input));
+    EXPECT_EQ(controller.controlState(), GoalControlState::Approaching);
 }
 TEST(GoalPointControllerTest, HeadingWrapAndEquivalentAngleRepresentationsHaveNoSpuriousJump)
 {
@@ -177,6 +217,10 @@ TEST(GoalPointControllerTest, InvalidConfigurationIsRejected)
     }
     c = config; c.turnInPlaceAngle = Radians{pi};
     EXPECT_THROW((GoalPointController{c}), std::invalid_argument);
+    c = config; c.positionExitTolerance = c.positionTolerance;
+    EXPECT_THROW((GoalPointController{c}), std::invalid_argument);
+    c = config; c.positionExitTolerance = Meters{std::numeric_limits<double>::infinity()};
+    EXPECT_THROW((GoalPointController{c}), std::invalid_argument);
     c = config; c.headingTolerance = Radians{2 * pi};
     EXPECT_THROW((GoalPointController{c}), std::invalid_argument);
 }
@@ -197,6 +241,74 @@ TEST(GoalPointControllerTest, ConfiguredGainsAndLimitsRemainFiniteEvenAtExtremeF
     EXPECT_EQ(turn->command.angularRadiansPerSecond, c.maximumAngularRadiansPerSecond);
 }
 
+TEST(GoalPointControllerTest, NoisyTrackingAndDelayedCommandsHoldHeadingAlignment)
+{
+    const RobotId id{1};
+    Timestamp now{1s};
+    constexpr auto period = 20ms;
+    constexpr double dt = .02;
+    constexpr std::size_t delayCycles = 3;
+    WorldModel world;
+    world.setWorkspaceFrame({Meters{2}, Meters{2}}, "noisy-delay-test");
+    SimulationTransport transport;
+    RobotManager robots{transport, world};
+    RobotTracker tracker{world, {100ms, 500ms}};
+    ASSERT_TRUE(robots.addRobot(id, Timestamp{}));
+    ASSERT_TRUE(robots.connect(id));
+    transport.advanceTo(now);
+
+    Pose2D actual = pose(-.04, 0, 0);
+    const Pose2D target = pose(0, 0, .2);
+    auto measured = [&](int cycle) {
+        const double phase = static_cast<double>(cycle);
+        return pose(actual.x.value + .0005 * std::sin(phase * .71),
+            actual.y.value + .0005 * std::cos(phase * .53),
+            actual.heading.value + .002 * std::sin(phase * .37));
+    };
+    ASSERT_EQ(tracker.observe(id, measured(0), now, now), TrackerUpdate::Applied);
+    GoalPointController controller{config};
+    ControlLoop loop{id, world, robots, controller,
+        {period, 100ms, 80ms, config.maximumLinearMetersPerSecond,
+         config.maximumAngularRadiansPerSecond}, [&] { return now; }};
+    ASSERT_TRUE(loop.setTarget(target));
+    ASSERT_TRUE(loop.start());
+    std::deque<VelocityCommand> delayedCommands;
+    bool observedAlignment = false;
+    bool reached = false;
+
+    for (int cycle = 0; cycle < 1200; ++cycle) {
+        ASSERT_TRUE(loop.poll());
+        const auto sample = *loop.lastCycle();
+        const auto phase = controller.controlState();
+        if (phase == GoalControlState::AligningHeading) {
+            observedAlignment = true;
+            EXPECT_DOUBLE_EQ(sample.requested->linearMetersPerSecond, 0.0);
+            if (sample.error->distanceMeters <= config.positionExitTolerance.value
+                && std::abs(sample.error->headingRadians) > config.headingTolerance.value)
+                EXPECT_EQ(phase, GoalControlState::AligningHeading);
+        }
+        if (phase == GoalControlState::Arrived) {
+            reached = true;
+            break;
+        }
+        ASSERT_TRUE(sample.bounded);
+        delayedCommands.push_back(*sample.bounded);
+        if (delayedCommands.size() > delayCycles) {
+            const auto applied = delayedCommands.front();
+            delayedCommands.pop_front();
+            actual.x.value += dt * applied.linearMetersPerSecond * std::cos(actual.heading.value);
+            actual.y.value += dt * applied.linearMetersPerSecond * std::sin(actual.heading.value);
+            actual.heading = normalizeAngle(Radians{actual.heading.value
+                + dt * applied.angularRadiansPerSecond});
+        }
+        now += period;
+        ASSERT_EQ(tracker.observe(id, measured(cycle + 1), now, now), TrackerUpdate::Applied);
+        transport.advanceTo(now);
+    }
+    EXPECT_TRUE(observedAlignment);
+    EXPECT_TRUE(reached);
+}
+
 struct Scenario { Pose2D start, target; bool finalHeading; };
 class GoalPointConvergenceTest : public testing::TestWithParam<Scenario> {};
 TEST_P(GoalPointConvergenceTest, ReachesAndSettlesThroughSchedulerManagerAndSimulatedTransport)
@@ -210,6 +322,7 @@ TEST_P(GoalPointConvergenceTest, ReachesAndSettlesThroughSchedulerManagerAndSimu
     constexpr double dt = .02;
     constexpr int maximumCycles = 4000;
     WorldModel world;
+    world.setWorkspaceFrame({Meters{2}, Meters{2}}, "goal-controller-test");
     SimulationTransport transport;
     RobotManager robots{transport, world};
     RobotTracker tracker{world, {100ms, 500ms}};
