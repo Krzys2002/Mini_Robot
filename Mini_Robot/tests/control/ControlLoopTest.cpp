@@ -34,6 +34,7 @@ struct ControlLoopTest : testing::Test {
     ControlLoop loop{id, world, robots, policy, config, [this] { return now; }};
     ControlLoopTest()
     {
+        world.setWorkspaceFrame({Meters{2}, Meters{2}}, "control-loop-test");
         EXPECT_TRUE(robots.addRobot(id, Timestamp{}));
         EXPECT_TRUE(robots.connect(id));
         transport.advanceTo(now);
@@ -182,6 +183,18 @@ TEST_F(ControlLoopTest, SessionChangesDuringCalculationDropOutput)
     EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::SessionUnavailable);
     EXPECT_FALSE(loop.lastCycle()->submission);
 }
+TEST_F(ControlLoopTest, ReentrantStopDuringCalculationCannotSubmitCalculatedMotion)
+{
+    policy.during = [this] { loop.stop(); };
+    ASSERT_TRUE(loop.start());
+    EXPECT_TRUE(loop.poll());
+    ASSERT_TRUE(loop.lastCycle());
+    EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::Stopped);
+    EXPECT_FALSE(loop.lastCycle()->submission);
+    transport.advanceTo(now);
+    ASSERT_TRUE(transport.lastSentCommand(id));
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.lastSentCommand(id)->payload));
+}
 TEST_F(ControlLoopTest, InvalidOutputAndUnavailableOrThrowingControllerFailClosed)
 {
     for (const auto invalid : {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
@@ -251,5 +264,16 @@ TEST_F(ControlLoopTest, MissingTargetInvalidTargetConfigurationAndUntrackedRobot
     EXPECT_THROW((ControlLoop{id, world, robots, policy, invalid}), std::invalid_argument);
     invalid = config; invalid.maximumObservationAge = Duration::zero();
     EXPECT_THROW((ControlLoop{id, world, robots, policy, invalid}), std::invalid_argument);
+}
+TEST(ControlLoopTestStandalone, TargetRequiresAnInstalledWorkspaceFrame)
+{
+    WorldModel world;
+    SimulationTransport transport;
+    RobotManager robots{transport, world};
+    Policy policy;
+    ControlLoop loop{RobotId{1}, world, robots, policy, config, [] { return Timestamp{1s}; }};
+    EXPECT_FALSE(loop.setTarget(target));
+    world.setWorkspaceFrame({Meters{2}, Meters{2}}, "test-frame");
+    EXPECT_TRUE(loop.setTarget(target));
 }
 } // namespace

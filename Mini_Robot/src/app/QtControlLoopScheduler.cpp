@@ -21,7 +21,8 @@ QtControlLoopScheduler::~QtControlLoopScheduler() { stop(); }
 bool QtControlLoopScheduler::start()
 {
     if (!loop_.start()) return false;
-    timer_.start();
+    if (loop_.poll()) emit cycleCompleted();
+    if (loop_.state() == ControlLoopState::Running) timer_.start();
     return true;
 }
 void QtControlLoopScheduler::stop()

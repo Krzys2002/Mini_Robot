@@ -29,10 +29,11 @@ ControlLoop::ControlLoop(RobotId id, WorldModel& world, RobotManager& robots, IC
 
 bool ControlLoop::setTarget(Pose2D target)
 {
-    if (state_ == ControlLoopState::Running || !finite(target)) return false;
+    const auto frame = world_.workspaceFrameId();
+    if (state_ == ControlLoopState::Running || !finite(target) || !frame) return false;
     target.heading = normalizeAngle(target.heading);
     target_ = target;
-    frame_ = world_.workspaceFrameId();
+    frame_ = frame;
     return true;
 }
 
@@ -116,6 +117,10 @@ bool ControlLoop::poll()
     try { cycle.requested = controller_.calculate({robot, tracking, *target_, now}); }
     catch (...) { inhibit(cycle, ControlCycleResult::ControllerFailure, clock_()); return true; }
     const auto finished = clock_();
+    if (state_ != ControlLoopState::Running) {
+        inhibit(cycle, ControlCycleResult::Stopped, finished);
+        return true;
+    }
     // A calculation may have taken too long or triggered a session/frame change.
     // Re-read authority and freshness immediately before submitting any motion.
     if (const auto reason = gate(finished)) { inhibit(cycle, *reason, finished); return true; }

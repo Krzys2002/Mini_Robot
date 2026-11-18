@@ -21,6 +21,7 @@ TEST(ControlLoopSchedulerTest, TimerRunsAlongsideQueuedGuiEventsAndStopsCleanly)
 {
     const RobotId id{1};
     WorldModel world;
+    world.setWorkspaceFrame({Meters{2}, Meters{2}}, "scheduler-test");
     SimulationTransport transport;
     RobotManager robots{transport, world};
     ASSERT_TRUE(robots.addRobot(id, Timestamp{}));
@@ -49,6 +50,9 @@ TEST(ControlLoopSchedulerTest, TimerRunsAlongsideQueuedGuiEventsAndStopsCleanly)
         deadline.start(2s);
         heartbeat.start();
         ASSERT_TRUE(scheduler.start());
+        EXPECT_EQ(policy.calls, 1);
+        ASSERT_TRUE(loop.lastCycle());
+        EXPECT_EQ(loop.lastCycle()->skippedPeriods, 0u);
         events.exec();
         EXPECT_GE(cycles.count(), 3);
         EXPECT_GE(heartbeats, 1);
