@@ -155,9 +155,7 @@ public:
                         ? BleEndpoint::Telemetry : BleEndpoint::CommandResult;
                     if (characteristic.uuid() != uuid(telemetryCharacteristic)
                         && characteristic.uuid() != uuid(commandResultCharacteristic)) return;
-                    // Retain at most one byte beyond a default-MTU payload so malformed
-                    // lengths are rejected without copying an arbitrarily large payload.
-                    emit notification(link->token, endpoint, bytes.left(notificationCopyLimit), MonotonicClock::now());
+                    emit notification(link->token, endpoint, boundBleNotificationCopy(bytes), MonotonicClock::now());
                 });
             QObject::connect(link->service, &QLowEnergyService::characteristicWritten, link,
                 [this, link](const QLowEnergyCharacteristic& characteristic, const QByteArray& bytes) {
@@ -310,4 +308,5 @@ private:
 };
 } // namespace
 std::unique_ptr<IBleBackend> makeQtBleBackend() { return std::make_unique<QtBleBackend>(); }
+QByteArray boundBleNotificationCopy(const QByteArray& bytes) { return bytes.left(ble_gatt::notificationCopyLimit); }
 } // namespace micro_robot
