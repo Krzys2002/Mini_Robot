@@ -11,6 +11,7 @@
 #include <cstring>
 #include <cmath>
 #include <exception>
+#include <vector>
 
 namespace micro_robot {
 std::optional<ImageCorner> OpenCvCalibrationUndistorter::undistortPoint(ImageCorner point,
@@ -23,6 +24,29 @@ std::optional<ImageCorner> OpenCvCalibrationUndistorter::undistortPoint(ImageCor
         const cv::Mat d(1, 5, CV_64F, const_cast<double*>(c.distortion.data()));
         std::vector<cv::Point2d> input{{point.u, point.v}}, output;
         cv::undistortPoints(input, output, k, d, cv::noArray(), k);
+        if (output.size() != 1 || !std::isfinite(output.front().x) || !std::isfinite(output.front().y))
+            return {};
+        return ImageCorner{output.front().x, output.front().y};
+    } catch (const std::exception&) {
+        return {};
+    }
+}
+std::optional<ImageCorner> OpenCvCalibrationUndistorter::distortPoint(ImageCorner point,
+    const IntrinsicCalibration& c)
+{
+    if (!validateIntrinsicCalibration(c).empty() || !std::isfinite(point.u) || !std::isfinite(point.v))
+        return {};
+    try {
+        const double fx = c.cameraMatrix[0], fy = c.cameraMatrix[4];
+        if (!std::isfinite(fx) || !std::isfinite(fy) || fx <= 0 || fy <= 0) return {};
+        const cv::Mat k(3, 3, CV_64F, const_cast<double*>(c.cameraMatrix.data()));
+        const cv::Mat d(1, 5, CV_64F, const_cast<double*>(c.distortion.data()));
+        // K is canonical [fx,0,cx; 0,fy,cy; 0,0,1]. Convert the ideal pixel
+        // to a z=1 camera ray, then let OpenCV apply Brown-Conrady and K.
+        const std::vector<cv::Point3d> rays{{(point.u - c.cameraMatrix[2]) / fx,
+                                             (point.v - c.cameraMatrix[5]) / fy, 1.0}};
+        std::vector<cv::Point2d> output;
+        cv::projectPoints(rays, cv::Vec3d{0.0, 0.0, 0.0}, cv::Vec3d{0.0, 0.0, 0.0}, k, d, output);
         if (output.size() != 1 || !std::isfinite(output.front().x) || !std::isfinite(output.front().y))
             return {};
         return ImageCorner{output.front().x, output.front().y};

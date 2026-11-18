@@ -164,6 +164,12 @@ target_link_libraries(micro_robot_world PUBLIC micro_robot_common)
 micro_robot_target_defaults(micro_robot_world)
 micro_robot_platform_boundary(micro_robot_world)
 
+# User-edited path geometry is metric and independent of Qt, camera and motion.
+add_library(micro_robot_planning STATIC planning/MetricPath.hpp planning/MetricPath.cpp)
+target_link_libraries(micro_robot_planning PUBLIC micro_robot_world)
+micro_robot_target_defaults(micro_robot_planning)
+micro_robot_platform_boundary(micro_robot_planning)
+
 add_library(micro_robot_tracking STATIC tracking/RobotTracker.hpp tracking/RobotTracker.cpp
     tracking/MetricTracking.hpp tracking/MetricTracking.cpp)
 target_link_libraries(micro_robot_tracking PUBLIC micro_robot_world micro_robot_vision_observation)
@@ -340,6 +346,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     set_target_properties(micro_robot_ui PROPERTIES AUTOMOC ON)
     target_include_directories(micro_robot_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(micro_robot_ui PUBLIC Qt6::Widgets micro_robot_desktop_controller)
+    target_link_libraries(micro_robot_ui PUBLIC micro_robot_planning)
     micro_robot_target_defaults(micro_robot_ui)
     micro_robot_platform_boundary(micro_robot_ui ALLOW Qt6::Core Qt6::Widgets)
 

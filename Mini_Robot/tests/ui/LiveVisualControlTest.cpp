@@ -11,7 +11,9 @@
 #include "calibration/TabletopHomography.hpp"
 
 #include <QApplication>
+#include <QColor>
 #include <QFile>
+#include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -22,6 +24,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <gtest/gtest.h>
+#include <array>
 #include <cmath>
 #include <future>
 #include <filesystem>
@@ -106,6 +109,38 @@ struct LiveVisualControlTest : testing::Test {
         ASSERT_FALSE(transport.commands.empty());
     }
 };
+
+WorkspaceCalibrationProfile calibratedPathProfile()
+{
+    auto profile = test::homographyInput().profile;
+    profile.homography = test::knownHomography();
+    return profile;
+}
+
+void preparePathCalibration(LiveVisualControlTest& fixture,
+                            const WorkspaceCalibrationProfile& profile)
+{
+    fixture.visual.setImagePointUndistorter(OpenCvCalibrationUndistorter::undistortPoint);
+    fixture.visual.setImagePointDistorter(OpenCvCalibrationUndistorter::distortPoint);
+    fixture.desktop.setWorkspaceCalibration(profile);
+    fixture.visual.refresh();
+    fixture.now += 1ms;
+    fixture.sample(0, 0);
+}
+
+std::optional<ImageCorner> rawPixelForWorld(const WorkspaceCalibrationProfile& profile,
+                                            WorldPoint2D point)
+{
+    if (!profile.homography) return {};
+    const auto ideal = unprojectWorkspacePoint(*profile.homography, point);
+    if (!ideal) return {};
+    return OpenCvCalibrationUndistorter::distortPoint(*ideal, profile.intrinsics);
+}
+
+void clickRawPixel(VisionOverlay* overlay, ImageCorner point)
+{
+    sendFractionalLeftClick(overlay, overlay->imageToView({point.u, point.v}));
+}
 TEST_F(LiveVisualControlTest, MetricBridgeUsesFilteredPoseAndLogsOriginalProvenanceAndDomainSequence)
 {
     now += 50ms; sample(1, 0); // Filtered x=.25, not raw x=1 (which would already be at goal).
@@ -440,6 +475,247 @@ TEST_F(LiveVisualControlTest, QWidgetImageClicksKeepMetricTargetAcrossResizeAndI
     EXPECT_TRUE(visual.running());
     ASSERT_FALSE(transport.commands.empty());
 }
+
+TEST_F(LiveVisualControlTest, PathEditorLifecycleKeepsMetricDraftSeparateFromGoalsAndMotion)
+{
+    const auto profile = calibratedPathProfile();
+    preparePathCalibration(*this, profile);
+    ASSERT_TRUE(visual.setTarget(0.25, 0.2, 0.3));
+    const auto initialTarget = visual.targetPose();
+    ASSERT_TRUE(initialTarget);
+    const auto commandCount = transport.commands.size();
+
+    VisualControlPanel panel{visual};
+    panel.resize(900, 520);
+    panel.show();
+    auto* overlay = panel.findChild<VisionOverlay*>("visionOverlay");
+    auto* begin = panel.findChild<QPushButton*>("pathEditorBegin");
+    auto* undo = panel.findChild<QPushButton*>("pathEditorUndo");
+    auto* clear = panel.findChild<QPushButton*>("pathEditorClear");
+    auto* finish = panel.findChild<QPushButton*>("pathEditorFinish");
+    auto* cancel = panel.findChild<QPushButton*>("pathEditorCancel");
+    ASSERT_TRUE(overlay && begin && undo && clear && finish && cancel);
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+
+    const WorldPoint2D first{Meters{0.24}, Meters{0.18}};
+    const WorldPoint2D second{Meters{0.73}, Meters{0.42}};
+    const auto firstRaw = rawPixelForWorld(profile, first);
+    const auto secondRaw = rawPixelForWorld(profile, second);
+    ASSERT_TRUE(firstRaw && secondRaw);
+
+    begin->click();
+    ASSERT_TRUE(panel.pathEditing());
+    clickRawPixel(overlay, *firstRaw);
+    clickRawPixel(overlay, *secondRaw);
+    ASSERT_EQ(panel.draftPath().size(), 2U);
+    EXPECT_TRUE(panel.finishedPath().empty());
+    EXPECT_NEAR(panel.draftPath().points()[0].x.value, first.x.value, 1e-6);
+    EXPECT_NEAR(panel.draftPath().points()[0].y.value, first.y.value, 1e-6);
+    EXPECT_NEAR(panel.draftPath().points()[1].x.value, second.x.value, 1e-6);
+    EXPECT_NEAR(panel.draftPath().points()[1].y.value, second.y.value, 1e-6);
+    EXPECT_TRUE(undo->isEnabled());
+    EXPECT_TRUE(finish->isEnabled());
+    EXPECT_EQ(transport.commands.size(), commandCount);
+
+    undo->click();
+    ASSERT_EQ(panel.draftPath().size(), 1U);
+    EXPECT_NEAR(panel.draftPath().points().front().x.value, first.x.value, 1e-6);
+    clear->click();
+    EXPECT_TRUE(panel.draftPath().empty());
+    EXPECT_FALSE(finish->isEnabled());
+
+    clickRawPixel(overlay, *firstRaw);
+    finish->click();
+    EXPECT_FALSE(panel.pathEditing());
+    EXPECT_TRUE(panel.draftPath().empty());
+    ASSERT_EQ(panel.finishedPath().size(), 1U);
+    EXPECT_NEAR(panel.finishedPath().points().front().x.value, first.x.value, 1e-6);
+
+    begin->click();
+    EXPECT_TRUE(panel.pathEditing());
+    ASSERT_EQ(panel.draftPath().size(), 1U);
+    ASSERT_EQ(panel.finishedPath().size(), 1U);
+    clickRawPixel(overlay, *secondRaw);
+    ASSERT_EQ(panel.draftPath().size(), 2U);
+    cancel->click();
+    EXPECT_FALSE(panel.pathEditing());
+    EXPECT_TRUE(panel.draftPath().empty());
+    ASSERT_EQ(panel.finishedPath().size(), 1U);
+    clear->click();
+    EXPECT_TRUE(panel.finishedPath().empty());
+
+    begin->click();
+    ASSERT_TRUE(panel.pathEditing());
+    clickRawPixel(overlay, *secondRaw);
+    ASSERT_EQ(panel.draftPath().size(), 1U);
+    cancel->click();
+    EXPECT_FALSE(panel.pathEditing());
+    EXPECT_TRUE(panel.draftPath().empty());
+    EXPECT_TRUE(panel.finishedPath().empty());
+    ASSERT_TRUE(visual.targetPose());
+    EXPECT_DOUBLE_EQ(visual.targetPose()->x.value, initialTarget->x.value);
+    EXPECT_DOUBLE_EQ(visual.targetPose()->y.value, initialTarget->y.value);
+    EXPECT_DOUBLE_EQ(visual.targetPose()->heading.value, initialTarget->heading.value);
+    EXPECT_EQ(transport.commands.size(), commandCount);
+}
+
+TEST_F(LiveVisualControlTest, PathGeometryAndRawOverlayProjectionSurviveResizeAndLetterboxing)
+{
+    const auto profile = calibratedPathProfile();
+    preparePathCalibration(*this, profile);
+
+    VisualControlPanel panel{visual};
+    panel.resize(430, 900);
+    panel.show();
+    auto* overlay = panel.findChild<VisionOverlay*>("visionOverlay");
+    auto* begin = panel.findChild<QPushButton*>("pathEditorBegin");
+    ASSERT_TRUE(overlay && begin);
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+    begin->click();
+    ASSERT_TRUE(panel.pathEditing());
+
+    const WorldPoint2D first{Meters{0.2475}, Meters{0.3125}};
+    const WorldPoint2D second{Meters{0.7125}, Meters{0.4875}};
+    const auto firstRaw = rawPixelForWorld(profile, first);
+    const auto secondRaw = rawPixelForWorld(profile, second);
+    ASSERT_TRUE(firstRaw && secondRaw);
+    const auto commandCount = transport.commands.size();
+
+    for (const auto& [size, point] : std::array<std::pair<QSize, ImageCorner>, 2>{
+             std::pair{QSize{430, 900}, *firstRaw}, std::pair{QSize{1000, 600}, *secondRaw}}) {
+        panel.resize(size);
+        QApplication::processEvents();
+        const auto imageRect = overlay->imageRect();
+        ASSERT_FALSE(imageRect.isEmpty());
+        ASSERT_TRUE(imageRect.left() > 1.0 || imageRect.top() > 1.0)
+            << "Expected letterbox padding at panel size " << size.width() << "x" << size.height();
+
+        clickRawPixel(overlay, point);
+        const auto expected = point.u == firstRaw->u ? first : second;
+        ASSERT_EQ(panel.draftPath().size(), point.u == firstRaw->u ? 1U : 2U);
+        EXPECT_NEAR(panel.draftPath().points().back().x.value, expected.x.value, 1e-6);
+        EXPECT_NEAR(panel.draftPath().points().back().y.value, expected.y.value, 1e-6);
+
+        QPointF marginClick;
+        if (imageRect.left() > 1.0)
+            marginClick = {imageRect.left() / 2.0, imageRect.center().y()};
+        else
+            marginClick = {imageRect.center().x(), imageRect.top() / 2.0};
+        ASSERT_TRUE(overlay->rect().contains(marginClick.toPoint()));
+        sendFractionalLeftClick(overlay, marginClick);
+        EXPECT_EQ(panel.draftPath().size(), point.u == firstRaw->u ? 1U : 2U);
+
+        QImage rendered(overlay->size(), QImage::Format_ARGB32);
+        rendered.fill(Qt::transparent);
+        overlay->render(&rendered);
+        const auto mappedPoint = overlay->imageToView({point.u, point.v}).toPoint();
+        EXPECT_EQ(rendered.pixelColor(mappedPoint), QColor(255, 40, 220));
+    }
+
+    ASSERT_EQ(panel.draftPath().size(), 2U);
+    EXPECT_NEAR(panel.draftPath().points()[0].x.value, first.x.value, 1e-6);
+    EXPECT_NEAR(panel.draftPath().points()[0].y.value, first.y.value, 1e-6);
+    EXPECT_NEAR(panel.draftPath().points()[1].x.value, second.x.value, 1e-6);
+    EXPECT_NEAR(panel.draftPath().points()[1].y.value, second.y.value, 1e-6);
+    EXPECT_EQ(transport.commands.size(), commandCount);
+}
+
+TEST_F(LiveVisualControlTest, PathEditorRejectsStaleWrongSourceAndInvalidWorkspaceClicks)
+{
+    auto profile = calibratedPathProfile();
+    preparePathCalibration(*this, profile);
+    VisualControlPanel panel{visual};
+    panel.resize(900, 520);
+    panel.show();
+    auto* overlay = panel.findChild<VisionOverlay*>("visionOverlay");
+    auto* begin = panel.findChild<QPushButton*>("pathEditorBegin");
+    ASSERT_TRUE(overlay && begin);
+    const WorldPoint2D expected{Meters{0.45}, Meters{0.3}};
+    const auto raw = rawPixelForWorld(profile, expected);
+    ASSERT_TRUE(raw);
+    const auto outsideWorkspace = OpenCvCalibrationUndistorter::distortPoint(
+        {99.0, 700.0}, profile.intrinsics);
+    ASSERT_TRUE(outsideWorkspace);
+    const auto commandCount = transport.commands.size();
+
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+    begin->click();
+    ASSERT_TRUE(panel.pathEditing());
+    clickRawPixel(overlay, *outsideWorkspace);
+    EXPECT_TRUE(panel.draftPath().empty());
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now - 1s));
+    QApplication::processEvents();
+    clickRawPixel(overlay, *raw);
+    EXPECT_TRUE(panel.draftPath().empty());
+    EXPECT_TRUE(panel.pathEditing());
+
+    panel.presentPreview(QStringLiteral("camera-b"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+    EXPECT_FALSE(panel.pathEditing());
+    EXPECT_TRUE(panel.draftPath().empty());
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+    begin->click();
+    ASSERT_TRUE(panel.pathEditing());
+    panel.presentPreview(QStringLiteral("camera-b"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+    clickRawPixel(overlay, *raw);
+    EXPECT_TRUE(panel.draftPath().empty());
+    EXPECT_EQ(transport.commands.size(), commandCount);
+
+    panel.cancelPathEditing();
+    profile.homography.reset();
+    desktop.setWorkspaceCalibration(profile);
+    visual.refresh();
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    EXPECT_FALSE(panel.beginPathEditing());
+    EXPECT_TRUE(panel.draftPath().empty());
+    EXPECT_EQ(transport.commands.size(), commandCount);
+}
+
+TEST_F(LiveVisualControlTest, PathEditingScopeChangeDiscardsDraftAndFinishedGeometry)
+{
+    auto profile = calibratedPathProfile();
+    preparePathCalibration(*this, profile);
+    VisualControlPanel panel{visual};
+    panel.resize(900, 520);
+    panel.show();
+    auto* overlay = panel.findChild<VisionOverlay*>("visionOverlay");
+    auto* begin = panel.findChild<QPushButton*>("pathEditorBegin");
+    ASSERT_TRUE(overlay && begin);
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+    const auto raw = rawPixelForWorld(profile, {Meters{0.5}, Meters{0.3}});
+    ASSERT_TRUE(raw);
+    begin->click();
+    clickRawPixel(overlay, *raw);
+    ASSERT_EQ(panel.draftPath().size(), 1U);
+    ASSERT_TRUE(panel.finishPathEditing());
+    ASSERT_EQ(panel.finishedPath().size(), 1U);
+
+    auto changedProfile = profile;
+    changedProfile.frameId = "table-B";
+    desktop.setWorkspaceCalibration(changedProfile);
+    visual.refresh();
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, changedProfile.intrinsics.width, changedProfile.intrinsics.height, now));
+    EXPECT_FALSE(panel.pathEditing());
+    EXPECT_TRUE(panel.draftPath().empty());
+    EXPECT_TRUE(panel.finishedPath().empty());
+}
+
 TEST_F(LiveVisualControlTest, ImagePreviewMatchingLiveSourceStillRejectsDifferentProfileCamera)
 {
     auto profile = test::homographyInput().profile;

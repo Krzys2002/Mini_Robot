@@ -60,6 +60,17 @@ void VisionOverlay::present(VisionDebugFramePtr preview)
     preview_ = drawableFrame(preview) ? std::move(preview) : VisionDebugFramePtr{};
     update();
 }
+void VisionOverlay::setPathOverlay(std::vector<ImagePoint> rawImagePoints)
+{
+    pathOverlay_ = std::move(rawImagePoints);
+    update();
+}
+void VisionOverlay::setPathOverlayVisible(bool visible)
+{
+    if (pathOverlayVisible_ == visible) return;
+    pathOverlayVisible_ = visible;
+    update();
+}
 QRectF VisionOverlay::imageRect() const
 {
     if (!preview_) return {};
@@ -96,6 +107,21 @@ void VisionOverlay::paintEvent(QPaintEvent*)
         static_cast<int>(frame.height), static_cast<qsizetype>(frame.strideBytes), format);
     painter.drawImage(imageRect(), image);
     painter.setRenderHint(QPainter::Antialiasing);
+    if (pathOverlayVisible_ && !pathOverlay_.empty()) {
+        painter.save();
+        painter.setClipRect(imageRect());
+        painter.setPen(QPen(QColor{255, 40, 220}, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(QColor{255, 40, 220});
+        QPolygonF path;
+        for (const auto& point : pathOverlay_) {
+            if (!std::isfinite(point.u) || !std::isfinite(point.v)) continue;
+            const auto mapped = imageToView(point);
+            if (std::isfinite(mapped.x()) && std::isfinite(mapped.y())) path << mapped;
+        }
+        if (path.size() > 1) painter.drawPolyline(path);
+        for (const auto& point : path) painter.drawEllipse(point, 4, 4);
+        painter.restore();
+    }
     const QFontMetricsF metrics(painter.font());
     std::vector<QRectF> labels;
     for (const auto& marker : preview_->markers) {
