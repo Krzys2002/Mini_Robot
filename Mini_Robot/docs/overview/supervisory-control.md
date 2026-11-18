@@ -105,32 +105,3 @@ a portable real-time timing guarantee. Run root core and host presets; because
 target registration is shared, also validate the standalone core entry point.
 Physical camera, radio, motor, native GUI, Linux and Windows checks remain
 **NOT RUN** unless separately recorded.
-
-### Local validation on 2026-11-17
-
-Implementation `c2cb808` on `feat/74-supervisory-control-loop`, based on master
-`b81e520`, was tested on macOS arm64 / AppleClang 21 / Qt 6.12 / OpenCV 5.1.
-From the worktree root, `cmake --preset core` and `cmake --preset macos` were
-configured with the existing GoogleTest source via
-`-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/Users/krzysztofsawicki/Documents/Put/sem6/Term_Design/build/macos/_deps/googletest-src`.
-The macOS configure also supplied `-DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt`
-and `-DMICRO_ROBOT_BUILD_BLE=ON`.
-
-- `cmake --build --preset core --parallel 3` and
-  `ctest --preset core --parallel 3`: **685/685 passed**.
-- `cmake --build --preset macos --parallel 3` and
-  `ctest --preset macos --parallel 3`: production desktop/Qt BLE targets built;
-  **997 passed, two existing opt-in audits skipped (999 selected)**.
-- From `Mini_Robot/`, the independent `core` configure (same GoogleTest source),
-  build and CTest commands: **685/685 passed** in its separate build tree.
-- The 14 new core cases and one new offscreen scheduler/event-loop case passed.
-  An initial test compile failed because explicit unit wrappers were initialized
-  with nested empty braces; that test source was corrected before passing builds.
-- `git diff --check` passed. Existing confidence-initializer, GoogleTest conversion
-  and duplicate-library warnings are non-fatal and outside this change.
-
-The worktree had no local graph; navigation used source/`rg` fallback. No generated
-graph or borrowed graph environment was used. The builds include existing portable
-firmware-host suites, but no firmware contracts or production firmware sources
-were changed. No camera, BLE radio, powered robot, native display, Linux or Windows
-execution was performed. These results establish software behavior only.
