@@ -53,6 +53,14 @@ heading tolerance is at most pi and the turn-in-place angle is in `(0, pi/2]`.
 The position exit tolerance must exceed the entry tolerance; it defaults to
 twice the entry value. Constructor validation throws `invalid_argument` otherwise.
 
+The controller and `ControlLoopConfig` each carry speed-cap fields so both the
+policy and command-submission boundary can enforce limits. In the desktop app,
+`ApplicationConfig::manual` is the shared source: `manual.maximum_linear_m_per_s`
+and `manual.maximum_angular_rad_per_s` are loaded by `ConfigLoader` (defaults
+0.1 m/s and 1.0 rad/s), then `LiveVisualSettings::fromApplication` copies each
+value into both configs. The goal-controller fields are ordinary config members,
+not static defaults. Keep this mapping aligned if either config API changes.
+
 Outside position tolerance, using `alpha = bearingError`:
 
 ```text
