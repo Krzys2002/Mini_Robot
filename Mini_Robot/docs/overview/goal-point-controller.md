@@ -1,6 +1,6 @@
 # Baseline goal-point controller
 
-Issue #75 supplies `GoalPointController`, a forward-only, stateless `IController`
+Issue #75 supplies `GoalPointController`, a forward-only `IController`
 implementation for the [supervisory loop](supervisory-control.md). It adds no BLE,
 GUI, camera, motor, planner or clock dependency. Production composition/target UI
 and physical closed-loop commissioning remain separate work; `main.cpp` does not
@@ -28,14 +28,21 @@ evaluation. The `calculate(ControlInput)` adapter additionally rejects a missing
 pose or Unknown/Stale/Lost tracking. The loop still owns actual age/session checks,
 and submission-time gates, freshness and Stop routing.
 
+The pure `evaluate(measured, target)` call is stateless. The `calculate` adapter
+retains the goal phase during one run: it enters the position/heading region at
+the configured entry tolerance and keeps aligning until the measured distance
+exceeds the larger exit tolerance. `reset()` clears that phase before a new run.
+This hysteresis prevents position jitter during in-place heading alignment from
+switching the command back to approach. It does not filter measurements or
+claim physical settling.
+
 Inside the inclusive position tolerance, translation is zero. With
 `alignFinalHeading=true`, heading alignment continues until the absolute heading
 error is inside its inclusive tolerance; then state is Arrived and both outputs
 are exactly zero. With `alignFinalHeading=false`, position alone establishes
-arrival. Repeating identical arrived inputs always returns zero. There is no
-hidden completion latch or hysteresis: a changed/noisy observation outside the
-tolerance is evaluated again. Physical settling/noise tuning is not established
-by deterministic tests.
+arrival. Repeated arrived inputs inside the exit tolerance remain stopped. A
+measurement beyond the exit tolerance returns the controller to approach.
+Physical settling/noise tuning is not established by ideal convergence tests.
 
 ## Feedback law and bounds
 
@@ -43,7 +50,8 @@ All parameters are supplied through `GoalPointControllerConfig`, with no assumed
 physical robot gains or limits. Gains, speed limits and tolerances must be finite
 and positive. `bearingGainPerSecond > positionGainPerSecond` is required;
 heading tolerance is at most pi and the turn-in-place angle is in `(0, pi/2]`.
-Constructor validation throws `invalid_argument` otherwise.
+The position exit tolerance must exceed the entry tolerance; it defaults to
+twice the entry value. Constructor validation throws `invalid_argument` otherwise.
 
 Outside position tolerance, using `alpha = bearingError`:
 
@@ -53,7 +61,9 @@ if abs(alpha) >= turnInPlaceAngle:
     v = 0
     state = TurningToPoint
 else:
-    v = min(kPosition rho, vMax) max(0, cos(alpha))
+    ramp = clamp((cos(alpha) - cos(turnInPlaceAngle)) /
+                 (1 - cos(turnInPlaceAngle)), 0, 1)
+    v = min(kPosition rho, vMax) ramp
     state = Approaching
 ```
 
@@ -64,14 +74,17 @@ shortest-turn policy, the preferred direction has a cut at the antipodal error;
 this is distinct from a spurious command jump caused by equivalent raw headings
 at +pi/-pi. The tests check wrap-equivalent headings and small wrapped errors.
 
-Within position tolerance, final alignment uses
+The ramp reaches zero at the turn-in-place boundary, so forward speed does not
+jump from zero to half the proportional speed at the threshold. Within the
+alignment exit tolerance, final alignment uses
 `omega = clamp(kFinal headingError, -omegaMax, omegaMax)` and `v = 0`.
 Proportional saturation compares magnitudes before multiplication to avoid
 overflow even for extreme finite gains; zero error remains zero when the
 saturation threshold underflows. Outputs stay within configured bounds.
-Choose controller limits within the loop and adapter/robot limits; the loop's
-independent bounds remain in force. These are semantic v/omega setpoints,
-never wheel PID or PWM.
+The live application injects the same manual-control velocity limits into this
+policy and the loop. The policy saturation shapes its requested output; the
+loop independently reapplies its command-authority bound before submission.
+These are semantic v/omega setpoints, never wheel PID or PWM.
 
 In the ideal continuous, unsaturated approach region,
 `rho_dot = -kPosition rho cos(alpha)^2` and
@@ -86,9 +99,11 @@ must select a compatible control period and experimentally validated settings.
 ## Deterministic verification and limits
 
 `micro_robot_goal_controller_tests` covers error frames/signs, proportional and
-saturated output, turn/forward policy, exact tolerance boundaries, pose versus
-point goals, repeated arrival, heading wrap, invalid/unavailable inputs,
-configuration validation and finite extremes.
+saturated output, continuity at the turn boundary, position hysteresis, pose
+versus point goals, repeated arrival, heading wrap, invalid/unavailable inputs,
+configuration validation and finite extremes. A deterministic integration case
+adds bounded pose noise and a three-cycle actuation delay while checking that
+heading alignment remains in place within the exit tolerance.
 
 Nine scenarios execute the production `ControlLoop` → `RobotManager` →
 `SimulationTransport` boundary with virtual 20 ms steps. The harness integrates
@@ -99,6 +114,7 @@ wrap, final-heading-only correction, a point-only goal and an already-arrived
 robot. Each checks all command bounds and five consecutive arrived zero outputs.
 The 80 s simulated horizon is a test bound, not a physical settling-time claim.
 No production robot-physics model or extra authoritative WorldModel is added.
+The noisy/delayed case is a synthetic stress test, not physical tuning evidence.
 
 Run root core and host presets, plus the standalone core entry point for shared
 target registration. Physical camera/radio/motor and native GUI/platform checks
