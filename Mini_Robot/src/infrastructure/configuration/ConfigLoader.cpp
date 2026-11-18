@@ -205,6 +205,12 @@ const std::array settings{
             return true;
         },
         [](const ApplicationConfig& config) { return "'" + config.logging.filePath + "'"; }},
+    Setting{"logging.control_run_directory", "a directory path, or empty for the per-user default location",
+        [](std::string_view value, ApplicationConfig& config) {
+            config.logging.controlRunDirectory = std::string{value};
+            return true;
+        },
+        [](const ApplicationConfig& config) { return "'" + config.logging.controlRunDirectory + "'"; }},
     Setting{"robot.id", "an integer from 0 to 4294967295",
         [](std::string_view value, ApplicationConfig& config) {
             const auto id = parseInteger<std::uint32_t>(value);

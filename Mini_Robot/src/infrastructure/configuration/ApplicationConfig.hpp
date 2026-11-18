@@ -20,6 +20,8 @@ struct LoggingConfig {
     bool fileEnabled{true};
     // UTF-8 path of the log file; empty selects the per-user default location.
     std::string filePath;
+    // UTF-8 directory for control-run JSONL exports; empty selects the per-user default.
+    std::string controlRunDirectory;
 };
 
 struct RobotConfig {

@@ -27,6 +27,11 @@ struct RobotChoiceItem {
     QString label;
     bool ambiguous{};
 };
+enum class MotionInterruptReason {
+    TransportError, CameraChanged, CameraStopped, Disconnect, Shutdown, ConnectionLost,
+    SafetyFault, Scan, RobotSelection, ManualTakeover, ManualStop,
+    EmergencyStop, EmergencyClear, WorkspaceChanged
+};
 // Qt application adapter. Dependencies must outlive the controller; all calls and
 // backend callbacks run on its owning thread. No concrete backend or widgets here.
 // It owns the active camera source, if any; none is active until one is set.
@@ -82,7 +87,7 @@ public slots:
     void shutdown();
 
 signals:
-    void motionInterruptRequested(); // Direct owner-thread interruption before manual/Stop/session changes.
+    void motionInterruptRequested(MotionInterruptReason reason); // Direct owner-thread interruption before motion-authority/session changes.
     void robotChoicesChanged(const QList<RobotChoiceItem>& robots, quint32 selectedId);
     void robotScanChanged(bool scanning);
     void robotScanRequested();

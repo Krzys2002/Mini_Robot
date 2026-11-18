@@ -6,14 +6,19 @@
 #include "simulation/SimulationTransport.hpp"
 
 #include <QApplication>
+#include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QTest>
 #include <gtest/gtest.h>
 #include <future>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 
 namespace {
@@ -281,6 +286,158 @@ public:
     bool first{true}; std::size_t count{};
     void write(const LogRecord&) override { if (first) { first=false; entered.set_value(); gate.wait(); } ++count; }
 };
+TEST_F(LiveVisualControlTest, ExperimentRunExportsReconstructableJsonLinesAndConfiguration)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    Logger exportLogger;
+    {
+        ControlTraceWriter exportWriter{exportLogger.channel("experiment"),
+            std::filesystem::path{directory.path().toStdString()}};
+        {
+            LiveVisualController recorded{desktop, world, robots, simulationVisualSettings(), {},
+                [this] { return now; }, nullptr, &exportWriter};
+            recorded.setInput("camera-a", true);
+            auto metadata = std::make_shared<MetricObservationBatch>();
+            metadata->status = MetricObservationStatus::Valid;
+            metadata->measurements.push_back({RobotId{1}, {}, now, 1, 20, {}});
+            recorded.receiveMeasurements(metadata);
+            ASSERT_TRUE(recorded.setTarget(1, 0, 0));
+            ASSERT_TRUE(recorded.start());
+            recorded.refresh();
+            EXPECT_TRUE(recorded.description().contains("Experiment export"));
+            recorded.stop();
+        }
+    }
+
+    const auto files = QDir(directory.path()).entryList({QStringLiteral("*.jsonl")}, QDir::Files);
+    ASSERT_EQ(files.size(), 1);
+    QFile file(QDir(directory.path()).filePath(files.front()));
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto lines = file.readAll().split('\n');
+    ASSERT_GE(lines.size(), 4);
+    const auto header = QJsonDocument::fromJson(lines[0]).object();
+    EXPECT_EQ(header["type"].toString(), QStringLiteral("run_start"));
+    EXPECT_EQ(header["schema_version"].toInt(), 1);
+    EXPECT_EQ(header["coordinate_units"].toString(), QStringLiteral("metres; radians"));
+    EXPECT_EQ(header["position_gain_per_s"].toDouble(), simulationVisualSettings().goal.positionGainPerSecond);
+    EXPECT_EQ(header["position_exit_tolerance_m"].toDouble(), simulationVisualSettings().goal.positionExitTolerance.value);
+    EXPECT_EQ(header["target_x_m"].toDouble(), 1.0);
+    const auto sample = QJsonDocument::fromJson(lines[1]).object();
+    EXPECT_EQ(sample["type"].toString(), QStringLiteral("sample"));
+    EXPECT_EQ(sample["pose_x_m"].toDouble(), 0.0);
+    EXPECT_EQ(sample["target_x_m"].toDouble(), 1.0);
+    EXPECT_EQ(sample["error_distance_m"].toDouble(), 1.0);
+    EXPECT_TRUE(sample.contains("tracking_age_ns"));
+    EXPECT_TRUE(sample.contains("tracking_confidence"));
+    EXPECT_TRUE(sample.contains("measurement_quality"));
+    EXPECT_TRUE(sample.contains("raw_pose_x_m"));
+    EXPECT_EQ(sample["frame_id"].toString(), QStringLiteral("metric-frame"));
+    EXPECT_TRUE(sample.contains("operational_state"));
+    EXPECT_TRUE(sample.contains("skipped_periods"));
+    EXPECT_TRUE(sample.contains("control_time_ns"));
+    EXPECT_TRUE(sample.contains("submission_time_ns"));
+    const auto footer = QJsonDocument::fromJson(lines[lines.size() - 2]).object();
+    EXPECT_EQ(footer["type"].toString(), QStringLiteral("run_end"));
+    EXPECT_EQ(footer["reason"].toString(), QStringLiteral("operator_stop"));
+    EXPECT_TRUE(footer["queue_complete"].toBool());
+    EXPECT_EQ(footer["dropped_samples"].toString(), QStringLiteral("0"));
+}
+
+TEST_F(LiveVisualControlTest, EmergencyStopRunExportRecordsLatchedStateAndReason)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    Logger exportLogger;
+    {
+        ControlTraceWriter exportWriter{exportLogger.channel("experiment"),
+            std::filesystem::path{directory.path().toStdString()}};
+        {
+            LiveVisualController recorded{desktop, world, robots, simulationVisualSettings(), {},
+                [this] { return now; }, nullptr, &exportWriter};
+            recorded.setInput("camera-a", true);
+            auto metadata = std::make_shared<MetricObservationBatch>();
+            metadata->status = MetricObservationStatus::Valid;
+            metadata->measurements.push_back({RobotId{1}, {}, now, 1, 20, {}});
+            recorded.receiveMeasurements(metadata);
+            ASSERT_TRUE(recorded.setTarget(1, 0, 0));
+            ASSERT_TRUE(recorded.start());
+            desktop.emergencyStop();
+            EXPECT_FALSE(recorded.running());
+        }
+    }
+
+    const auto files = QDir(directory.path()).entryList({QStringLiteral("*.jsonl")}, QDir::Files);
+    ASSERT_EQ(files.size(), 1);
+    QFile file(QDir(directory.path()).filePath(files.front()));
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto lines = file.readAll().split('\n');
+    ASSERT_GE(lines.size(), 3);
+    const auto footer = QJsonDocument::fromJson(lines[lines.size() - 2]).object();
+    EXPECT_EQ(footer["type"].toString(), QStringLiteral("run_end"));
+    EXPECT_EQ(footer["final_state"].toString(), QStringLiteral("ESTOP"));
+    EXPECT_EQ(footer["reason"].toString(), QStringLiteral("emergency_stop"));
+}
+
+TEST_F(LiveVisualControlTest, ManualTakeoverRunExportRecordsTheInterruptionCause)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    Logger exportLogger;
+    {
+        ControlTraceWriter exportWriter{exportLogger.channel("experiment"),
+            std::filesystem::path{directory.path().toStdString()}};
+        {
+            LiveVisualController recorded{desktop, world, robots, simulationVisualSettings(), {},
+                [this] { return now; }, nullptr, &exportWriter};
+            recorded.setInput("camera-a", true);
+            auto metadata = std::make_shared<MetricObservationBatch>();
+            metadata->status = MetricObservationStatus::Valid;
+            metadata->measurements.push_back({RobotId{1}, {}, now, 1, 20, {}});
+            recorded.receiveMeasurements(metadata);
+            ASSERT_TRUE(recorded.setTarget(1, 0, 0));
+            ASSERT_TRUE(recorded.start());
+            desktop.beginManualDrive(-.05, 0);
+            EXPECT_FALSE(recorded.running());
+        }
+    }
+    const auto files = QDir(directory.path()).entryList({QStringLiteral("*.jsonl")}, QDir::Files);
+    ASSERT_EQ(files.size(), 1);
+    QFile file(QDir(directory.path()).filePath(files.front()));
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const auto lines = file.readAll().split('\n');
+    ASSERT_GE(lines.size(), 3);
+    const auto footer = QJsonDocument::fromJson(lines[lines.size() - 2]).object();
+    EXPECT_EQ(footer["reason"].toString(), QStringLiteral("manual_takeover"));
+    EXPECT_EQ(footer["final_state"].toString(), QStringLiteral("PAUSED"));
+}
+
+TEST_F(LiveVisualControlTest, FailedRunExportIsVisibleAndDoesNotShowAUsablePath)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QFile blocker(QDir(directory.path()).filePath(QStringLiteral("not-a-directory")));
+    ASSERT_TRUE(blocker.open(QIODevice::WriteOnly));
+    blocker.close();
+    Logger exportLogger;
+    {
+        ControlTraceWriter exportWriter{exportLogger.channel("experiment"),
+            std::filesystem::path{blocker.fileName().toStdString()}};
+        LiveVisualController recorded{desktop, world, robots, simulationVisualSettings(), {},
+            [this] { return now; }, nullptr, &exportWriter};
+        recorded.setInput("camera-a", true);
+        auto metadata = std::make_shared<MetricObservationBatch>();
+        metadata->status = MetricObservationStatus::Valid;
+        metadata->measurements.push_back({RobotId{1}, {}, now, 1, 20, {}});
+        recorded.receiveMeasurements(metadata);
+        ASSERT_TRUE(recorded.setTarget(1, 0, 0));
+        ASSERT_TRUE(recorded.start());
+        QTRY_VERIFY(recorded.description().contains("Experiment export failed"));
+        EXPECT_FALSE(recorded.description().contains(blocker.fileName()));
+        recorded.stop();
+    }
+}
+
 TEST(LiveVisualSimulationTest, AcceptedMetricFeedbackMovesSimulationThenStaleDataStopsIt)
 {
     Timestamp now{1s};
@@ -311,6 +468,43 @@ TEST(LiveVisualSimulationTest, AcceptedMetricFeedbackMovesSimulationThenStaleDat
     visual.receiveMeasurements(ingestMetricBatch(tracker, batch, now));
     EXPECT_FALSE(visual.running());
 }
+TEST(ControlTraceWriterTest, RunFooterSlotSurvivesSamplePressureAndExportIsJsonLines)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    Logger logger;
+    auto sink = std::make_shared<BlockingSink>();
+    logger.addSink(sink);
+    std::filesystem::path outputPath;
+    {
+        ControlTraceWriter writer{logger.channel("trace"), std::filesystem::path{directory.path().toStdString()}};
+        const auto path = writer.beginRun("bounded.jsonl", R"({"type":"run_start"})");
+        ASSERT_TRUE(path);
+        outputPath = *path;
+        EXPECT_TRUE(writer.enqueue(R"({"type":"sample","index":0})"));
+        const auto status = sink->entered.get_future().wait_for(2s);
+        if (status != std::future_status::ready) {
+            sink->release.set_value();
+            FAIL() << "Worker did not enter sink";
+        }
+        for (std::size_t i=0; i<ControlTraceWriter::capacity-2; ++i)
+            EXPECT_TRUE(writer.enqueueSample(R"({"type":"sample","index":1})"));
+        EXPECT_FALSE(writer.enqueueSample(R"({"type":"sample","index":"overflow"})"));
+        EXPECT_EQ(writer.dropped(), 1u);
+        EXPECT_TRUE(writer.finishRun(R"({"type":"run_end","queue_complete":false})"));
+        sink->release.set_value();
+    }
+    std::ifstream exported(outputPath);
+    ASSERT_TRUE(exported.is_open());
+    std::string line;
+    std::size_t lines{};
+    while (std::getline(exported, line)) {
+        EXPECT_TRUE(QJsonDocument::fromJson(QByteArray::fromStdString(line)).isObject());
+        ++lines;
+    }
+    EXPECT_EQ(lines, ControlTraceWriter::capacity);
+}
+
 TEST(ControlTraceWriterTest, BlockedSinkCannotBlockProducerAndQueueAndBytesAreBounded)
 {
     Logger logger; auto sink = std::make_shared<BlockingSink>(); logger.addSink(sink);

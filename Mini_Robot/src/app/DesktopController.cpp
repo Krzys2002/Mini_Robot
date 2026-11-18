@@ -86,7 +86,7 @@ public:
     void onTransportError(const TransportError& error) override
     {
         if (error.robotId == owner_.robotId_) {
-            emit owner_.motionInterruptRequested();
+            emit owner_.motionInterruptRequested(MotionInterruptReason::TransportError);
             owner_.manualFault_ = true;
             if (owner_.manualVelocity_) owner_.cancelManualDrive();
             owner_.publishRobotActions();
@@ -148,7 +148,7 @@ void DesktopController::initialize(Timestamp now)
 
 void DesktopController::setCameraSource(std::unique_ptr<ICameraSource> source)
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::CameraChanged);
     if (shuttingDown_) return;
     pendingCamera_ = std::move(source);
     replacementPending_ = true;
@@ -238,7 +238,7 @@ void DesktopController::requestCameraStop()
 
 void DesktopController::stopCamera()
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::CameraStopped);
     if (!initialized_ || shuttingDown_ || !camera_
         || camera_->state() == CameraState::Stopping || cameraRequest_ == CameraState::Stopping
         || (!cameraRequest_ && !isCameraActive(camera_->state()))) return;
@@ -263,7 +263,7 @@ void DesktopController::connectRobot()
 
 void DesktopController::disconnectRobot()
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::Disconnect);
     if (initialized_ && !shuttingDown_) {
         cancelManualDrive();
         (void)robots_.disconnect(robotId_);
@@ -273,7 +273,7 @@ void DesktopController::disconnectRobot()
 
 void DesktopController::shutdown()
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::Shutdown);
     if (shuttingDown_) return;
     stopManualDrive();
     // Stop every managed connected session before teardown; this is handoff only.
@@ -358,7 +358,7 @@ void DesktopController::receiveConnectionState(RobotId id, ConnectionState state
     }
     if (id != robotId_) { publishRobotChoices(); return; }
     if (state != ConnectionState::Connected) {
-        emit motionInterruptRequested();
+        emit motionInterruptRequested(MotionInterruptReason::ConnectionLost);
         reportedOperatingState_.reset();
         manualVelocity_.reset();
         manualRefresh_.stop();
@@ -394,7 +394,7 @@ void DesktopController::receiveTelemetry(const RobotTelemetry& telemetry)
     const bool stateChanged = reportedOperatingState_ != telemetry.operatingState;
     reportedOperatingState_ = telemetry.operatingState;
     if (unsafe && stateChanged) {
-        emit motionInterruptRequested();
+        emit motionInterruptRequested(MotionInterruptReason::SafetyFault);
         manualFault_ = true;
         if (manualVelocity_) cancelManualDrive();
         publishRobotActions();
@@ -500,7 +500,7 @@ void DesktopController::setRobotScanState(bool scanning)
 void DesktopController::scanRobots()
 {
     if (!initialized_ || shuttingDown_ || scanningRobots_) return;
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::Scan);
     cancelManualDrive();
     emit robotScanRequested();
 }
@@ -509,7 +509,7 @@ void DesktopController::selectRobot(quint32 id)
 {
     if (!initialized_ || shuttingDown_ || robotId_ == RobotId{id}) return;
     if (!discoveredRobots_.contains(RobotId{id}) && !robots_.session(RobotId{id})) return;
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::RobotSelection);
     cancelManualDrive();
     const RobotId next{id};
     if (!robots_.session(next) && !robots_.addRobot(next, MonotonicClock::now())) {
@@ -528,7 +528,7 @@ void DesktopController::selectRobot(quint32 id)
 
 void DesktopController::beginManualDrive(double linear, double angular)
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::ManualTakeover);
     if (!canManualDrive() || !std::isfinite(linear) || !std::isfinite(angular)) {
         cancelManualDrive();
         return;
@@ -559,7 +559,7 @@ void DesktopController::cancelManualDrive()
 
 void DesktopController::stopManualDrive()
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::ManualStop);
     const bool wasDriving = manualVelocity_.has_value();
     manualVelocity_.reset();
     manualRefresh_.stop();
@@ -581,7 +581,7 @@ void DesktopController::emergencyStop()
     }
     // The manager latch must be visible before consumers finalize control-cycle
     // records or submit the resulting Stop attempt.
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::EmergencyStop);
     if (wasDriving) emit manualStatusChanged(QStringLiteral("E-stop requested — manual drive cancelled"));
     emit manualStatusChanged(robots_.supportsEmergencyStop()
         ? QStringLiteral("E-STOP REQUESTED — physical stop unconfirmed; resolve cause before explicit clear")
@@ -592,7 +592,7 @@ void DesktopController::emergencyStop()
 
 void DesktopController::clearEmergencyStop()
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::EmergencyClear);
     if (!initialized_ || shuttingDown_) return;
     cancelManualDrive();
     const bool queued = robots_.requestEmergencyClear(robotId_);
@@ -604,7 +604,7 @@ void DesktopController::clearEmergencyStop()
 
 void DesktopController::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds)
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::WorkspaceChanged);
     if (shuttingDown_) return;
     workspaceCalibrationDescription_ = QStringLiteral("camera-to-world calibration not established");
     world_.setWorkspaceBounds(bounds);
@@ -613,7 +613,7 @@ void DesktopController::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds
 
 void DesktopController::setWorkspaceCalibration(const std::optional<WorkspaceCalibrationProfile>& profile)
 {
-    emit motionInterruptRequested();
+    emit motionInterruptRequested(MotionInterruptReason::WorkspaceChanged);
     if (shuttingDown_) return;
     world_.clearMeasurements();
     if (!profile || !profile->homography || !validateWorkspaceCalibrationProfile(*profile).empty()) {
