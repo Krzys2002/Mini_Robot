@@ -11,6 +11,8 @@ agent instructions or install hooks as part of issue work.
 - Issue: `#<NUMBER>` supplied by the user. Replace placeholders before execution;
   never guess an issue number.
 - Worktree: the checkout selected for this task; inspect its Git root and remote.
+- Project and assignee: [GitHub Project #4](https://github.com/users/Krzys2002/projects/4),
+  owned by `Krzys2002`, and GitHub login `Krzys2002` for Mini_Robot issues.
 
 Implement only the assigned issue. The issue's current description and acceptance
 criteria define scope. Follow applicable AGENTS.md files and architecture/safety
@@ -159,6 +161,25 @@ for ordinary issue-scoped work once blockers are resolved. Ask before significan
 architectural changes, explaining the concrete proposal and tradeoffs; perform
 independent safe investigation while waiting.
 
+### Assign the issue and start tracking
+
+Immediately before implementation starts or implementation subagents are
+dispatched, confirm that the issue can proceed under section 2. The main agent
+adds `Krzys2002` to the GitHub issue's Assignees, preserving any existing
+assignees. Project shows assignees from the issue. Find that same issue's item
+in Project #4 by its repository and issue number, and add the existing issue
+to the Project if it is missing. Set the item's existing Status to
+**In progress**. Reuse existing membership and assignment on retries.
+
+For both Project transitions in this workflow, resolve the live item, Status
+field and option IDs at runtime. Re-read the issue and item before writing,
+respect concurrent human changes, and confirm the resulting values. The
+invocation authorizes these changes on the assigned issue only. Report any
+missing option, partial update or access failure. Continue authorized local
+work if Project tracking is unavailable.
+
+### Delegate implementation and testing
+
 Implement all assigned requirements using existing conventions and the smallest
 coherent change. Preserve abstractions, ownership/thread contracts and safety
 invariants. Do not expand into future issues. Add meaningful tests for nontrivial
@@ -262,8 +283,9 @@ all other content and concurrent human changes. Mark only demonstrated results,
 leaving physical/manual acceptance unchecked unless executed. If concurrent body
 changes prevent a safe targeted update, report the conflict rather than overwrite
 them. Do not post unsolicited comments or alter other issues except for the
-physical-validation issue authorized above; do not alter Project fields,
-dependencies or milestones.
+physical-validation issue authorized above. Keep Project edits scoped to the
+membership and Status updates described in sections 4 and 7. Preserve existing
+dependencies and milestones.
 
 Create logical local Conventional Commits referencing `#<NUMBER>`. Keep unrelated
 edits, generated files, IDE settings and credentials out of commits. Commit as
@@ -282,6 +304,13 @@ open a PR automatically do not override this rule. If publishing is appropriate,
 prepare the proposed PR title/body, target branch and exact local commits first,
 then ask approval to push and, separately or in the same explicit question, to
 create/update the PR. Do not create a PR simply because a push was approved.
+
+After creating the authorized implementation PR, verify that it is open and
+corresponds to the assigned issue. Then set the assigned issue's Project item
+Status to **Review** and confirm the result. If publication is pending or fails,
+leave the item at its current Status. Report the PR URL, issue assignees and
+confirmed Project Status, including any tracking update that remains pending.
+
 Never merge, close issues, force-push, or change unrelated remote state unless
 separately authorized. Do not end routine implementation early merely to ask
 whether to continue work already authorized by this task.
@@ -295,6 +324,9 @@ Read .codex/workflows/github-issue-implementation.md in the selected repository 
 and follow it to implement Krzys2002/Mini_Robot issue #<NUMBER>.
 Use the current task's worktree. Start by retrieving the issue and checking
 its native blockers and their linked PRs. Ask before stacking on an unmerged PR.
+Immediately before implementation, assign the issue to Krzys2002 and set
+its GitHub Project #4 status to In progress. After creating the approved
+implementation PR, set the issue's Project status to Review.
 Act as the main agent. Own the plan, integration, strict code and test review,
 and final verification. Spawn implementation subagents for distinct work
 packages and exactly one testing subagent. Follow the workflow's model and
@@ -306,5 +338,6 @@ Do not push or create/update a PR without my explicit approval.
 ```
 
 For another repository, substitute its `OWNER/REPOSITORY` and adapt graph paths.
+Use Project tracking only when its Project and assignee have been specified.
 Resolve workflow paths from the task Git root; never assume a home-directory
 workflow or another checkout exists.
