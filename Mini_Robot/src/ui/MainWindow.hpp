@@ -28,7 +28,7 @@ public:
     explicit MainWindow(DesktopController& controller, QWidget* parent = nullptr);
 
     void bindVision(VisionController& vision);
-    void bindVisualControl(LiveVisualController& control);
+    void bindVisualControl(LiveVisualController& control, VisionController& vision);
 
     // Opens the capture/review dialog for the injected calibration service.
     void bindCalibration(CalibrationController& calibration);

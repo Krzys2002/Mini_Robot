@@ -3,6 +3,7 @@
 #include "app/VisionController.hpp"
 #include "app/DesktopController.hpp"
 #include "ManualBackends.hpp"
+#include "VisionDebugFixtures.hpp"
 
 #include <QApplication>
 #include <QElapsedTimer>
@@ -15,31 +16,8 @@
 
 namespace {
 using namespace micro_robot;
+using namespace micro_robot::test;
 using namespace std::chrono_literals;
-std::shared_ptr<VisionDebugFrame> debugPreview(PixelFormat format = PixelFormat::Gray8)
-{
-    auto frame = std::make_shared<Frame>();
-    frame->sequence = 42; frame->capturedAt = MonotonicClock::now();
-    frame->width = 320; frame->height = 200; frame->pixelFormat = format;
-    const std::size_t channels = format == PixelFormat::Gray8 ? 1 : format == PixelFormat::Rgb8 ? 3 : 4;
-    frame->strideBytes = 320 * channels + 8; // Exercise padded rows, including RGBA alpha.
-    auto pixels = std::make_shared<std::vector<std::byte>>(frame->strideBytes * frame->height, std::byte{32});
-    if (channels == 4) for (std::size_t y = 0; y < frame->height; ++y)
-        for (std::size_t x = 0; x < frame->width; ++x) (*pixels)[y * frame->strideBytes + 4*x + 3] = std::byte{255};
-    // A visible raw-image patch independently checks the image transform, not
-    // just the overlay transform over an otherwise uniform background.
-    for (std::size_t y = 40; y < 60; ++y) for (std::size_t x = 130; x < 150; ++x)
-        for (std::size_t c = 0; c < std::min<std::size_t>(channels, 3); ++c)
-            (*pixels)[y * frame->strideBytes + channels*x + c] = std::byte{240};
-    frame->pixels = pixels;
-    auto detections = std::make_shared<MarkerDetections>();
-    detections->frameSequence = 42; detections->capturedAt = frame->capturedAt;
-    detections->width = 320; detections->height = 200; detections->processingTime = 2ms;
-    detections->markers = {
-        {MarkerFamily::AprilTag36h11, 0, {{{40,40},{100,40},{100,100},{40,100}}}, std::nullopt},
-        {MarkerFamily::AprilTag36h11, 2, {{{250,90},{250,150},{190,150},{190,90}}}, 37.5}};
-    return makeVisionDebugFrame(frame, detections, RobotMarkerMap{});
-}
 bool nearColor(const QImage& image, QPoint point, const std::function<bool(QColor)>& matches)
 {
     const double ratio = image.devicePixelRatio();

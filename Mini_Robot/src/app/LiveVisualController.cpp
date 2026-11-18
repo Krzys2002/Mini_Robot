@@ -1,10 +1,13 @@
 #include "app/LiveVisualController.hpp"
 #include "app/ControlTraceWriter.hpp"
+#include "common/Angle.hpp"
+#include "calibration/TabletopHomography.hpp"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDateTime>
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <stdexcept>
 #include <string_view>
 
@@ -148,7 +151,7 @@ LiveVisualController::LiveVisualController(DesktopController& desktop, WorldMode
             loop_.reset();
             policy_.reset();
             selected_ = RobotId{id}; target_.reset(); provenance_.reset();
-            targetFrame_.reset(); provenanceFrame_.reset();
+            targetFrame_.reset(); targetCalibrationRevision_.clear(); provenanceFrame_.reset();
             status_ = QStringLiteral("Idle — apply a target and Start");
         }
         if (running() && !desktop_.externalControlPermitted()) stop();
@@ -179,6 +182,14 @@ bool LiveVisualController::canAcknowledgeControllerFault() const
         && ready();
 }
 std::optional<ControlCycle> LiveVisualController::lastCycle() const { return loop_ ? loop_->lastCycle() : std::nullopt; }
+QString LiveVisualController::workspaceCalibrationRevision() const
+{
+    return QString::fromStdString(desktop_.workspaceCalibrationRevision());
+}
+void LiveVisualController::setImagePointUndistorter(ImagePointUndistorter undistorter)
+{
+    imagePointUndistorter_ = std::move(undistorter);
+}
 void LiveVisualController::setInput(const QString& source, bool streaming)
 {
     if (source_ != source || !streaming) { stopFor(streaming ? "camera_change" : "camera_stopped"); provenance_.reset(); }
@@ -211,12 +222,49 @@ bool LiveVisualController::setTarget(double x, double y, double heading)
     }
     target_ = Pose2D{Meters{x}, Meters{y}, Radians{heading}};
     targetFrame_ = world_.workspaceFrameId();
+    targetCalibrationRevision_ = workspaceCalibrationRevision();
     status_ = QStringLiteral("Target applied — Start required"); publish(); return true;
+}
+bool LiveVisualController::setTargetFromImage(const QString& source, std::uint32_t width, std::uint32_t height,
+    double u, double v, double heading, Timestamp capturedAt, const QString& workspaceRevision)
+{
+    if (running()) return false;
+    const auto& profile = desktop_.workspaceCalibrationProfile();
+    const auto activeRevision = workspaceCalibrationRevision();
+    const auto activeFrame = world_.workspaceFrameId();
+    const auto age = clock_() - capturedAt;
+    if (!imagePointUndistorter_ || !profile || !profile->homography
+        || !validateWorkspaceCalibrationProfile(*profile).empty()
+        || activeRevision.isEmpty() || workspaceRevision != activeRevision
+        || !activeFrame || *activeFrame != profile->frameId
+        || source != source_ || source != QString::fromStdString(profile->intrinsics.sourceId)
+        || !streaming_
+        || width != profile->intrinsics.width || height != profile->intrinsics.height
+        || !std::isfinite(u) || !std::isfinite(v) || !std::isfinite(heading)
+        || u < 0 || v < 0 || u > width - 1 || v > height - 1
+        || age < Duration::zero() || age >= settings_.loop.maximumObservationAge
+        || (provenance_ && capturedAt < provenance_->capturedAt)) {
+        status_ = QStringLiteral("Image target rejected — stale frame or camera, resolution, or calibration changed");
+        publish();
+        return false;
+    }
+    try {
+        const auto undistorted = imagePointUndistorter_({u, v}, profile->intrinsics);
+        if (!undistorted) throw std::runtime_error("Point undistortion failed");
+        const auto world = projectWorkspacePoint(*profile->homography, *undistorted);
+        if (!world) throw std::runtime_error("Workspace projection failed");
+        return setTarget(world->x.value, world->y.value, heading);
+    } catch (const std::exception&) {
+        status_ = QStringLiteral("Image target rejected — calibration could not map this point");
+        publish();
+        return false;
+    }
 }
 bool LiveVisualController::ready() const
 {
     const auto robot = world_.robot(selected_);
     return settings_.motionEnabled && streaming_ && target_ && targetFrame_ == world_.workspaceFrameId()
+        && targetCalibrationRevision_ == workspaceCalibrationRevision()
         && world_.workspaceFrameId() && provenanceFrame_ == world_.workspaceFrameId()
         && provenance_ && robot && robot->poseUpdatedAt == provenance_->capturedAt
         && world_.tracking(selected_, clock_()).status == TrackingStatus::Fresh
@@ -262,6 +310,22 @@ void LiveVisualController::stop()
 {
     stopFor("operator_stop");
 }
+void LiveVisualController::pause()
+{
+    if (!running()) return;
+    stopFor("operator_stop");
+    status_ = QStringLiteral("Paused — target retained; explicit Start required");
+    publish();
+}
+void LiveVisualController::cancel()
+{
+    if (running()) stopFor("operator_stop");
+    target_.reset();
+    targetFrame_.reset();
+    targetCalibrationRevision_.clear();
+    status_ = QStringLiteral("Cancelled — target cleared");
+    publish();
+}
 void LiveVisualController::stopFor(std::string_view reason)
 {
     const bool active = running();
@@ -277,7 +341,10 @@ void LiveVisualController::stopFor(std::string_view reason)
 }
 void LiveVisualController::refresh()
 {
-    if (target_ && targetFrame_ != world_.workspaceFrameId()) { stopFor("workspace_change"); target_.reset(); }
+    if (target_ && (targetFrame_ != world_.workspaceFrameId()
+        || targetCalibrationRevision_ != workspaceCalibrationRevision())) {
+        stopFor("workspace_change"); target_.reset(); targetFrame_.reset(); targetCalibrationRevision_.clear();
+    }
     if (provenanceFrame_ != world_.workspaceFrameId()) provenance_.reset();
     if (running()) {
         if (!streaming_) stopFor("camera_stopped");
@@ -464,6 +531,15 @@ void LiveVisualController::publish()
         .arg(std::chrono::duration<double, std::milli>(*tracking.age).count(), 0, 'f', 0);
     if (target_) description_ += QStringLiteral("\nTarget: x %1 m · y %2 m · heading %3 rad")
         .arg(target_->x.value, 0, 'f', 3).arg(target_->y.value, 0, 'f', 3).arg(target_->heading.value, 0, 'f', 3);
+    if (target_ && robot && robot->pose) {
+        const double dx = target_->x.value - robot->pose->x.value;
+        const double dy = target_->y.value - robot->pose->y.value;
+        const double headingError = normalizeAngle(Radians{
+            target_->heading.value - robot->pose->heading.value}).value;
+        description_ += QStringLiteral("\nPosition error: %1 mm · heading error: %2°")
+            .arg(std::hypot(dx, dy) * 1000.0, 0, 'f', 1)
+            .arg(headingError * 180.0 / std::numbers::pi, 0, 'f', 1);
+    }
     if (runExportPath_ && experimentWriter_) {
         const auto utf8 = runExportPath_->u8string();
         const auto path = QString::fromUtf8(reinterpret_cast<const char*>(utf8.data()), static_cast<qsizetype>(utf8.size()));
@@ -482,6 +558,7 @@ void LiveVisualController::publish()
     }
     emit descriptionChanged(description_);
     emit actionsChanged(!running() && ready() && !(loop_ && loop_->hasLatchedControllerFault()), running());
+    emit targetAvailabilityChanged(target_.has_value());
     emit controllerFaultAcknowledgementChanged(canAcknowledgeControllerFault());
 }
 } // namespace micro_robot

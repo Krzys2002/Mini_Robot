@@ -13,6 +13,23 @@
 #include <exception>
 
 namespace micro_robot {
+std::optional<ImageCorner> OpenCvCalibrationUndistorter::undistortPoint(ImageCorner point,
+    const IntrinsicCalibration& c)
+{
+    if (!validateIntrinsicCalibration(c).empty() || !std::isfinite(point.u) || !std::isfinite(point.v))
+        return {};
+    try {
+        const cv::Mat k(3, 3, CV_64F, const_cast<double*>(c.cameraMatrix.data()));
+        const cv::Mat d(1, 5, CV_64F, const_cast<double*>(c.distortion.data()));
+        std::vector<cv::Point2d> input{{point.u, point.v}}, output;
+        cv::undistortPoints(input, output, k, d, cv::noArray(), k);
+        if (output.size() != 1 || !std::isfinite(output.front().x) || !std::isfinite(output.front().y))
+            return {};
+        return ImageCorner{output.front().x, output.front().y};
+    } catch (const std::exception&) {
+        return {};
+    }
+}
 UndistortedPreviewOutcome OpenCvCalibrationUndistorter::undistort(const Frame& frame,
     const IntrinsicCalibration& c)
 {

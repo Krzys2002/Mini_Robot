@@ -4,6 +4,8 @@
 namespace micro_robot {
 class OpenCvCalibrationUndistorter final : public ICalibrationUndistorter {
 public:
+    [[nodiscard]] static std::optional<ImageCorner> undistortPoint(ImageCorner point,
+        const IntrinsicCalibration& calibration);
     [[nodiscard]] UndistortedPreviewOutcome undistort(const Frame& frame,
         const IntrinsicCalibration& calibration) override;
     [[nodiscard]] UndistortedPreviewOutcome undistortWithCorners(const Frame& frame,

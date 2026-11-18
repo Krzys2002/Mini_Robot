@@ -214,6 +214,7 @@ int main(int argc, char* argv[])
         appLog.warning("Live visual motion is disabled for BLE until physical acceptance gates pass");
     LiveVisualController visualControl{controller, world, robots, visualSettings,
         {}, MonotonicClock::now, nullptr, &controlTrace};
+    visualControl.setImagePointUndistorter(OpenCvCalibrationUndistorter::undistortPoint);
     connectVisionTracking(vision, tracker, visualControl, [&controller] { controller.refreshWorld(); },
         MonotonicClock::now, [&visualControl](const MetricObservationBatchPtr& batch) { visualControl.receiveMeasurements(batch); });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
@@ -250,7 +251,7 @@ int main(int argc, char* argv[])
             });
     }
     MainWindow window{controller};
-    window.bindVisualControl(visualControl);
+    window.bindVisualControl(visualControl, vision);
     window.bindVision(vision);
     if (arguments.isSet(bleOption)) window.setWindowTitle(QStringLiteral("Micro Robot — BLE connections"));
     window.bindCalibration(calibration);

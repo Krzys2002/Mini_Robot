@@ -18,6 +18,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace micro_robot {
@@ -53,6 +54,9 @@ public:
     // Presentation/metric-bounds activation from the workspace calibration service.
     // No robot observation conversion here. Missing/invalid transforms deactivate.
     void setWorkspaceCalibration(const std::optional<WorkspaceCalibrationProfile>& profile);
+    [[nodiscard]] const std::optional<WorkspaceCalibrationProfile>& workspaceCalibrationProfile() const noexcept
+    { return workspaceProfile_; }
+    [[nodiscard]] const std::string& workspaceCalibrationRevision() const noexcept { return workspaceRevision_; }
 
     // Replaces the active camera; nullptr clears it. A running source is asked to
     // stop first and is replaced once it reports Stopped, Disconnected, or Fault,
@@ -154,6 +158,8 @@ private:
     Timestamp startedAt_{};
     std::uint64_t cameraPublicationGeneration_{};
     QString workspaceCalibrationDescription_{QStringLiteral("camera-to-world calibration not established")};
+    std::optional<WorkspaceCalibrationProfile> workspaceProfile_;
+    std::string workspaceRevision_;
     bool initialized_{};
     bool shuttingDown_{};
     bool robotSessionsStoppedEmitted_{};
