@@ -204,7 +204,11 @@ int main(int argc, char* argv[])
     RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter},
                          {config.tracking.positionAlpha, config.tracking.headingAlpha}};
     ControlTraceWriter controlTrace{logger.channel("visual-control")};
-    LiveVisualController visualControl{controller, world, robots, LiveVisualSettings::fromApplication(config),
+    auto visualSettings = LiveVisualSettings::fromApplication(config);
+    visualSettings.motionEnabled = simulation != nullptr;
+    if (!visualSettings.motionEnabled)
+        appLog.warning("Live visual motion is disabled for BLE until physical acceptance gates pass");
+    LiveVisualController visualControl{controller, world, robots, visualSettings,
         [&controlTrace](std::string line) { (void)controlTrace.enqueue(std::move(line)); }};
     connectVisionTracking(vision, tracker, visualControl, [&controller] { controller.refreshWorld(); },
         MonotonicClock::now, [&visualControl](const MetricObservationBatchPtr& batch) { visualControl.receiveMeasurements(batch); });

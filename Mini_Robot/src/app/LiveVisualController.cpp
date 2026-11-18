@@ -8,11 +8,15 @@
 namespace micro_robot {
 LiveVisualSettings LiveVisualSettings::fromApplication(const ApplicationConfig& c)
 {
-    return {{std::min(period, c.manual.refreshInterval), c.manual.commandValidity, c.tracking.staleAfter,
-        c.manual.maximumLinearMetersPerSecond, c.manual.maximumAngularRadiansPerSecond},
-        {positionGain, bearingGain, headingGain, c.manual.maximumLinearMetersPerSecond,
-        c.manual.maximumAngularRadiansPerSecond, Meters{positionToleranceMeters}, Radians{headingToleranceRadians},
-        Radians{turnInPlaceRadians}, true}};
+    LiveVisualSettings settings;
+    settings.loop = {std::min(period, c.manual.refreshInterval), c.manual.commandValidity, c.tracking.staleAfter,
+        c.manual.maximumLinearMetersPerSecond, c.manual.maximumAngularRadiansPerSecond};
+    settings.goal = {c.visualControl.positionGainPerSecond, c.visualControl.bearingGainPerSecond,
+        c.visualControl.finalHeadingGainPerSecond, c.manual.maximumLinearMetersPerSecond,
+        c.manual.maximumAngularRadiansPerSecond, Meters{c.visualControl.positionToleranceMeters},
+        Radians{c.visualControl.headingToleranceRadians}, Radians{c.visualControl.turnInPlaceRadians},
+        c.visualControl.alignFinalHeading, Meters{c.visualControl.positionExitToleranceMeters}};
+    return settings;
 }
 LiveVisualController::LiveVisualController(DesktopController& desktop, WorldModel& world, RobotManager& robots,
     LiveVisualSettings settings, Trace trace, ControlLoop::Clock clock, QObject* parent)
@@ -21,6 +25,8 @@ LiveVisualController::LiveVisualController(DesktopController& desktop, WorldMode
 {
     if (!clock_) throw std::invalid_argument("Visual control requires a clock");
     ControlLoop validate{selected_, world_, robots_, policy_, settings_.loop, clock_};
+    if (!settings_.motionEnabled)
+        status_ = QStringLiteral("Live visual motion is disabled for this transport; physical acceptance is incomplete");
     connect(&desktop_, &DesktopController::motionInterruptRequested, this, &LiveVisualController::stop);
     connect(&desktop_, &DesktopController::cameraInputChanged, this, &LiveVisualController::setInput);
     connect(&desktop_, &DesktopController::robotChoicesChanged, this, [this](const auto&, quint32 id) {
@@ -72,7 +78,7 @@ bool LiveVisualController::setTarget(double x, double y, double heading)
 bool LiveVisualController::ready() const
 {
     const auto robot = world_.robot(selected_);
-    return streaming_ && target_ && targetFrame_ == world_.workspaceFrameId()
+    return settings_.motionEnabled && streaming_ && target_ && targetFrame_ == world_.workspaceFrameId()
         && world_.workspaceFrameId() && provenanceFrame_ == world_.workspaceFrameId()
         && provenance_ && robot && robot->poseUpdatedAt == provenance_->capturedAt
         && world_.tracking(selected_, clock_()).status == TrackingStatus::Fresh
@@ -81,8 +87,13 @@ bool LiveVisualController::ready() const
 bool LiveVisualController::start()
 {
     if (running()) return true;
+    if (!settings_.motionEnabled) {
+        status_ = QStringLiteral("Live visual control disabled for this transport — physical acceptance is incomplete");
+        publish(); return false;
+    }
     if (!ready()) { status_ = QStringLiteral("Not ready — need a target, calibrated live measurement and ready robot session"); publish(); return false; }
     desktop_.cancelManualDrive();
+    policy_.reset();
     scheduler_.reset(); loop_.reset();
     loop_ = std::make_unique<ControlLoop>(selected_, world_, robots_, policy_, settings_.loop, clock_,
         [this] { return nextSequence_++; });
@@ -90,8 +101,14 @@ bool LiveVisualController::start()
     desktop_.setExternalControlActive(true);
     scheduler_ = std::make_unique<QtControlLoopScheduler>(*loop_);
     connect(scheduler_.get(), &QtControlLoopScheduler::cycleCompleted, this, &LiveVisualController::afterCycle);
-    if (!scheduler_->start()) { desktop_.setExternalControlActive(false); return false; }
-    status_ = QStringLiteral("Running"); publish(); return true;
+    status_ = QStringLiteral("Running");
+    if (!scheduler_->start()) {
+        desktop_.setExternalControlActive(false);
+        status_ = QStringLiteral("Paused — scheduler could not start; explicit Start required");
+        publish(); return false;
+    }
+    if (running()) publish();
+    return true;
 }
 void LiveVisualController::stop()
 {
@@ -125,10 +142,8 @@ void LiveVisualController::afterCycle()
                 : result == ControlCycleResult::FrameChanged
                     ? QStringLiteral("Paused — workspace changed; apply a new target")
                     : QStringLiteral("Paused — control/timing unavailable; explicit Start required");
-    } else if (target_) {
-        const auto robot = world_.robot(selected_);
-        const auto result = robot && robot->pose ? policy_.evaluate(*robot->pose, *target_) : std::nullopt;
-        if (result && result->state == GoalControlState::Arrived) { stop(); status_ = QStringLiteral("Arrived — zero/Stop submitted"); }
+    } else if (policy_.controlState() == GoalControlState::Arrived) {
+        stop(); status_ = QStringLiteral("Arrived — zero/Stop submitted");
     }
     publish();
 }

@@ -15,6 +15,12 @@ workspace with a frame identity. The panel shows actual filtered pose, target,
 tracking state/age and control state. Target edits are disabled while running.
 Launch, target editing, fresh data, reconnect and E-stop clear never start motion.
 
+Live visual command submission is enabled for simulation only. In BLE mode the
+target panel remains visible but Start is disabled until physical acceptance
+gates are complete; this boundary is enforced in the controller and cannot be
+overridden by application tuning. Manual BLE control retains its separate
+limits and acceptance requirements.
+
 Start requires fresh accepted measurement provenance matching the authoritative
 robot timestamp/frame and current source, plus normal ready session gates.
 `ingestMetricBatch` returns only measurements actually Applied by RobotTracker;
@@ -24,10 +30,12 @@ cleared source provenance. Control uses filtered WorldModel poses, not raw
 detector poses; original measurement timestamps are preserved.
 
 DesktopController arbitrates normal motion. Visual Start cancels held manual
-input. Manual input, Stop/E-stop/clear, scanning, robot selection, disconnect,
-camera replacement/stop, workspace activation/change and shutdown interrupt
-visual control before proceeding. Manual drive actions are disabled while visual
-control owns commands; Stop/E-stop remain in the always-visible robot panel.
+input. Manual input, Stop/clear, scanning, robot selection, disconnect, camera
+replacement/stop, workspace activation/change and shutdown interrupt visual
+control before proceeding. E-stop first latches every manager session and cancels
+pending motion, then interrupts visual control so the run state is recorded as
+E-stop. Manual drive actions are disabled while visual control owns commands;
+Stop/E-stop remain in the always-visible robot panel.
 Identity ambiguity, robot fault/error and session loss also interrupt. A different
 robot clears the old target/provenance; a different frame requires a new target.
 
@@ -42,17 +50,18 @@ and software inhibition are not physical stopping evidence.
 
 `main.cpp` constructs the [goal policy](goal-point-controller.md),
 [scheduler](supervisory-control.md), accepted-measurement bridge and panel.
-Simulation and `--ble` use the same RobotManager path. The post-ingestion
+Simulation and `--ble` use the same RobotManager path, but only simulation enables
+live visual command submission. The post-ingestion
 connection uses visual control as its QObject context, preventing late vision
 shutdown callbacks from accessing a destroyed consumer.
 
-`LiveVisualSettings::fromApplication` injects existing configured manual v/omega
-limits and validity, a period capped at 50 ms and tracking stale threshold as
-maximum age. Named software bring-up policy values are gains 1/3/2 per second,
-5 mm position tolerance, 0.03 rad heading tolerance and pi/3 turn threshold.
-These are injected software settings, not measured actuator limits, physical
-accuracy or approved gains. Supply commissioned settings before physical trials.
-Existing configuration/adapter validation remains authoritative.
+`LiveVisualSettings::fromApplication` injects configured goal gains/tolerances,
+manual v/omega limits and command validity, a period capped at 50 ms and the
+tracking stale threshold as maximum age. The example config supplies bring-up
+defaults and supports per-experiment tuning. These are software settings, not
+measured actuator limits, physical accuracy or approved gains. Supply
+commissioned settings before physical trials. The same manual velocity limits
+are used by the controller and loop; the loop remains the final command bound.
 
 Model, coordinator, manager and timer share the existing owner thread. Detection
 stays on its bounded worker; policy callbacks are prompt/nonblocking. Shutdown

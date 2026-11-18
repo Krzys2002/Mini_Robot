@@ -1099,7 +1099,7 @@ TEST(BleSessionSecurityTest, RefusedSessionNeverConnectsButStillReassertsALatche
 
 #if defined(MICRO_ROBOT_BLE_WITH_DESKTOP)
 namespace {
-TEST(BleTransportTest, VisualMetricFeedbackReachesBleWithDomainWireCorrelationAndStop)
+TEST(BleTransportTest, VisualMetricFeedbackCannotArmBleBeforePhysicalAcceptance)
 {
     Fixture f;
     WorldModel world;
@@ -1122,19 +1122,12 @@ TEST(BleTransportTest, VisualMetricFeedbackReachesBleWithDomainWireCorrelationAn
     ingestMetricBatch(tracker, batch, now);
     visual.receiveMeasurements(batch);
     ASSERT_TRUE(visual.setTarget(1, 0, 0));
-    ASSERT_TRUE(visual.start()); visual.refresh(); drain();
-    ASSERT_FALSE(f.backend->writes.empty());
-    const auto motion = f.backend->writes.back();
-    ASSERT_TRUE(std::holds_alternative<VelocityCommand>(motion.request.command.payload));
-    EXPECT_GT(std::get<VelocityCommand>(motion.request.command.payload).linearMetersPerSecond, 0);
-    ASSERT_TRUE(motion.request.command.metadata.sequence);
-    EXPECT_EQ(motion.request.command.metadata.sequence, visual.lastCycle()->commandSequence);
-    EXPECT_TRUE(f.logs->contains("domain_sequence=" + std::to_string(*motion.request.command.metadata.sequence)));
-    EXPECT_TRUE(f.logs->contains("wire_sequence="));
-    visual.setInput("fake-camera", false); drain();
+    EXPECT_FALSE(visual.start());
     EXPECT_FALSE(visual.running());
-    ASSERT_FALSE(f.backend->writes.empty());
-    EXPECT_TRUE(std::holds_alternative<StopCommand>(f.backend->writes.back().request.command.payload));
+    for (const auto& write : f.backend->writes) {
+        if (const auto* velocity = std::get_if<VelocityCommand>(&write.request.command.payload))
+            EXPECT_DOUBLE_EQ(velocity->linearMetersPerSecond, 0.0);
+    }
     desktop.shutdown();
 }
 } // namespace

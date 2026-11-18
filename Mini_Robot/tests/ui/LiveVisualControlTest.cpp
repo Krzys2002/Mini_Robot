@@ -22,6 +22,12 @@ using namespace std::chrono_literals;
 class NoMarkers final : public IMarkerDetector {
 public: MarkerDetections detect(const Frame&) override { return {}; }
 };
+LiveVisualSettings simulationVisualSettings()
+{
+    auto settings = LiveVisualSettings::fromApplication({});
+    settings.motionEnabled = true;
+    return settings;
+}
 struct LiveVisualControlTest : testing::Test {
     Timestamp now{1s};
     Logger logger;
@@ -32,7 +38,7 @@ struct LiveVisualControlTest : testing::Test {
     RobotTracker tracker{world, {250ms, 1s}, {.25, .25}};
     VisionController vision{std::make_unique<NoMarkers>(), logger.channel("vision")};
     std::vector<std::string> traces;
-    LiveVisualController visual{desktop, world, robots, LiveVisualSettings::fromApplication({}),
+    LiveVisualController visual{desktop, world, robots, simulationVisualSettings(),
         [this](std::string line) { traces.push_back(std::move(line)); }, [this] { return now; }};
     std::uint64_t sequence{};
     LiveVisualControlTest()
@@ -47,11 +53,11 @@ struct LiveVisualControlTest : testing::Test {
         sample(0, 0);
         EXPECT_TRUE(visual.setTarget(1, 0, 0));
     }
-    void sample(double x, double y)
+    void sample(double x, double y, double heading = 0.0)
     {
         auto batch = std::make_shared<MetricObservationBatch>();
         batch->status = MetricObservationStatus::Valid;
-        batch->measurements.push_back({RobotId{1}, {Meters{x}, Meters{y}, Radians{}}, now, ++sequence, 20, {}});
+        batch->measurements.push_back({RobotId{1}, {Meters{x}, Meters{y}, Radians{heading}}, now, ++sequence, 20, {}});
         emit vision.metricObservationsAvailable("camera-a", batch);
     }
     void run()
@@ -128,6 +134,18 @@ TEST_F(LiveVisualControlTest, SelectionAmbiguityFaultEstopAndShutdownInterruptVi
     desktop.emergencyStop(); EXPECT_FALSE(visual.running()); EXPECT_FALSE(visual.start());
     desktop.shutdown(); EXPECT_FALSE(visual.running()); EXPECT_FALSE(visual.start());
 }
+TEST_F(LiveVisualControlTest, EmergencyStopLatchesManagerBeforeInterruptingVisualControl)
+{
+    run();
+    bool latchObservedAtInterrupt = false;
+    QObject::connect(&desktop, &DesktopController::motionInterruptRequested, &desktop, [&] {
+        const auto session = robots.session(RobotId{1});
+        latchObservedAtInterrupt = session && session->emergencyStopRequested;
+    }, Qt::DirectConnection);
+    desktop.emergencyStop();
+    EXPECT_TRUE(latchObservedAtInterrupt);
+    EXPECT_FALSE(visual.running());
+}
 TEST_F(LiveVisualControlTest, FrameReplacementClearsTargetAndInvalidCoordinatesCannotArm)
 {
     EXPECT_FALSE(visual.setTarget(-1, 0, 0));
@@ -200,6 +218,17 @@ TEST_F(LiveVisualControlTest, ArrivalSubmitsZeroThenStopAndDoesNotResume)
     EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.commands.back().second.payload));
     EXPECT_TRUE(visual.description().contains("Arrived"));
 }
+TEST_F(LiveVisualControlTest, HeadingArrivalUsesTheControllerExitTolerance)
+{
+    ASSERT_TRUE(visual.setTarget(0, 0, .2));
+    ASSERT_TRUE(visual.start());
+    ASSERT_TRUE(visual.running());
+    now += LiveVisualSettings::period;
+    sample(-.007, 0, .2);
+    EXPECT_FALSE(visual.running());
+    ASSERT_TRUE(std::holds_alternative<StopCommand>(transport.commands.back().second.payload));
+    EXPECT_TRUE(visual.description().contains("Arrived"));
+}
 class BlockingSink final : public ILogSink {
 public:
     std::promise<void> entered, release;
@@ -219,7 +248,7 @@ TEST(LiveVisualSimulationTest, AcceptedMetricFeedbackMovesSimulationThenStaleDat
     ASSERT_TRUE(robots.connect(RobotId{1})); transport.advanceTo(now);
     world.setWorkspaceFrame(WorkspaceBounds{Meters{2}, Meters{2}}, "metric-frame");
     RobotTracker tracker{world, {250ms, 1s}};
-    LiveVisualController visual{desktop, world, robots, LiveVisualSettings::fromApplication({}), {}, [&] { return now; }};
+    LiveVisualController visual{desktop, world, robots, simulationVisualSettings(), {}, [&] { return now; }};
     visual.setInput("synthetic-camera", true);
     auto batch = std::make_shared<MetricObservationBatch>();
     batch->status = MetricObservationStatus::Valid;
