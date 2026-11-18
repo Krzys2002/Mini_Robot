@@ -139,33 +139,3 @@ or check rollup when inspected. Its local results are recorded in the supervisor
 guide, not presented as remote CI. Merge #291 first, then verify actual master
 source and review/rebase or replay the child-only diff as appropriate. Retargeting
 or remote history changes require approval; no parent merge is performed here.
-
-## Local validation on 2026-11-17
-
-Implementation commit `59c12cb` was tested on macOS arm64 / AppleClang 21 /
-Qt 6.12 / OpenCV 5.1. Configure commands from the child worktree root:
-
-```sh
-cmake --preset core -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/Users/krzysztofsawicki/Documents/Put/sem6/Term_Design/build/macos/_deps/googletest-src
-cmake --preset macos -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/Users/krzysztofsawicki/Documents/Put/sem6/Term_Design/build/macos/_deps/googletest-src -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt -DMICRO_ROBOT_BUILD_BLE=ON
-```
-
-For each preset, ran `cmake --build --preset <preset> --parallel 3` followed by
-`ctest --preset <preset> --parallel 3`. Core: **705/705 passed**. Host production
-desktop/Qt BLE build succeeded; **1,017 tests passed, two existing opt-in audits
-skipped (1,019 selected)**. The independent standalone `Mini_Robot/` core configure
-(same GoogleTest argument), build and CTest commands also passed **705/705** in
-their own build directory. The focused controller binary was run during development;
-the final 20 controller tests are included in all three complete suites.
-
-These are combined-parent-and-child tree results; there were no test failures
-to attribute to either. Existing WorldModel initializer, GoogleTest conversion
-and duplicate-library warnings remain non-fatal. The child-only diff was reviewed
-against the approved parent and all software acceptance criteria; whitespace and
-relative file-link checks in the seven changed documentation files passed.
-No local graph was available in the child worktree, so navigation used source/rg
-fallback without reusing another worktree's graph or environment.
-
-No physical camera/radio/motor, native display, Linux or Windows validation was
-performed. Ideal simulated convergence does not establish physical stability,
-accuracy, safe gains/limits, stopping, or production autonomous readiness.
