@@ -190,6 +190,10 @@ void LiveVisualController::setImagePointUndistorter(ImagePointUndistorter undist
 {
     imagePointUndistorter_ = std::move(undistorter);
 }
+void LiveVisualController::setImagePointDistorter(ImagePointDistorter distorter)
+{
+    imagePointDistorter_ = std::move(distorter);
+}
 void LiveVisualController::setInput(const QString& source, bool streaming)
 {
     if (source_ != source || !streaming) { stopFor(streaming ? "camera_change" : "camera_stopped"); provenance_.reset(); }
@@ -229,36 +233,78 @@ bool LiveVisualController::setTargetFromImage(const QString& source, std::uint32
     double u, double v, double heading, Timestamp capturedAt, const QString& workspaceRevision)
 {
     if (running()) return false;
-    const auto& profile = desktop_.workspaceCalibrationProfile();
-    const auto activeRevision = workspaceCalibrationRevision();
-    const auto activeFrame = world_.workspaceFrameId();
-    const auto age = clock_() - capturedAt;
-    if (!imagePointUndistorter_ || !profile || !profile->homography
-        || !validateWorkspaceCalibrationProfile(*profile).empty()
-        || activeRevision.isEmpty() || workspaceRevision != activeRevision
-        || !activeFrame || *activeFrame != profile->frameId
-        || source != source_ || source != QString::fromStdString(profile->intrinsics.sourceId)
-        || !streaming_
-        || width != profile->intrinsics.width || height != profile->intrinsics.height
-        || !std::isfinite(u) || !std::isfinite(v) || !std::isfinite(heading)
-        || u < 0 || v < 0 || u > width - 1 || v > height - 1
-        || age < Duration::zero() || age >= settings_.loop.maximumObservationAge
-        || (provenance_ && capturedAt < provenance_->capturedAt)) {
+    if (!std::isfinite(heading)) {
         status_ = QStringLiteral("Image target rejected — stale frame or camera, resolution, or calibration changed");
         publish();
         return false;
+    }
+    const auto world = mapImagePointToWorld(source, width, height, u, v, capturedAt, workspaceRevision);
+    if (!world) {
+        status_ = QStringLiteral("Image target rejected — stale frame or camera, resolution, or calibration changed");
+        publish();
+        return false;
+    }
+    return setTarget(world->x.value, world->y.value, heading);
+}
+std::optional<WorldPoint2D> LiveVisualController::mapImagePointToWorld(const QString& source,
+    std::uint32_t width, std::uint32_t height, double u, double v, Timestamp capturedAt,
+    const QString& workspaceRevision) const
+{
+    const auto& profile = desktop_.workspaceCalibrationProfile();
+    if (!canMapImage(source, width, height, capturedAt, workspaceRevision)
+        || !profile || !profile->homography || !validateWorkspaceCalibrationProfile(*profile).empty()
+        || !std::isfinite(u) || !std::isfinite(v)
+        || u < 0 || v < 0 || u > width - 1 || v > height - 1
+    ) {
+        return {};
     }
     try {
         const auto undistorted = imagePointUndistorter_({u, v}, profile->intrinsics);
         if (!undistorted) throw std::runtime_error("Point undistortion failed");
         const auto world = projectWorkspacePoint(*profile->homography, *undistorted);
-        if (!world) throw std::runtime_error("Workspace projection failed");
-        return setTarget(world->x.value, world->y.value, heading);
-    } catch (const std::exception&) {
-        status_ = QStringLiteral("Image target rejected — calibration could not map this point");
-        publish();
-        return false;
-    }
+        if (!world || !profile->bounds.contains(*world)) return {};
+        return world;
+    } catch (const std::exception&) { return {}; }
+}
+bool LiveVisualController::canMapImage(const QString& source, std::uint32_t width, std::uint32_t height,
+    Timestamp capturedAt, const QString& workspaceRevision) const
+{
+    const auto& profile = desktop_.workspaceCalibrationProfile();
+    const auto activeRevision = workspaceCalibrationRevision();
+    const auto activeFrame = world_.workspaceFrameId();
+    const auto activeBounds = world_.workspaceBounds();
+    const auto age = clock_() - capturedAt;
+    return imagePointUndistorter_ && profile && profile->homography
+        && !activeRevision.isEmpty() && workspaceRevision == activeRevision
+        && activeFrame && *activeFrame == profile->frameId
+        && activeBounds && *activeBounds == profile->bounds
+        && source == source_ && source == QString::fromStdString(profile->intrinsics.sourceId)
+        && streaming_ && width == profile->intrinsics.width && height == profile->intrinsics.height
+        && age >= Duration::zero() && age < settings_.loop.maximumObservationAge
+        && (!provenance_ || capturedAt >= provenance_->capturedAt);
+}
+bool LiveVisualController::canEditPathFromImage(const QString& source, std::uint32_t width,
+    std::uint32_t height, Timestamp capturedAt, const QString& workspaceRevision) const
+{
+    return canMapImage(source, width, height, capturedAt, workspaceRevision)
+        && world_.robot(selected_).has_value() && static_cast<bool>(imagePointDistorter_);
+}
+std::optional<ImageCorner> LiveVisualController::mapWorldPointToRawImage(WorldPoint2D point) const
+{
+    const auto& profile = desktop_.workspaceCalibrationProfile();
+    if (!imagePointDistorter_ || !profile || !profile->homography
+        || !validateWorkspaceCalibrationProfile(*profile).empty() || !profile->bounds.contains(point)
+        || workspaceCalibrationRevision().isEmpty() || world_.workspaceFrameId() != profile->frameId
+        || source_ != QString::fromStdString(profile->intrinsics.sourceId)) return {};
+    try {
+        const auto undistorted = unprojectWorkspacePoint(*profile->homography, point);
+        if (!undistorted) return {};
+        auto raw = imagePointDistorter_(*undistorted, profile->intrinsics);
+        if (!raw || !std::isfinite(raw->u) || !std::isfinite(raw->v)
+            || raw->u < 0 || raw->v < 0 || raw->u > profile->intrinsics.width - 1
+            || raw->v > profile->intrinsics.height - 1) return {};
+        return raw;
+    } catch (const std::exception&) { return {}; }
 }
 bool LiveVisualController::ready() const
 {

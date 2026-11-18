@@ -1,6 +1,7 @@
 #include "calibration/OpenCvCalibrationUndistorter.hpp"
 #include "IntrinsicFixtures.hpp"
 #include <gtest/gtest.h>
+#include <array>
 #include <cmath>
 
 namespace {
@@ -88,6 +89,24 @@ TEST(OpenCvCalibrationUndistorterTest, CornerOverlayInvertsAnalyticalBrownConrad
         EXPECT_NEAR(result.corners[i].v, expected[i].v, 1e-3);
     }
 }
+
+TEST(OpenCvCalibrationUndistorterTest, ForwardAndReversePointTransformsRoundTripWithLensDistortion)
+{
+    auto model = smallModel();
+    model.distortion = {-0.24, 0.06, 0.003, -0.002, 0.015};
+    for (const ImageCorner raw : std::array<ImageCorner, 4>{
+             ImageCorner{5.25, 6.75}, ImageCorner{18.5, 31.125},
+             ImageCorner{52.25, 40.5}, ImageCorner{57.75, 8.25}}) {
+        const auto ideal = OpenCvCalibrationUndistorter::undistortPoint(raw, model);
+        ASSERT_TRUE(ideal);
+        const auto restored = OpenCvCalibrationUndistorter::distortPoint(*ideal, model);
+        ASSERT_TRUE(restored);
+        EXPECT_NEAR(restored->u, raw.u, 1e-3);
+        EXPECT_NEAR(restored->v, raw.v, 1e-3);
+        EXPECT_GT(std::hypot(ideal->u - raw.u, ideal->v - raw.v), 1e-3);
+    }
+}
+
 TEST(OpenCvCalibrationUndistorterTest, RejectsInvalidModelsFramesAndResolutionMismatch)
 {
     auto frame = image(PixelFormat::Gray8);

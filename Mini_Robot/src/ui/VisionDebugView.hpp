@@ -4,6 +4,8 @@
 
 #include <QDialog>
 #include <QTimer>
+#include <QWidget>
+#include <vector>
 
 class QPlainTextEdit;
 class QMouseEvent;
@@ -16,6 +18,8 @@ class VisionOverlay final : public QWidget {
 public:
     explicit VisionOverlay(QWidget* parent = nullptr);
     void present(VisionDebugFramePtr preview);
+    void setPathOverlay(std::vector<ImagePoint> rawImagePoints);
+    void setPathOverlayVisible(bool visible);
     [[nodiscard]] VisionDebugFramePtr preview() const { return preview_; }
     [[nodiscard]] QRectF imageRect() const;
     // Detector coordinates address pixel centers; QImage's rectangle addresses
@@ -28,6 +32,8 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
 private:
     VisionDebugFramePtr preview_;
+    std::vector<ImagePoint> pathOverlay_;
+    bool pathOverlayVisible_{true};
 };
 class VisionDebugDialog final : public QDialog {
     Q_OBJECT

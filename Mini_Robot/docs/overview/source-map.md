@@ -28,6 +28,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/app/ControlTraceWriter.cpp](../../src/app/ControlTraceWriter.cpp) | [Bounded trace logging](live-visual-control.md#per-run-experiment-export) |
 | [src/ui/VisualControlPanel.hpp](../../src/ui/VisualControlPanel.hpp) | [Target/status presentation](live-visual-control.md) |
 | [src/ui/VisualControlPanel.cpp](../../src/ui/VisualControlPanel.cpp) | [Target/status presentation](live-visual-control.md) |
+| [src/planning/MetricPath.hpp](../../src/planning/MetricPath.hpp), [src/planning/MetricPath.cpp](../../src/planning/MetricPath.cpp) | [Metric-only path geometry and editing](live-visual-control.md#metric-path-editing-81) |
+| [src/ui/VisionDebugView.hpp](../../src/ui/VisionDebugView.hpp), [src/ui/VisionDebugView.cpp](../../src/ui/VisionDebugView.cpp) | [Shared preview input mode and raw path overlay](live-visual-control.md#metric-path-editing-81) |
 | [src/app/CalibrationController.hpp](../../src/app/CalibrationController.hpp) | [Calibration capture](calibration-capture.md) |
 | [src/app/CalibrationController.cpp](../../src/app/CalibrationController.cpp) | [Calibration capture](calibration-capture.md) |
 | [src/calibration/CalibrationCapture.hpp](../../src/calibration/CalibrationCapture.hpp) | [Calibration capture](calibration-capture.md) |
@@ -140,6 +142,7 @@ reports are scope/history, not evidence that future modules are present.
 | micro_robot_camera_v4l2 | camera API, Qt6::Core, private OpenCV core/imgproc/videoio; Linux only, when `MICRO_ROBOT_CAMERA_BACKEND=V4L2` |
 | micro_robot_camera_replay | camera API, private OpenCV core/imgproc/videoio |
 | micro_robot_world | micro_robot_common |
+| micro_robot_planning | micro_robot_world; Qt-free metric path geometry only |
 | micro_robot_logging | micro_robot_common |
 | micro_robot_configuration | micro_robot_common, camera API (value types), micro_robot_logging |
 | micro_robot_simulation | camera and transport API targets, logging |
