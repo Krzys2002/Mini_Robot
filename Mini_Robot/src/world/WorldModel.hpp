@@ -55,6 +55,7 @@ public:
     // establish camera calibration or clamp/rewrite existing robot measurements.
     void setWorkspaceBounds(std::optional<WorkspaceBounds> bounds);
     [[nodiscard]] std::optional<WorkspaceBounds> workspaceBounds() const;
+    [[nodiscard]] std::optional<std::string> workspaceFrameId() const { return workspaceFrameId_; }
     // Explicit active-frame installation clears old coordinates and keeps its identity
     // in detached snapshots. A nonempty frame identity is required with bounds.
     void setWorkspaceFrame(WorkspaceBounds bounds, std::string frameId);

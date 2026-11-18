@@ -38,6 +38,7 @@ selection rather than reporting successful verification with no tests run.
 | `micro_robot_common_tests` | `core` | Robot identity, units, poses, monotonic time, angle normalization |
 | `micro_robot_vision_observation_tests` | `core`, `vision` | [Robot marker observations](../vision/robot-observation.md): tag-to-RobotId mapping, unknown/duplicate/invalid rejection, projective center, image and metric heading, calibration and workspace rejection |
 | `micro_robot_control_tests` | `core` | [Differential-drive kinematics](../overview/differential-drive.md): analytical wheel targets, inverse conversion, world derivatives, signs, bounds, invalid inputs and overflow |
+| `micro_robot_control_loop_tests` | `core` | [Supervisory service](../overview/supervisory-control.md): virtual-time scheduling, injected policy, bounded commands, tracking/session safety, frame changes and deterministic simulation |
 | `micro_robot_camera_tests` | `core` | Packed frame validation, malformed metadata, storage and overflow checks; camera selection rules |
 | `micro_robot_interface_tests` | `core` | Camera/transport contracts and ownership |
 | `micro_robot_transport_tests` | `core` | Transport domain versions, sequence reservation, metadata defaults and copying |
