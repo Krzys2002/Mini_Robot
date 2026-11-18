@@ -28,6 +28,7 @@ void expectDefaults(const ApplicationConfig& config)
     EXPECT_EQ(config.logging.minimumLevel, defaults.logging.minimumLevel);
     EXPECT_EQ(config.logging.fileEnabled, defaults.logging.fileEnabled);
     EXPECT_EQ(config.logging.filePath, defaults.logging.filePath);
+    EXPECT_EQ(config.logging.controlRunDirectory, defaults.logging.controlRunDirectory);
     EXPECT_EQ(config.robot.id, defaults.robot.id);
     EXPECT_EQ(config.camera.capture.resolution, defaults.camera.capture.resolution);
     EXPECT_EQ(config.simulation.updateInterval, defaults.simulation.updateInterval);
@@ -73,6 +74,7 @@ TEST(ConfigParseTest, ReadsEverySetting)
         "level = debug\n"
         "file_enabled = false\n"
         "file_path = /tmp/robot logs/run.log\n"
+        "control_run_directory = /tmp/robot exports\n"
         "[robot]\n"
         "id = 42\n"
         "[camera]\n"
@@ -87,6 +89,7 @@ TEST(ConfigParseTest, ReadsEverySetting)
     EXPECT_EQ(result.config.logging.minimumLevel, LogLevel::Debug);
     EXPECT_FALSE(result.config.logging.fileEnabled);
     EXPECT_EQ(result.config.logging.filePath, "/tmp/robot logs/run.log");
+    EXPECT_EQ(result.config.logging.controlRunDirectory, "/tmp/robot exports");
     EXPECT_EQ(result.config.robot.id, RobotId{42});
     EXPECT_EQ(result.config.camera.capture.resolution, (CameraResolution{1280, 720}));
     EXPECT_EQ(result.config.simulation.updateInterval, 20ms);

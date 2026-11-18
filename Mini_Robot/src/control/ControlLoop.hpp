@@ -33,7 +33,11 @@ struct ControlCycle {
     Duration lateness{};
     std::uint64_t skippedPeriods{};
     std::optional<Timestamp> observedAt;
+    std::string frameId;
+    ControlOperationalState operationalState{ControlOperationalState::Ready};
+    std::optional<Pose2D> measuredPose, rawPose, targetPose;
     std::optional<Duration> observationAge;
+    std::optional<double> trackingConfidence, measurementQuality;
     std::optional<ControlError> error;
     std::optional<VelocityCommand> requested, bounded;
     std::optional<CommandSubmission> submission, stopSubmission;
@@ -78,6 +82,7 @@ private:
     [[nodiscard]] std::optional<ControlCycleResult> gate(Timestamp now) const;
     [[nodiscard]] ControlOperationalState classify(ControlCycleResult reason,
         std::optional<CommandSubmission> submission = std::nullopt) const;
+    void captureSnapshot(ControlCycle& cycle, Timestamp now) const;
     void inhibit(ControlCycle cycle, ControlCycleResult reason, Timestamp now);
     RobotId id_;
     WorldModel& world_;

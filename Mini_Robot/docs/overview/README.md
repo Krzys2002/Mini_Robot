@@ -58,7 +58,7 @@
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
 - [Supervisory control service](supervisory-control.md): replaceable policy, timed cycles, safety gates and opt-in Qt scheduler.
 - [Goal-point controller](goal-point-controller.md): bounded forward-only point/pose feedback, deterministic arrival and simulated convergence.
-- [Live visual control](live-visual-control.md): metric feedback, selected robot/target, motion arbitration, traces and physical acceptance ownership.
+- [Live visual control](live-visual-control.md): metric feedback, selected robot/target, motion arbitration, per-run JSONL exports and physical acceptance ownership.
 - [World module](modules/world.md): robot registry, tabletop frame, metric bounds and workspace-calibration model.
 - [WorldModel behavior](world-model.md): registration, poses and snapshots.
 - [Robot tracking](robot-tracking.md): measurement age, loss and reappearance.
@@ -75,3 +75,4 @@ Implementation constraints and platform policy are defined in
 - [Elevated parallel tags and measured axle/body geometry](elevated-localization.md): v4 survey/extrinsics/mount workflow, migration and physical limits (#270).
 
 - [Surveyed reference acquisition and placement monitoring](reference-markers.md): separate roles, heights, v5 evidence, drift/expiry policy and explicit recovery (#271).
+- [Control experiment JSON Lines export](control-experiment-export.md)

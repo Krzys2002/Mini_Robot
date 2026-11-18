@@ -49,6 +49,7 @@ accepted. Every setting is optional.
 | `logging.level` | `debug`, `info`, `warning`, `error` | `info` |
 | `logging.file_enabled` | `true`/`false` (also `yes`/`no`, `on`/`off`, `1`/`0`) | `true` |
 | `logging.file_path` | UTF-8 path; empty selects the [default log location](logging.md#desktop-application) | empty |
+| `logging.control_run_directory` | UTF-8 path; empty selects the per-user `control-runs` directory | empty |
 | `robot.id` | integer 0 to 4294967295 | `1` |
 | `camera.resolution` | `auto` (device default) or `<width>x<height>`, each 1 to 8192 (for example `1280x720`) | `auto` |
 | `simulation.update_interval_ms` | integer 1 to 10000 | `100` |
