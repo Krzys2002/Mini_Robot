@@ -16,6 +16,23 @@ bool finite(const Pose2D& pose)
 }
 }
 
+ControlOperationalState classifySessionOperationalState(const std::optional<RobotSession>& session) noexcept
+{
+    if (!session) return ControlOperationalState::LostConnection;
+    if (session->emergencyStopRequested || session->safety == DesktopSafetyState::EmergencyStop)
+        return ControlOperationalState::EStop;
+    if (session->connection == ConnectionState::Fault)
+        return ControlOperationalState::Fault;
+    if (!session->connectRequested || session->removing
+        || session->connection != ConnectionState::Connected
+        || session->safety == DesktopSafetyState::Disconnected
+        || session->safety == DesktopSafetyState::LostConnection)
+        return ControlOperationalState::LostConnection;
+    if (session->safetyFault || session->safety == DesktopSafetyState::Fault)
+        return ControlOperationalState::Fault;
+    return ControlOperationalState::Ready;
+}
+
 ControlLoop::ControlLoop(RobotId id, WorldModel& world, RobotManager& robots, IController& controller,
                          ControlLoopConfig config, Clock clock, Sequence sequence)
     : id_(id), world_(world), robots_(robots), controller_(controller), config_(config), clock_(std::move(clock)), sequence_(std::move(sequence))
@@ -55,13 +72,77 @@ std::optional<ControlCycleResult> ControlLoop::gate(Timestamp now) const
     return {};
 }
 
+ControlOperationalState ControlLoop::classify(ControlCycleResult reason,
+    std::optional<CommandSubmission> submission) const
+{
+    switch (reason) {
+    case ControlCycleResult::Stopped:
+    case ControlCycleResult::FrameChanged:
+        return ControlOperationalState::Paused;
+    case ControlCycleResult::TrackingUnavailable:
+        return ControlOperationalState::LostTracking;
+    case ControlCycleResult::SessionUnavailable:
+        return classifySessionOperationalState(robots_.session(id_));
+    case ControlCycleResult::SubmissionRejected:
+        switch (submission.value_or(CommandSubmission::SafetyFault)) {
+        case CommandSubmission::EmergencyStopped: return ControlOperationalState::EStop;
+        case CommandSubmission::SafetyFault: return ControlOperationalState::Fault;
+        case CommandSubmission::StaleSession: return ControlOperationalState::Paused;
+        case CommandSubmission::UnknownRobot:
+        case CommandSubmission::NotConnected: return ControlOperationalState::LostConnection;
+        case CommandSubmission::ShuttingDown: return ControlOperationalState::Paused;
+        case CommandSubmission::Submitted: return ControlOperationalState::Fault;
+        }
+        return ControlOperationalState::Fault;
+    case ControlCycleResult::InvalidClock:
+    case ControlCycleResult::ControllerUnavailable:
+    case ControlCycleResult::ControllerFailure:
+    case ControlCycleResult::InvalidOutput:
+        return ControlOperationalState::Fault;
+    case ControlCycleResult::Submitted:
+        return ControlOperationalState::Running;
+    }
+    return ControlOperationalState::Fault;
+}
+
 bool ControlLoop::start()
 {
     if (state_ == ControlLoopState::Running) return true;
+    if (controllerFaultLatched_) {
+        state_ = ControlLoopState::Inhibited;
+        operationalState_ = ControlOperationalState::Fault;
+        return false;
+    }
     const auto now = clock_();
-    if (!target_ || gate(now)) return false;
+    if (!target_) {
+        state_ = ControlLoopState::Stopped;
+        operationalState_ = ControlOperationalState::Ready;
+        return false;
+    }
+    if (const auto reason = gate(now)) {
+        state_ = ControlLoopState::Stopped;
+        operationalState_ = classify(*reason);
+        return false;
+    }
     state_ = ControlLoopState::Running;
+    operationalState_ = ControlOperationalState::Running;
     nextDue_ = now;
+    lastNow_ = now;
+    return true;
+}
+
+bool ControlLoop::acknowledgeControllerFault()
+{
+    if (!controllerFaultLatched_ || state_ == ControlLoopState::Running) return false;
+    const auto now = clock_();
+    if (!target_) return false;
+    if (const auto reason = gate(now)) {
+        operationalState_ = classify(*reason);
+        return false;
+    }
+    controllerFaultLatched_ = false;
+    state_ = ControlLoopState::Stopped;
+    operationalState_ = ControlOperationalState::Ready;
     lastNow_ = now;
     return true;
 }
@@ -69,6 +150,10 @@ bool ControlLoop::start()
 void ControlLoop::inhibit(ControlCycle cycle, ControlCycleResult reason, Timestamp now)
 {
     state_ = ControlLoopState::Inhibited;
+    if (reason == ControlCycleResult::InvalidClock || reason == ControlCycleResult::ControllerUnavailable
+        || reason == ControlCycleResult::ControllerFailure || reason == ControlCycleResult::InvalidOutput)
+        controllerFaultLatched_ = true;
+    operationalState_ = classify(reason, cycle.submission);
     cycle.finishedAt = now;
     cycle.result = reason;
     // Stop submission is an attempt, never evidence of delivery/physical stopping.
@@ -93,6 +178,14 @@ void ControlLoop::stop()
 bool ControlLoop::poll()
 {
     if (state_ != ControlLoopState::Running) return false;
+    if (operationalState_ != ControlOperationalState::Running) {
+        const auto now = clock_();
+        ControlCycle cycle;
+        cycle.startedAt = now;
+        cycle.scheduledAt = nextDue_;
+        inhibit(cycle, ControlCycleResult::Stopped, now);
+        return true;
+    }
     const auto now = clock_();
     ControlCycle cycle;
     cycle.startedAt = now;

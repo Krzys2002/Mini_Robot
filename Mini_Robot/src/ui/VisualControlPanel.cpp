@@ -35,7 +35,9 @@ VisualControlPanel::VisualControlPanel(LiveVisualController& control, QWidget* p
     start->setObjectName(QStringLiteral("startVisualControl")); start->setEnabled(false);
     auto* stop = new QPushButton(QStringLiteral("Stop visual control"), group);
     stop->setObjectName(QStringLiteral("stopVisualControl")); stop->setEnabled(false);
-    buttons->addWidget(apply); buttons->addWidget(start); buttons->addWidget(stop); form->addRow(buttons);
+    auto* acknowledge = new QPushButton(QStringLiteral("Acknowledge controller fault"), group);
+    acknowledge->setObjectName(QStringLiteral("acknowledgeVisualFault")); acknowledge->setEnabled(false);
+    buttons->addWidget(apply); buttons->addWidget(start); buttons->addWidget(stop); buttons->addWidget(acknowledge); form->addRow(buttons);
     auto* status = new QLabel(control.description(), group);
     status->setObjectName(QStringLiteral("visualControlStatus")); status->setWordWrap(true); status->setTextFormat(Qt::PlainText);
     form->addRow(status);
@@ -47,12 +49,15 @@ VisualControlPanel::VisualControlPanel(LiveVisualController& control, QWidget* p
         if (okX && okY && okH) (void)control.setTarget(px, py, heading);
     });
     connect(start, &QPushButton::clicked, &control, [&control] { (void)control.start(); });
+    connect(acknowledge, &QPushButton::clicked, &control, [&control] { (void)control.acknowledgeControllerFault(); });
     connect(stop, &QPushButton::clicked, &control, &LiveVisualController::stop);
     connect(&control, &LiveVisualController::descriptionChanged, status, &QLabel::setText);
     connect(&control, &LiveVisualController::actionsChanged, this, [start, stop, apply, x, y, h](bool canStart, bool canStop) {
         start->setEnabled(canStart); stop->setEnabled(canStop);
         for (QWidget* widget : std::array<QWidget*, 4>{apply, x, y, h}) widget->setEnabled(!canStop);
     });
+    connect(&control, &LiveVisualController::controllerFaultAcknowledgementChanged,
+            acknowledge, &QPushButton::setEnabled);
     control.refresh();
 }
 } // namespace micro_robot
