@@ -39,8 +39,13 @@ manual/autonomous mode arbiter. E-stop remains independent in RobotManager.
 
 ## Operational states and re-arming
 
-The Qt-free service exposes a typed operational state alongside its scheduler
-lifecycle:
+The Qt-free service owns the operational state alongside its scheduler
+lifecycle. `Ready` is entered only after an explicit Start passes the target,
+frame, tracking-age and manager-session gates. A runtime gate failure moves the
+stored state out of `Running` before any normal command can be submitted. The
+application controller uses the same shared manager-session classifier, then
+adds its camera-provenance gate; it does not independently translate session
+flags.
 
 | State | Meaning and command policy |
 | --- | --- |
@@ -50,10 +55,14 @@ lifecycle:
 | LostTracking | No accepted pose is fresh within maximumObservationAge, or live camera provenance is unavailable. Stop is attempted and fresh frames alone do not re-arm. |
 | LostConnection | The selected manager session is absent, disconnected, removing or not requested. Stop is attempted; reconnect alone does not re-arm. |
 | EStop | RobotManager's E-stop latch/request is active. Normal commands remain inhibited until the manager reports an accepted explicit clear; a separate Start is still required. |
-| Fault | Manager safety fault, invalid/backwards clock, unavailable/throwing policy, non-finite output, or rejected command. Recovery must restore all gates and requires explicit Start. |
+| Fault | Manager safety fault, invalid/backwards clock, unavailable/throwing policy, or non-finite output. Controller/clock faults remain latched across Start and require an explicit acknowledgement after all gates are restored. Manager faults remain governed by RobotManager. |
 
 Any failed runtime gate exits Running before normal command submission and
-attempts Stop through RobotManager. Stop submission is only an adapter handoff.
+attempts Stop through RobotManager. Controller/clock faults cannot be cleared by
+Start; the operator must use the explicit fault acknowledgement action while the
+target, workspace, tracking and session gates are valid, then Start separately.
+Stale-session command rejection at the post-reconnect motion barrier is Paused,
+not a controller fault. Stop submission is only an adapter handoff.
 The state records why motion is inhibited; it does not assert physical stopping.
 No transition from a non-running state automatically returns to Running.
 

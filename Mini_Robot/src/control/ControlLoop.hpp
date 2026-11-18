@@ -17,6 +17,10 @@ struct ControlLoopConfig {
 
 enum class ControlLoopState { Stopped, Running, Inhibited };
 enum class ControlOperationalState { Ready, Running, Paused, LostTracking, LostConnection, EStop, Fault };
+// Shared translation of the authoritative RobotManager session into the
+// control-domain state vocabulary. Tracking and loop lifecycle are layered on top.
+[[nodiscard]] ControlOperationalState classifySessionOperationalState(
+    const std::optional<RobotSession>& session) noexcept;
 enum class ControlCycleResult {
     Submitted, Stopped, InvalidClock, TrackingUnavailable, SessionUnavailable,
     FrameChanged, ControllerUnavailable, ControllerFailure, InvalidOutput, SubmissionRejected
@@ -57,6 +61,10 @@ public:
     [[nodiscard]] bool setTarget(Pose2D target);
     // Explicit start/restart only; failure never arms. First poll is due now.
     [[nodiscard]] bool start();
+    // Controller/clock faults remain latched until explicitly acknowledged while
+    // all ordinary frame, tracking and manager-session gates are clear.
+    [[nodiscard]] bool acknowledgeControllerFault();
+    [[nodiscard]] bool hasLatchedControllerFault() const noexcept { return controllerFaultLatched_; }
     void stop();
     // True iff a cycle/inhibition record was produced. Safety is checked even
     // before a scheduled deadline. No automatic restart after any inhibition.
@@ -68,7 +76,8 @@ public:
 
 private:
     [[nodiscard]] std::optional<ControlCycleResult> gate(Timestamp now) const;
-    [[nodiscard]] ControlOperationalState classify(ControlCycleResult reason) const;
+    [[nodiscard]] ControlOperationalState classify(ControlCycleResult reason,
+        std::optional<CommandSubmission> submission = std::nullopt) const;
     void inhibit(ControlCycle cycle, ControlCycleResult reason, Timestamp now);
     RobotId id_;
     WorldModel& world_;
@@ -81,6 +90,7 @@ private:
     std::optional<std::string> frame_;
     ControlLoopState state_{ControlLoopState::Stopped};
     ControlOperationalState operationalState_{ControlOperationalState::Ready};
+    bool controllerFaultLatched_{};
     Timestamp nextDue_{};
     std::optional<Timestamp> lastNow_;
     std::optional<ControlCycle> last_;

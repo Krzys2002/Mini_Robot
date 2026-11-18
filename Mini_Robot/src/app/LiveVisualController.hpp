@@ -32,15 +32,18 @@ public:
     void refresh();
     [[nodiscard]] bool running() const;
     [[nodiscard]] ControlOperationalState operationalState() const;
+    [[nodiscard]] bool canAcknowledgeControllerFault() const;
     [[nodiscard]] QString description() const { return description_; }
     [[nodiscard]] std::optional<ControlCycle> lastCycle() const;
 public slots:
     bool setTarget(double xMeters, double yMeters, double headingRadians);
     bool start();
+    bool acknowledgeControllerFault();
     void stop();
 signals:
     void descriptionChanged(const QString& text);
     void actionsChanged(bool canStart, bool canStop);
+    void controllerFaultAcknowledgementChanged(bool available);
 private:
     void afterCycle();
     void record();

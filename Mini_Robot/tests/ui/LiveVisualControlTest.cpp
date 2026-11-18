@@ -146,6 +146,7 @@ TEST_F(LiveVisualControlTest, SelectionAmbiguityFaultEstopAndShutdownInterruptVi
     ASSERT_TRUE(visual.start()); visual.refresh();
     desktop.selectRobot(2);
     EXPECT_FALSE(visual.running()); EXPECT_FALSE(visual.start());
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::LostConnection);
     desktop.selectRobot(1); ASSERT_TRUE(visual.setTarget(1, 0, 0));
     now += 1ms; sample(0, 0); ASSERT_TRUE(visual.start());
     desktop.emergencyStop(); EXPECT_FALSE(visual.running());
@@ -217,7 +218,9 @@ TEST_F(LiveVisualControlTest, TargetPanelAppliesCoordinatesStartsStopsAndRenders
     auto* x = panel.findChild<QLineEdit*>("visualTargetX");
     auto* y = panel.findChild<QLineEdit*>("visualTargetY");
     auto* h = panel.findChild<QLineEdit*>("visualTargetHeading");
-    ASSERT_TRUE(x && y && h);
+    auto* acknowledge = panel.findChild<QPushButton*>("acknowledgeVisualFault");
+    ASSERT_TRUE(x && y && h && acknowledge);
+    EXPECT_FALSE(acknowledge->isEnabled());
     x->setText("1.25"); y->setText("0.5"); h->setText("1.0");
     panel.findChild<QPushButton*>("applyVisualTarget")->click();
     auto* start = panel.findChild<QPushButton*>("startVisualControl"); ASSERT_TRUE(start->isEnabled()); start->click();
@@ -226,6 +229,27 @@ TEST_F(LiveVisualControlTest, TargetPanelAppliesCoordinatesStartsStopsAndRenders
     if (const auto path = qEnvironmentVariable("MICRO_ROBOT_VISUAL_CONTROL_SCREENSHOT"); !path.isEmpty()) EXPECT_TRUE(panel.grab().save(path));
     panel.findChild<QPushButton*>("stopVisualControl")->click();
     EXPECT_FALSE(visual.running()); EXPECT_TRUE(x->isEnabled());
+}
+TEST_F(LiveVisualControlTest, ControllerFaultNeedsExplicitAcknowledgementBeforeRearm)
+{
+    VisualControlPanel panel{visual};
+    auto* acknowledge = panel.findChild<QPushButton*>("acknowledgeVisualFault");
+    ASSERT_TRUE(acknowledge);
+    run();
+    now -= 1ms;
+    visual.refresh();
+    EXPECT_FALSE(visual.running());
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::Fault);
+    EXPECT_FALSE(visual.start());
+    EXPECT_FALSE(panel.findChild<QPushButton*>("startVisualControl")->isEnabled());
+    EXPECT_FALSE(acknowledge->isEnabled());
+
+    now = Timestamp{1s} + 1ms;
+    sample(0, 0);
+    EXPECT_TRUE(acknowledge->isEnabled());
+    acknowledge->click();
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::Ready);
+    EXPECT_TRUE(visual.start());
 }
 TEST_F(LiveVisualControlTest, ArrivalSubmitsZeroThenStopAndDoesNotResume)
 {
