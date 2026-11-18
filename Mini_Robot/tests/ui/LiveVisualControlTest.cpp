@@ -272,10 +272,9 @@ TEST_F(LiveVisualControlTest, HeadingArrivalUsesTheControllerExitTolerance)
     ASSERT_TRUE(visual.setTarget(0, 0, .2));
     ASSERT_TRUE(visual.start());
     ASSERT_TRUE(visual.running());
-    for (int i = 0; i < 8 && visual.running(); ++i) {
-        now += LiveVisualSettings::period;
-        sample(-.007, 0, .2);
-    }
+    now += LiveVisualSettings::period;
+    // The fixture filters with alpha 0.25, yielding x=-0.007 m and heading=0.2 rad.
+    sample(-.028, 0, .8);
     EXPECT_FALSE(visual.running());
     ASSERT_TRUE(std::holds_alternative<StopCommand>(transport.commands.back().second.payload));
     EXPECT_TRUE(visual.description().contains("Arrived"));
