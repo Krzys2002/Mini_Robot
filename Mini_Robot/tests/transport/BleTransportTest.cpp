@@ -370,6 +370,55 @@ TEST(BleTransportTest, ConfigurationAndConstructionDoNotTouchBluetoothHardware)
     EXPECT_EQ(transport.connectionState(robot), ConnectionState::Disconnected);
     EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity(),
                                restrictedLab(BleTransportConfig{0ms})}), std::invalid_argument);
+    // Tracked commands must stay below half the uint16 wire sequence range.
+    BleTransportConfig tracked;
+    tracked.maximumTrackedCommands = 32767;
+    EXPECT_NO_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity(),
+                                  restrictedLab(tracked)}));
+    tracked.maximumTrackedCommands = 32768;
+    EXPECT_THROW((BleTransport{std::make_unique<FakeBleBackend>(), makeRestrictedLabPassThroughSecurity(),
+                               restrictedLab(tracked)}), std::invalid_argument);
+}
+TEST(BleTransportTest, QtBackendCapsOversizedNotificationsAt21BytesAndTheyStayRejected)
+{
+    // The copy the Qt backend emits for every received notification (QtBleBackend.cpp).
+    for (const auto& valid : {telemetryBytes(1), resultBytes(1)}) {
+        const auto endpoint = valid.size() == 18 ? BleEndpoint::Telemetry : BleEndpoint::CommandResult;
+        EXPECT_EQ(boundBleNotificationCopy(valid), valid); // Exact v1 frames pass unchanged.
+        auto oversized = valid;
+        while (oversized.size() < 64) {
+            oversized.append('\0');
+            const auto copy = boundBleNotificationCopy(oversized);
+            EXPECT_EQ(copy.size(), std::min<qsizetype>(oversized.size(), 21)) << oversized.size();
+            EXPECT_EQ(copy, oversized.left(copy.size())) << oversized.size();
+            const std::span<const std::uint8_t> view{reinterpret_cast<const std::uint8_t*>(copy.constData()),
+                                                     static_cast<std::size_t>(copy.size())};
+            EXPECT_FALSE(decodeBleNotification(endpoint, view).frame) << oversized.size();
+        }
+    }
+    Fixture f;
+    f.ready();
+    auto oversized = telemetryBytes(20);
+    oversized.append(QByteArray(46, '\0'));
+    emit f.backend->notification(f.backend->links.at(robot), BleEndpoint::Telemetry,
+                                 boundBleNotificationCopy(oversized), MonotonicClock::now()); drain();
+    ASSERT_EQ(f.events->errors.size(), 1U);
+    EXPECT_EQ(f.events->errors[0].operation, TransportOperation::ReceiveTelemetry);
+    EXPECT_EQ(f.events->telemetry, 0);
+}
+TEST(BleTransportTest, RejectsBackendRobotInfoLimitsOutsideTheSignedWireRange)
+{
+    for (const bool linear : {true, false}) {
+        for (const std::uint16_t limit : {std::uint16_t{32767}, std::uint16_t{32768}}) {
+            Fixture f;
+            f.connecting();
+            BleRobotInfo info{robot, 300, 6000, 500, 100};
+            (linear ? info.maximumLinearMillimetersPerSecond : info.maximumAngularMilliradiansPerSecond) = limit;
+            emit f.backend->IBleBackend::ready(f.backend->links.at(robot), info); drain();
+            EXPECT_EQ(f.transport->connectionState(robot) == ConnectionState::Connected, limit == 32767)
+                << (linear ? "linear " : "angular ") << limit;
+        }
+    }
 }
 TEST(BleTransportTest, CancelsQueuedCallbacksOnDestructionAndUsesWeakSinks)
 {

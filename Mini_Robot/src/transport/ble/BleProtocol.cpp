@@ -7,6 +7,7 @@
 
 namespace micro_robot {
 namespace {
+using ble_wire::read16;
 void append16(std::vector<std::uint8_t>& b, std::uint16_t value)
 {
     b.push_back(static_cast<std::uint8_t>(value));
@@ -17,10 +18,6 @@ std::vector<std::uint8_t> header(std::uint8_t type, std::uint16_t sequence)
     std::vector<std::uint8_t> b{ble_wire::version, type}; // Explicit domain-v1 -> wire-v1 mapping.
     append16(b, sequence);
     return b;
-}
-std::uint16_t read16(std::span<const std::uint8_t> b, std::size_t i)
-{
-    return static_cast<std::uint16_t>(b[i] | (static_cast<std::uint16_t>(b[i + 1]) << 8));
 }
 std::optional<double> signedMeasurement(std::uint16_t raw)
 {
@@ -52,7 +49,7 @@ BleEncodeResult encodeBleCommand(const RobotCommand& command, const BleRobotInfo
     const auto elapsed = now - command.issuedAt;
     if (elapsed >= command.validFor) return invalid("Command is stale");
     const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(command.validFor - elapsed).count();
-    if (remaining < 1) return invalid("Command has less than one millisecond of validity remaining");
+    if (remaining < ble_wire::minimumValidityMilliseconds) return invalid("Command has less than one millisecond of validity remaining");
     EncodedBleCommand frame;
     const auto* velocity = std::get_if<VelocityCommand>(&command.payload);
     frame.bytes = header(velocity ? ble_wire::velocity : ble_wire::stop, sequence);
@@ -81,8 +78,8 @@ EncodedBleCommand encodeBleEmergencyClear(std::uint16_t sequence)
 BleDecodeResult decodeBleNotification(BleEndpoint endpoint, std::span<const std::uint8_t> b)
 {
     const auto invalid = [](const char* message) { return BleDecodeResult{{}, TransportErrorCode::BackendFailure, message}; };
-    if (b.size() < 2) return invalid("Malformed BLE notification header");
-    if (b[0] != ble_wire::version) return {{}, TransportErrorCode::UnsupportedVersion, "Unsupported BLE wire version"};
+    if (b.size() < ble_wire::identifyingPrefixLength) return invalid("Malformed BLE notification header");
+    if (b[ble_wire::versionOffset] != ble_wire::version) return {{}, TransportErrorCode::UnsupportedVersion, "Unsupported BLE wire version"};
     const bool telemetry = endpoint == BleEndpoint::Telemetry;
     if ((!telemetry && endpoint != BleEndpoint::CommandResult) || b[ble_wire::typeOffset] != (telemetry ? ble_wire::telemetry : ble_wire::commandResult))
         return invalid("Unknown or wrong-channel BLE message type");
@@ -97,8 +94,7 @@ BleDecodeResult decodeBleNotification(BleEndpoint endpoint, std::span<const std:
         value.commandExpired = (b[ble_wire::flagsOffset] & ble_wire::expiredFlag) != 0;
         value.batteryLow = (b[ble_wire::flagsOffset] & ble_wire::batteryLowFlag) != 0;
         if (b[ble_wire::flagsOffset] & ble_wire::hasSequenceFlag) value.lastAcceptedSequence = read16(b, ble_wire::lastSequenceOffset);
-        value.uptimeMilliseconds = static_cast<std::uint32_t>(b[8]) | (static_cast<std::uint32_t>(b[9]) << 8)
-            | (static_cast<std::uint32_t>(b[10]) << 16) | (static_cast<std::uint32_t>(b[11]) << 24);
+        value.uptimeMilliseconds = ble_wire::read32(b, ble_wire::uptimeOffset);
         if (const auto battery = read16(b, ble_wire::batteryOffset); battery != ble_wire::unknownBattery) value.batteryVolts = battery / ble_wire::milliPerUnit;
         value.linearMetersPerSecond = signedMeasurement(read16(b, ble_wire::linearOffset));
         value.angularRadiansPerSecond = signedMeasurement(read16(b, ble_wire::angularOffset));

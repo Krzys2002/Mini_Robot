@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/RobotId.hpp"
+#include "transport/ble/BleWire.hpp"
 
 #include <chrono>
 #include <array>
@@ -54,7 +55,8 @@ struct BleCharacteristicCapabilities {
     bool present{}, read{}, write{}, writeWithoutResponse{}, notify{}, cccd{};
 };
 // Robot Info, Command, Emergency Stop, Telemetry, Command Result, in UUID order.
-[[nodiscard]] std::string validateBleGattLayout(const std::array<BleCharacteristicCapabilities, 5>& layout);
+[[nodiscard]] std::string validateBleGattLayout(
+    const std::array<BleCharacteristicCapabilities, ble_gatt::characteristicCount>& layout);
 [[nodiscard]] std::optional<RobotId> advertisedBleRobotId(const std::string& name);
 [[nodiscard]] BleInfoResult validateBleRobotInfo(std::span<const std::uint8_t> bytes, RobotId expected);
 [[nodiscard]] const char* blePhaseName(BlePhase phase) noexcept;

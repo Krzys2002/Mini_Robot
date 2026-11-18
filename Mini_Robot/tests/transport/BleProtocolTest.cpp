@@ -1,4 +1,5 @@
 #include "transport/ble/BleProtocol.hpp"
+#include "transport/ble/BleWire.hpp"
 
 #include <gtest/gtest.h>
 #include <array>
@@ -58,6 +59,11 @@ TEST(BleProtocolTest, RecomputesRemainingValidityAtDispatchAndRejectsDeadlineAnd
     EXPECT_EQ(aged.frame->bytes[8], 149); // floor, never round upward.
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, now + 250ms).frame);
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, now + 249ms + 1us).frame);
+    // Exactly one millisecond left is the smallest valid validForMs and is still sent.
+    const auto lastMillisecond = encodeBleCommand(command, limits, 0, now + 249ms);
+    ASSERT_TRUE(lastMillisecond.frame) << lastMillisecond.error;
+    EXPECT_EQ(lastMillisecond.frame->bytes[8], 1);
+    EXPECT_EQ(lastMillisecond.frame->bytes[9], 0);
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, now - 1ns).frame);
     command.validFor = Duration::zero();
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, now).frame);
@@ -154,6 +160,69 @@ TEST(BleProtocolTest, RejectsMalformedFramesVersionsTypesChannelsAndReservedEnum
             : code == 8 ? TransportErrorCode::RobotFault
             : code >= 4 ? TransportErrorCode::InvalidCommand : TransportErrorCode::BackendFailure);
     }
+}
+TEST(BleProtocolTest, NamedWireDefinitionsKeepTheDocumentedV1Values)
+{
+    // Independent literals from robot-protocol.md and ble-gatt.md; the names must not drift.
+    using namespace ble_wire;
+    EXPECT_EQ(version, 1); EXPECT_EQ(versionOffset, 0U); EXPECT_EQ(typeOffset, 1U);
+    EXPECT_EQ(sequenceOffset, 2U); EXPECT_EQ(headerLength, 4U); EXPECT_EQ(identifyingPrefixLength, 2U);
+    EXPECT_EQ(telemetryLength, 18U); EXPECT_EQ(resultLength, 9U);
+    EXPECT_EQ(telemetryStateOffset, 4U); EXPECT_EQ(flagsOffset, 5U); EXPECT_EQ(lastSequenceOffset, 6U);
+    EXPECT_EQ(uptimeOffset, 8U); EXPECT_EQ(batteryOffset, 12U); EXPECT_EQ(linearOffset, 14U);
+    EXPECT_EQ(angularOffset, 16U); EXPECT_EQ(resultSequenceOffset, 4U); EXPECT_EQ(resultTypeOffset, 6U);
+    EXPECT_EQ(resultCodeOffset, 7U); EXPECT_EQ(resultStateOffset, 8U);
+    EXPECT_EQ(unknownBattery, 0xffff); EXPECT_EQ(unknownMeasurement, 0x8000);
+    EXPECT_EQ(minimumValidityMilliseconds, 1); EXPECT_EQ(sequenceHalfRange, 32768U);
+    EXPECT_EQ(robotInfoFormat, 1); EXPECT_EQ(robotInfoLength, 18U); EXPECT_EQ(robotIdOffset, 3U);
+    EXPECT_EQ(maximumLinearOffset, 10U); EXPECT_EQ(maximumAngularOffset, 12U);
+    EXPECT_EQ(maximumValidityOffset, 14U); EXPECT_EQ(telemetryPeriodOffset, 16U);
+    EXPECT_EQ(advertisedNamePrefix, "MR-");
+    using namespace ble_gatt;
+    EXPECT_EQ(robotControlService, 0x0001); EXPECT_EQ(robotInfoCharacteristic, 0x0002);
+    EXPECT_EQ(commandCharacteristic, 0x0003); EXPECT_EQ(emergencyStopCharacteristic, 0x0004);
+    EXPECT_EQ(telemetryCharacteristic, 0x0005); EXPECT_EQ(commandResultCharacteristic, 0x0006);
+    EXPECT_EQ(characteristicCount, 5U); EXPECT_EQ(notificationCopyLimit, 21U);
+}
+TEST(BleProtocolTest, RejectsHeaderlessAndEveryOverlengthNotificationUpToTheBackendCopyBound)
+{
+    for (const auto endpoint : {BleEndpoint::Telemetry, BleEndpoint::CommandResult}) {
+        const auto& valid = endpoint == BleEndpoint::Telemetry ? telemetry : result;
+        // Without version and type the frame is malformed, not an unsupported version.
+        const std::vector<std::uint8_t> versionOnly{2};
+        EXPECT_EQ(decodeBleNotification(endpoint, versionOnly).code, TransportErrorCode::BackendFailure);
+        EXPECT_EQ(decodeBleNotification(endpoint, std::vector<std::uint8_t>{2, valid[1]}).code,
+                  TransportErrorCode::UnsupportedVersion);
+        auto bytes = valid;
+        while (bytes.size() < ble_gatt::notificationCopyLimit) {
+            bytes.push_back(0);
+            const auto decoded = decodeBleNotification(endpoint, bytes);
+            EXPECT_FALSE(decoded.frame) << bytes.size();
+            EXPECT_EQ(decoded.code, TransportErrorCode::BackendFailure) << bytes.size();
+        }
+    }
+}
+TEST(BleProtocolTest, AcceptsEveryDefinedRobotStateAndDecodesTheFullUptimeWidth)
+{
+    for (std::uint8_t state = 0; state <= static_cast<std::uint8_t>(BleRobotState::Fault); ++state) {
+        auto t = telemetry; t[4] = state;
+        auto r = result; r[8] = state;
+        const auto decodedTelemetry = decodeBleNotification(BleEndpoint::Telemetry, t);
+        const auto decodedResult = decodeBleNotification(BleEndpoint::CommandResult, r);
+        ASSERT_TRUE(decodedTelemetry.frame);
+        ASSERT_TRUE(decodedResult.frame);
+        EXPECT_EQ(std::get<BleTelemetryFrame>(decodedTelemetry.frame->payload).state, BleRobotState{state});
+        EXPECT_EQ(std::get<BleCommandResultFrame>(decodedResult.frame->payload).state, BleRobotState{state});
+    }
+    auto bytes = telemetry;
+    bytes[8] = 0x78; bytes[9] = 0x56; bytes[10] = 0x34; bytes[11] = 0x12;
+    const auto ordered = decodeBleNotification(BleEndpoint::Telemetry, bytes);
+    ASSERT_TRUE(ordered.frame) << ordered.error;
+    EXPECT_EQ(std::get<BleTelemetryFrame>(ordered.frame->payload).uptimeMilliseconds, 0x12345678U);
+    bytes[8] = bytes[9] = bytes[10] = bytes[11] = 0xff;
+    const auto maximum = decodeBleNotification(BleEndpoint::Telemetry, bytes);
+    ASSERT_TRUE(maximum.frame) << maximum.error;
+    EXPECT_EQ(std::get<BleTelemetryFrame>(maximum.frame->payload).uptimeMilliseconds, 0xffffffffU);
 }
 TEST(BleProtocolTest, SharedReceiveCounterHandlesGapsDuplicatesWrapAndHalfRange)
 {

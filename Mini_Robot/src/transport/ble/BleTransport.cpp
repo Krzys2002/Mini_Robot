@@ -1,4 +1,5 @@
 #include "transport/ble/BleTransport.hpp"
+#include "transport/ble/BleWire.hpp"
 
 #include <QMetaObject>
 
@@ -22,7 +23,7 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, std::shared_ptr
         || !validTimeout(config.scanTimeout) || !validTimeout(config.phaseTimeout)
         || !validTimeout(config.disconnectTimeout) || !validTimeout(config.emergencyStopRetry)
         || !validTimeout(config.minimumVelocityInterval) || config.maximumDevices == 0
-        || !config.maximumTrackedCommands || config.maximumTrackedCommands >= 32768
+        || !config.maximumTrackedCommands || config.maximumTrackedCommands >= ble_wire::sequenceHalfRange
         || !config.maximumInvalidNotifications)
         throw std::invalid_argument("BLE requires an unparented same-thread backend and positive bounded timeouts/device limit");
     qRegisterMetaType<std::uint64_t>();
@@ -69,8 +70,10 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, std::shared_ptr
         const auto id = findToken(token);
         if (!id || connectionState(*id) != ConnectionState::Connecting || phase(*id) == BlePhase::Scanning) return;
         auto& session = sessions_.at(*id);
-        if (info.robotId != *id || !info.maximumLinearMillimetersPerSecond || info.maximumLinearMillimetersPerSecond > 32767
-            || !info.maximumAngularMilliradiansPerSecond || info.maximumAngularMilliradiansPerSecond > 32767
+        if (info.robotId != *id || !info.maximumLinearMillimetersPerSecond
+            || info.maximumLinearMillimetersPerSecond > ble_wire::maximumSigned
+            || !info.maximumAngularMilliradiansPerSecond
+            || info.maximumAngularMilliradiansPerSecond > ble_wire::maximumSigned
             || !info.maximumValidityMilliseconds || !info.telemetryPeriodMilliseconds) {
             fault(*id, TransportErrorCode::BackendFailure, "Invalid validated Robot Info from BLE backend");
             return;
