@@ -151,7 +151,7 @@ generated/private state. Do not enable upstream skill installation, semantic
 extraction, saved answers, hosted uploads or hooks. Live GitHub data establishes
 blockers/status; the graph does not.
 
-## 4. Plan and implement
+## 4. Plan and delegate implementation
 
 Present a short plan identifying affected modules, architecture boundaries,
 implementation steps, tests and documentation. Proceed without another approval
@@ -165,7 +165,65 @@ invariants. Do not expand into future issues. Add meaningful tests for nontrivia
 logic and regressions; update affected documentation. Never use component tests
 or a connection fixture as evidence of production safety or physical acceptance.
 
+The main agent owns the plan, design decisions, coordination, integration,
+strict review and final verification. Once the issue can proceed, spawn one
+implementation subagent per independently editable work package. Use a single
+implementation subagent when the change is tightly coupled. Spawn exactly one
+testing subagent to own test design, test changes where warranted and test
+execution. For issues that need no new tests, assign it the applicable existing
+checks and have it explain what those checks cover.
+
+Select GPT-6 Luna (`gpt-6-luna`) explicitly for every implementation and testing
+subagent, including replacements, regardless of the main agent's model. Prefer
+`high` reasoning when the client supports that setting. Use Codex's supported
+model selection mechanism and verify the selection where the client exposes it.
+If the client cannot select GPT-6 Luna or spawn subagents, report the limitation
+and ask before substituting another model or doing the delegated work yourself.
+Continue independent planning or read-only investigation while waiting.
+See [OpenAI's Codex subagent guide](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+
+- Give each subagent the issue requirements, relevant repository instructions,
+  base and worktree, interface assumptions, owned files, and expected checks.
+  Ask it to return the changed paths, design decisions, exact commands and
+  results, and any blockers or unresolved questions.
+- Run independent assignments in parallel. Give each file one writer at a
+  time, including build files and fixtures. Use separate build directories for
+  concurrent checks. The main agent owns graph refreshes. Sequence dependent
+  edits and communicate interface changes to every affected agent before it
+  continues.
+- Have the testing subagent derive expected behavior from the issue and existing
+  contracts. It can design tests while implementation proceeds, then run them
+  when the interface and implementation are ready. Ask it to raise production
+  defects with the main agent and show that a regression test catches the
+  defect on the prior implementation when practical.
+- Keep branch and commit management, approval requests, and GitHub updates
+  with the main agent. Subagents work only within their assignments and return
+  findings to the main agent for any changes outside their ownership.
+
 ## 5. Validate and review
+
+The main agent personally reviews the production code and tests against the
+agreed base, acceptance criteria and existing callers. Review in batches as
+agents deliver work and again on the integrated diff:
+
+- **Correctness and scope.** Check normal entry points, edge and failure paths,
+  compatibility, architecture boundaries, ownership, threading and safety
+  invariants relevant to the issue.
+- **Readability and structure.** Require clear names, straightforward control
+  flow, focused functions, consistent ownership and reuse of existing
+  abstractions where appropriate. Challenge unnecessary indirection,
+  duplication, unrelated changes and comments that merely restate the code.
+- **Test quality.** Require deterministic tests with meaningful assertions
+  about observable behavior. Check that the tests cover the issue's relevant
+  acceptance criteria and regression risks. Check for weakened assertions,
+  implementation coupling and avoidable timing dependencies.
+
+Send findings and concrete improvement suggestions to the responsible subagent
+with a file or symbol, the problem, its impact and the expected change. Ask the
+subagent to revise its work and rerun the relevant checks. Re-read each revision
+and repeat until blocking findings are fixed. When a code fix and a test change
+depend on each other, coordinate both agents and verify them together. Record
+any residual limitations in the final report.
 
 Configure/build affected targets and run relevant tests; broaden for cross-module
 changes as required by repository instructions. Preserve root and standalone
@@ -221,6 +279,11 @@ Read .codex/workflows/github-issue-implementation.md in the selected repository 
 and follow it to implement Krzys2002/Mini_Robot issue #<NUMBER>.
 Use the current task's worktree. Start by retrieving the issue and checking
 its native blockers and their linked PRs. Ask before stacking on an unmerged PR.
+Act as the main agent. Own the plan, integration, strict code and test review,
+and final verification. Spawn GPT-6 Luna (gpt-6-luna) implementation subagents
+for distinct work packages and exactly one GPT-6 Luna testing subagent,
+regardless of your own model. Give them clear file ownership. Send review
+findings back to the responsible subagents, then review and verify their fixes.
 Do not push or create/update a PR without my explicit approval.
 ```
 
