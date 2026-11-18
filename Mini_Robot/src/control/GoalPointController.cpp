@@ -75,10 +75,8 @@ std::optional<GoalPointEvaluation> GoalPointController::evaluateWithPreviousStat
                                                config_.maximumAngularRadiansPerSecond);
     if (std::abs(error.bearingRadians) >= config_.turnInPlaceAngle.value)
         return GoalPointEvaluation{GoalControlState::TurningToPoint, error, {0.0, angular}};
-    const double thresholdCosine = std::cos(config_.turnInPlaceAngle.value);
-    const double bearingCosine = std::cos(error.bearingRadians);
-    const double approachScale = std::clamp((bearingCosine - thresholdCosine)
-        / (1.0 - thresholdCosine), 0.0, 1.0);
+    const double approachScale = std::clamp(1.0 - std::abs(error.bearingRadians)
+        / config_.turnInPlaceAngle.value, 0.0, 1.0);
     const double linear = boundedProportional(config_.positionGainPerSecond, distance,
                                               config_.maximumLinearMetersPerSecond) * approachScale;
     return GoalPointEvaluation{GoalControlState::Approaching, error, {linear, angular}};

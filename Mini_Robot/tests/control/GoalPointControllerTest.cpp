@@ -57,7 +57,7 @@ TEST(GoalPointControllerTest, ForwardSpeedIsReducedWhileTurningAndNeverReverses)
     ASSERT_TRUE(result);
     EXPECT_EQ(result->state, GoalControlState::Approaching);
     EXPECT_NEAR(result->command.linearMetersPerSecond,
-        std::hypot(.1, .1) * (std::cos(pi / 4) - .5) / .5, 1e-12);
+        std::hypot(.1, .1) * (1.0 - (pi / 4) / (pi / 3)), 1e-12);
     EXPECT_GT(result->command.angularRadiansPerSecond, 0);
     EXPECT_LE(result->command.angularRadiansPerSecond, config.maximumAngularRadiansPerSecond);
 }
