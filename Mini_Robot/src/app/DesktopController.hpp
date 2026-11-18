@@ -63,6 +63,8 @@ public:
     void setRobotScanState(bool scanning);
     [[nodiscard]] RobotId selectedRobot() const noexcept { return robotId_; }
     [[nodiscard]] ManualControlConfig manualControlConfig() const noexcept { return manualConfig_; }
+    [[nodiscard]] bool externalControlPermitted() const;
+    void setExternalControlActive(bool active);
 
 public slots:
     void selectRobot(quint32 id);
@@ -80,6 +82,7 @@ public slots:
     void shutdown();
 
 signals:
+    void motionInterruptRequested(); // Direct owner-thread interruption before manual/Stop/session changes.
     void robotChoicesChanged(const QList<RobotChoiceItem>& robots, quint32 selectedId);
     void robotScanChanged(bool scanning);
     void robotScanRequested();
@@ -132,6 +135,7 @@ private:
     std::map<RobotId, DiscoveredRobot> discoveredRobots_;
     bool scanningRobots_{};
     bool manualFault_{};
+    bool externalControlActive_{};
     std::optional<RobotOperatingState> reportedOperatingState_;
     RobotManager& robots_;
     WorldModel& world_;

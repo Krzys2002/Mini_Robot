@@ -5,6 +5,7 @@
 #include "infrastructure/logging/LogRecord.hpp"
 
 #include <chrono>
+#include <numbers>
 #include <string>
 
 namespace micro_robot {
@@ -57,11 +58,24 @@ struct TrackingConfig {
     std::chrono::milliseconds lostAfter{1000};
 };
 
+struct VisualControlConfig {
+    // Software bring-up parameters only; physical tuning/acceptance is separate.
+    double positionGainPerSecond{1.0};
+    double bearingGainPerSecond{3.0};
+    double finalHeadingGainPerSecond{2.0};
+    double positionToleranceMeters{0.005};
+    double positionExitToleranceMeters{0.01};
+    double headingToleranceRadians{0.03};
+    double turnInPlaceRadians{std::numbers::pi / 3.0};
+    bool alignFinalHeading{true};
+};
+
 struct ApplicationConfig {
     LoggingConfig logging;
     RobotConfig robot;
     ManualControlConfig manual;
     TrackingConfig tracking;
+    VisualControlConfig visualControl;
     CameraConfig camera;
     SimulationConfig simulation;
 };
