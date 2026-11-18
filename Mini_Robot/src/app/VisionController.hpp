@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QString>
 #include <QThread>
+#include <QTimer>
 
 namespace micro_robot {
 // Owner-thread application service. Detector runs serially on a dedicated worker;
@@ -26,6 +27,7 @@ public:
     void receiveFrame(FramePtr frame);
     void setMetricConverter(std::unique_ptr<IMetricObservationConverter> converter);
     void setWorkspaceCalibration(std::optional<WorkspaceCalibrationProfile> profile);
+    void setReferenceDraft(std::optional<WorkspaceCalibrationProfile> profile);
     [[nodiscard]] std::uint64_t inputGeneration() const noexcept { return generation_; }
     [[nodiscard]] bool busy() const noexcept { return busy_; }
     [[nodiscard]] bool isStopped() const { return worker_.isFinished(); }
@@ -41,6 +43,7 @@ signals:
     void previewAvailable(const QString& sourceId, VisionDebugFramePtr preview);
     void descriptionChanged(const QString& description);
     void stopped();
+    void referenceObservationsAvailable(ReferenceFramePtr frame);
 private:
     void invalidate();
     void dispatch();
@@ -51,6 +54,14 @@ private:
     std::shared_ptr<IMarkerDetector> detector_;
     std::shared_ptr<IMetricObservationConverter> metricConverter_;
     std::optional<WorkspaceCalibrationProfile> workspace_;
+    std::optional<WorkspaceCalibrationProfile> referenceDraft_;
+    std::uint64_t referenceDraftGeneration_{};
+    // Worker-only acquisition cadence; no separate image queue.
+    std::uint64_t workerReferenceGeneration_{};
+    std::optional<Timestamp> workerReferenceCapture_;
+    std::optional<PlacementReport> lastPlacement_;
+    QTimer referenceWatchdog_;
+    bool referenceExpired_{};
     QThread worker_;
     QObject* workerContext_{}; // Deleted on worker completion.
     FramePtr pending_;
@@ -67,3 +78,4 @@ Q_DECLARE_METATYPE(micro_robot::MarkerDetectionsPtr)
 
 Q_DECLARE_METATYPE(micro_robot::VisionDebugFramePtr)
 Q_DECLARE_METATYPE(micro_robot::MetricObservationBatchPtr)
+Q_DECLARE_METATYPE(micro_robot::ReferenceFramePtr)

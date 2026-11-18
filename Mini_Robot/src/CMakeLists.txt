@@ -55,6 +55,9 @@ add_library(micro_robot_calibration STATIC
     calibration/WorkspaceAcquisition.cpp
     calibration/ElevatedLocalization.hpp
     calibration/ElevatedLocalization.cpp
+    calibration/ReferenceMarkers.hpp
+    calibration/ReferenceMarkers.cpp
+    calibration/ReferencePersistence.cpp
     calibration/WorkspaceProfile.cpp
     calibration/WorkspaceProfile.hpp
 )
@@ -78,6 +81,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP OR MICRO_ROBOT_BUILD_CALIBRATION)
         calibration/OpenCvCalibrationUndistorter.cpp
         vision/OpenCvMetricObservation.hpp
         vision/OpenCvMetricObservation.cpp
+        vision/OpenCvReferenceMarkers.hpp
+        vision/OpenCvReferenceMarkers.cpp
     )
     target_link_libraries(micro_robot_calibration_opencv PUBLIC micro_robot_calibration micro_robot_vision_observation
         PRIVATE ${OpenCV_LIBS})
@@ -273,6 +278,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         app/WorkspaceDiagnosticsController.cpp
         app/WorkspaceCalibrationControllerMeasurement.cpp
         app/WorkspaceCalibrationControllerAcquisition.cpp
+        app/WorkspaceReferenceController.cpp
         app/WorkspaceLocalizationController.cpp
         app/WorkspaceCalibrationController.cpp
         app/WorkspaceCalibrationController.hpp
@@ -303,6 +309,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/WorkspaceBoardPanel.cpp
         ui/WorkspaceReferenceModel.hpp
         ui/WorkspaceReferenceModel.cpp
+        ui/ReferenceMarkersDialog.cpp
+        ui/ReferenceMarkersDialog.hpp
         ui/ElevatedLocalizationDialog.cpp
         ui/ElevatedLocalizationDialog.hpp
         ui/WorkspaceCalibrationDialog.cpp

@@ -6,6 +6,7 @@
 #include <limits>
 #include <locale>
 #include <set>
+#include <tuple>
 #include <sstream>
 
 namespace micro_robot {
@@ -24,7 +25,7 @@ bool rotation(const std::array<double,9>& r) {
 }
 }
 std::string tabletopProfileBinding(const WorkspaceCalibrationProfile& p) {
-    auto tabletop=p; tabletop.localization.reset();
+    auto tabletop=p; tabletop.localization.reset(); tabletop.references.reset();
     return serializeWorkspaceProfile(tabletop);
 }
 std::string validateRobotMounts(const std::vector<RobotMount>& mounts) {
@@ -46,12 +47,14 @@ std::string validateExtrinsicSurvey(const ExtrinsicSurvey& s, const IntrinsicCal
         || !finite(s.maximumCheckAxisMeters) || s.maximumCheckAxisMeters<=0)
         return "Measure surface z from tabletop, board/backing thickness and survey method; use positive error limits.";
     if (s.references.size()>MaximumExtrinsicReferences) return "Extrinsic survey exceeds 256 references.";
-    std::set<std::pair<double,double>> pixels,world;
+    std::set<std::pair<double,double>> pixels;
+    std::set<std::tuple<double,double,double>> world;
     std::vector<WorldPoint2D> fit,check;
     for (const auto& p:s.references) {
         if (!finite(p.image.u) || !finite(p.image.v) || p.image.u<0 || p.image.v<0 || p.image.u>k.width-1
             || p.image.v>k.height-1 || !finite(p.world.x.value) || !finite(p.world.y.value)
-            || !pixels.insert({p.image.u,p.image.v}).second || !world.insert({p.world.x.value,p.world.y.value}).second)
+            || (p.heightMeters && (!finite(*p.heightMeters) || *p.heightMeters<0))
+            || !pixels.insert({p.image.u,p.image.v}).second || !world.insert({p.world.x.value,p.world.y.value,p.heightMeters.value_or(s.surfaceHeightMeters)}).second)
             return "Survey references must be distinct finite world points and undistorted native pixels; Checks must be held out.";
         (p.check?check:fit).push_back(p.world);
     }
@@ -113,11 +116,12 @@ std::string validateElevatedLocalization(const ElevatedLocalization& e, const Wo
     if (auto error=validateRobotMounts(e.mounts); !error.empty()) return error;
     const auto camera=cameraWorldPosition(e);
     if (!camera || (*camera)[2]<=e.survey.surfaceHeightMeters+RayTolerance) return "Invalid rotation/extrinsics or camera below the measured surface.";
+    for (const auto& ref:e.survey.references) if ((*camera)[2]<=ref.heightMeters.value_or(e.survey.surfaceHeightMeters)+RayTolerance) return "Reference plane must lie below camera.";
     for (const auto& m:e.mounts) if ((*camera)[2]<=m.tagHeightMeters+RayTolerance) return "Tag plane must lie below the camera.";
     if (e.alternativeGapPixels && (!finite(*e.alternativeGapPixels) || *e.alternativeGapPixels<MinimumPoseSeparationPixels)) return "Planar camera pose is ambiguous; improve reference geometry/view and survey.";
     for (const auto& ref:e.survey.references) {
-        const auto pixel=projectReference(e,p.intrinsics,ref.world,e.survey.surfaceHeightMeters);
-        const auto world=intersectTagPlane(e,p.intrinsics,ref.image,e.survey.surfaceHeightMeters);
+        const auto pixel=projectReference(e,p.intrinsics,ref.world,ref.heightMeters.value_or(e.survey.surfaceHeightMeters));
+        const auto world=intersectTagPlane(e,p.intrinsics,ref.image,ref.heightMeters.value_or(e.survey.surfaceHeightMeters));
         if (!pixel || !world) return "Reference behind camera or unsupported/horizon ray.";
         if (std::hypot(pixel->u-ref.image.u,pixel->v-ref.image.v)>e.survey.maximumReprojectionPixels) return "Reference exceeds configured reprojection limit.";
         if (ref.check && (std::abs(world->x.value-ref.world.x.value)>e.survey.maximumCheckAxisMeters
@@ -128,13 +132,18 @@ std::string validateElevatedLocalization(const ElevatedLocalization& e, const Wo
 std::string serializeElevatedLocalization(const ElevatedLocalization& e) {
     std::ostringstream o; o.imbue(std::locale::classic()); o<<std::setprecision(std::numeric_limits<double>::max_digits10);
     const auto& s=e.survey;
-    o<<"micro_robot_elevated 1\n"<<std::quoted(e.revision)<<' '<<std::quoted(e.tabletopBinding)<<' '
+    const bool heights=std::any_of(s.references.begin(),s.references.end(),[](const auto& p){return p.heightMeters.has_value();});
+    o<<"micro_robot_elevated "<<(heights?2:1)<<"\n"<<std::quoted(e.revision)<<' '<<std::quoted(e.tabletopBinding)<<' '
         <<s.surfaceHeightMeters<<' '<<s.boardThicknessMeters<<' '<<s.backingThicknessMeters<<' '<<std::quoted(s.measurementMethod)<<' '
         <<s.maximumReprojectionPixels<<' '<<s.maximumCheckAxisMeters<<'\n';
     for(double v:e.worldToCamera) o<<v<<' ';
     for(double v:e.translationMeters) o<<v<<' ';
     o<<e.alternativeGapPixels.has_value()<<' '<<e.alternativeGapPixels.value_or(0)<<'\n'<<s.references.size()<<'\n';
-    for(const auto& p:s.references) o<<p.image.u<<' '<<p.image.v<<' '<<p.world.x.value<<' '<<p.world.y.value<<' '<<p.check<<'\n';
+    for(const auto& p:s.references) {
+        o<<p.image.u<<' '<<p.image.v<<' '<<p.world.x.value<<' '<<p.world.y.value<<' '<<p.check;
+        if(heights) o<<' '<<p.heightMeters.has_value()<<' '<<p.heightMeters.value_or(0);
+        o<<'\n';
+    }
     o<<e.mounts.size()<<'\n';
     for(const auto& m:e.mounts) o<<m.robotId.value()<<' '<<m.tagHeightMeters<<' '<<m.bodyForwardMeters<<' '<<m.bodyLeftMeters<<' '
         <<m.bodyHeadingOffsetRadians<<' '<<std::quoted(m.revision)<<' '<<std::quoted(m.measurementMethod)<<'\n';
@@ -145,7 +154,7 @@ std::optional<ElevatedLocalization> parseElevatedLocalization(std::string_view t
     std::istringstream in{std::string{text}}; in.imbue(std::locale::classic());
     auto quoted=[&](std::string& s) { in>>std::ws; return in.peek()=='"' && bool(in>>std::quoted(s)); };
     ElevatedLocalization e; auto& s=e.survey; std::string token; int version,flag; double gap; std::size_t count;
-    if (!(in>>token>>version) || token!="micro_robot_elevated" || version!=1 || !quoted(e.revision) || !quoted(e.tabletopBinding)
+    if (!(in>>token>>version) || token!="micro_robot_elevated" || (version!=1 && version!=2) || !quoted(e.revision) || !quoted(e.tabletopBinding)
         || !(in>>s.surfaceHeightMeters>>s.boardThicknessMeters>>s.backingThicknessMeters) || !quoted(s.measurementMethod)
         || !(in>>s.maximumReprojectionPixels>>s.maximumCheckAxisMeters)) return {};
     for(double& v:e.worldToCamera) if(!(in>>v)) return {};
@@ -156,7 +165,9 @@ std::optional<ElevatedLocalization> parseElevatedLocalization(std::string_view t
     for(std::size_t i=0;i<count;++i) {
         ExtrinsicReference p;
         if(!(in>>p.image.u>>p.image.v>>p.world.x.value>>p.world.y.value>>flag) || (flag!=0 && flag!=1)) return {};
-        p.check=flag; s.references.push_back(p);
+        p.check=flag;
+        if(version==2) { double height; if(!(in>>flag>>height) || (flag!=0 && flag!=1) || (!flag && height!=0)) return {}; if(flag) p.heightMeters=height; }
+        s.references.push_back(p);
     }
     if(!(in>>count) || count>MaximumRobotMounts) return {};
     for(std::size_t i=0;i<count;++i) {

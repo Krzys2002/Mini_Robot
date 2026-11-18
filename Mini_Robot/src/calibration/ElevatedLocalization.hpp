@@ -18,12 +18,13 @@ inline constexpr double DefaultExtrinsicAxisLimitMeters = 0.005;
 inline constexpr double MinimumPoseSeparationPixels = 0.25;
 inline constexpr double MaximumSurveyEntryMeters = 100;
 inline constexpr double MaximumSurveyPixelLimit = 100;
-// Pixels are already undistorted native-K pixels. All references share the
-// explicitly measured parallel surface z, including board/backing thickness.
+// Pixels are already undistorted native-K pixels. Legacy references share the
+// measured surface z; v5 can explicitly override it for each measured reference.
 struct ExtrinsicReference {
     ImageCorner image;
     WorldPoint2D world;
     bool check{}; // Held out of estimation; operator must survey independently.
+    std::optional<double> heightMeters{}; // Explicit per-reference surface height; absent preserves v4 common-plane semantics.
 };
 struct RobotMount {
     RobotId robotId{0};

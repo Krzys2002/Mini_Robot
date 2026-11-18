@@ -603,6 +603,18 @@ and plane/height/extrapolation limits.
 
 Run core and host presets; select these suites with `ctest --preset macos -R 'Elevated|OpenCvExtrinsics' --output-on-failure`. Set `MICRO_ROBOT_ELEVATED_SCREENSHOT=/path/to/dialog.png` when running `micro_robot_tests --gtest_filter=ElevatedLocalizationUiTest.SurveyImportRejectsUnconfirmedMalformedAndOverCapacityRowsAtomically` to inspect the offscreen narrow-window layout. This is software evidence, not native-camera/display or physical ±5 mm acceptance. See [operator/model contracts](../overview/elevated-localization.md) and #224/#63; all new physical checks remain NOT RUN.
 
+## Surveyed references and monitoring (#271)
+
+`ReferenceMarkersTest.*` and `ReferenceMonitorTest.*` cover registry roles/conflicts, measured 3D heights, outside-travel support, image conditioning, bounds/capacity, uncertainty/revisions, v5/legacy migration, occlusion/outliers and translated/rotated placement inconsistency with cadence/persistence/latching. `OpenCvReferenceMarkersTest.*` exercises real native undistortion, mixed-height SQPnP, decoded corner rotation and robot withholding. `ReferenceWorkflowTest.*` exercises the existing vision/calibration workers with a deterministic detector, real OpenCV converter/solver and Qt store, including explicit activation, no-frame watchdog expiry, revalidation/recovery, newest-frame coalescing, late registry fences, UI paste rejection and byte-identical v3 sidecars.
+
+Run core and host presets. A focused host selection is `ctest --preset macos -R 'ReferenceMarkers|ReferenceMonitor|ReferenceWorkflow' --output-on-failure`. To review the narrow offscreen registry layout, run `MICRO_ROBOT_REFERENCE_SCREENSHOT=/tmp/references.png build/macos/Mini_Robot/tests/micro_robot_tests --gtest_filter=ReferenceWorkflowTest.RegistryEditorRejectsUnconfirmedAndOversizedPasteAndRemainsScrollable`. This is software/layout evidence, not native-camera/display or physical drift/±5 mm acceptance. [The operator guide](../overview/reference-markers.md) records policy/limitations and #261/#224/#63 retain unrun physical checks.
+
+## PR #288 review regressions
+
+`ReferenceWorkflowTest.RejectedFitPreservesRetryGeometryAndAcquisitionWithoutPermittingActivation` exercises a real rejected fit, live corrected observations and a successful retry without reloading. Activate/Save remain disabled after rejection. `OpenCvReferenceMarkersTest.DetectorErrorBreaksPendingDriftConfirmationEvenBetweenAssessmentCadences` tests two failing assessments, a between-cadence detector error, and a fresh full persistence sequence; an already-confirmed drift latch survives later errors.
+
 ## PR #286 review regressions
 
 `WorkspaceDiagnosticsV4IntegrationTest.*` pairs v4 geometry with preserved v3 evidence and checks unchanged tabletop diagnostics/distance plus mismatched-frame rejection. `ElevatedLocalizationTest.TabletopCorrespondenceValidationAcceptsUnchangedV4DerivedGeometry` and `ElevatedLocalizationUiTest.VerifyLoadedV4PreservesBodyGeometryAndOriginalAcquisition` exercise domain and normal loaded-profile Verify paths without changing body geometry, active profiles or original evidence. These are software regressions; physical checks remain NOT RUN.
+
+`ReferenceMarkersTest.TabletopVerificationRetainsUnchangedV5RegistryAndBodyBindings` also covers the inherited Verify correction on an unchanged v5 profile, with full body/registry metadata retained and separately validated during Check evaluation.

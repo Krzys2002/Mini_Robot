@@ -18,6 +18,24 @@ VisionController::VisionController(std::unique_ptr<IMarkerDetector> detector, Lo
     qRegisterMetaType<MarkerDetectionsPtr>();
     qRegisterMetaType<VisionDebugFramePtr>();
     qRegisterMetaType<MetricObservationBatchPtr>();
+    qRegisterMetaType<ReferenceFramePtr>();
+    referenceWatchdog_.setInterval(static_cast<int>(ReferenceWatchdogPeriod.count()));
+    connect(&referenceWatchdog_,&QTimer::timeout,this,[this] {
+        if(shuttingDown_ || !streaming_ || referenceExpired_ || !workspace_ || !workspace_->references || !lastPlacement_) return;
+        const auto now=MonotonicClock::now();
+        if(now>=lastPlacement_->assessedAt && now-lastPlacement_->assessedAt<=workspace_->references->policy.maximumEvidenceAge) return;
+        referenceExpired_=true;
+        auto expired=std::make_shared<MetricObservationBatch>();
+        expired->status=lastPlacement_->state==PlacementConsistency::ConfirmedDrift?MetricObservationStatus::PlacementDrift:MetricObservationStatus::PlacementUnverified;
+        expired->error="Reference monitoring expired; robot measurements withheld until fresh evidence/revalidation.";
+        expired->placement=lastPlacement_; expired->placement->permitsMeasurements=false;
+        expired->placement->message=expired->error;
+        if(expired->status!=MetricObservationStatus::PlacementDrift) expired->placement->state=PlacementConsistency::InsufficientEvidence;
+        const auto generation=generation_; const auto source=sourceId_;
+        emit metricObservationsAvailable(source,expired);
+        if(generation==generation_ && !shuttingDown_ && streaming_) describe(QString::fromStdString(expired->error));
+    });
+    referenceWatchdog_.start();
     workerContext_ = new QObject;
     workerContext_->moveToThread(&worker_);
     connect(&worker_, &QThread::finished, workerContext_, &QObject::deleteLater);
@@ -36,13 +54,15 @@ void VisionController::describe(const QString& text)
 }
 void VisionController::invalidate()
 {
-    ++generation_;
+    ++generation_; ++referenceDraftGeneration_;
+    lastPlacement_.reset(); referenceExpired_=false;
     pending_.reset();
     outputRate_.reset();
     lastSequence_.reset();
     width_ = height_ = 0;
     emit observationsAvailable(sourceId_, {});
     emit metricObservationsAvailable(sourceId_, {});
+    emit referenceObservationsAvailable({});
     emit previewAvailable(sourceId_, {});
 }
 void VisionController::setInput(const QString& sourceId, bool streaming)
@@ -66,6 +86,17 @@ void VisionController::setWorkspaceCalibration(std::optional<WorkspaceCalibratio
     if (shuttingDown_) return;
     invalidate();
     workspace_ = std::move(profile);
+}
+void VisionController::setReferenceDraft(std::optional<WorkspaceCalibrationProfile> profile)
+{
+    if(shuttingDown_) return;
+    if(profile && (!profile->references || !profile->localization)) profile.reset();
+    if(!profile && !referenceDraft_) return;
+    if(profile && referenceDraft_ && profile->references->revision==referenceDraft_->references->revision
+        && profile->frameId==referenceDraft_->frameId && profile->localization->revision==referenceDraft_->localization->revision
+        && referenceCameraBinding(profile->intrinsics)==referenceCameraBinding(referenceDraft_->intrinsics)) return;
+    ++referenceDraftGeneration_; referenceDraft_=std::move(profile);
+    emit referenceObservationsAvailable({});
 }
 void VisionController::receiveFrame(FramePtr frame)
 {
@@ -94,8 +125,10 @@ void VisionController::dispatch()
     const auto markerMap = markerMap_;
     const auto converter = metricConverter_;
     const auto workspace = workspace_;
+    const auto referenceDraft=referenceDraft_;
+    const auto referenceGeneration=referenceDraftGeneration_;
     const auto sourceName = sourceId_.toStdString();
-    QMetaObject::invokeMethod(workerContext_, [this, detector, markerMap, converter, workspace, sourceName, frame, generation] {
+    QMetaObject::invokeMethod(workerContext_, [this, detector, markerMap, converter, workspace, referenceDraft, referenceGeneration, sourceName, frame, generation] {
         const auto start = MonotonicClock::now();
         auto result = std::make_shared<MarkerDetections>();
         try {
@@ -106,6 +139,7 @@ void VisionController::dispatch()
             result->error = "AprilTag detector failed with an unknown error";
         }
         if (!result->error.empty()) result->markers.clear();
+        result->inputGeneration=generation;
         result->frameSequence = frame->sequence;
         result->capturedAt = frame->capturedAt;
         result->width = frame->width;
@@ -122,9 +156,35 @@ void VisionController::dispatch()
                 metric = std::make_shared<MetricObservationBatch>(MetricObservationBatch{MetricObservationStatus::InvalidGeometry, {}, "Metric conversion failed"});
             }
         }
-        QMetaObject::invokeMethod(this, [this, generation, result = std::move(result), preview = std::move(preview), metric = std::move(metric)] {
+        ReferenceFramePtr referenceFrame;
+        if(converter && referenceDraft && referenceDraft->references) {
+            if(workerReferenceGeneration_!=referenceGeneration) { workerReferenceGeneration_=referenceGeneration; workerReferenceCapture_.reset(); }
+            if(!workerReferenceCapture_ || frame->capturedAt-*workerReferenceCapture_>=referenceDraft->references->policy.cadence) {
+                workerReferenceCapture_=frame->capturedAt;
+                try {
+                    if(metric && metric->references && metric->references->registryRevision==referenceDraft->references->revision
+                        && metric->references->inputCalibrationRevision==referenceDraft->localization->revision) referenceFrame=metric->references;
+                    else referenceFrame=converter->referenceObservations(*result,sourceName,markerMap,*referenceDraft);
+                }
+                catch(const std::exception& error) { log_.warning(error.what()); }
+                catch(...) { log_.warning("Unknown reference acquisition failure"); }
+            }
+        }
+        QMetaObject::invokeMethod(this, [this, generation, referenceGeneration, referenceFrame, result = std::move(result), preview = std::move(preview), metric = std::move(metric)]() mutable {
             busy_ = false;
             if (generation == generation_ && !shuttingDown_ && streaming_) {
+                if(metric && metric->placement && workspace_ && workspace_->references) {
+                    lastPlacement_=metric->placement; referenceExpired_=false;
+                    const auto now=MonotonicClock::now();
+                    if(now<metric->placement->assessedAt || now-metric->placement->assessedAt>workspace_->references->policy.maximumEvidenceAge) {
+                        auto stale=std::make_shared<MetricObservationBatch>(*metric); stale->measurements.clear();
+                        stale->status=stale->placement->state==PlacementConsistency::ConfirmedDrift?MetricObservationStatus::PlacementDrift:MetricObservationStatus::PlacementUnverified;
+                        stale->error="Reference evidence expired before publication; any confirmed drift still requires explicit revalidation.";
+                        stale->placement->permitsMeasurements=false; stale->placement->message=stale->error;
+                        if(stale->status!=MetricObservationStatus::PlacementDrift) stale->placement->state=PlacementConsistency::InsufficientEvidence;
+                        metric=std::move(stale);
+                    }
+                }
                 if (!result->error.empty()) log_.warning(result->error);
                 log_.debug("AprilTag source=" + sourceId_.toStdString() + " frame=" + std::to_string(result->frameSequence)
                     + " markers=" + std::to_string(result->markers.size()) + " processing_us="
@@ -146,6 +206,8 @@ void VisionController::dispatch()
                                                                     : QStringLiteral(" · tabletop tag centre only")));
                     }
                 }
+                if(metric && metric->placement && generation==generation_ && !shuttingDown_)
+                    describe(description_+QStringLiteral(" · reference placement: ")+QString::fromStdString(metric->placement->message));
                 if (preview && generation == generation_ && !shuttingDown_) {
                     preview->inputGeneration = generation;
                     preview->outputFramesPerSecond = outputRate_.record(MonotonicClock::now());
@@ -156,6 +218,8 @@ void VisionController::dispatch()
                     emit observationsAvailable(source, result);
                 if (generation == generation_ && !shuttingDown_)
                     emit metricObservationsAvailable(source, metric);
+                if(generation==generation_ && referenceGeneration==referenceDraftGeneration_ && !shuttingDown_ && referenceFrame)
+                    emit referenceObservationsAvailable(referenceFrame);
                 // Observation consumers can also invalidate synchronously.
                 if (generation == generation_ && !shuttingDown_)
                     emit previewAvailable(source, preview);
