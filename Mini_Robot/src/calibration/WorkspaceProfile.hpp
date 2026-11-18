@@ -17,7 +17,7 @@ struct WorkspaceProfileLoadOutcome {
     std::shared_ptr<const WorkspaceAcquisitionRecord> acquisition{};
 };
 
-// Strict locale-independent v3 writer and v1/v2/v3 reader; lossless frame/optical/H doubles.
+// Strict locale-independent v3/v4/v5 writer and v1–v5 reader; lossless frame/optical/H doubles.
 // Serialization throws invalid_argument for invalid or oversized metadata.
 [[nodiscard]] std::string serializeWorkspaceProfile(const WorkspaceCalibrationProfile& profile);
 [[nodiscard]] WorkspaceProfileLoadOutcome parseWorkspaceProfile(std::string_view text);

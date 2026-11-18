@@ -340,8 +340,8 @@ buildWorkspaceDiagnostics(WorkspaceCalibrationProfile profile,
     if (acquisition) {
         if (auto e = validateWorkspaceAcquisition(*acquisition); !e.empty())
             return fail(e);
-        if (serializeWorkspaceProfile(acquisition->profile) != serializeWorkspaceProfile(d->profile))
-            return fail("Acquisition does not match the complete active calibration.");
+        if (tabletopProfileBinding(acquisition->profile) != tabletopProfileBinding(d->profile))
+            return fail("Acquisition does not match the active tabletop calibration.");
         std::vector<P> fit, image, survey, prediction;
         for (const auto& r : acquisition->references) {
             const auto mapped = projectWorkspacePoint(*d->profile.homography, r.point.image);

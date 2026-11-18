@@ -215,7 +215,12 @@ WorkspaceReferenceAssessment assessWorkspaceReferences(const WorkspaceCalibratio
 std::string validateWorkspaceHomographyInput(const WorkspaceHomographyInput& input)
 {
     auto profile = input.profile;
-    profile.homography.reset(); // An old estimate does not constrain a new fit.
+    // Validate tabletop correspondence metadata independently of the old estimate
+    // and its derived extrinsics. Verification still validates the full active
+    // profile in evaluateWorkspaceChecks; this copy must not break its bindings.
+    profile.references.reset();
+    profile.localization.reset();
+    profile.homography.reset();
     if (auto error = validateWorkspaceCalibrationProfile(profile); !error.empty())
         return error;
     if (input.fitPoints.size() < MinimumWorkspaceFitPoints || input.fitPoints.size() > MaximumWorkspaceFitPoints ||

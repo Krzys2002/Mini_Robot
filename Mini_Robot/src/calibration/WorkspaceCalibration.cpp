@@ -67,6 +67,15 @@ std::string validateWorkspaceCalibrationProfile(const WorkspaceCalibrationProfil
         if (std::abs(determinant) <= 16 * std::numeric_limits<double>::epsilon() * magnitude)
             return "Workspace homography is singular or numerically unresolved.";
     }
+    if (profile.localization) {
+        if (!profile.homography) return "Height-aware localization requires an existing tabletop calibration.";
+        if (auto error = validateElevatedLocalization(*profile.localization, profile); !error.empty()) return error;
+    }
+    if(profile.references) {
+        if(!profile.localization) return "Surveyed references require an explicit height-aware localization profile.";
+        try { if(auto error=validateReferenceConfiguration(*profile.references,profile); !error.empty()) return error; }
+        catch(const std::exception& e) { return e.what(); }
+    }
     return {};
 }
 std::string workspaceCalibrationCompatibilityError(const WorkspaceCalibrationProfile& profile,

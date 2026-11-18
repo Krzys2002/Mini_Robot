@@ -35,6 +35,14 @@ public:
     [[nodiscard]] std::uint64_t referencesRevision() const { return referencesRevision_; }
     [[nodiscard]] bool boundaryConfirmed() const { return boundaryConfirmed_; }
     [[nodiscard]] bool canAddReferences() const { return boundaryConfirmed_ || (draft_ && draft_->homography); }
+    void setExtrinsicsSolver(std::unique_ptr<IExtrinsicsSolver> solver);
+    // GUI-thread draft operations; active geometry changes only on explicit Activate.
+    void localizationInputsChanged();
+    void calculateLocalization(ExtrinsicSolveInput input);
+    void configureReferences(ReferenceConfiguration configuration);
+    void receiveReferenceFrame(ReferenceFramePtr frame);
+    void calculateReferences();
+    [[nodiscard]] ReferenceFramePtr latestReferenceFrame() const { return latestReferenceFrame_; }
     void setAcquisitionDetector(std::unique_ptr<ICalibrationDetector> detector);
     void editReference(std::size_t index, WorkspaceCorrespondence point, bool check);
     void appendReference(std::optional<ImageCorner> point = {});
@@ -76,7 +84,8 @@ public:
 
     [[nodiscard]] bool canActivate() const
     {
-        return !shuttingDown_ && !busy_ && draft_ && draft_->homography
+        return !shuttingDown_ && !busy_ && !localizationValidationRequired_ && draft_ && draft_->homography
+            && (!draft_->references || (draft_->localization && draft_->references->acquisition && draft_->references->validatedLocalizationRevision==draft_->localization->revision))
             && (draft_->acquisitionId.empty() || (draftAcquisition_ && draftAcquisition_->id==draft_->acquisitionId));
     }
 
@@ -97,7 +106,7 @@ public:
 
     [[nodiscard]] bool canSave() const
     {
-        return !shuttingDown_ && !busy_ && persistent_ && draft_ && draft_->homography;
+        return !shuttingDown_ && !busy_ && !localizationValidationRequired_ && persistent_ && draft_ && draft_->homography;
     }
 
     [[nodiscard]] bool canLoad() const
@@ -134,6 +143,11 @@ private:
     [[nodiscard]] std::shared_ptr<WorkspaceAcquisitionRecord> acquisitionSnapshot(const WorkspaceCalibrationProfile& profile) const;
     void publish(QString message);
     std::shared_ptr<IWorkspaceHomographySolver> solver_;
+    std::shared_ptr<IExtrinsicsSolver> extrinsicsSolver_;
+    std::optional<ElevatedLocalization> lastLocalizationDraft_;
+    ReferenceFramePtr latestReferenceFrame_;
+    std::string pendingReferenceRevision_;
+    bool localizationValidationRequired_{}; // Retained retry geometry is not an activatable/savable result.
     std::shared_ptr<ICalibrationUndistorter> undistorter_;
     std::shared_ptr<IWorkspaceProfileStore> store_;
     std::shared_ptr<ICalibrationDetector> detector_;

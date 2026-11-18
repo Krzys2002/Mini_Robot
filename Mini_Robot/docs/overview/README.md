@@ -69,3 +69,7 @@
 
 Implementation constraints and platform policy are defined in
 [AGENTS.md](../../AGENTS.md).
+
+- [Elevated parallel tags and measured axle/body geometry](elevated-localization.md): v4 survey/extrinsics/mount workflow, migration and physical limits (#270).
+
+- [Surveyed reference acquisition and placement monitoring](reference-markers.md): separate roles, heights, v5 evidence, drift/expiry policy and explicit recovery (#271).

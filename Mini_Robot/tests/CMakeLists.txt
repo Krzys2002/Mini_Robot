@@ -251,6 +251,27 @@ add_test(NAME PlatformBoundary.LinkCheckSelfTest
         -P "${CMAKE_CURRENT_SOURCE_DIR}/boundaries/VerifyBoundaryConfigure.cmake")
 set_tests_properties(PlatformBoundary.LinkCheckSelfTest PROPERTIES LABELS "core;boundary")
 
+# Surveyed references remain separate from robot state and camera backends.
+target_sources(micro_robot_calibration_tests PRIVATE calibration/ReferenceMarkersTest.cpp)
+if(TARGET micro_robot_calibration_detector_tests)
+    target_sources(micro_robot_calibration_detector_tests PRIVATE calibration/OpenCvReferenceMarkersTest.cpp)
+endif()
+
+if(TARGET micro_robot_tests)
+    target_sources(micro_robot_tests PRIVATE ui/ReferenceMarkersTest.cpp)
+    target_link_libraries(micro_robot_tests PRIVATE micro_robot_calibration_opencv)
+endif()
+
+# Height-aware calibration regressions use the existing domain/adapter/UI boundaries.
+target_sources(micro_robot_calibration_tests PRIVATE calibration/ElevatedLocalizationTest.cpp)
+target_sources(micro_robot_vision_observation_tests PRIVATE vision/ElevatedMetricObservationTest.cpp)
+if(TARGET micro_robot_calibration_detector_tests)
+    target_sources(micro_robot_calibration_detector_tests PRIVATE calibration/OpenCvExtrinsicsTest.cpp)
+endif()
+if(TARGET micro_robot_tests)
+    target_sources(micro_robot_tests PRIVATE ui/ElevatedLocalizationTest.cpp)
+endif()
+
 # Filesystem-only sysfs identity tests run on every host, without Linux APIs or devices.
 add_executable(micro_robot_camera_identity_tests camera/V4l2IdentityTest.cpp
     ../src/camera/V4l2Identity.cpp)

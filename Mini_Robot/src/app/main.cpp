@@ -8,6 +8,7 @@
 #include "app/VisionController.hpp"
 #include "tracking/MetricTracking.hpp"
 #include "vision/OpenCvMetricObservation.hpp"
+#include "calibration/OpenCvExtrinsicsSolver.hpp"
 #include "vision/OpenCvAprilTagDetector.hpp"
 #include "calibration/OpenCvCalibrationDetector.hpp"
 #include "calibration/OpenCvCalibrationCornerTracker.hpp"
@@ -184,6 +185,7 @@ int main(int argc, char* argv[])
         std::make_unique<OpenCvCalibrationUndistorter>(), std::make_unique<QtWorkspaceProfileStore>(
             QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)).filePath(QStringLiteral("workspace"))),
         logger.channel("workspace")};
+    workspace.setExtrinsicsSolver(std::make_unique<OpenCvExtrinsicsSolver>());
     workspace.setAcquisitionDetector(std::make_unique<OpenCvCalibrationDetector>());
     QObject::connect(&workspace, &WorkspaceCalibrationController::profileChanged, &controller, [&] {
         controller.setWorkspaceCalibration(workspace.profile());
@@ -204,6 +206,10 @@ int main(int argc, char* argv[])
                      &vision, &VisionController::setInput);
     QObject::connect(&controller, &DesktopController::frameAvailable,
                      &vision, &VisionController::receiveFrame);
+    QObject::connect(&workspace,&WorkspaceCalibrationController::changed,&vision,[&] {
+        vision.setReferenceDraft(workspace.draftProfile());
+    });
+    QObject::connect(&vision,&VisionController::referenceObservationsAvailable,&workspace,&WorkspaceCalibrationController::receiveReferenceFrame);
     // Native discovery mapping stays in composition; the UI receives only IDs,
     // names and ambiguity, never radio addresses or BLE device objects.
 #if defined(MICRO_ROBOT_HAS_BLE)
