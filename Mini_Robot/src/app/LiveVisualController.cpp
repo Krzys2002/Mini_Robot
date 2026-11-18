@@ -48,7 +48,13 @@ LiveVisualController::LiveVisualController(DesktopController& desktop, WorldMode
     connect(&desktop_, &DesktopController::cameraInputChanged, this, &LiveVisualController::setInput);
     connect(&desktop_, &DesktopController::robotChoicesChanged, this, [this](const auto&, quint32 id) {
         if (selected_ != RobotId{id}) {
-            stop(); selected_ = RobotId{id}; target_.reset(); provenance_.reset();
+            stop();
+            scheduler_.reset();
+            loop_.reset();
+            policy_.reset();
+            selected_ = RobotId{id}; target_.reset(); provenance_.reset();
+            targetFrame_.reset(); provenanceFrame_.reset();
+            status_ = QStringLiteral("Idle — apply a target and Start");
         }
         if (running() && !desktop_.externalControlPermitted()) stop();
         publish();
@@ -59,17 +65,9 @@ LiveVisualController::~LiveVisualController() { stop(); }
 bool LiveVisualController::running() const { return loop_ && loop_->state() == ControlLoopState::Running; }
 ControlOperationalState LiveVisualController::operationalState() const
 {
-    const auto session = robots_.session(selected_);
-    if (session && (session->emergencyStopRequested || session->safety == DesktopSafetyState::EmergencyStop))
-        return ControlOperationalState::EStop;
-    if (session && session->connection == ConnectionState::Fault)
-        return ControlOperationalState::Fault;
-    if (!session || !session->connectRequested || session->removing
-        || session->connection != ConnectionState::Connected
-        || session->safety == DesktopSafetyState::Disconnected
-        || session->safety == DesktopSafetyState::LostConnection)
-        return ControlOperationalState::LostConnection;
-    if (session->safetyFault || session->safety == DesktopSafetyState::Fault)
+    const auto sessionState = classifySessionOperationalState(robots_.session(selected_));
+    if (sessionState != ControlOperationalState::Ready) return sessionState;
+    if (loop_ && loop_->operationalState() == ControlOperationalState::Fault)
         return ControlOperationalState::Fault;
     const auto tracking = world_.tracking(selected_, clock_());
     const auto robot = world_.robot(selected_);
@@ -78,6 +76,12 @@ ControlOperationalState LiveVisualController::operationalState() const
         || !robot || robot->poseUpdatedAt != provenance_->capturedAt)
         return ControlOperationalState::LostTracking;
     return loop_ ? loop_->operationalState() : ControlOperationalState::Ready;
+}
+bool LiveVisualController::canAcknowledgeControllerFault() const
+{
+    return loop_ && loop_->hasLatchedControllerFault()
+        && classifySessionOperationalState(robots_.session(selected_)) == ControlOperationalState::Ready
+        && ready();
 }
 std::optional<ControlCycle> LiveVisualController::lastCycle() const { return loop_ ? loop_->lastCycle() : std::nullopt; }
 void LiveVisualController::setInput(const QString& source, bool streaming)
@@ -133,8 +137,8 @@ bool LiveVisualController::start()
     if (!ready()) { status_ = QStringLiteral("%1 — explicit Start requires target, fresh measurement and safe session").arg(operationalStateLabel(operationalState())); publish(); return false; }
     desktop_.cancelManualDrive();
     policy_.reset();
-    scheduler_.reset(); loop_.reset();
-    loop_ = std::make_unique<ControlLoop>(selected_, world_, robots_, policy_, settings_.loop, clock_,
+    scheduler_.reset();
+    if (!loop_) loop_ = std::make_unique<ControlLoop>(selected_, world_, robots_, policy_, settings_.loop, clock_,
         [this] { return nextSequence_++; });
     if (!loop_->setTarget(*target_) || !loop_->start()) { publish(); return false; }
     desktop_.setExternalControlActive(true);
@@ -147,6 +151,14 @@ bool LiveVisualController::start()
         publish(); return false;
     }
     if (running()) publish();
+    return true;
+}
+bool LiveVisualController::acknowledgeControllerFault()
+{
+    if (!canAcknowledgeControllerFault() || !loop_->acknowledgeControllerFault()) return false;
+    policy_.reset();
+    status_ = QStringLiteral("Controller fault acknowledged — explicit Start required");
+    publish();
     return true;
 }
 void LiveVisualController::stop()
@@ -228,6 +240,7 @@ void LiveVisualController::publish()
     if (target_) description_ += QStringLiteral("\nTarget: x %1 m · y %2 m · heading %3 rad")
         .arg(target_->x.value, 0, 'f', 3).arg(target_->y.value, 0, 'f', 3).arg(target_->heading.value, 0, 'f', 3);
     emit descriptionChanged(description_);
-    emit actionsChanged(!running() && ready(), running());
+    emit actionsChanged(!running() && ready() && !(loop_ && loop_->hasLatchedControllerFault()), running());
+    emit controllerFaultAcknowledgementChanged(canAcknowledgeControllerFault());
 }
 } // namespace micro_robot

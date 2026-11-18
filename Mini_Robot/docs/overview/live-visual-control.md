@@ -46,6 +46,14 @@ pauses command generation and attempts Stop; disconnect may make Stop unavailabl
 Fresh data/reconnection never resumes motion without explicit Start. Submission
 and software inhibition are not physical stopping evidence.
 
+Controller or monotonic-clock faults remain latched across Start attempts. The
+visual panel offers a separate acknowledgement action only after the manager
+session, camera provenance, tracking age, target and workspace gates are valid;
+acknowledgement returns the control state to Ready but does not start motion.
+Manager safety faults and E-stop remain controlled by their existing manager
+recovery path. When the selected robot changes, the old loop is stopped and
+discarded so its paused/fault state cannot label the new robot.
+
 ## Composition, settings and teardown
 
 `main.cpp` constructs the [goal policy](goal-point-controller.md),
