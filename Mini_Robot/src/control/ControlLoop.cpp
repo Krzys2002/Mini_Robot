@@ -72,6 +72,33 @@ std::optional<ControlCycleResult> ControlLoop::gate(Timestamp now) const
     return {};
 }
 
+void ControlLoop::captureSnapshot(ControlCycle& cycle, Timestamp now) const
+{
+    const auto robot = world_.robot(id_);
+    if (robot) {
+        cycle.measuredPose = robot->pose;
+        cycle.observedAt = robot->poseUpdatedAt;
+        if (robot->tracking) {
+            cycle.rawPose = robot->tracking->rawPose;
+            cycle.measurementQuality = robot->tracking->measurementQuality;
+        }
+        const auto tracking = world_.tracking(id_, now);
+        cycle.observationAge = tracking.age;
+        cycle.trackingConfidence = tracking.confidence;
+    }
+    cycle.frameId = world_.workspaceFrameId().value_or("");
+    cycle.operationalState = operationalState_;
+    if (target_) cycle.targetPose = *target_;
+    if (!cycle.measuredPose || !cycle.targetPose || !finite(*cycle.measuredPose) || !finite(*cycle.targetPose))
+        return;
+    const auto dx = cycle.targetPose->x.value - cycle.measuredPose->x.value;
+    const auto dy = cycle.targetPose->y.value - cycle.measuredPose->y.value;
+    const double distance = std::hypot(dx, dy);
+    if (!std::isfinite(distance)) return;
+    cycle.error = ControlError{dx, dy, normalizeAngle(Radians{
+        cycle.targetPose->heading.value - normalizeAngle(cycle.measuredPose->heading).value}).value, distance};
+}
+
 ControlOperationalState ControlLoop::classify(ControlCycleResult reason,
     std::optional<CommandSubmission> submission) const
 {
@@ -154,6 +181,7 @@ void ControlLoop::inhibit(ControlCycle cycle, ControlCycleResult reason, Timesta
         || reason == ControlCycleResult::ControllerFailure || reason == ControlCycleResult::InvalidOutput)
         controllerFaultLatched_ = true;
     operationalState_ = classify(reason, cycle.submission);
+    cycle.operationalState = operationalState_;
     cycle.finishedAt = now;
     cycle.result = reason;
     // Stop submission is an attempt, never evidence of delivery/physical stopping.
@@ -170,6 +198,7 @@ void ControlLoop::stop()
         ControlCycle cycle;
         cycle.scheduledAt = nextDue_;
         cycle.startedAt = now;
+        captureSnapshot(cycle, now);
         inhibit(cycle, ControlCycleResult::Stopped, now);
     }
     state_ = ControlLoopState::Stopped;
@@ -190,6 +219,7 @@ bool ControlLoop::poll()
     ControlCycle cycle;
     cycle.startedAt = now;
     cycle.scheduledAt = nextDue_;
+    captureSnapshot(cycle, now);
     if (const auto reason = gate(now)) { inhibit(cycle, *reason, now); return true; }
     lastNow_ = now;
     if (now < nextDue_) return false;
@@ -200,13 +230,7 @@ bool ControlLoop::poll()
     nextDue_ = now + (config_.period - cycle.lateness % config_.period);
     const auto robot = *world_.robot(id_);
     const auto tracking = world_.tracking(id_, now);
-    cycle.observedAt = robot.poseUpdatedAt;
-    cycle.observationAge = tracking.age;
-    const auto dx = target_->x.value - robot.pose->x.value;
-    const auto dy = target_->y.value - robot.pose->y.value;
-    cycle.error = ControlError{dx, dy, normalizeAngle(Radians{
-        target_->heading.value - normalizeAngle(robot.pose->heading).value}).value, std::hypot(dx, dy)};
-    if (!std::isfinite(cycle.error->distanceMeters)) {
+    if (!cycle.error) {
         inhibit(cycle, ControlCycleResult::InvalidOutput, now); return true;
     }
     try { cycle.requested = controller_.calculate({robot, tracking, *target_, now}); }

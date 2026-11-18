@@ -87,9 +87,10 @@ loop exits, before Logger destruction. Other existing log calls remain synchrono
 this is not a global logging redesign or real-time latency guarantee.
 
 Fields include robot/source/frame identity, original `camera_time_ns`, accepted
-`frame_sequence`, scheduled/control/submission timestamps, lateness, domain
-command/Stop sequence, result/submission status, command type, v/omega and
-available error terms. Optional/unavailable fields are null. Integer timestamps
+`frame_sequence`, scheduled/control/submission timestamps, lateness, skipped
+period count, cycle-captured operational state/frame, filtered and raw poses,
+measurement quality/confidence, domain command/Stop sequence, result/submission
+status, command type, v/omega and available error terms. Optional/unavailable fields are null. Integer timestamps
 and IDs are decimal strings, avoiding JSON floating-point precision loss. Times
 use this process's steady-clock epoch, not a remote clock. The timestamp-source
 field explicitly marks exposure time unverified: Frame.capturedAt does not prove
@@ -102,6 +103,28 @@ or execution acknowledgements. With `logging.level=debug`, existing BLE tx/resul
 logs map domain IDs to adapter token/wire sequence and robot result. The application
 trace's `wire_sequence` remains null because allocation belongs to the adapter.
 Keep submission, ATT completion, robot acceptance and physical stopping distinct.
+
+## Per-run experiment export
+
+Each explicit Start creates a JSON Lines run in the per-user application data
+directory under `control-runs` unless `logging.control_run_directory` overrides
+it. The status panel displays the path after the writer opens the file and shows
+worker-side export failure instead of an unusable path. The file
+contains run_start metadata (target and effective gains/limits), one sample per
+recorded cycle/Stop attempt (immutable measured/target pose, errors, age,
+timestamps, state and command outcomes), and a run_end completeness summary.
+The versioned [control experiment export format](control-experiment-export.md)
+defines fields, units, time bases and drop/error semantics.
+
+Run files share ControlTraceWriter's bounded asynchronous handoff. Sample
+pressure is counted and reported in run_end; two queue slots are reserved for
+run delimiters. File I/O errors are logged and shown in the panel. The footer
+reason differentiates arrival, operator stop, manual takeover, connection loss,
+camera/workspace changes, E-stop, safety/controller faults and other endings.
+queue_complete reflects queue
+pressure only, so verify the export's start/end records and flag before analysis.
+The app log's per-cycle traces remain available when no dedicated run export can
+be opened. This is software telemetry, not physical motion or stopping evidence.
 
 ## Physical acceptance and approved stack
 
