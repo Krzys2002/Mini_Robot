@@ -22,9 +22,10 @@ inline constexpr const char* kSlotKeyA = "rec_a";
 inline constexpr const char* kSlotKeyB = "rec_b";
 inline constexpr const char* kMarkerKey = "txn";
 // NimBLE-Arduino 2.3.6 persists bonds in this namespace (ble_store_nvs.c,
-// NIMBLE_NVS_NAMESPACE). The image uses NimBLE (#163), so a factory reset
-// erases it directly; this removes any bond an earlier image (for example the BLE
-// fixture) left behind, matching NimBLEDevice::deleteAllBonds() for stored bonds.
+// NIMBLE_NVS_NAMESPACE). The image uses NimBLE (#163) and never bonds (F6), but a factory
+// reset erases the namespace so that no bond an earlier image (for example the BLE fixture)
+// left behind survives; this is equivalent to NimBLEDevice::deleteAllBonds() for stored
+// bonds, without needing the stack to be running during maintenance.
 inline constexpr const char* kNimbleBondNamespace = "nimble_bond";
 
 class NvsRecordStorage final : public provisioning::IRecordStorage {
