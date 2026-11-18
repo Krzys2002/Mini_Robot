@@ -8,6 +8,8 @@ struct GoalPointControllerConfig {
     double positionGainPerSecond{};
     double bearingGainPerSecond{};
     double finalHeadingGainPerSecond{};
+    // Policy-side caps duplicate ControlLoopConfig caps; application composition
+    // should source both pairs from the same configured limits.
     double maximumLinearMetersPerSecond{};
     double maximumAngularRadiansPerSecond{};
     Meters positionTolerance{};
