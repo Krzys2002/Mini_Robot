@@ -169,9 +169,11 @@ void MainWindow::bindVision(VisionController& vision)
     });
 }
 
-void MainWindow::bindVisualControl(LiveVisualController& control)
+void MainWindow::bindVisualControl(LiveVisualController& control, VisionController& vision)
 {
-    contentLayout_->insertWidget(contentLayout_->count() - 1, new VisualControlPanel(control, this));
+    auto* panel = new VisualControlPanel(control, this);
+    contentLayout_->insertWidget(contentLayout_->count() - 1, panel);
+    connect(&vision, &VisionController::previewAvailable, panel, &VisualControlPanel::presentPreview);
 }
 
 void MainWindow::bindCalibration(CalibrationController& calibration)

@@ -2,8 +2,13 @@
 #include "app/ControlTraceWriter.hpp"
 #include "app/VisionTracking.hpp"
 #include "ui/VisualControlPanel.hpp"
+#include "ui/VisionDebugView.hpp"
+#include "../calibration/HomographyFixtures.hpp"
+#include "calibration/OpenCvCalibrationUndistorter.hpp"
+#include "VisionDebugFixtures.hpp"
 #include "ManualBackends.hpp"
 #include "simulation/SimulationTransport.hpp"
+#include "calibration/TabletopHomography.hpp"
 
 #include <QApplication>
 #include <QFile>
@@ -11,11 +16,13 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 #include <gtest/gtest.h>
+#include <cmath>
 #include <future>
 #include <filesystem>
 #include <fstream>
@@ -23,7 +30,21 @@
 
 namespace {
 using namespace micro_robot;
+using namespace micro_robot::test;
 using namespace std::chrono_literals;
+void sendFractionalLeftClick(QWidget* target, QPointF position)
+{
+    const auto global = target->mapToGlobal(position.toPoint());
+    QMouseEvent event{QEvent::MouseButtonPress, position, QPointF{global}, Qt::LeftButton,
+                      Qt::LeftButton, Qt::NoModifier};
+    QApplication::sendEvent(target, &event);
+}
+void useIdentityPointUndistorter(LiveVisualController& visual)
+{
+    visual.setImagePointUndistorter([](ImageCorner point, const IntrinsicCalibration&) {
+        return std::optional<ImageCorner>{point};
+    });
+}
 class NoMarkers final : public IMarkerDetector {
 public: MarkerDetections detect(const Frame&) override { return {}; }
 };
@@ -170,6 +191,10 @@ TEST_F(LiveVisualControlTest, EmergencyStopLatchesManagerBeforeInterruptingVisua
     desktop.emergencyStop();
     EXPECT_TRUE(latchObservedAtInterrupt);
     EXPECT_FALSE(visual.running());
+    const auto commandCountAfterEmergencyStop = transport.commands.size();
+    EXPECT_FALSE(visual.start());
+    visual.refresh();
+    EXPECT_EQ(transport.commands.size(), commandCountAfterEmergencyStop);
 }
 TEST_F(LiveVisualControlTest, FrameReplacementClearsTargetAndInvalidCoordinatesCannotArm)
 {
@@ -224,16 +249,273 @@ TEST_F(LiveVisualControlTest, TargetPanelAppliesCoordinatesStartsStopsAndRenders
     auto* y = panel.findChild<QLineEdit*>("visualTargetY");
     auto* h = panel.findChild<QLineEdit*>("visualTargetHeading");
     auto* acknowledge = panel.findChild<QPushButton*>("acknowledgeVisualFault");
-    ASSERT_TRUE(x && y && h && acknowledge);
+    auto* pause = panel.findChild<QPushButton*>("pauseVisualControl");
+    auto* cancel = panel.findChild<QPushButton*>("cancelVisualControl");
+    ASSERT_TRUE(x && y && h && acknowledge && pause && cancel);
+    EXPECT_FALSE(pause->isEnabled());
+    EXPECT_TRUE(cancel->isEnabled());
     EXPECT_FALSE(acknowledge->isEnabled());
     x->setText("1.25"); y->setText("0.5"); h->setText("1.0");
     panel.findChild<QPushButton*>("applyVisualTarget")->click();
     auto* start = panel.findChild<QPushButton*>("startVisualControl"); ASSERT_TRUE(start->isEnabled()); start->click();
     visual.refresh(); EXPECT_TRUE(visual.running()); EXPECT_FALSE(x->isEnabled());
-    EXPECT_TRUE(panel.findChild<QLabel*>("visualControlStatus")->text().contains("Target: x 1.250"));
+    EXPECT_TRUE(pause->isEnabled()); EXPECT_TRUE(cancel->isEnabled());
+    const auto* status = panel.findChild<QLabel*>("visualControlStatus");
+    ASSERT_TRUE(status);
+    EXPECT_TRUE(status->text().contains("Target: x 1.250"));
+    EXPECT_TRUE(status->text().contains("Position error: 1346.3 mm · heading error: 57.3°"));
+    EXPECT_TRUE(status->text().contains("RUNNING"));
     if (const auto path = qEnvironmentVariable("MICRO_ROBOT_VISUAL_CONTROL_SCREENSHOT"); !path.isEmpty()) EXPECT_TRUE(panel.grab().save(path));
-    panel.findChild<QPushButton*>("stopVisualControl")->click();
+    pause->click();
     EXPECT_FALSE(visual.running()); EXPECT_TRUE(x->isEnabled());
+    EXPECT_TRUE(visual.description().contains("Target: x 1.250"));
+    EXPECT_TRUE(start->isEnabled()); EXPECT_FALSE(pause->isEnabled()); EXPECT_TRUE(cancel->isEnabled());
+    start->click(); visual.refresh(); EXPECT_TRUE(visual.running());
+    cancel->click();
+    EXPECT_FALSE(visual.running()); EXPECT_TRUE(x->isEnabled());
+    EXPECT_FALSE(visual.description().contains("Target:"));
+    EXPECT_FALSE(start->isEnabled());
+}
+TEST_F(LiveVisualControlTest, ImageTargetUsesCalibratedPerspectiveTransformWithoutSubmittingMotion)
+{
+    auto profile = test::homographyInput().profile;
+    constexpr double radialK1 = 0.2;
+    profile.intrinsics.distortion = {radialK1, 0, 0, 0, 0};
+    // This non-affine synthetic transform exercises the projective denominator.
+    profile.homography = WorkspaceHomography{{1.0 / 600, 1.0 / 5400, -5.0 / 27,
+                                               0, 1.0 / 450, -2.0 / 9,
+                                               0, -1.0 / 900, 10.0 / 9}};
+    visual.setImagePointUndistorter(OpenCvCalibrationUndistorter::undistortPoint);
+    desktop.setWorkspaceCalibration(profile);
+    visual.refresh();
+    now += 1ms;
+    sample(0, 0);
+
+    const WorldPoint2D expected{Meters{0.625}, Meters{0.375}};
+    const auto imagePoint = unprojectWorkspacePoint(*profile.homography, expected);
+    ASSERT_TRUE(imagePoint);
+    const double normalizedX = (imagePoint->u - 500.0) / 800.0;
+    const double normalizedY = (imagePoint->v - 400.0) / 810.0;
+    const double radiusSquared = normalizedX * normalizedX + normalizedY * normalizedY;
+    const double radialScale = 1 + radialK1 * radiusSquared;
+    const ImageCorner distortedPixel{
+        500.0 + 800.0 * normalizedX * radialScale,
+        400.0 + 810.0 * normalizedY * radialScale};
+    EXPECT_GT(std::hypot(distortedPixel.u - imagePoint->u, distortedPixel.v - imagePoint->v), 1.0);
+    const auto commandCountBeforeClick = transport.commands.size();
+    EXPECT_TRUE(visual.setTargetFromImage(QStringLiteral("camera-a"), 1000, 800,
+        distortedPixel.u, distortedPixel.v, 0.0, now, visual.workspaceCalibrationRevision()));
+    const auto target = visual.targetPose();
+    ASSERT_TRUE(target);
+    EXPECT_NEAR(target->x.value, expected.x.value, 1e-8);
+    EXPECT_NEAR(target->y.value, expected.y.value, 1e-8);
+    EXPECT_NEAR(target->heading.value, 0.0, 1e-12);
+    EXPECT_FALSE(visual.running());
+    EXPECT_EQ(transport.commands.size(), commandCountBeforeClick);
+}
+TEST_F(LiveVisualControlTest, ImageTargetRejectsMismatchedCameraResolutionFrameAndStaleCapture)
+{
+    auto profile = test::homographyInput().profile;
+    profile.homography = test::knownHomography();
+    useIdentityPointUndistorter(visual);
+    desktop.setWorkspaceCalibration(profile);
+    visual.refresh();
+    now += 1ms;
+    sample(0, 0);
+    const auto revision = visual.workspaceCalibrationRevision();
+    const auto commandsBeforeRejectedClicks = transport.commands.size();
+
+    EXPECT_FALSE(visual.setTargetFromImage(QStringLiteral("camera-b"), 1000, 800, 500, 400, 0.0, now, revision));
+    EXPECT_FALSE(visual.setTargetFromImage(QStringLiteral("camera-a"), 999, 800, 500, 400, 0.0, now, revision));
+    EXPECT_FALSE(visual.setTargetFromImage(QStringLiteral("camera-a"), 1000, 799, 500, 400, 0.0, now, revision));
+    EXPECT_FALSE(visual.setTargetFromImage(QStringLiteral("camera-a"), 1000, 800, 500, 400, 0.0, now,
+        QStringLiteral("another-workspace-frame")));
+    EXPECT_FALSE(visual.setTargetFromImage(QStringLiteral("camera-a"), 1000, 800, 500, 400, 0.0,
+        now - 1s, revision));
+    EXPECT_FALSE(visual.description().contains("Target:"));
+    EXPECT_FALSE(visual.running());
+    EXPECT_EQ(transport.commands.size(), commandsBeforeRejectedClicks);
+}
+TEST_F(LiveVisualControlTest, ImageTargetRequiresActiveCalibrationAndNeverFallsBackToPixelCoordinates)
+{
+    auto profile = test::homographyInput().profile;
+    profile.homography.reset();
+    useIdentityPointUndistorter(visual);
+    desktop.setWorkspaceCalibration(profile);
+    visual.refresh();
+    now += 1ms;
+    sample(0, 0);
+    const auto commandCountBeforeRejectedClick = transport.commands.size();
+
+    EXPECT_FALSE(visual.setTargetFromImage(QStringLiteral("camera-a"), 1000, 800, 500, 400, 0.0,
+        now, visual.workspaceCalibrationRevision()));
+    EXPECT_FALSE(visual.description().contains("Target:"));
+    EXPECT_FALSE(visual.running());
+    EXPECT_EQ(transport.commands.size(), commandCountBeforeRejectedClick);
+}
+TEST_F(LiveVisualControlTest, QWidgetImageClicksKeepMetricTargetAcrossResizeAndIgnoreLetterboxMargins)
+{
+    auto profile = test::homographyInput().profile;
+    profile.intrinsics.distortion = {0, 0, 0, 0, 0};
+    profile.homography = test::knownHomography();
+    useIdentityPointUndistorter(visual);
+    desktop.setWorkspaceCalibration(profile);
+    visual.refresh();
+    now += 1ms;
+    sample(0, 0);
+
+    VisualControlPanel panel{visual};
+    panel.resize(430, 900);
+    panel.show();
+    QApplication::processEvents();
+    auto* overlay = panel.findChild<VisionOverlay*>("visionOverlay");
+    auto* start = panel.findChild<QPushButton*>("startVisualControl");
+    auto* x = panel.findChild<QLineEdit*>("visualTargetX");
+    auto* y = panel.findChild<QLineEdit*>("visualTargetY");
+    ASSERT_TRUE(overlay && start && x && y);
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+
+    constexpr double pixelU = 350.25;
+    constexpr double pixelV = 250.75;
+    const double expectedX = 0.00125 * pixelU - 0.125;
+    const double expectedY = -0.001 * pixelV + 0.7;
+    const auto commandCountBeforeStaging = transport.commands.size();
+    for (const QSize size : {QSize{430, 900}, QSize{1000, 600}}) {
+        panel.resize(size);
+        QApplication::processEvents();
+        const auto imageRect = overlay->imageRect();
+        ASSERT_FALSE(imageRect.isEmpty());
+        ASSERT_TRUE(imageRect.left() > 1.0 || imageRect.top() > 1.0)
+            << "Expected letterbox padding at overlay size " << overlay->size().width()
+            << "x" << overlay->size().height();
+
+        const auto click = overlay->imageToView({pixelU, pixelV});
+        ASSERT_TRUE(imageRect.contains(click));
+        sendFractionalLeftClick(overlay, click);
+        const auto target = visual.targetPose();
+        ASSERT_TRUE(target);
+        EXPECT_NEAR(target->x.value, expectedX, 1e-12);
+        EXPECT_NEAR(target->y.value, expectedY, 1e-12);
+        EXPECT_NEAR(QLocale::c().toDouble(x->text()), expectedX, 1e-8);
+        EXPECT_NEAR(QLocale::c().toDouble(y->text()), expectedY, 1e-8);
+        EXPECT_TRUE(start->isEnabled());
+        EXPECT_TRUE(transport.commands.empty());
+
+        QPointF marginClick;
+        if (imageRect.left() > 1.0)
+            marginClick = {imageRect.left() / 2.0, imageRect.center().y()};
+        else
+            marginClick = {imageRect.center().x(), imageRect.top() / 2.0};
+        ASSERT_TRUE(overlay->rect().contains(marginClick.toPoint()));
+        sendFractionalLeftClick(overlay, marginClick);
+        const auto afterMarginClick = visual.targetPose();
+        ASSERT_TRUE(afterMarginClick);
+        EXPECT_NEAR(afterMarginClick->x.value, expectedX, 1e-12);
+        EXPECT_NEAR(afterMarginClick->y.value, expectedY, 1e-12);
+        EXPECT_EQ(transport.commands.size(), commandCountBeforeStaging);
+    }
+
+    auto changedProfile = profile;
+    changedProfile.frameId = "table-B";
+    desktop.setWorkspaceCalibration(changedProfile);
+    visual.refresh();
+    EXPECT_FALSE(visual.targetPose());
+    const auto oldRevisionClick = overlay->imageToView({pixelU, pixelV});
+    sendFractionalLeftClick(overlay, oldRevisionClick);
+    EXPECT_FALSE(visual.targetPose());
+    EXPECT_EQ(transport.commands.size(), commandCountBeforeStaging);
+
+    now += 1ms;
+    sample(0, 0);
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, changedProfile.intrinsics.width, changedProfile.intrinsics.height, now));
+    QApplication::processEvents();
+    sendFractionalLeftClick(overlay, overlay->imageToView({pixelU, pixelV}));
+    ASSERT_TRUE(visual.targetPose());
+    EXPECT_TRUE(transport.commands.empty());
+    start->click();
+    visual.refresh();
+    EXPECT_TRUE(visual.running());
+    ASSERT_FALSE(transport.commands.empty());
+}
+TEST_F(LiveVisualControlTest, ImagePreviewMatchingLiveSourceStillRejectsDifferentProfileCamera)
+{
+    auto profile = test::homographyInput().profile;
+    profile.intrinsics.sourceId = "camera-b";
+    profile.homography = test::knownHomography();
+    useIdentityPointUndistorter(visual);
+    desktop.setWorkspaceCalibration(profile);
+    visual.refresh();
+    now += 1ms;
+    sample(0, 0);
+
+    VisualControlPanel panel{visual};
+    panel.resize(760, 640);
+    panel.show();
+    QApplication::processEvents();
+    auto* overlay = panel.findChild<VisionOverlay*>("visionOverlay");
+    ASSERT_TRUE(overlay);
+    panel.presentPreview(QStringLiteral("camera-a"), debugPreview(
+        PixelFormat::Gray8, profile.intrinsics.width, profile.intrinsics.height, now));
+    QApplication::processEvents();
+    const auto click = overlay->imageToView({500.25, 400.25});
+    sendFractionalLeftClick(overlay, click);
+
+    EXPECT_FALSE(visual.targetPose());
+    EXPECT_FALSE(visual.running());
+    EXPECT_TRUE(transport.commands.empty());
+}
+TEST_F(LiveVisualControlTest, PauseStopsAndRetainsTargetUntilExplicitRestart)
+{
+    run();
+    const auto submittedBeforePause = transport.commands.size();
+
+    visual.pause();
+
+    EXPECT_FALSE(visual.running());
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::Paused);
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.commands.back().second.payload));
+    EXPECT_TRUE(visual.description().contains("Target: x 1.000"));
+    const auto submittedAfterPause = transport.commands.size();
+    EXPECT_GT(submittedAfterPause, submittedBeforePause);
+
+    now += 1ms;
+    visual.refresh();
+    EXPECT_FALSE(visual.running());
+    EXPECT_EQ(transport.commands.size(), submittedAfterPause);
+
+    ASSERT_TRUE(visual.start());
+    visual.refresh();
+    ASSERT_TRUE(visual.running());
+    ASSERT_TRUE(visual.lastCycle()->targetPose);
+    EXPECT_DOUBLE_EQ(visual.lastCycle()->targetPose->x.value, 1.0);
+    ASSERT_TRUE(visual.lastCycle()->error);
+    EXPECT_DOUBLE_EQ(visual.lastCycle()->error->xMeters, 1.0);
+}
+TEST_F(LiveVisualControlTest, CancelStopsAndClearsTargetBeforeRestartCanBeAccepted)
+{
+    run();
+    visual.cancel();
+
+    EXPECT_FALSE(visual.running());
+    EXPECT_EQ(visual.operationalState(), ControlOperationalState::Paused);
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.commands.back().second.payload));
+    EXPECT_FALSE(visual.description().contains("Target:"));
+    EXPECT_FALSE(visual.start());
+
+    const auto submittedAfterCancel = transport.commands.size();
+    visual.refresh();
+    EXPECT_EQ(transport.commands.size(), submittedAfterCancel);
+
+    ASSERT_TRUE(visual.setTarget(0.75, 0.5, 0.25));
+    EXPECT_TRUE(visual.start());
+    visual.refresh();
+    ASSERT_TRUE(visual.running());
+    ASSERT_TRUE(visual.lastCycle()->targetPose);
+    EXPECT_DOUBLE_EQ(visual.lastCycle()->targetPose->x.value, 0.75);
+    EXPECT_DOUBLE_EQ(visual.lastCycle()->targetPose->y.value, 0.5);
 }
 TEST_F(LiveVisualControlTest, ControllerFaultNeedsExplicitAcknowledgementBeforeRearm)
 {
