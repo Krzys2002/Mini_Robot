@@ -1,0 +1,141 @@
+# Baseline goal-point controller
+
+Issue #75 supplies `GoalPointController`, a forward-only `IController`
+implementation for the [supervisory loop](supervisory-control.md). It adds no BLE,
+GUI, camera, motor, planner or clock dependency. Production composition/target UI
+and physical closed-loop commissioning remain separate work; `main.cpp` does not
+automatically activate this controller.
+
+## Inputs, errors and arrival
+
+`evaluate(measured, target)` is a pure calculation returning optional
+`GoalPointEvaluation`: state, errors and a body-frame velocity command. Both poses
+use world metres/radians with zero heading along +X and positive rotation CCW.
+For world displacement `(dx, dy)`, measured heading `theta` and range `rho`:
+
+```text
+rho = hypot(dx, dy)
+forwardError =  cos(theta) dx + sin(theta) dy
+leftError    = -sin(theta) dx + cos(theta) dy
+bearingError = wrap(atan2(dy, dx) - theta)
+headingError = wrap(targetHeading - theta)
+```
+
+Heading inputs are normalized before subtraction; errors use the existing
+`(-pi, pi]` convention. At exactly zero range, bearing error is defined as zero.
+Nonfinite poses or nonrepresentable displacement/body-frame errors return no
+evaluation. The `calculate(ControlInput)` adapter additionally rejects a missing
+pose or Unknown/Stale/Lost tracking. The loop still owns actual age/session checks,
+and submission-time gates, freshness and Stop routing.
+
+The pure `evaluate(measured, target)` call is stateless. The `calculate` adapter
+retains the goal phase during one run: it enters the position/heading region at
+the configured entry tolerance and keeps aligning until the measured distance
+exceeds the larger exit tolerance. `reset()` clears that phase before a new run.
+This hysteresis prevents position jitter during in-place heading alignment from
+switching the command back to approach. It does not filter measurements or
+claim physical settling.
+
+Inside the inclusive position tolerance, translation is zero. With
+`alignFinalHeading=true`, heading alignment continues until the absolute heading
+error is inside its inclusive tolerance; then state is Arrived and both outputs
+are exactly zero. With `alignFinalHeading=false`, position alone establishes
+arrival. Repeated arrived inputs inside the exit tolerance remain stopped. A
+measurement beyond the exit tolerance returns the controller to approach.
+Physical settling/noise tuning is not established by ideal convergence tests.
+
+## Feedback law and bounds
+
+All parameters are supplied through `GoalPointControllerConfig`, with no assumed
+physical robot gains or limits. Gains, speed limits and tolerances must be finite
+and positive. `bearingGainPerSecond > positionGainPerSecond` is required;
+heading tolerance is at most pi and the turn-in-place angle is in `(0, pi/2]`.
+The position exit tolerance must exceed the entry tolerance; it defaults to
+twice the entry value. Constructor validation throws `invalid_argument` otherwise.
+
+The controller and `ControlLoopConfig` each carry speed-cap fields so both the
+policy and command-submission boundary can enforce limits. In the desktop app,
+`ApplicationConfig::manual` is the shared source: `manual.maximum_linear_m_per_s`
+and `manual.maximum_angular_rad_per_s` are loaded by `ConfigLoader` (defaults
+0.1 m/s and 1.0 rad/s), then `LiveVisualSettings::fromApplication` copies each
+value into both configs. The goal-controller fields are ordinary config members,
+not static defaults. Keep this mapping aligned if either config API changes.
+
+Outside position tolerance, using `alpha = bearingError`:
+
+```text
+omega = clamp(kBearing alpha, -omegaMax, omegaMax)
+if abs(alpha) >= turnInPlaceAngle:
+    v = 0
+    state = TurningToPoint
+else:
+    ramp = clamp(1 - abs(alpha) / turnInPlaceAngle, 0, 1)
+    v = min(kPosition rho, vMax) ramp
+    state = Approaching
+```
+
+Thus a point behind the robot is approached by turning in place first, never by
+reversing. Except at the exactly opposite bearing, turns follow the shortest
+signed angular error. The antipodal tie maps to +pi and chooses CCW. As with any
+shortest-turn policy, the preferred direction has a cut at the antipodal error;
+this is distinct from a spurious command jump caused by equivalent raw headings
+at +pi/-pi. The tests check wrap-equivalent headings and small wrapped errors.
+
+The ramp reaches zero at the turn-in-place boundary, so forward speed does not
+jump from zero to half the proportional speed at the threshold. Within the
+alignment exit tolerance, final alignment uses
+`omega = clamp(kFinal headingError, -omegaMax, omegaMax)` and `v = 0`.
+Proportional saturation compares magnitudes before multiplication to avoid
+overflow even for extreme finite gains; zero error remains zero when the
+saturation threshold underflows. Outputs stay within configured bounds.
+The live application injects the same manual-control velocity limits into this
+policy and the loop. The policy saturation shapes its requested output; the
+loop independently reapplies its command-authority bound before submission.
+These are semantic v/omega setpoints, never wheel PID or PWM.
+
+In the ideal continuous, unsaturated approach region,
+`rho_dot = -kPosition rho cos(alpha)^2` and
+`alpha_dot = kPosition cos(alpha) sin(alpha) - kBearing alpha`.
+The gain ordering makes the bearing correction dominate the geometric term
+there; the in-place stage reduces larger bearing errors before translation.
+Final heading regulation is proportional on the shortest error. This motivates
+the baseline; it is not a guarantee for arbitrary sampled periods, gains,
+actuator saturation, latency, noise, slip or physical robot behavior. The caller
+must select a compatible control period and experimentally validated settings.
+
+## Deterministic verification and limits
+
+`micro_robot_goal_controller_tests` covers error frames/signs, proportional and
+saturated output, continuity at the turn boundary, position hysteresis, pose
+versus point goals, repeated arrival, heading wrap, invalid/unavailable inputs,
+configuration validation and finite extremes. A deterministic integration case
+adds bounded pose noise and a three-cycle actuation delay while checking that
+heading alignment remains in place within the exit tolerance.
+
+Nine scenarios execute the production `ControlLoop` → `RobotManager` →
+`SimulationTransport` boundary with virtual 20 ms steps. The harness integrates
+the existing ideal no-slip unicycle derivative and feeds the resulting pose back
+through `RobotTracker` as fresh measurements. Starts include forward, backwards
+orientation, a point behind the robot, lateral and signed-world goals, heading
+wrap, final-heading-only correction, a point-only goal and an already-arrived
+robot. Each checks all command bounds and five consecutive arrived zero outputs.
+The 80 s simulated horizon is a test bound, not a physical settling-time claim.
+No production robot-physics model or extra authoritative WorldModel is added.
+The noisy/delayed case is a synthetic stress test, not physical tuning evidence.
+
+Run root core and host presets, plus the standalone core entry point for shared
+target registration. Physical camera/radio/motor and native GUI/platform checks
+are **NOT RUN** unless separately recorded. Existing physical stopping/integration
+validation remains #228 and firmware issues; physical tracking/age acceptance is
+#236. No physical acceptance checklist is introduced or duplicated by #75.
+
+## Approved stack
+
+This work is stacked on #74 PR #291 at
+`c86ddbdac58b6821ad699ff5396f8c2da765156b`, explicitly approved by the maintainer.
+The child branch is `feat/75-goal-point-controller`; its initial PR base is
+`feat/74-supervisory-control-loop`. The parent was open, non-draft, with no review
+or check rollup when inspected. Its local results are recorded in the supervisory
+guide, not presented as remote CI. Merge #291 first, then verify actual master
+source and review/rebase or replay the child-only diff as appropriate. Retargeting
+or remote history changes require approval; no parent merge is performed here.
