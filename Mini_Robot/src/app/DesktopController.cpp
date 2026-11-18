@@ -570,14 +570,19 @@ void DesktopController::stopManualDrive()
 
 void DesktopController::emergencyStop()
 {
-    emit motionInterruptRequested();
     if (!initialized_ || shuttingDown_) return;
-    cancelManualDrive();
+    const bool wasDriving = manualVelocity_.has_value();
+    manualVelocity_.reset();
+    manualRefresh_.stop();
     // All registered sessions, including non-selected and disconnected sessions.
     for (const auto& [id, session] : robots_.sessions()) {
         (void)session;
         (void)robots_.requestEmergencyStop(id);
     }
+    // The manager latch must be visible before consumers finalize control-cycle
+    // records or submit the resulting Stop attempt.
+    emit motionInterruptRequested();
+    if (wasDriving) emit manualStatusChanged(QStringLiteral("E-stop requested — manual drive cancelled"));
     emit manualStatusChanged(robots_.supportsEmergencyStop()
         ? QStringLiteral("E-STOP REQUESTED — physical stop unconfirmed; resolve cause before explicit clear")
         : QStringLiteral("Dedicated E-stop unsupported by this transport"));

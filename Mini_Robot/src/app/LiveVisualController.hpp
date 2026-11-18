@@ -3,14 +3,11 @@
 #include "app/QtControlLoopScheduler.hpp"
 #include "control/GoalPointController.hpp"
 #include "vision/MetricObservation.hpp"
-#include <numbers>
 
 namespace micro_robot {
 struct LiveVisualSettings {
     static constexpr auto period = std::chrono::milliseconds{50};
-    static constexpr double positionGain = 1.0, bearingGain = 3.0, headingGain = 2.0;
-    static constexpr double positionToleranceMeters = .005, headingToleranceRadians = .03;
-    static constexpr double turnInPlaceRadians = std::numbers::pi / 3.0;
+    bool motionEnabled{}; // Composition root enables this only for simulation pending physical gates.
     ControlLoopConfig loop;
     GoalPointControllerConfig goal;
     // Software bring-up settings, not physical commissioning or actuator limits.

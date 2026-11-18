@@ -9,6 +9,7 @@
 #include <locale>
 #include <fstream>
 #include <map>
+#include <numbers>
 #include <optional>
 #include <sstream>
 #include <system_error>
@@ -54,6 +55,14 @@ std::optional<double> parseDouble(std::string_view text)
     stream >> std::noskipws >> value;
     if (!stream || !stream.eof() || !std::isfinite(value)) return std::nullopt;
     return value;
+}
+
+bool applyPositiveDouble(std::string_view text, double& destination)
+{
+    const auto value = parseDouble(text);
+    if (!value || *value <= 0.0) return false;
+    destination = *value;
+    return true;
 }
 
 std::optional<milliseconds> parseMilliseconds(std::string_view text, milliseconds min, milliseconds max)
@@ -146,6 +155,34 @@ const std::array settings{
             return true;
         },
         [](const ApplicationConfig& config) { return std::to_string(config.manual.maximumAngularRadiansPerSecond); }},
+    Setting{"visual_control.position_gain_per_s", "a finite positive gain",
+        [](std::string_view text, ApplicationConfig& config) { return applyPositiveDouble(text, config.visualControl.positionGainPerSecond); },
+        [](const ApplicationConfig& config) { return std::to_string(config.visualControl.positionGainPerSecond); }},
+    Setting{"visual_control.bearing_gain_per_s", "a finite positive gain above the position gain",
+        [](std::string_view text, ApplicationConfig& config) { return applyPositiveDouble(text, config.visualControl.bearingGainPerSecond); },
+        [](const ApplicationConfig& config) { return std::to_string(config.visualControl.bearingGainPerSecond); }},
+    Setting{"visual_control.final_heading_gain_per_s", "a finite positive gain",
+        [](std::string_view text, ApplicationConfig& config) { return applyPositiveDouble(text, config.visualControl.finalHeadingGainPerSecond); },
+        [](const ApplicationConfig& config) { return std::to_string(config.visualControl.finalHeadingGainPerSecond); }},
+    Setting{"visual_control.position_tolerance_m", "a finite positive distance tolerance",
+        [](std::string_view text, ApplicationConfig& config) { return applyPositiveDouble(text, config.visualControl.positionToleranceMeters); },
+        [](const ApplicationConfig& config) { return std::to_string(config.visualControl.positionToleranceMeters); }},
+    Setting{"visual_control.position_exit_tolerance_m", "a finite distance tolerance above the position tolerance",
+        [](std::string_view text, ApplicationConfig& config) { return applyPositiveDouble(text, config.visualControl.positionExitToleranceMeters); },
+        [](const ApplicationConfig& config) { return std::to_string(config.visualControl.positionExitToleranceMeters); }},
+    Setting{"visual_control.heading_tolerance_rad", "a finite positive angle no greater than pi",
+        [](std::string_view text, ApplicationConfig& config) { return applyPositiveDouble(text, config.visualControl.headingToleranceRadians); },
+        [](const ApplicationConfig& config) { return std::to_string(config.visualControl.headingToleranceRadians); }},
+    Setting{"visual_control.turn_in_place_rad", "a finite positive angle no greater than pi/2",
+        [](std::string_view text, ApplicationConfig& config) { return applyPositiveDouble(text, config.visualControl.turnInPlaceRadians); },
+        [](const ApplicationConfig& config) { return std::to_string(config.visualControl.turnInPlaceRadians); }},
+    Setting{"visual_control.align_final_heading", "true or false",
+        [](std::string_view text, ApplicationConfig& config) {
+            const auto value = parseBool(text);
+            if (value) config.visualControl.alignFinalHeading = *value;
+            return value.has_value();
+        },
+        [](const ApplicationConfig& config) { return std::string{config.visualControl.alignFinalHeading ? "true" : "false"}; }},
     Setting{"logging.level", "one of debug, info, warning, error",
         [](std::string_view value, ApplicationConfig& config) {
             const auto level = parseLogLevel(value);
@@ -277,6 +314,14 @@ public:
         if (result_.config.tracking.staleAfter >= result_.config.tracking.lostAfter) {
             warn("tracking stale_after_ms must be less than lost_after_ms; using both defaults");
             result_.config.tracking = TrackingConfig{};
+        }
+        const auto& visual = result_.config.visualControl;
+        if (visual.bearingGainPerSecond <= visual.positionGainPerSecond
+            || visual.positionExitToleranceMeters <= visual.positionToleranceMeters
+            || visual.headingToleranceRadians > std::numbers::pi
+            || visual.turnInPlaceRadians > std::numbers::pi / 2.0) {
+            warn("visual_control gains/tolerances are inconsistent; using all visual-control defaults");
+            result_.config.visualControl = VisualControlConfig{};
         }
         return std::move(result_);
     }

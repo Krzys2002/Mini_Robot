@@ -12,7 +12,8 @@ common types, camera API value types, and logging. It builds and is tested with
 ## Ownership and module access
 
 `ApplicationConfig` is a plain struct of typed sections (`logging`, `robot`,
-`camera`, `simulation`). Member initializers are the built-in defaults. The composition
+`camera`, `manual`, `tracking`, `visualControl`, `simulation`). Member initializers
+are the built-in defaults. The composition
 root ([main.cpp](../../src/app/main.cpp)) loads one instance at startup and
 injects the individual values that each module needs, for example the robot ID
 into `DesktopController`, the capture settings into the live camera factory, the
@@ -53,6 +54,16 @@ accepted. Every setting is optional.
 | `simulation.update_interval_ms` | integer 1 to 10000 | `100` |
 | `simulation.camera_frame_interval_ms` | integer 1 to 10000 | `33` |
 | `simulation.telemetry_interval_ms` | integer 0 to 10000; `0` reports on every update | `0` |
+| `manual.maximum_linear_m_per_s` | finite positive speed | `0.1` |
+| `manual.maximum_angular_rad_per_s` | finite positive speed | `1.0` |
+| `visual_control.position_gain_per_s` | finite positive gain | `1.0` |
+| `visual_control.bearing_gain_per_s` | finite positive gain above position gain | `3.0` |
+| `visual_control.final_heading_gain_per_s` | finite positive gain | `2.0` |
+| `visual_control.position_tolerance_m` | finite positive distance; exit tolerance must exceed it | `0.005` |
+| `visual_control.position_exit_tolerance_m` | finite distance above position tolerance | `0.01` |
+| `visual_control.heading_tolerance_rad` | finite positive angle up to pi | `0.03` |
+| `visual_control.turn_in_place_rad` | finite positive angle up to pi/2 | `1.0471975511965976` |
+| `visual_control.align_final_heading` | boolean | `true` |
 
 Calibration and workspace profiles are not part of this file; they will use
 their own per-camera profile format when the calibration issues are implemented.
@@ -129,3 +140,16 @@ and experiment and verify physical behavior before relying on them.
 
 Tracking smoothing: `position_alpha` and `heading_alpha` in `[tracking]` accept
 finite values in (0,1], defaulting to 1. See [tracker behavior](robot-tracking.md#pose-smoothing).
+
+### Visual-control tuning and activation
+
+`[visual_control]` exposes the software gains, entry/exit tolerances and
+turn-in-place threshold. The composition root injects those values together
+with the `[manual]` speed limits. The policy shapes its output; ControlLoop
+reapplies the same configured limits as the final command bound. These defaults
+are bring-up settings, not physically calibrated values.
+
+Live visual motion is enabled only with the simulation transport. The BLE
+transport remains available for connection and manual-drive work, while live
+visual command submission stays disabled until the physical acceptance gates
+are complete. A configuration file cannot override this activation boundary.

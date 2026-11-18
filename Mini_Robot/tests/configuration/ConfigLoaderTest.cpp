@@ -541,6 +541,40 @@ TEST(ConfigLoaderTest, ManualSpeedLimitsAreConfigurableAndRejectInvalidValues)
     }
 }
 
+TEST(ConfigLoaderTest, VisualControlTuningIsConfigurableAndRelationshipsAreValidated)
+{
+    const auto valid = micro_robot::parseConfig(
+        "[visual_control]\nposition_gain_per_s=0.8\nbearing_gain_per_s=2.4\n"
+        "final_heading_gain_per_s=1.7\nposition_tolerance_m=0.004\n"
+        "position_exit_tolerance_m=0.009\nheading_tolerance_rad=0.02\n"
+        "turn_in_place_rad=0.9\nalign_final_heading=false\n", "test.ini");
+    EXPECT_TRUE(valid.diagnostics.empty());
+    EXPECT_DOUBLE_EQ(valid.config.visualControl.positionGainPerSecond, 0.8);
+    EXPECT_DOUBLE_EQ(valid.config.visualControl.bearingGainPerSecond, 2.4);
+    EXPECT_DOUBLE_EQ(valid.config.visualControl.finalHeadingGainPerSecond, 1.7);
+    EXPECT_DOUBLE_EQ(valid.config.visualControl.positionToleranceMeters, 0.004);
+    EXPECT_DOUBLE_EQ(valid.config.visualControl.positionExitToleranceMeters, 0.009);
+    EXPECT_DOUBLE_EQ(valid.config.visualControl.headingToleranceRadians, 0.02);
+    EXPECT_DOUBLE_EQ(valid.config.visualControl.turnInPlaceRadians, 0.9);
+    EXPECT_FALSE(valid.config.visualControl.alignFinalHeading);
+
+    const auto inconsistent = micro_robot::parseConfig(
+        "[visual_control]\nposition_gain_per_s=2\nbearing_gain_per_s=1\n"
+        "position_tolerance_m=.01\nposition_exit_tolerance_m=.005\n", "test.ini");
+    EXPECT_FALSE(inconsistent.diagnostics.empty());
+    EXPECT_DOUBLE_EQ(inconsistent.config.visualControl.positionGainPerSecond, 1.0);
+    EXPECT_DOUBLE_EQ(inconsistent.config.visualControl.bearingGainPerSecond, 3.0);
+    EXPECT_DOUBLE_EQ(inconsistent.config.visualControl.positionToleranceMeters, .005);
+    EXPECT_DOUBLE_EQ(inconsistent.config.visualControl.positionExitToleranceMeters, .01);
+
+    for (const auto value : {"0", "-1", "nan", "inf", "1junk"}) {
+        const auto invalid = micro_robot::parseConfig(
+            std::string{"[visual_control]\nposition_gain_per_s="} + value, "test.ini");
+        EXPECT_FALSE(invalid.diagnostics.empty());
+        EXPECT_DOUBLE_EQ(invalid.config.visualControl.positionGainPerSecond, 1.0);
+    }
+}
+
 TEST(ConfigLoaderTrackingTest, ThresholdsAreConfigurableAndInvalidOrderingFallsBack)
 {
     const auto valid = micro_robot::parseConfig("[tracking]\nstale_after_ms=150\nlost_after_ms=750\n", "test");
