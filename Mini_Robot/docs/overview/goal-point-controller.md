@@ -61,8 +61,7 @@ if abs(alpha) >= turnInPlaceAngle:
     v = 0
     state = TurningToPoint
 else:
-    ramp = clamp((cos(alpha) - cos(turnInPlaceAngle)) /
-                 (1 - cos(turnInPlaceAngle)), 0, 1)
+    ramp = clamp(1 - abs(alpha) / turnInPlaceAngle, 0, 1)
     v = min(kPosition rho, vMax) ramp
     state = Approaching
 ```
