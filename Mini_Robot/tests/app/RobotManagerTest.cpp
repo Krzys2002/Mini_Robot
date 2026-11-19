@@ -399,6 +399,25 @@ TEST(DesktopSafetyTest, SessionLossRejectsOldMotionAndIndependentFaultsRemainInh
     EXPECT_EQ(f.robots.stop(one, Timestamp{5s}, 1s), CommandSubmission::Submitted);
 }
 
+TEST(DesktopSafetyTest, UnexpectedDisconnectKeepsLostConnectionStateAndSupportsExplicitReconnect)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.connected(one);
+    f.transport.state(one, ConnectionState::Disconnected, Timestamp{2s});
+    ASSERT_TRUE(f.robots.session(one));
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::LostConnection);
+    EXPECT_FALSE(f.robots.session(one)->safetyFault);
+    f.transport.error({one, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+                       "BLE link disconnected unexpectedly", Timestamp{2s}});
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::LostConnection);
+    EXPECT_FALSE(f.robots.session(one)->safetyFault);
+    ASSERT_TRUE(f.robots.connect(one));
+    f.transport.state(one, ConnectionState::Connected, Timestamp{3s});
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Ready);
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{3s}, 1s}), CommandSubmission::Submitted);
+}
+
 TEST(DesktopSafetyTest, EmergencyStopInhibitsEvenWithoutTransportSupport)
 {
     using namespace micro_robot;

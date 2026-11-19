@@ -111,9 +111,11 @@ Empty scans, duplicate IDs, missing service/characteristic/property/descriptor,
 identity mismatch, incompatible Robot Info, denied permission, disabled/unavailable
 adapter, backend errors and timeouts end the attempt with a domain error and
 `Fault`. Unknown Robot Info format/version/length reports `UnsupportedVersion`.
-An unexpected link loss also faults. Fault releases native resources, clears the
-token and allows an explicit new connection attempt; no automatic reconnect
-occurs. Disconnect ends in `Disconnected`, or `Fault` on error/timeout.
+An unexpected link loss while connecting/connected ends in `Disconnected` and
+publishes an `Unavailable` disconnect error, preserving explicit operator-driven
+reconnect policy. Fault still releases native resources, clears the token and
+allows an explicit new connection attempt; no automatic reconnect occurs.
+Disconnect ends in `Disconnected`, or `Fault` on error/timeout.
 
 All public calls and callbacks belong to the owning Qt event-loop thread.
 Requests queue their work; native events are queued across the internal
@@ -162,7 +164,8 @@ acceptance; isolated missing-CCCD and two-board cases need the stated equipment.
 4. Try duplicate advertised IDs, wrong Robot Info identity/version, missing
    characteristics/descriptors, Bluetooth off, denied permission and an unreachable
    peripheral. Record error, terminal state and successful explicit retry.
-5. Power off a connected peripheral. Verify Fault and recovery after power-on.
+5. Power off a connected peripheral. Verify `Disconnected` plus error reporting,
+   then explicit reconnect recovery after power-on.
 6. Close the window while connecting/connected; confirm bounded teardown and exit.
 7. Record actual hardware, firmware, Qt/OS versions and logs. Repeat on Linux
    with BlueZ and later Windows; no platform success is inferred from fake tests.

@@ -259,6 +259,32 @@ TEST(BleTransportTest, RepeatedConnectDisconnectResetsSessionAndRejectsOldTokens
     }
     EXPECT_EQ(f.backend->closes, 3);
 }
+TEST(BleTransportTest, RepeatedUnexpectedLinkLossReconnectsWithoutLeakingOrReplayingSessions)
+{
+    Fixture f;
+    std::uint64_t previous{};
+    for (int cycle = 0; cycle < 5; ++cycle) {
+        f.ready();
+        const auto token = f.backend->links.at(robot);
+        EXPECT_NE(token, previous);
+        const auto errorsBefore = f.events->errors.size();
+        emit f.backend->closed(token); drain();
+        EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
+        ASSERT_EQ(f.events->errors.size(), errorsBefore + 1U);
+        EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+        EXPECT_EQ(f.backend->released.back(), token);
+        if (previous != 0) {
+            emit f.backend->closed(previous); drain();
+            EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
+            EXPECT_EQ(f.events->errors.size(), errorsBefore + 1U);
+        }
+        previous = token;
+    }
+    EXPECT_EQ(f.backend->released.size(), 5U);
+    EXPECT_EQ(f.backend->closes, 0);
+    f.ready();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connected);
+}
 TEST(BleTransportTest, BackendErrorsAreTerminalAndRecoveryStartsANewScan)
 {
     Fixture f;
@@ -302,7 +328,7 @@ TEST(BleTransportTest, TimesOutSilentScanAndEachSetupPhase)
         EXPECT_EQ(f.events->errors[0].operation, TransportOperation::Connect);
     }
 }
-TEST(BleTransportTest, DisconnectTimeoutAndUnexpectedLinkLossAreTerminal)
+TEST(BleTransportTest, DisconnectTimeoutAndUnexpectedLinkLossAreRecoverable)
 {
     Fixture f{BleTransportConfig{10000ms, 10000ms, 15ms}};
     f.ready();
@@ -312,7 +338,12 @@ TEST(BleTransportTest, DisconnectTimeoutAndUnexpectedLinkLossAreTerminal)
     EXPECT_EQ(f.events->errors[0].operation, TransportOperation::Disconnect);
     f.ready();
     emit f.backend->closed(f.backend->links.at(robot)); drain();
-    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Fault);
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
+    ASSERT_EQ(f.events->errors.size(), 2U);
+    EXPECT_EQ(f.events->errors.back().operation, TransportOperation::Disconnect);
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+    f.ready();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connected);
 }
 TEST(BleTransportTest, CallbackDisconnectIsDeferredAndSinkReplacementIsSafe)
 {

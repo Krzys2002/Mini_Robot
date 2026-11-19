@@ -130,7 +130,15 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, std::shared_ptr
         const auto id = findToken(token);
         if (!id) return;
         if (connectionState(*id) != ConnectionState::Disconnecting) {
-            fault(*id, TransportErrorCode::Unavailable, "BLE link disconnected unexpectedly");
+            auto& session = sessions_.at(*id);
+            clearIo(*id, session);
+            if (session.timer) session.timer->stop();
+            backend_->release(token);
+            session.token = 0;
+            changePhase(*id, BlePhase::Disconnected);
+            changeState(*id, ConnectionState::Disconnected);
+            error(*id, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+                  "BLE link disconnected unexpectedly");
             return;
         }
         auto& session = sessions_.at(*id);
