@@ -7,7 +7,8 @@ the [production runtime](firmware-runtime.md) (#158), [identity provisioning](fi
 [BLE GATT contract](../protocol/ble-gatt.md) (#64), under the restricted-lab v1 profile
 defined by [#157](https://github.com/Krzys2002/Mini_Robot/issues/157)
 ([security profile](../protocol/security-profile.md), merged in PR #274).
-Final security enforcement is [#165](https://github.com/Krzys2002/Mini_Robot/issues/165),
+Profile enforcement and its attack tests are [#165](https://github.com/Krzys2002/Mini_Robot/issues/165)
+(evidence matrix: [security profile section 10.1](../protocol/security-profile.md#101-enforcement-evidence-165)),
 [telemetry publication](firmware-telemetry.md) is [#164](https://github.com/Krzys2002/Mini_Robot/issues/164), the HIL
 suite is [#166](https://github.com/Krzys2002/Mini_Robot/issues/166) and powered checks are
 [#238](https://github.com/Krzys2002/Mini_Robot/issues/238).
@@ -230,8 +231,11 @@ The insecure mode is visible:
 - `security=bypassed|established|none`, `security_sessions` and `security_refusals` on the
   `BLE` status line.
 
-Owners of the real implementation: #165 for production firmware enforcement and its attack
-tests, and a future secure-profile issue for mutual authentication, confidentiality plus
+Profile enforcement and the attack tests are #165. The profile has a single definition and a
+compile-time guard (`CODECELL_SECURITY_PROFILE` must be `restricted-lab-v1`), the `IDENTITY` line
+prints `profile=restricted-lab-v1`, and CI runs `.github/scripts/check_firmware_credentials.py`
+to reject credential material and pairing calls in the production tree. The owner of the real
+implementation is a future secure-profile issue for mutual authentication, confidentiality plus
 integrity, session-bound replay protection, enrollment and key storage, revocation and
 recovery. Any wire or GATT change needs a coordinated protocol version decision
 ([security profile in PR #274](https://github.com/Krzys2002/Mini_Robot/pull/274), section 9).
@@ -362,7 +366,7 @@ above are from the earlier image and its `BLE` line has no `early_cccd` field.
 **NOT RUN:**
 
 - the conformance script and soak on the image with the review fixes;
-- a second independent central (one adapter only): AT-03, owned by #165;
+- a second independent central (one adapter only): AT-03, hardware validation outstanding for #165/#166;
 - the Qt desktop (#65/#66) against this image, and macOS (#166, #187);
 - forcing the default 23-byte MTU on BlueZ: it negotiates 256. The 23-byte case is covered by
   the host tests and the frame sizes;

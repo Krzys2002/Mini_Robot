@@ -123,12 +123,18 @@ configure normally without it.
 | C++ standard | `-std=gnu++20` for the cross-build (all framework defaults removed); C++20 for host tests |
 
 C++20 is also enforced by a compile-time diagnostic in `FirmwareClock.hpp`.
-Two guards keep these pins effective:
+Three guards keep the build honest:
 
 - `python3 .github/scripts/check_firmware_pins.py` fails on any moving or
   unpinned reference in `firmware/*/platformio.ini`: bare names, version ranges,
   `stable`/branch/tag URLs, Git URLs without a 40-character commit, local paths,
   or a non-exact `requirements.txt` line. Repository automation tests run it.
+- `python3 .github/scripts/check_firmware_credentials.py` (#165) fails if the production
+  tree (`codecell-c6/src`, `include`, `scripts`, `platformio.ini`) contains credential-named
+  string values, PEM blocks, long hex literals, BLE pairing/passkey calls or logging of
+  credentials. The restricted-lab v1 profile has none. `platformio.ini` also passes
+  `-DCODECELL_SECURITY_PROFILE="restricted-lab-v1"`; `SessionPolicy.hpp` rejects any other value
+  at compile time, and the `IDENTITY` line prints `profile=restricted-lab-v1`.
 - `scripts/toolchain_provenance.py` runs before compilation and stops the build
   if PlatformIO Core differs from `requirements.txt` or the resolved platform
   differs from the `platform` release URL.
