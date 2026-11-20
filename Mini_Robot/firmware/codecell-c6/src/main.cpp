@@ -14,8 +14,9 @@
 // esp_restart() runs the runtime's shutdown first. Every boot starts Idle with outputs off
 // and nothing restored; the boot and status lines report the reset reason.
 // Telemetry (#164): a priority-5 telemetry task ticks every 1 ms and the BLE host decides
-// and queues Telemetry frames on the shared robot counter. Battery and measured velocity are
-// reported as unknown: no battery conversion is validated and no velocity sensor exists.
+// and queues Telemetry frames on the shared robot counter. Battery voltage is read on GPIO4
+// with the CodeCell conversion and published under provisional bench evidence (#309), not a
+// reference-meter check; measured velocity is unknown because no velocity sensor exists.
 // USB serial carries status output and the maintenance console only, never motion. Every line
 // goes through a bounded ring drained without blocking at <= 2048 B/s (#156 B12/B13).
 #include <Arduino.h>
@@ -37,6 +38,7 @@
 #include <string_view>
 #include "EspProvisioningAdapters.hpp"
 #include "CodeCellMotorDriver.hpp"
+#include "CodeCellBatterySensor.hpp"
 #include "EspRuntimeAdapters.hpp"
 #include "NimBlePeripheral.hpp"
 #include "ble/PeripheralController.hpp"
@@ -85,7 +87,7 @@ esp::NvsRecordStorage recordStorage;
 provisioning::ConfigStore configStore{recordStorage};
 provisioning::ProvisionedConfiguration configuration{configStore};
 // The telemetry task's step (priority 5, every 1 ms): sample the battery port once per
-// telemetry period (no sensor is wired, so nothing is read), then ask the host to evaluate
+// telemetry period (one GPIO4 ADC conversion), then ask the host to evaluate
 // the schedule. It never touches the session or the drive. Defined below, once the BLE
 // peripheral exists; until the peripheral is running a tick does nothing.
 class TelemetryTick final : public runtime::IPeriodicStep {
@@ -174,10 +176,12 @@ void flushLogBlocking()
 }
 
 // ---- Telemetry inputs (#164) ----
-// No battery sensor is wired and no evidence is approved: the CodeCell API conversion and the
-// pack's thresholds are unverified (#154, #238 NOT RUN). Telemetry therefore sends 0xFFFF and
-// never sets batteryLow; there is no low-battery protection in this image.
-telemetry::BatteryMonitor battery{std::nullopt, nullptr};
+// The battery is read through the CodeCell conversion and published under the provisional
+// bench evidence of #309 (telemetry/CodeCellBattery.hpp). The conversion has not been compared
+// with a reference meter (#154/#238), so a published value is a bring-up reading. batteryLow
+// is informational: there is no low-battery protection in this image.
+esp::CodeCellBatterySensor batterySensor;
+telemetry::BatteryMonitor battery{telemetry::kProvisionalCodeCellBatteryEvidence, &batterySensor};
 telemetry::RobotTelemetryInputs telemetryInputs{battery};
 
 // v1 BLE peripheral (#163). The controller is constructed in setup() only with a validated
@@ -477,7 +481,7 @@ void setup()
          bleStart == BleStart::Started ? name.data() : "none");
     logf("SECURITY mode=%s policy=%s authenticated=no encrypted=no %s", ble::toString(ble::kSecurityMode),
          bleSecurity.profile(), ble::kRestrictedLabSecurityWarning);
-    logf("TELEMETRY start=%s tick_ms=%ld period_ms=%u battery=unknown battery_low=unsupported velocity=unknown",
+    logf("TELEMETRY start=%s tick_ms=%ld period_ms=%u battery=provisional battery_low=informational velocity=unknown",
          firmwareRuntime.telemetryTaskStarted() ? "started" : "failed",
          static_cast<long>(timing::kTelemetryTickPeriod.count()),
          identity ? static_cast<unsigned>(identity->telemetryPeriodMilliseconds) : 0U);
