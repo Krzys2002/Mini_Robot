@@ -100,3 +100,6 @@ Manual speed ceilings are loaded from `[manual]` in the application INI config:
 `maximum_linear_m_per_s` and `maximum_angular_rad_per_s`. Values must be finite
 and positive. Invalid values retain the built-in defaults with a configuration
 warning; the service enforces the injected bounds as well as the UI.
+For the bench robot provisioned in #309, `config/codecell-c6-bench.ini` raises the
+turn ceiling to its provisioned 5.0 rad/s: with a 40 mm track, the 1.0 rad/s default
+gives about 12% motor output, which did not start the wheels.
