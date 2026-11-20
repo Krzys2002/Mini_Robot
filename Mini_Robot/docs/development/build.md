@@ -49,10 +49,12 @@ when `pio` is found; no embedded code enters desktop targets. The
 Configuration fails if a platform-independent target links a platform library
 or a concrete backend; see [platform boundaries](../overview/platform-boundaries.md).
 
-The opt-in [BLE lifecycle](../overview/ble-connection.md) requires Qt 6.2+ Bluetooth
-when `-DMICRO_ROBOT_BUILD_BLE=ON`; the default is OFF. This can be built/tested
-without the desktop or OpenCV. Ubuntu users additionally install
-`qt6-connectivity-dev` to enable it; standard builds retain their current dependencies.
+The [BLE lifecycle](../overview/ble-connection.md) requires Qt 6.2+ Bluetooth
+when `-DMICRO_ROBOT_BUILD_BLE=ON`. The option defaults to OFF and stays off in the
+`core` and host test presets, but the `desktop` preset sets it ON, so a desktop-preset
+build needs the Qt Bluetooth module installed (Ubuntu: `qt6-connectivity-dev`).
+Without it, `cmake --preset desktop` fails at `find_package(Qt6 ... Bluetooth)`.
+The BLE target can also be built/tested without the desktop or OpenCV.
 
 The current source does not discover or link Eigen, spdlog, JSON,
 or network libraries. They are planned dependencies,

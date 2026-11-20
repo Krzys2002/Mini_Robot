@@ -295,13 +295,13 @@ QT_LOGGING_RULES='micro_robot.camera.*=true' ./build/linux-gcc/src/micro_robot_d
 
 ## Bluetooth and BLE
 
-The current [source targets](../../src/CMakeLists.txt) do not link Qt Bluetooth or
-BlueZ. Building and running the tests need no Bluetooth package, adapter, or robot;
-the robot connection in the desktop demo is simulated, and the
+The `desktop` preset builds the Qt Bluetooth transport (`MICRO_ROBOT_BUILD_BLE=ON`),
+so it needs `qt6-connectivity-dev`; run the application with `--ble` to use BlueZ
+instead of the simulated robot. The `core` and host test presets keep BLE off:
+building and running their tests needs no Bluetooth package, adapter, or robot, and the
 [discovery and transport tests](../overview/robot-communication.md#mock-transport-tests)
-use a test-only radio backend. The packages below are for the planned Qt Bluetooth
-adapter (#65, #66) and for checking a host's BLE readiness. Installing them does not
-enable BLE in the current application. The
+use a test-only radio backend. The packages below also let you check a host's BLE
+readiness. The
 [Qt Bluetooth review](../overview/robot-communication.md#qt-6-bluetooth-platform-review)
 explains the choice.
 

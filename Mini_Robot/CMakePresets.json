@@ -23,6 +23,7 @@
       "cacheVariables": {
         "BUILD_TESTING": "OFF",
         "MICRO_ROBOT_BUILD_DESKTOP": "ON",
+        "MICRO_ROBOT_BUILD_BLE": "ON",
         "MICRO_ROBOT_BUILD_REPLAY": "ON"
       }
     },
