@@ -96,6 +96,19 @@ acceptance):
 - Turning at 5.0 rad/s (`config/codecell-c6-bench.ini`) moves the wheels in both directions.
   The motor deadband between these values was not measured (#167).
 
+**Battery telemetry** (image `61eb9d9`, build ID `cc90652114273294`, routine upload; the
+provisioning record was kept). The firmware reads GPIO4 with the CodeCell conversion
+(`adc_mV × 2 + 65`) and publishes it under provisional evidence: plausible 3000–4400 mV,
+`batteryLow` at 3350/3450 mV, 500 ms sample age.
+
+| Power | Observation | Source | Result |
+| --- | --- | --- | --- |
+| USB connected | Serial `battery_raw_mv=4421`, six reports in a row; `battery_quality=implausible`, telemetry `unknown` | Serial log | As designed: the USB supply on the battery node is above the 4400 mV ceiling |
+| LiPo only, USB unplugged | App status line `4.15 V` over BLE | Operator-observed | PASS: reading published end to end |
+
+Not established: accuracy (no multimeter at the battery leads; #238), the `batteryLow`
+transition (cell not near 3350 mV), and averaging (one unaveraged conversion per sample).
+
 ## Operator steps for the physical rows
 
 1. Keep motor power disconnected for all USB steps (rows B and C). The README
