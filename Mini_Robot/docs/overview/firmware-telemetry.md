@@ -49,10 +49,10 @@ writes to `firmware-provenance.json` (`elf.sha256`, schema 3).
 | --- | --- | --- | --- |
 | `state` | Runtime status at the moment the frame is built | v1 state | Always |
 | `commandExpired` (bit 0) | Runtime status (#162) | — | Set when the watchdog ended motion, cleared by the next accepted Velocity or Stop |
-| `batteryLow` (bit 1) | Battery policy | — | **Never set**: no verified threshold |
+| `batteryLow` (bit 1) | Battery policy | — | Set at ≤ 3350 mV, cleared at ≥ 3450 mV (provisional, #309); informational only |
 | `hasAcceptedCommand` (bit 2), `lastAcceptedSequence` | The session's own sequence state | — | Always |
 | `uptimeMs` | Robot monotonic clock, modulo 2³² | 1 ms | Diagnostic only; wraps after about 49.7 days |
-| `batteryMillivolts` | Battery policy | 1 mV | **Unknown, `0xFFFF`**: no approved conversion |
+| `batteryMillivolts` | Battery policy | 1 mV | CodeCell GPIO4 reading when fresh and within 3000–4400 mV (provisional, #309); otherwise **unknown, `0xFFFF`** |
 | `measuredLinear` | — | 1 mm/s | **Unknown, `0x8000`**: no wheel encoders or speed sensors |
 | `measuredAngular` | — | 1 mrad/s | **Unknown, `0x8000`**: the IMU is not wired (#158) and its axes are unverified (#238) |
 
@@ -168,16 +168,28 @@ flowchart LR
 ## Battery
 
 [`telemetry/BatteryMonitor.hpp`](../../firmware/codecell-c6/include/telemetry/BatteryMonitor.hpp)
-publishes a voltage only with **approved evidence**: a conversion compared against a reference
-meter on this board and pack, with its plausible range, low thresholds and maximum sample
-age. None exists. The [hardware record](../testing/codecell-c6-hardware-154.md) lists the
-CodeCell API conversion as unverified and the pack's protection as unresolved, and the
-multimeter comparison is NOT RUN (#238). The image therefore wires **no battery sensor**, in
-the same way as the IMU. Telemetry sends `0xFFFF`, `batteryLow` is never set, and the
-firmware has no low-battery protection. The vendor library's values (`2 × ADC + 65 mV` on
-GPIO4, 3350 mV and 4190 mV) are not adopted.
+publishes a voltage only with evidence: a plausible range, low thresholds and a maximum sample
+age. Since #309 the image wires the CodeCell battery sensor
+([`src/CodeCellBatterySensor.hpp`](../../firmware/codecell-c6/src/CodeCellBatterySensor.hpp)),
+one ADC conversion on GPIO4 per telemetry period, converted as the pinned CodeCell 2.0.4
+library does (`2 × ADC + 65 mV`), with the **provisional** evidence in
+[`telemetry/CodeCellBattery.hpp`](../../firmware/codecell-c6/include/telemetry/CodeCellBattery.hpp):
 
-With evidence and a sensor, which needs a reviewed record and a new adapter:
+| Value | Provisional setting | Source |
+| --- | --- | --- |
+| Plausible range | 3000–4400 mV | Single-cell LiPo floor; covers the 4.2 V charge voltage and the library's 4190 mV USB indication |
+| `batteryLow` enter / exit | 3350 / 3450 mV | CodeCell `MIN_BATTERY_VOLTAGE`, plus 100 mV hysteresis |
+| Maximum sample age | 500 ms (five telemetry periods) | Tolerates one or two late samples |
+
+The operator approved publishing these on the bench (2026-11-20). They are **not** the
+reference-meter evidence the [hardware record](../testing/codecell-c6-hardware-154.md) asks
+for: the conversion has not been compared with a multimeter at the battery leads (#238), the
+pack's protection is unresolved, and the reading is a single unaveraged conversion.
+`batteryLow` is informational: neither the firmware nor the desktop acts on it, and the
+firmware has no low-battery protection. A USB-only board with no pack may report a value or
+`unknown`, depending on what the charger presents on the battery node.
+
+The quality and telemetry value in each case:
 
 | Quality | When | Telemetry |
 | --- | --- | --- |
@@ -380,8 +392,8 @@ did. Every later run kept the console alive throughout, including after 30 s wit
 
 ## Not in this issue
 
-- **Battery.** A battery adapter and its approved evidence. This needs the #238 multimeter
-  comparison and a reviewed hardware record first.
+- **Battery accuracy.** Replacing the provisional #309 evidence with reference-meter
+  evidence needs the #238 multimeter comparison and a reviewed hardware record.
 - **Frame changes.** Any extension of the frozen v1 frames, such as counters or a fault reason
   in Telemetry. That would need a new protocol version, and none is proposed here.
 - **Desktop.** Desktop consumption of telemetry: #66. Communication metrics: #72.
