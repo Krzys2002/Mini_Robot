@@ -49,6 +49,10 @@ STOP, VELOCITY, EMERGENCY_STOP, CLEAR = 0x01, 0x02, 0x03, 0x04
 TELEMETRY_TYPE, RESULT_TYPE = 0x80, 0x81
 FLAG_EXPIRED, FLAG_BATTERY_LOW, FLAG_HAS_ACCEPTED = 0x01, 0x02, 0x04
 UNKNOWN_BATTERY, UNKNOWN_VELOCITY = 0xFFFF, -32768
+# #309 provisional battery evidence (include/telemetry/CodeCellBattery.hpp): a published battery
+# value lies in this range; anything else is sent as UNKNOWN_BATTERY. A USB-only board with no
+# pack may legitimately report either.
+BATTERY_PLAUSIBLE_MV = (3000, 4400)
 EXPECTED_FIRMWARE = (0, 1, 0)
 # #156 budgets the robot reports on (docs/protocol/timing-budgets.md).
 TELEMETRY_PERIOD_MS = 100
@@ -283,6 +287,11 @@ def parse_result(data):
     return {"seq": seq, "cmd_seq": cmd_seq, "cmd_type": cmd_type, "code": code, "state": state}
 
 
+def battery_published_ok(millivolts):
+    """A published battery value is the unknown sentinel or inside the #309 plausible range."""
+    return millivolts == UNKNOWN_BATTERY or BATTERY_PLAUSIBLE_MV[0] <= millivolts <= BATTERY_PLAUSIBLE_MV[1]
+
+
 def parse_telemetry(data):
     if len(data) != 18 or data[0] != 1 or data[1] != TELEMETRY_TYPE:
         return None
@@ -409,9 +418,10 @@ def run(args, log, watch, checks):
     checks.check("T1 first telemetry is sequence 0 of the session", first is not None and first["seq"] == 0,
                  str(first))
     checks.check("T1 telemetry state and flags (latched, nothing accepted)", first is not None
-                 and first["state"] == LATCHED and first["flags"] == 0 and first["last"] == 0, str(first))
-    checks.check("T1 battery and measured velocity are the unknown sentinels", first is not None
-                 and first["battery"] == UNKNOWN_BATTERY and first["linear"] == UNKNOWN_VELOCITY
+                 and first["state"] == LATCHED and (first["flags"] & ~FLAG_BATTERY_LOW) == 0
+                 and first["last"] == 0, str(first))
+    checks.check("T1 battery is unknown or plausible; measured velocity is the unknown sentinel", first is not None
+                 and battery_published_ok(first["battery"]) and first["linear"] == UNKNOWN_VELOCITY
                  and first["angular"] == UNKNOWN_VELOCITY, str(first))
     # T2: periodic frames on the robot clock while nothing changes.
     time.sleep(2.0)
@@ -609,8 +619,11 @@ def stress_notifications(args, log, watch, checks, central, results, telemetry, 
     tasks = [watch.wait_for("TASK", {"name": n}, since, timeout=1.0)
              for n in ("mr_safety", "mr_control", "mr_telemetry", "nimble_host", "loopTask")]
     log.write("host", f"robot report telemetry={report} safety={safety} resources={resources}")
-    checks.check("C14 robot TELEMETRY line reports unknown battery and velocity", report is not None
-                 and report.get("battery_mv") == "unknown" and report.get("velocity") == "unknown", str(report))
+    battery_mv = report.get("battery_mv", "") if report else ""
+    checks.check("C14 robot TELEMETRY line reports unknown or plausible battery and unknown velocity",
+                 report is not None and (battery_mv == "unknown"
+                                         or (battery_mv.isdigit() and battery_published_ok(int(battery_mv))))
+                 and report.get("velocity") == "unknown", str(report))
     # Every 5 s report window of this session, not only the last: B10 is a bound under each load.
     windows = [int(v["periodic_dev_max_us"]) for v in watch.all_since("TELEMETRY", session_start)
                if v.get("periodic_dev_max_us", "none") != "none"]
