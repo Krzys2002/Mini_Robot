@@ -67,6 +67,11 @@ cmake --preset desktop
 cmake --build --preset desktop --parallel
 ```
 
+The desktop preset enables the BLE transport (`MICRO_ROBOT_BUILD_BLE=ON`), so it
+needs the Qt 6.2+ Bluetooth module next to Qt Widgets/Multimedia (Ubuntu:
+`qt6-connectivity-dev`; see [Linux setup](Mini_Robot/docs/development/linux-setup.md#bluetooth-and-ble)).
+Start the application with `--ble` to use it; without the flag it runs the simulated robot.
+
 In CLion, enable the **desktop** preset and select **micro_robot_desktop** to
 run/debug. CTest dashboard targets such as `Continuous` are not the application.
 This preset deliberately disables tests; use a host preset below for validation.
@@ -127,7 +132,7 @@ directory when changing toolchains.
 | `BUILD_TESTING` | ON | GoogleTest/CTest suites |
 | `MICRO_ROBOT_BUILD_DESKTOP` | ON | Qt desktop and UI tests |
 | `MICRO_ROBOT_BUILD_REPLAY` | ON | OpenCV recorded-video adapter |
-| `MICRO_ROBOT_BUILD_BLE` | OFF | Qt Bluetooth transport; requires Qt 6.2+ Core/Bluetooth |
+| `MICRO_ROBOT_BUILD_BLE` | OFF (ON in the `desktop` preset) | Qt Bluetooth transport; requires Qt 6.2+ Core/Bluetooth |
 | `MICRO_ROBOT_BUILD_CALIBRATION` | OFF | OpenCV calibration without the desktop |
 | `MICRO_ROBOT_BUILD_VISION` | OFF | OpenCV AprilTag detector without the desktop |
 | `MICRO_ROBOT_BUILD_MARKER_TOOLS` | OFF | Offline marker printing/verification tools |
