@@ -169,7 +169,8 @@ acceptance; isolated missing-CCCD and two-board cases need the stated equipment.
 4. Try duplicate advertised IDs, wrong Robot Info identity/version, missing
    characteristics/descriptors, Bluetooth off, denied permission and an unreachable
    peripheral. Record error, terminal state and successful explicit retry.
-5. Power off a connected peripheral. Verify `Disconnected` plus error reporting,
+5. Power off a connected peripheral. Verify `Disconnected` plus error reporting
+   (run for #71 on 2026-11-22: [reconnect record](../testing/ble-reconnect-71-record.md)),
    then explicit reconnect recovery after power-on.
 6. Close the window while connecting/connected; confirm bounded teardown and exit.
 7. Record actual hardware, firmware, Qt/OS versions and logs. Repeat on Linux
