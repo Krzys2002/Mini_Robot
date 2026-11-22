@@ -144,7 +144,8 @@ Native Linux BlueZ and
 Windows execution are not established by these deterministic tests. Manual-motion
 UI and the dedicated E-stop handoff are described in
 [manual robot control](manual-robot-control.md). Broader safety/recovery policy,
-automatic reconnect and measurements remain #70–#72; no M7 coordination is implemented here.
+and measurements remain #72; #71 adds explicit reconnect recovery, not an automatic
+reconnect policy. No M7 coordination is implemented here.
 
 ## Desktop safety state
 

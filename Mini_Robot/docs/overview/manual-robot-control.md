@@ -35,6 +35,9 @@ panel, window close and controller shutdown cancel held motion. A reconnect neve
 resumes a previous hold. A transport error or reported robot fault/E-stop inhibits
 manual drive. Ordinary transport-error recovery requires disconnect/reconnect;
 repeated Connect on an already connected session cannot clear that inhibition.
+An unexpected link loss (#71) shows "Connection lost unexpectedly", cancels held
+motion and leaves Connect available. The ended session already inhibits motion,
+so a new connection does not need a fault cleared and never resumes the old drive.
 
 ## Bounds, timing and limitations
 

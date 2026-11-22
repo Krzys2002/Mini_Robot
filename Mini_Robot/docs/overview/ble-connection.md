@@ -11,8 +11,8 @@ acceptance. Physical ESP32-C6 acceptance is tracked separately in
 
 Issue #66 adds [command writes and telemetry/result parsing](ble-messages.md),
 including an adapter E-stop primitive. [RobotManager](robot-manager.md) coordinates
-sessions above this adapter; reconnect policy and
-high-level safety/operator controls remain their assigned issues. No firmware
+sessions above this adapter; #71 adds explicit reconnect recovery after
+link loss. Automatic reconnect and remaining operator controls are not implemented. No firmware
 is added. This guide describes the connection layer; the message guide records
 its additional behavior and outstanding physical command-delivery acceptance.
 
@@ -113,7 +113,12 @@ adapter, backend errors and timeouts end the attempt with a domain error and
 `Fault`. Unknown Robot Info format/version/length reports `UnsupportedVersion`.
 An unexpected link loss while connecting/connected ends in `Disconnected` and
 publishes an `Unavailable` disconnect error, preserving explicit operator-driven
-reconnect policy. Fault still releases native resources, clears the token and
+reconnect policy (#71). After setup, the Qt backend also reports a controller
+error or Robot Control service invalidation as link loss, because the native
+stack can signal a vanished peer that way before `disconnected`; the same errors
+during setup still fault. Loss drops queued work and resets both sequence
+counters. Reconnect scans again, revalidates Robot Info identity and rewrites both
+CCCDs. Old-session frames are discarded. Fault still releases native resources, clears the token and
 allows an explicit new connection attempt; no automatic reconnect occurs.
 Disconnect ends in `Disconnected`, or `Fault` on error/timeout.
 
