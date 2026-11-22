@@ -212,6 +212,25 @@ TEST(RobotControlPanelTest, DisconnectFaultAndTransportErrorCancelDrive)
     f.controller.beginManualDrive(0.1, 0);
     f.expectStop();
 }
+TEST(RobotControlPanelTest, UnexpectedLinkLossIsVisibleAndAllowsDirectReconnectWithoutResumingDrive)
+{
+    Fixture f; f.connected(); f.controller.beginManualDrive(0.1, 0);
+    const auto lostAt = MonotonicClock::now();
+    f.transport.publishState(one, ConnectionState::Disconnected, lostAt);
+    f.transport.publishError({one, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+                             "BLE link disconnected unexpectedly", lostAt});
+    EXPECT_TRUE(f.window.findChild<QLabel*>("connectionStatus")->text().contains("lost"));
+    EXPECT_TRUE(f.window.findChild<QLabel*>("manualStatus")->text().contains("reconnect"));
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::LostConnection);
+    EXPECT_FALSE(f.button("manualForward")->isEnabled());
+    EXPECT_TRUE(f.button("connectRobot")->isEnabled());
+    const auto commands = f.transport.commands.size();
+    f.connected();
+    EXPECT_EQ(f.transport.commands.size(), commands); // The previous drive is not resumed.
+    EXPECT_TRUE(f.button("manualForward")->isEnabled()); // Loss is not latched as a fault.
+    f.transport.publishTelemetry({one, MonotonicClock::now(), 3.8, {}, {}, {}, RobotOperatingState::Idle});
+    EXPECT_TRUE(f.window.findChild<QLabel*>("telemetryDescription")->text().contains("3.80"));
+}
 TEST(RobotControlPanelTest, RobotFaultTelemetryDisablesManualDriveWhileStopStaysAvailable)
 {
     Fixture f; f.connected(); f.controller.beginManualDrive(0.1, 0);
