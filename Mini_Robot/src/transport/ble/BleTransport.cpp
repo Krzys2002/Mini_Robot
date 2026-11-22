@@ -129,25 +129,17 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, std::shared_ptr
     QObject::connect(backend_.get(), &IBleBackend::closed, this, [this](std::uint64_t token) {
         const auto id = findToken(token);
         if (!id) return;
-        if (connectionState(*id) != ConnectionState::Disconnecting) {
-            auto& session = sessions_.at(*id);
-            clearIo(*id, session);
-            if (session.timer) session.timer->stop();
-            backend_->release(token);
-            session.token = 0;
-            changePhase(*id, BlePhase::Disconnected);
-            changeState(*id, ConnectionState::Disconnected);
-            error(*id, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
-                  "BLE link disconnected unexpectedly");
-            return;
-        }
+        // An unrequested close is recoverable link loss, not a fault: the session ends
+        // with all queued work dropped, and only an explicit connect starts a new one.
+        const bool unexpected = connectionState(*id) != ConnectionState::Disconnecting;
         auto& session = sessions_.at(*id);
         clearIo(*id, session);
-        session.timer->stop();
-        backend_->release(token);
-        session.token = 0;
+        if (session.timer) session.timer->stop();
+        backend_->release(std::exchange(session.token, 0));
         changePhase(*id, BlePhase::Disconnected);
         changeState(*id, ConnectionState::Disconnected);
+        if (unexpected) error(*id, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+                              "BLE link disconnected unexpectedly");
     }, Qt::QueuedConnection);
     QObject::connect(backend_.get(), &IBleBackend::failed, this,
         [this](std::uint64_t token, TransportErrorCode code, const QString& message) {

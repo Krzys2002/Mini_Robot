@@ -16,6 +16,8 @@ public:
     // with ReceiveTelemetry rather than handing unknown values to consumers.
     virtual void onTelemetry(const RobotTelemetry& telemetry) = 0;
     // Diagnostic only; an error does not implicitly change connection state.
+    // Disconnect/Unavailable reports unexpected but recoverable link loss: the state
+    // is already Disconnected and only an explicit connect starts a new session.
     virtual void onTransportError(const TransportError& error) = 0;
     // Correlated application result, not ATT acknowledgement; old sessions are fenced.
     virtual void onEmergencyClearResult(RobotId, std::uint64_t, bool, Timestamp) {}

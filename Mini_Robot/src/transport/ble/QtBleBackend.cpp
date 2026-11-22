@@ -87,7 +87,10 @@ public:
         link->controller = QLowEnergyController::createCentral(found->second, link);
         if (!link->controller) { fail(link, "Cannot create Qt BLE Central controller"); return; }
         QObject::connect(link->controller, &QLowEnergyController::errorOccurred, link,
-            [this, link](QLowEnergyController::Error) { fail(link, link->controller->errorString()); });
+            [this, link](QLowEnergyController::Error) {
+                if (link->established) lose(link);
+                else fail(link, link->controller->errorString());
+            });
         QObject::connect(link->controller, &QLowEnergyController::disconnected, link, [this, link] {
             if (!link->active) return;
             emit closed(link->token);
@@ -113,7 +116,10 @@ public:
                 [this, link](QLowEnergyService::ServiceState state) {
                     if (!usable(link)) return;
                     if (state == QLowEnergyService::RemoteServiceDiscovered) inspectService(link);
-                    else if (state == QLowEnergyService::InvalidService) fail(link, "Robot Control service became invalid");
+                    else if (state == QLowEnergyService::InvalidService) {
+                        if (link->established) lose(link);
+                        else fail(link, "Robot Control service became invalid");
+                    }
                 });
             QObject::connect(link->service, &QLowEnergyService::characteristicRead, link,
                 [this, link](const QLowEnergyCharacteristic& characteristic, const QByteArray& value) {
@@ -246,6 +252,15 @@ private:
         if (!link->active || link->failed) return;
         link->failed = true;
         emit failed(link->token, code, message);
+    }
+    // After setup, a controller error or service invalidation is how the native stack
+    // reports a vanished peer (often before `disconnected`); report it as link loss.
+    // Setup-time errors remain failures because the link never became usable.
+    void lose(Link* link)
+    {
+        if (!link->active || link->failed) return;
+        link->failed = true;
+        emit closed(link->token);
     }
     void beginScan(std::uint64_t token)
     {
