@@ -15,6 +15,7 @@
 
 #include <functional>
 #include <algorithm>
+#include <set>
 
 namespace {
 using namespace micro_robot;
@@ -284,6 +285,97 @@ TEST(BleTransportTest, RepeatedUnexpectedLinkLossReconnectsWithoutLeakingOrRepla
     EXPECT_EQ(f.backend->closes, 0);
     f.ready();
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connected);
+}
+TEST(BleTransportTest, LinkLossDuringSetupEndsDisconnectedAndRecoversWithANewScan)
+{
+    Fixture f;
+    f.connecting();
+    const auto token = f.backend->links.at(robot);
+    emit f.backend->closed(token); drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
+    ASSERT_EQ(f.events->errors.size(), 1U);
+    EXPECT_EQ(f.events->errors.back().operation, TransportOperation::Disconnect);
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+    emit f.backend->ready(token); drain(); // A late setup completion is fenced.
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
+    const auto scans = f.backend->scans;
+    f.ready();
+    EXPECT_EQ(f.backend->scans, scans + 1);
+}
+TEST(BleTransportTest, RepeatedLinkLossThroughRobotManagerRestoresTelemetryWithoutStaleMotion)
+{
+    constexpr int kLifecycleStressCycles = 50;
+    constexpr Duration kLongValidity = 10s; // Freshness alone cannot reject the old intent.
+    Fixture f;
+    WorldModel world;
+    RobotManager robots{*f.transport, world};
+    const RobotId second{8};
+    ASSERT_TRUE(robots.addRobot(robot, MonotonicClock::now()));
+    ASSERT_TRUE(robots.addRobot(second, MonotonicClock::now()));
+    ASSERT_TRUE(robots.connect(second)); drain();
+    f.backend->found("opaque-b", "MR-8"); f.backend->finish(); drain();
+    const auto secondToken = f.backend->links.at(second);
+    emit f.backend->ready(secondToken); drain();
+    ASSERT_EQ(robots.connectionState(second), ConnectionState::Connected);
+
+    std::set<std::uint64_t> tokens;
+    std::optional<RobotCommand> previousIntent;
+    int explicitDisconnects{};
+    for (int cycle = 0; cycle < kLifecycleStressCycles; ++cycle) {
+        SCOPED_TRACE(cycle);
+        ASSERT_TRUE(robots.connect(robot)); drain();
+        f.backend->found("opaque-a", "MR-7"); f.backend->finish(); drain();
+        const auto token = f.backend->links.at(robot);
+        ASSERT_TRUE(tokens.insert(token).second); // Every session is a new generation.
+        emit f.backend->ready(token); drain();
+        ASSERT_EQ(robots.connectionState(robot), ConnectionState::Connected);
+        EXPECT_EQ(robots.session(robot)->safety, DesktopSafetyState::Ready);
+        const auto onToken = [&] {
+            return std::count_if(f.backend->writes.begin(), f.backend->writes.end(),
+                                 [&](const auto& write) { return write.token == token; });
+        };
+        EXPECT_EQ(onToken(), 0); // No stale motion is sent automatically after reconnect.
+        if (previousIntent) EXPECT_EQ(robots.sendCommand(robot, *previousIntent), CommandSubmission::StaleSession);
+
+        // Both counters restart: the first frame of the session is accepted and
+        // the first handoff uses wire sequence zero.
+        emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(0), MonotonicClock::now()); drain();
+        ASSERT_TRUE(robots.session(robot)->telemetry); // Reconnect restores telemetry.
+        EXPECT_EQ(robots.session(robot)->telemetry->robotId, robot);
+        EXPECT_EQ(robots.session(robot)->telemetry->metadata.sequence, 0U);
+        const RobotCommand intent{VelocityCommand{0.15, -0.5}, MonotonicClock::now(), kLongValidity};
+        ASSERT_EQ(robots.sendCommand(robot, intent), CommandSubmission::Submitted); drain();
+        ASSERT_EQ(onToken(), 1);
+        EXPECT_EQ(f.backend->writes.back().request.sequence, 0);
+        previousIntent = intent;
+
+        if (cycle % 2 == 0) {
+            emit f.backend->closed(token); drain();
+            ASSERT_TRUE(robots.session(robot)->lastError);
+            EXPECT_EQ(robots.session(robot)->lastError->code, TransportErrorCode::Unavailable);
+        } else {
+            ASSERT_TRUE(robots.disconnect(robot)); drain();
+            ++explicitDisconnects;
+            emit f.backend->closed(token); drain();
+        }
+        EXPECT_EQ(robots.connectionState(robot), ConnectionState::Disconnected);
+        EXPECT_EQ(robots.session(robot)->safety, DesktopSafetyState::LostConnection);
+        EXPECT_FALSE(robots.session(robot)->safetyFault);
+        EXPECT_EQ(robots.sendCommand(robot, intent), CommandSubmission::NotConnected);
+        emit f.backend->notification(token, BleEndpoint::Telemetry, telemetryBytes(1), MonotonicClock::now()); drain();
+        EXPECT_FALSE(robots.session(robot)->telemetry); // Late frames of the old session are dropped.
+        EXPECT_EQ(robots.connectionState(second), ConnectionState::Connected);
+    }
+    // Each session released its native link exactly once; the other robot was untouched.
+    EXPECT_EQ(f.backend->released.size(), static_cast<std::size_t>(kLifecycleStressCycles));
+    EXPECT_EQ(std::set<std::uint64_t>(f.backend->released.begin(), f.backend->released.end()), tokens);
+    EXPECT_EQ(f.backend->closes, explicitDisconnects);
+    EXPECT_EQ(robots.sessions().size(), 2U);
+    emit f.backend->notification(secondToken, BleEndpoint::Telemetry, telemetryBytes(0), MonotonicClock::now()); drain();
+    ASSERT_TRUE(robots.session(second)->telemetry);
+    EXPECT_EQ(robots.session(second)->telemetry->robotId, second);
+    robots.shutdown(); drain(); emit f.backend->closed(secondToken); drain();
+    EXPECT_TRUE(robots.isStopped());
 }
 TEST(BleTransportTest, BackendErrorsAreTerminalAndRecoveryStartsANewScan)
 {

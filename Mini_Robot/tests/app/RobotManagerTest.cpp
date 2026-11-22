@@ -418,6 +418,52 @@ TEST(DesktopSafetyTest, UnexpectedDisconnectKeepsLostConnectionStateAndSupportsE
     EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{3s}, 1s}), CommandSubmission::Submitted);
 }
 
+TEST(DesktopSafetyTest, RepeatedSimulatedLinkLossRestoresTelemetryAndNeverReplaysMotion)
+{
+    constexpr int kLifecycleStressCycles = 50;
+    constexpr Duration kStep = 1ms;
+    constexpr Duration kLongValidity = 10s; // Freshness alone cannot reject the old intent.
+    SimulationTransport transport;
+    WorldModel world;
+    RobotManager robots{transport, world};
+    ASSERT_TRUE(robots.addRobot(one, Timestamp{}));
+    ASSERT_TRUE(robots.addRobot(two, Timestamp{}));
+    Timestamp now{1s};
+    ASSERT_TRUE(robots.connect(one));
+    ASSERT_TRUE(robots.connect(two));
+    transport.advanceTo(now);
+    for (int cycle = 0; cycle < kLifecycleStressCycles; ++cycle) {
+        SCOPED_TRACE(cycle);
+        ASSERT_EQ(robots.connectionState(one), ConnectionState::Connected);
+        EXPECT_EQ(robots.session(one)->safety, DesktopSafetyState::Ready);
+        ASSERT_TRUE(robots.session(one)->telemetry); // Reconnect restores telemetry.
+        EXPECT_EQ(robots.session(one)->telemetry->robotId, one);
+        const RobotCommand motion{VelocityCommand{0.1, 0}, now, kLongValidity};
+        ASSERT_EQ(robots.sendCommand(one, motion), CommandSubmission::Submitted);
+        now += kStep; transport.advanceTo(now);
+        ASSERT_TRUE(transport.lastSentCommand(one));
+
+        transport.simulateDisconnect(one);
+        now += kStep; transport.advanceTo(now);
+        EXPECT_EQ(robots.connectionState(one), ConnectionState::Disconnected);
+        EXPECT_EQ(robots.session(one)->safety, DesktopSafetyState::LostConnection);
+        EXPECT_FALSE(robots.session(one)->safetyFault);
+        ASSERT_TRUE(robots.session(one)->lastError);
+        EXPECT_EQ(robots.session(one)->lastError->code, TransportErrorCode::Unavailable);
+        EXPECT_FALSE(robots.session(one)->telemetry);
+        EXPECT_EQ(robots.sendCommand(one, motion), CommandSubmission::NotConnected);
+        EXPECT_EQ(robots.connectionState(two), ConnectionState::Connected);
+
+        ASSERT_TRUE(robots.connect(one));
+        now += kStep; transport.advanceTo(now);
+        ASSERT_EQ(robots.connectionState(one), ConnectionState::Connected);
+        EXPECT_FALSE(transport.lastSentCommand(one)); // Nothing resumes automatically.
+        EXPECT_EQ(robots.sendCommand(one, motion), CommandSubmission::StaleSession);
+    }
+    EXPECT_EQ(robots.sessions().size(), 2U);
+    EXPECT_EQ(robots.session(two)->safety, DesktopSafetyState::Ready);
+}
+
 TEST(DesktopSafetyTest, EmergencyStopInhibitsEvenWithoutTransportSupport)
 {
     using namespace micro_robot;
