@@ -272,9 +272,11 @@ void SimulationTransport::advanceTo(Timestamp now)
             resetSession();
             changeState(*failure);
             if (auto sink = sink_.lock()) {
+                const bool fault = *failure == ConnectionState::Fault;
+                // Same classification as the BLE adapter: link loss is recoverable.
                 sink->onTransportError({id, TransportOperation::Disconnect,
-                    TransportErrorCode::BackendFailure,
-                    *failure == ConnectionState::Fault ? "Simulated backend fault" : "Simulated connection loss", now});
+                    fault ? TransportErrorCode::BackendFailure : TransportErrorCode::Unavailable,
+                    fault ? "Simulated backend fault" : "Simulated connection loss", now});
             }
             continue; // Recovery explicitly requested in a callback waits for next advance.
         }
