@@ -1,19 +1,21 @@
 # BLE reconnect recovery bench record — issue #71
 
-Status: **physical reconnect check run (2026-11-22). 6 of 6 cycles passed.** The
-operator judged six cycles sufficient for this record. The #312 checklist (20 cycles,
-out-of-range loss) is not complete. Motion, watchdog and stop behaviour are not part
-of this record; they remain #189/#228.
+Status: **physical reconnect check run (2026-11-22): 6 of 6 idle cycles reconnected
+and resumed telemetry.** The robot was idle throughout: no drive input was held or
+queued, so this run does not exercise stale motion. Desktop process memory was not
+measured. The #312 checklist (20 cycles, out-of-range loss) is not complete. Desktop
+leak, out-of-range loss and motion-stop acceptance stay open; motion, watchdog and stop
+behaviour remain #189/#228.
 
 ## Configuration
 
 | Item | Value |
 | --- | --- |
-| Desktop | branch `feat/71-ble-reconnect-recovery`, commit `246690f`, `build/linux-gcc` with `-DMICRO_ROBOT_BUILD_BLE=ON`, launched with `--ble` |
+| Desktop | branch `feat/71-ble-reconnect-recovery`, commit `246690f`, `build/linux-gcc` with `-DMICRO_ROBOT_BUILD_BLE=ON`, launched with `--ble`. This predates the restack and the Qt controller-error classification (`QtBleErrorPolicy.hpp`); not rerun since |
 | Host | Ubuntu (Linux), Wayland session, BlueZ adapter `UbuntuMiniRobot` |
 | Security profile | restricted-lab pass-through (unauthenticated, unencrypted) |
 | Robot | CodeCell C6, advertised `MR-7`, `robot_id` 7, provisioning generation 3 |
-| Firmware | `codecell-c6` 0.1.0, build ID `cc90652114273294`, profile `restricted-lab-v1` |
+| Firmware | `codecell-c6` 0.1.0, build ID `cc90652114273294`, profile `restricted-lab-v1`: the #309 battery-telemetry image (`61eb9d9`, now #314), not the #310 baseline |
 | Power | USB and on-board battery. Bench state confirmed safe by the operator; no drive command was sent at any point |
 | Evidence | Desktop stderr log (INFO level) and a timestamped firmware serial stream at 115200 baud. Both were kept locally for this session and are not committed |
 
@@ -59,18 +61,20 @@ Times are UTC from the desktop log.
 
 | Criterion | Result |
 | --- | --- |
-| Unexpected disconnect is visible and safe | PASS: `Disconnected` (never `Fault`), "Connection lost unexpectedly" shown, no robot output |
-| Reconnect restores telemetry | PASS: both CCCDs re-enabled, telemetry resumed in every cycle |
-| No stale motion command is sent automatically | PASS: firmware `accepted=0` throughout; no operator drive input was given |
-| Repeated cycles do not leak/crash | PASS for 6 cycles: app stayed up, robot heap stable. Desktop process memory was not measured |
+| Unexpected disconnect is visible | PASS (idle): `Disconnected` (never `Fault`) and "Connection lost unexpectedly" shown in all 6 cycles. Loss during motion and its stop are NOT RUN (#228) |
+| Reconnect restores telemetry | PASS (idle): both CCCDs re-enabled, telemetry resumed in every cycle |
+| No stale motion command is sent automatically | NOT SHOWN by this run: no drive input was held or queued, so `accepted=0` only shows that nothing was sent while idle. Evidence is automated: `BleTransportTest.RepeatedLinkLossThroughRobotManagerRestoresTelemetryWithoutStaleMotion` (50 cycles, a 10 s-valid velocity submitted before each loss: no automatic write after reconnect, the old intent refused as `StaleSession`) and `DesktopSafetyTest.RepeatedSimulatedLinkLossRestoresTelemetryAndNeverReplaysMotion` |
+| Repeated cycles do not leak/crash | OPEN: the app stayed up for 6 cycles and the robot heap was stable, but desktop process memory was not measured |
 | Robot identity remains correct | PASS: `robot_id` 7 / advertised MR-7 in every session |
+| Out-of-range loss | NOT RUN |
 
 ## Observations and limits
 
-- **Signal path not identified.** The desktop does not log which Qt signal reported the power-cut loss
-  (`disconnected`, `InvalidService` or a controller error). After setup, all
-  three now take the same link-loss path. This run shows the
-  power-cut outcome, not which of the #71 mappings fired.
+- **Signal path not identified.** The desktop build used here did not log which Qt signal
+  reported the power-cut loss (`disconnected`, `InvalidService` or a controller error), and
+  at the time treated every post-setup controller error as link loss. Since then the
+  backend classifies controller errors and keeps the Qt error name in the error message,
+  so a rerun can show which signal fired. This run shows the power-cut outcome only.
 - **USB unplug alone.** At 18:13:58 USB was unplugged while connected. The board kept running
   on battery and the link stayed up, as expected.
 - **Serial-port behaviour.**
@@ -81,6 +85,8 @@ Times are UTC from the desktop log.
 - **Battery reading, outside #71's scope.** The firmware reported `battery_mv=unknown`, quality `implausible`
   (raw about 4421 mV) while on USB; see #309/#238.
 - **Not run:**
+  - loss with drive input held or queued;
+  - desktop process memory across cycles;
   - out-of-range loss;
   - 20 cycles;
   - a second central;
