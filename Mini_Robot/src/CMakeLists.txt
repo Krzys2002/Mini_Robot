@@ -277,6 +277,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     endif()
 
     add_library(micro_robot_desktop_controller STATIC
+        app/LiveVisualController.hpp app/LiveVisualController.cpp
+        app/ControlTraceWriter.hpp app/ControlTraceWriter.cpp
         app/QtControlLoopScheduler.hpp
         app/QtControlLoopScheduler.cpp
         app/VisionController.hpp
@@ -310,6 +312,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
+        ui/VisualControlPanel.hpp ui/VisualControlPanel.cpp
         ui/WorkspaceDistanceDialog.hpp
         ui/WorkspaceDistanceDialog.cpp
         ui/WorkspaceDiagnosticsDialog.hpp

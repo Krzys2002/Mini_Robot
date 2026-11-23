@@ -32,6 +32,7 @@ struct ControlCycle {
     std::optional<ControlError> error;
     std::optional<VelocityCommand> requested, bounded;
     std::optional<CommandSubmission> submission, stopSubmission;
+    std::optional<std::uint64_t> commandSequence, stopSequence; // Domain correlation, not wire sequence.
     ControlCycleResult result{ControlCycleResult::Stopped};
 };
 
@@ -44,8 +45,9 @@ struct ControlCycle {
 class ControlLoop final {
 public:
     using Clock = std::function<Timestamp()>;
+    using Sequence = std::function<std::uint64_t()>; // Prompt/nonthrowing; optional domain correlation.
     ControlLoop(RobotId id, WorldModel& world, RobotManager& robots, IController& controller,
-                ControlLoopConfig config, Clock clock = MonotonicClock::now);
+                ControlLoopConfig config, Clock clock = MonotonicClock::now, Sequence sequence = {});
     ControlLoop(const ControlLoop&) = delete;
     ControlLoop& operator=(const ControlLoop&) = delete;
 
@@ -71,6 +73,7 @@ private:
     IController& controller_;
     ControlLoopConfig config_;
     Clock clock_;
+    Sequence sequence_;
     std::optional<Pose2D> target_;
     std::optional<std::string> frame_;
     ControlLoopState state_{ControlLoopState::Stopped};

@@ -58,6 +58,7 @@
 - [Differential-drive model](differential-drive.md): SI equations, wheel targets, signs, and bounds.
 - [Supervisory control service](supervisory-control.md): replaceable policy, timed cycles, safety gates and opt-in Qt scheduler.
 - [Goal-point controller](goal-point-controller.md): bounded forward-only point/pose feedback, deterministic arrival and simulated convergence.
+- [Live visual control](live-visual-control.md): metric feedback, selected robot/target, motion arbitration, traces and physical acceptance ownership.
 - [World module](modules/world.md): robot registry, tabletop frame, metric bounds and workspace-calibration model.
 - [WorldModel behavior](world-model.md): registration, poses and snapshots.
 - [Robot tracking](robot-tracking.md): measurement age, loss and reappearance.
