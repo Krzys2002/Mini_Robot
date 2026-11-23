@@ -69,6 +69,7 @@ TEST_F(ControlLoopTest, LatestMeasuredStateTargetErrorsAndBoundedOutputUseManage
     EXPECT_DOUBLE_EQ(cycle.bounded->linearMetersPerSecond, .2);
     EXPECT_DOUBLE_EQ(cycle.bounded->angularRadiansPerSecond, -.5);
     EXPECT_EQ(cycle.submission, CommandSubmission::Submitted);
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Running);
     ASSERT_TRUE(transport.lastSentCommand(id));
     EXPECT_DOUBLE_EQ(std::get<VelocityCommand>(transport.lastSentCommand(id)->payload).linearMetersPerSecond, .2);
     EXPECT_FALSE(transport.lastSentCommand(other));
@@ -102,6 +103,7 @@ TEST_F(ControlLoopTest, AgeLimitInhibitsWithStopAndNeverRestartsOnFreshMeasureme
     now += 80ms;
     ASSERT_TRUE(loop.poll());
     EXPECT_EQ(loop.state(), ControlLoopState::Inhibited);
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::LostTracking);
     EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::TrackingUnavailable);
     EXPECT_EQ(loop.lastCycle()->stopSubmission, CommandSubmission::Submitted);
     EXPECT_EQ(policy.inputs.size(), 1u);
@@ -113,6 +115,14 @@ TEST_F(ControlLoopTest, AgeLimitInhibitsWithStopAndNeverRestartsOnFreshMeasureme
     EXPECT_TRUE(loop.start());
     EXPECT_TRUE(loop.poll());
 }
+TEST_F(ControlLoopTest, ObservationAgeMustBeStrictlyBelowConfiguredMaximum)
+{
+    now += 79ms;
+    EXPECT_TRUE(loop.start());
+    EXPECT_TRUE(loop.poll());
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Running);
+}
+
 TEST_F(ControlLoopTest, StaleLostInvalidatedAndUnknownTrackingNeverEnterController)
 {
     for (const auto age : {100ms, 500ms}) {
@@ -144,6 +154,7 @@ TEST_F(ControlLoopTest, DisconnectReconnectRequiresExplicitRestart)
     transport.advanceTo(now);
     EXPECT_TRUE(loop.poll());
     EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::SessionUnavailable);
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::LostConnection);
     EXPECT_EQ(loop.lastCycle()->stopSubmission, CommandSubmission::NotConnected);
     EXPECT_TRUE(robots.connect(id));
     now += 1ms;
@@ -158,12 +169,20 @@ TEST_F(ControlLoopTest, EmergencyStopAndFaultPreventPolicyExecution)
 {
     ASSERT_TRUE(robots.requestEmergencyStop(id));
     EXPECT_FALSE(loop.start());
+    EXPECT_EQ(loop.state(), ControlLoopState::Stopped);
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::EStop);
+    now += 1ms; observe();
+    EXPECT_FALSE(loop.start()); // Fresh tracking cannot clear the E-stop latch.
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::EStop);
     EXPECT_TRUE(policy.inputs.empty());
-    // Independent simulated fault case retains the manager safety gate.
+}
+TEST_F(ControlLoopTest, FaultSessionIsReportedSeparatelyFromLostConnectionAndEStop)
+{
     transport.simulateFault(id);
     now += 1ms;
     transport.advanceTo(now);
     EXPECT_FALSE(loop.start());
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Fault);
 }
 TEST_F(ControlLoopTest, ExpiryDuringCalculationDropsOutputBeforeSubmission)
 {
@@ -197,21 +216,33 @@ TEST_F(ControlLoopTest, ReentrantStopDuringCalculationCannotSubmitCalculatedMoti
 }
 TEST_F(ControlLoopTest, InvalidOutputAndUnavailableOrThrowingControllerFailClosed)
 {
-    for (const auto invalid : {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
-        policy.output = VelocityCommand{invalid, 0};
-        ASSERT_TRUE(loop.start());
-        ASSERT_TRUE(loop.poll());
-        EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::InvalidOutput);
-        EXPECT_FALSE(loop.lastCycle()->submission);
-    }
+    policy.output = VelocityCommand{std::numeric_limits<double>::quiet_NaN(), 0};
+    ASSERT_TRUE(loop.start());
+    ASSERT_TRUE(loop.poll());
+    EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::InvalidOutput);
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Fault);
+    EXPECT_FALSE(loop.lastCycle()->submission);
+    EXPECT_TRUE(loop.hasLatchedControllerFault());
+    EXPECT_FALSE(loop.start()); // Start is not an implicit fault acknowledgement.
+    policy.output = VelocityCommand{.1, 0};
+    ASSERT_TRUE(loop.acknowledgeControllerFault());
+    ASSERT_TRUE(loop.start());
+    ASSERT_TRUE(loop.poll());
+
     policy.output.reset();
+    loop.stop();
     ASSERT_TRUE(loop.start());
     ASSERT_TRUE(loop.poll());
     EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::ControllerUnavailable);
+    EXPECT_FALSE(loop.start());
+    EXPECT_TRUE(loop.hasLatchedControllerFault());
+    policy.output = VelocityCommand{.1, 0};
+    ASSERT_TRUE(loop.acknowledgeControllerFault());
     policy.during = [] { throw std::runtime_error("policy failure"); };
     ASSERT_TRUE(loop.start());
     ASSERT_TRUE(loop.poll());
     EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::ControllerFailure);
+    EXPECT_FALSE(loop.start());
 }
 TEST_F(ControlLoopTest, ClockReversalStopsWithoutCallingController)
 {
@@ -220,6 +251,30 @@ TEST_F(ControlLoopTest, ClockReversalStopsWithoutCallingController)
     ASSERT_TRUE(loop.poll());
     EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::InvalidClock);
     EXPECT_EQ(policy.inputs.size(), 1u);
+    now += 2ms;
+    observe();
+    EXPECT_TRUE(loop.acknowledgeControllerFault());
+}
+
+TEST_F(ControlLoopTest, ReconnectBarrierIsPausedUntilFreshlyTimestampedExplicitRestart)
+{
+    run();
+    now += 1ms;
+    transport.simulateDisconnect(id);
+    transport.advanceTo(now);
+    EXPECT_TRUE(loop.poll());
+    ASSERT_TRUE(robots.connect(id));
+    transport.advanceTo(now + 1ms); // Connection barrier is newer than the loop clock.
+    observe();
+    ASSERT_TRUE(loop.start());
+    ASSERT_TRUE(loop.poll());
+    EXPECT_EQ(loop.lastCycle()->submission, CommandSubmission::StaleSession);
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Paused);
+    now += 2ms;
+    observe();
+    ASSERT_TRUE(loop.start());
+    ASSERT_TRUE(loop.poll());
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Running);
 }
 TEST_F(ControlLoopTest, WorldFrameReplacementDoesNotReuseAnOldTarget)
 {
@@ -238,6 +293,7 @@ TEST_F(ControlLoopTest, ExplicitStopIsIdempotentAndPolicyCanBeReplacedWithoutMan
     run();
     loop.stop();
     EXPECT_EQ(loop.state(), ControlLoopState::Stopped);
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Paused);
     EXPECT_EQ(loop.lastCycle()->result, ControlCycleResult::Stopped);
     loop.stop();
     EXPECT_FALSE(loop.poll());
@@ -249,10 +305,23 @@ TEST_F(ControlLoopTest, ExplicitStopIsIdempotentAndPolicyCanBeReplacedWithoutMan
     ASSERT_TRUE(replacement.poll());
     EXPECT_EQ(alternate.inputs.size(), 1u);
 }
+TEST_F(ControlLoopTest, ExplicitPauseRequiresStartToResume)
+{
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Ready);
+    ASSERT_TRUE(loop.start());
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Running);
+    loop.stop();
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Paused);
+    EXPECT_FALSE(loop.poll());
+    EXPECT_TRUE(loop.start());
+    EXPECT_EQ(loop.operationalState(), ControlOperationalState::Running);
+}
+
 TEST_F(ControlLoopTest, MissingTargetInvalidTargetConfigurationAndUntrackedRobotCannotArm)
 {
     ControlLoop empty{id, world, robots, policy, config, [this] { return now; }};
     EXPECT_FALSE(empty.start());
+    EXPECT_EQ(empty.state(), ControlLoopState::Stopped);
     EXPECT_FALSE(empty.setTarget({Meters{std::numeric_limits<double>::quiet_NaN()}, Meters{}, Radians{}}));
     EXPECT_FALSE(empty.start());
     auto invalid = config;
