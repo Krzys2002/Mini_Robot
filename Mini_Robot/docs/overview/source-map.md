@@ -24,8 +24,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/app/DesktopController.hpp](../../src/app/DesktopController.hpp) | [app](desktop-demo.md) |
 | [src/app/LiveVisualController.hpp](../../src/app/LiveVisualController.hpp) | [Live visual coordination](live-visual-control.md) |
 | [src/app/LiveVisualController.cpp](../../src/app/LiveVisualController.cpp) | [Live visual coordination](live-visual-control.md) |
-| [src/app/ControlTraceWriter.hpp](../../src/app/ControlTraceWriter.hpp) | [Bounded trace logging](live-visual-control.md#trace-contract) |
-| [src/app/ControlTraceWriter.cpp](../../src/app/ControlTraceWriter.cpp) | [Bounded trace logging](live-visual-control.md#trace-contract) |
+| [src/app/ControlTraceWriter.hpp](../../src/app/ControlTraceWriter.hpp) | [Bounded trace logging](live-visual-control.md#per-run-experiment-export) |
+| [src/app/ControlTraceWriter.cpp](../../src/app/ControlTraceWriter.cpp) | [Bounded trace logging](live-visual-control.md#per-run-experiment-export) |
 | [src/ui/VisualControlPanel.hpp](../../src/ui/VisualControlPanel.hpp) | [Target/status presentation](live-visual-control.md) |
 | [src/ui/VisualControlPanel.cpp](../../src/ui/VisualControlPanel.cpp) | [Target/status presentation](live-visual-control.md) |
 | [src/app/CalibrationController.hpp](../../src/app/CalibrationController.hpp) | [Calibration capture](calibration-capture.md) |

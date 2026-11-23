@@ -3,6 +3,7 @@
 | Folder | Contents |
 | --- | --- |
 | [Overview](overview/README.md) | Implemented architecture, source map, API contracts, and demo usage |
+| [Control experiment export](overview/control-experiment-export.md) | Versioned JSON Lines run schema, timestamps, configuration and completeness flags |
 | [Protocol](protocol/README.md) | Versioned robot wire protocol, BLE GATT contract and restricted-lab security profile |
 | [Vision](vision/README.md) | AprilTag selection, camera sampling constraints, and printable markers |
 | [Planning](planning/README.md) | Milestone roadmap and issue catalogs |

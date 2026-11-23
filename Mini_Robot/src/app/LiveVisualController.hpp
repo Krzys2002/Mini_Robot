@@ -3,8 +3,13 @@
 #include "app/QtControlLoopScheduler.hpp"
 #include "control/GoalPointController.hpp"
 #include "vision/MetricObservation.hpp"
+#include <string_view>
+#include <QTimer>
+#include <filesystem>
+#include <string_view>
 
 namespace micro_robot {
+class ControlTraceWriter;
 struct LiveVisualSettings {
     static constexpr auto period = std::chrono::milliseconds{50};
     bool motionEnabled{}; // Composition root enables this only for simulation pending physical gates.
@@ -16,14 +21,15 @@ struct LiveVisualSettings {
 
 // Same-owner-thread application coordinator. Consumes accepted metric metadata,
 // never images. WorldModel remains authoritative; explicit Start is always needed.
-// Desktop/manager/world and optional nonblocking trace callback outlive this object.
+// Desktop/manager/world, optional trace callback and experiment writer outlive this object.
 class LiveVisualController final : public QObject {
     Q_OBJECT
 public:
     using Trace = std::function<void(std::string)>;
     LiveVisualController(DesktopController& desktop, WorldModel& world, RobotManager& robots,
                          LiveVisualSettings settings, Trace trace = {},
-                         ControlLoop::Clock clock = MonotonicClock::now, QObject* parent = nullptr);
+                         ControlLoop::Clock clock = MonotonicClock::now, QObject* parent = nullptr,
+                         ControlTraceWriter* experimentWriter = nullptr);
     ~LiveVisualController() override;
     void setInput(const QString& source, bool streaming);
     // Invoke after RobotTracker ingestion. Metadata must match the authoritative
@@ -45,8 +51,11 @@ signals:
     void actionsChanged(bool canStart, bool canStop);
     void controllerFaultAcknowledgementChanged(bool available);
 private:
+    void stopFor(std::string_view reason);
     void afterCycle();
     void record();
+    bool startExperimentRun();
+    void finishExperimentRun(std::string_view reason);
     void publish();
     bool ready() const;
     DesktopController& desktop_;
@@ -55,6 +64,7 @@ private:
     LiveVisualSettings settings_;
     GoalPointController policy_;
     Trace trace_;
+    ControlTraceWriter* experimentWriter_{}; // Borrowed; must outlive this controller.
     ControlLoop::Clock clock_;
     RobotId selected_;
     std::optional<Pose2D> target_;
@@ -63,7 +73,16 @@ private:
     std::optional<std::string> provenanceFrame_;
     std::unique_ptr<ControlLoop> loop_;
     std::unique_ptr<QtControlLoopScheduler> scheduler_;
+    QTimer exportStatusTimer_;
     std::uint64_t nextSequence_{1};
+    std::uint64_t nextRun_{1};
+    std::uint64_t nextSample_{1};
+    std::size_t droppedSamples_{};
+    std::size_t samplesQueued_{};
+    std::string runId_;
+    std::string lastRecordedKey_;
+    std::optional<std::filesystem::path> runExportPath_;
+    bool experimentActive_{};
     QString source_, status_{QStringLiteral("Idle — apply a target and Start")}, description_;
     bool streaming_{};
 };

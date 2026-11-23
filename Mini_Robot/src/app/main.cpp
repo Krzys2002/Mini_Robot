@@ -203,13 +203,17 @@ int main(int argc, char* argv[])
     });
     RobotTracker tracker{world, {config.tracking.staleAfter, config.tracking.lostAfter},
                          {config.tracking.positionAlpha, config.tracking.headingAlpha}};
-    ControlTraceWriter controlTrace{logger.channel("visual-control")};
+    const auto controlRunDirectory = config.logging.controlRunDirectory.empty()
+        ? toPath(QDir(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation))
+              .filePath(QStringLiteral("control-runs")))
+        : utf8ToPath(config.logging.controlRunDirectory);
+    ControlTraceWriter controlTrace{logger.channel("visual-control"), controlRunDirectory};
     auto visualSettings = LiveVisualSettings::fromApplication(config);
     visualSettings.motionEnabled = simulation != nullptr;
     if (!visualSettings.motionEnabled)
         appLog.warning("Live visual motion is disabled for BLE until physical acceptance gates pass");
     LiveVisualController visualControl{controller, world, robots, visualSettings,
-        [&controlTrace](std::string line) { (void)controlTrace.enqueue(std::move(line)); }};
+        {}, MonotonicClock::now, nullptr, &controlTrace};
     connectVisionTracking(vision, tracker, visualControl, [&controller] { controller.refreshWorld(); },
         MonotonicClock::now, [&visualControl](const MetricObservationBatchPtr& batch) { visualControl.receiveMeasurements(batch); });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,
