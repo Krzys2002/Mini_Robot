@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/Time.hpp"
+#include "common/MeasurementProvenance.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -45,8 +45,8 @@ enum class PixelFormat { Gray8, Rgb8, Rgba8 };
 
 struct Frame {
     std::uint64_t sequence{}; // Increasing per source lifetime; gaps are allowed.
-    // Local monotonic capture time (virtual time for deterministic sources).
-    // Replay/media/device timestamps must be mapped into this clock domain.
+    // Observation time in the steady domain. Live adapters currently use receipt
+    // estimates, NOT verified sensor exposure. See timing for explicit semantics.
     Timestamp capturedAt{};
     std::uint32_t width{};
     std::uint32_t height{};
@@ -57,6 +57,7 @@ struct Frame {
     // publication, including through mutable aliases. Consumers may retain both
     // independently of the source. No borrowed device/image-library buffers.
     std::shared_ptr<const std::vector<std::byte>> pixels;
+    FrameTiming timing{};
 };
 
 using FramePtr = std::shared_ptr<const Frame>;

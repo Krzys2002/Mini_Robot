@@ -162,7 +162,8 @@ public:
             auto frame = std::make_shared<const Frame>(Frame{
                 nextSequence++, nextCapture, static_cast<std::uint32_t>(rgb.cols),
                 static_cast<std::uint32_t>(rgb.rows), stride, PixelFormat::Rgb8,
-                std::make_shared<const std::vector<std::byte>>(std::move(pixels))
+                std::make_shared<const std::vector<std::byte>>(std::move(pixels)),
+                FrameTiming{.receivedAt = now, .observationSource = ObservationTimeSource::ReplayTimeline}
             });
             ++framesInPass;
             lastCapture = nextCapture;

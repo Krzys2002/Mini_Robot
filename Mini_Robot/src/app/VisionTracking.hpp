@@ -14,9 +14,23 @@ inline QMetaObject::Connection connectVisionTracking(VisionController& vision, R
     std::function<void(const MetricObservationBatchPtr&)> afterIngest = {})
 {
     return QObject::connect(&vision, &VisionController::metricObservationsAvailable, &context,
-        [&tracker, refresh = std::move(refresh), clock = std::move(clock), afterIngest = std::move(afterIngest)](const QString&, MetricObservationBatchPtr batch) {
-            const auto accepted = ingestMetricBatch(tracker, batch, clock());
-            if (afterIngest) afterIngest(accepted);
+        [&vision, &tracker, refresh = std::move(refresh), clock = std::move(clock), afterIngest = std::move(afterIngest)](const QString&, MetricObservationBatchPtr batch) {
+            if(batch && batch->provenance.inputGeneration!=vision.inputGeneration()) return;
+            const auto start=clock();
+            if (batch && batch->status == MetricObservationStatus::Valid && !batch->measurements.empty()) {
+                auto filtered = std::make_shared<MetricObservationBatch>(*batch);
+                applyQualityGates(*filtered, vision.qualityGates(), start);
+                batch = std::move(filtered);
+            }
+            const auto result = ingestMetricBatchWithOutcomes(tracker, batch, start);
+            const auto completed = clock();
+            if (batch && vision.recordPublication(*batch, result.accepted, result.rejected, start, completed)) {
+                for (const auto& [id, outcome] : result.outcomes) {
+                    if (outcome != TrackerUpdate::Applied)
+                        vision.recordTrackingRejection(id, trackerUpdateName(outcome));
+                }
+            }
+            if (afterIngest) afterIngest(result.applied);
             refresh();
         });
 }

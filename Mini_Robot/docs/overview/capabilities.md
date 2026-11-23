@@ -8,6 +8,7 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | Area | Implemented | Integration/acceptance still required |
 | --- | --- | --- |
 | Camera | Native Qt and Linux V4L2 discovery, selection, bounded capture; deterministic replay adapter | Normal replay selection workflow, broader physical-device/recovery acceptance |
+| Timing/provenance | [Localization instrumentation](localization-timing.md): exact measurement bindings, bounded software latency/cadence and quality diagnostics | Commissioned physical cadence/latency/error evidence (#63/#236); current live exposure timestamps and upstream buffering remain unknown |
 | Intrinsics | Capture with bounded full-resolution grayscale review storage, solving, exact camera/resolution profile save/load and undistorted preview; physical-identity gate for Linux persistence; remove solved views and recalculate | Optical/measurement accuracy for each camera/lens; missing/ambiguous identity stays session-only |
 | Vision | AprilTag detection, RobotId association, pixel observations, calibrated metric measurement boundary and matched-frame debug overlays | Physical metric-pose acceptance (#224) |
 | World | One authoritative robot registry, signed metric workspace with guided corners/editable origin, flat-board acquisition/provenance and v1/v2/v3 profiles, directional scale/survey-error maps, conditional prediction and two-point planar distance diagnostics, tracked pose measurements and explicit observation age | Physical scale/error/prediction coverage (#265) and distance/selection acceptance (#268), tracking acceptance, filtering, obstacles and planning state |
@@ -28,8 +29,9 @@ state. Explicitly started visual control can submit bounded commands through
 RobotManager to simulation. BLE remains available for connection and manual-drive
 work; BLE live visual command submission is disabled until physical acceptance
 gates pass. Physical accuracy/response/stopping remain unverified.
-Camera receipt-time estimates and synchronous log writes/flushes are not a
-validated latency-measurement pipeline. BLE-specific state/diagnostics do not yet
+Localization instrumentation measures software receipt-to-output intervals; current
+live timestamps remain receipt estimates with unknown upstream buffering. This is
+not verified exposure-to-output or physical cadence/accuracy acceptance. BLE-specific state/diagnostics do not yet
 constitute transport-independent operational safety.
 
 Height-aware axle/body measurements require the [explicit v4 survey and mounting upgrade](elevated-localization.md). Legacy profiles remain tabletop-tag-only; physical ±5 mm and camera-loaded throughput remain unverified (#224/#63).

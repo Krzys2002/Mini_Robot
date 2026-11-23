@@ -43,6 +43,22 @@ TEST(BleTypesTest, RejectsEveryTruncatedInfoAndUnknownVersionsAndFormats)
         EXPECT_TRUE(validateBleRobotInfo(bytes, RobotId{7}).unsupportedVersion);
     }
 }
+TEST(BleTypesTest, AcceptsAnyAdvertisedVersionRangeThatIncludesV1)
+{
+    using Range = std::array<std::uint8_t, 2>; // minProtocolVersion, maxProtocolVersion.
+    const auto withRange = [](Range range) {
+        auto bytes = infoBytes;
+        bytes[1] = range[0]; bytes[2] = range[1];
+        return validateBleRobotInfo(bytes, RobotId{7});
+    };
+    for (const Range range : {Range{0, 1}, Range{1, 2}, Range{0, 255}, Range{1, 255}})
+        EXPECT_TRUE(withRange(range).info) << +range[0] << '-' << +range[1];
+    for (const Range range : {Range{0, 0}, Range{2, 255}, Range{255, 255}, Range{1, 0}}) {
+        const auto rejected = withRange(range);
+        EXPECT_FALSE(rejected.info) << +range[0] << '-' << +range[1];
+        EXPECT_TRUE(rejected.unsupportedVersion) << +range[0] << '-' << +range[1];
+    }
+}
 TEST(BleTypesTest, RejectsInvalidLimitsAndPreservesFullUnsignedIdentityRange)
 {
     for (std::size_t offset : {10U, 12U, 14U, 16U}) {
@@ -54,6 +70,8 @@ TEST(BleTypesTest, RejectsInvalidLimitsAndPreservesFullUnsignedIdentityRange)
         auto bytes = infoBytes;
         bytes[offset + 1] = 0x80;
         EXPECT_FALSE(validateBleRobotInfo(bytes, RobotId{7}).info);
+        bytes[offset] = 0xff; bytes[offset + 1] = 0x7f; // 32767 is the largest valid limit.
+        EXPECT_TRUE(validateBleRobotInfo(bytes, RobotId{7}).info);
     }
     auto bytes = infoBytes;
     bytes[3] = bytes[4] = bytes[5] = bytes[6] = 0xff;
