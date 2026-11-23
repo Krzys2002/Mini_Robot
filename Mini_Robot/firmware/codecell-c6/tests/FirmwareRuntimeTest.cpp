@@ -184,7 +184,25 @@ TEST(FirmwareRuntimeTest, FailedShutdownHookRegistrationStopsStartupBeforeTheDri
     EXPECT_FALSE(everCommandedNonzero(rig.drive));
 }
 
-TEST(FirmwareRuntimeTest, ShutdownHookIsRegisteredBeforeAnyOtherStartupStep)
+TEST(FirmwareRuntimeTest, MissingSynchronizationPreventsDriveConfigurationAndReportingTasks)
+{
+    struct Step final : IPeriodicStep {
+        void step() noexcept override {}
+    } telemetry;
+    Rig rig;
+    rig.platform.failCriticalSection = true;
+    const PeriodicTask task{{"mr_telemetry", timing::kTelemetryPriority, kDefaultTaskStackBytes,
+                             timing::kTelemetryTickPeriod, false}, &telemetry};
+    FirmwareRuntime runtime{{rig.clock, rig.platform, rig.drive, rig.configuration, nullptr, task}};
+    ASSERT_EQ(runtime.start(), StartResult::Faulted);
+    EXPECT_EQ(runtime.status().fault, FaultCode::SynchronizationUnavailable);
+    EXPECT_FALSE(rig.drive.configured);
+    EXPECT_FALSE(runtime.telemetryTaskStarted());
+    EXPECT_TRUE(rig.platform.tasks.empty());
+    EXPECT_TRUE(rig.drive.poweredDown);
+}
+
+TEST(FirmwareRuntimeTest, ShutdownHookIsRegisteredBeforeBootDisableAndDriveConfiguration)
 {
     // Every later step can fail and the hook is already in place, including a boot disable
     // that could not be confirmed, where the drive state is least certain.
@@ -258,16 +276,17 @@ TEST(FirmwareRuntimeTest, AFaultedRuntimeStillStartsTelemetrySoItCanReportTheFau
     FakeDrive drive;
     FakeConfiguration configuration;
     drive.section = &platform.section;
-    drive.failConfigure = true;  // An earlier step fails.
+    configuration.value.reset();  // Fail before configuring or waking the bridges.
     FirmwareRuntime runtime{{clock, platform, drive, configuration, nullptr,
                              PeriodicTask{{"mr_telemetry", timing::kTelemetryPriority, kDefaultTaskStackBytes,
                                            timing::kTelemetryTickPeriod, false},
                                           &telemetry}}};
     EXPECT_EQ(runtime.start(), StartResult::Faulted);
-    EXPECT_EQ(runtime.status().fault, FaultCode::DriveConfigurationRejected) << "the first fault is kept";
+    EXPECT_EQ(runtime.status().fault, FaultCode::ConfigurationUnavailable) << "the first fault is kept";
     EXPECT_TRUE(runtime.telemetryTaskStarted());
     ASSERT_EQ(platform.tasks.size(), 1U) << "only telemetry: no supervisor or control task was reached";
     EXPECT_EQ(std::string{platform.tasks[0].spec.name}, "mr_telemetry");
+    EXPECT_FALSE(drive.calledOutsideSection) << "boot disable and fault handling already use the gate lock";
     EXPECT_FALSE(runtime.status().ready);
 }
 
@@ -284,7 +303,6 @@ TEST(FirmwareRuntimeTest, AcceptedVelocityDrivesOnlyThroughTheControlTaskAndGate
 {
     Rig rig;
     ASSERT_EQ(rig.rt().start(), StartResult::Running);
-    rig.drive.calledOutsideSection = false;  // The boot disable precedes the section (single-threaded).
     ASSERT_EQ(rig.velocity(kForward), CommandOutcome::Accepted);
     EXPECT_FALSE(everCommandedNonzero(rig.drive)) << "the command path never writes the drive";
     EXPECT_EQ(rig.rt().status().state, MotionState::Moving);
@@ -534,7 +552,7 @@ TEST(FirmwareRuntimeTest, FailedDisableAfterStartFaultsTheRuntime)
     Rig rig;
     ASSERT_EQ(rig.rt().start(), StartResult::Running);
     rig.drive.failDisable = true;
-    rig.control();  // Idle: the gate disables, which now fails.
+    rig.control();  // Idle rechecks the disable, which now fails.
     EXPECT_EQ(rig.rt().status().fault, FaultCode::DriveDisableFailed);
     EXPECT_EQ(rig.velocity(kForward), CommandOutcome::RejectedFault);
 }

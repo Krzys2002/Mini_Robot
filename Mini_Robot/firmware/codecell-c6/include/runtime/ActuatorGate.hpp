@@ -60,7 +60,7 @@ public:
         return disableLocked();
     }
 
-    // Start-up only (single-threaded, before bind() and any task): hands the validated
+    // Start-up only (single-threaded, before any task): hands the validated
     // profile to the drive adapter. False means the adapter refused it.
     [[nodiscard]] bool configureDrive(const drive::DriveProfile& profile, milliseconds controlPeriod) noexcept
     {

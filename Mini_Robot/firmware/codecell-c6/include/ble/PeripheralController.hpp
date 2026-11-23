@@ -335,6 +335,15 @@ public:
     void onTelemetryTick() noexcept
     {
         telemetry_.count(telemetry::TelemetryCounter::Ticks);
+        if (state() == LinkState::Closing || state() == LinkState::AdvertisingFailed) {
+            const auto now = clock_.nowMicroseconds();
+            if (!lastRecoveryAttempt_ || now - *lastRecoveryAttempt_ >= kLinkRecoveryInterval) {
+                lastRecoveryAttempt_ = now;
+                if (state() == LinkState::Closing && owner_) {
+                    if (!link_.terminate(*owner_)) count(BleCounter::TerminateFailures);
+                } else if (state() == LinkState::AdvertisingFailed) advertise();
+            }
+        } else lastRecoveryAttempt_.reset();
         if (state() != LinkState::Ready) {
             telemetry_.count(telemetry::TelemetryCounter::TicksNotReady);
             return;
@@ -641,6 +650,8 @@ private:
     SecurityMode mode_;
     protocol::v1::CommandSession session_;
     Authorizer authorizer_{*this};
+    static constexpr runtime::Instant kLinkRecoveryInterval{std::chrono::seconds{1}};
+    std::optional<runtime::Instant> lastRecoveryAttempt_{}; // Host callback context only.
     bool securityActive_{false};  // Callback context only.
     telemetry::TelemetryScheduler scheduler_;
     std::optional<runtime::Instant> lastFrameAt_{};  // Last queued Telemetry frame of this session.

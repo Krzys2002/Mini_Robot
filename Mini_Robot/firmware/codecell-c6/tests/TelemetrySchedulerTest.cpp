@@ -201,8 +201,10 @@ TEST(TelemetrySchedulerTest, TickAndWriteModelMeetsEveryB10BoundAtOnce)
                     ASSERT_LE(deviation, timing::kTelemetryPeriodDeviationMax)
                         << "pattern " << pattern << " write=" << event.fromWrite << " gap_us=" << gap.count();
                 }
-                if (pendingSince) ASSERT_LE(event.at - std::max(*pendingSince, *previous), stateDelayBound)
-                    << "state-change delay, pattern " << pattern;
+                if (pendingSince) {
+                    ASSERT_LE(event.at - std::max(*pendingSince, *previous), stateDelayBound)
+                        << "state-change delay, pattern " << pattern;
+                }
             }
             pendingSince.reset();
             sentKey = key;
