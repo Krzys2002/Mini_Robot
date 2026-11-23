@@ -565,11 +565,13 @@ is no fallback profile. The boot log, the `BLE` line and the `IDENTITY` line pri
 | --- | --- | --- |
 | F1 single central | `BlePeripheralTest.SecondCentral…`, `ProvisioningRuntimeTest`, `RestrictedLabEnforcementTest.ForeignCentralStorm…` | host |
 | F2 session state not reused | `BlePeripheralTest.DisconnectStopsKeepsNothing…`, `RestrictedLabEnforcementTest.RecordedVelocity…` | host |
-| F3–F5 readiness, stop and latch | `BlePeripheralTest`, `SafetyEnforcementTest`, `ProtocolSessionTest` | host |
-| F6 E-stop without authorization | `BlePeripheralTest.EmergencyStopFromANonOwner…`, `BleSessionSecurityTest.EmergencyStopBypasses…` | host |
+| F3 disconnect and readiness loss stop | `BlePeripheralTest.DisconnectStopsKeepsNothing…`, `BlePeripheralTest.NotificationDisableEndsTheSession…`, `RestrictedLabEnforcementTest.DisconnectDuringMotion…`, `SafetySessionTest` | host; HIL NOT RUN |
+| F4 prompt and permissive E-stop | `BlePeripheralTest.EmergencyStopFromANonOwner…`, `BlePeripheralTest.EmergencyStopLatchesAnyPayload…`, `ProtocolSessionTest.EmergencyStopCharacteristicLatches…`, `BleSessionSecurityTest.EmergencyStopBypasses…` | host |
+| F5 bounded input | `RestrictedLabEnforcementTest.MalformedAndOversizedFlood…`, `ProtocolFuzzTest` | host; HIL NOT RUN |
+| F6 pairing grants nothing | `check_firmware_credentials.py` flags pairing, bonding and passkey calls; `NimBlePeripheral.hpp` sets `setSecurityAuth(false, false, false)` and NoInputNoOutput explicitly | host (scripted); radio pairing and bond count NOT RUN |
 | F7 no credentials | `.github/scripts/check_firmware_credentials.py` (CI), `MaintenanceConsoleTest.StatusReportsIdentity…`, `StatusReportTest` | host (scripted) |
-| F8 no pairing/bonding | the same scan flags pairing and passkey calls; `main.cpp` sets no security | host (scripted); bond count NOT RUN |
-| F9 USB has no motion path | `MaintenanceConsoleTest.NoConsoleCommandCanRequestMotion` | host |
+| F8 USB serial is maintenance only | `MaintenanceConsoleTest.NoConsoleCommandCanRequestMotion`, `MaintenanceConsoleTest.MutatingCommandsRequireMaintenance` | host |
+| F9 no legacy bypass | linked-image symbol gate `scripts/production_image_policy.py` (#158) fails the `esp32-c6-devkitc-1` link on Wi-Fi, AP, HTTP, DNS or OTA symbols; rule unit-tested by `test_firmware_image_policy.py` | build (linked image); AT-13 map review NOT RUN |
 | F10 identifiable profile | compile-time guard, `RestrictedLabProfileTest`, `DiagnosticsReportTest` | host/build |
 | F11 safe storage failure | `ConfigStoreTest` (corruption, interruption, factory reset) | host |
 | F12 extension points | `BleSessionSecurityTest` | host |
