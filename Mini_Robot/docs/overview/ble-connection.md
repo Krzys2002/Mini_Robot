@@ -113,10 +113,14 @@ adapter, backend errors and timeouts end the attempt with a domain error and
 `Fault`. Unknown Robot Info format/version/length reports `UnsupportedVersion`.
 An unexpected link loss while connecting/connected ends in `Disconnected` and
 publishes an `Unavailable` disconnect error, preserving explicit operator-driven
-reconnect policy (#71). After setup, the Qt backend also reports a controller
-error or Robot Control service invalidation as link loss, because the native
-stack can signal a vanished peer that way before `disconnected`; the same errors
-during setup still fault. Loss drops queued work and resets both sequence
+reconnect policy (#71). After setup, the Qt backend classifies each controller
+error (`QtBleErrorPolicy.hpp`): only `RemoteHostClosedError` and
+`ConnectionError`, through which the native stack can report a vanished peer
+before `disconnected`, and Robot Control service invalidation count as link loss.
+Adapter, authorization and permission errors still fault as `Unavailable`; other
+controller errors fault as `BackendFailure`; an RSSI read error is ignored. Every
+controller error during setup faults. Link-loss and fault messages keep the Qt
+error name and native text. Loss drops queued work and resets both sequence
 counters. Reconnect scans again, revalidates Robot Info identity and rewrites both
 CCCDs. Old-session frames are discarded. Fault still releases native resources, clears the token and
 allows an explicit new connection attempt; no automatic reconnect occurs.

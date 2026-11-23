@@ -286,6 +286,35 @@ TEST(BleTransportTest, RepeatedUnexpectedLinkLossReconnectsWithoutLeakingOrRepla
     f.ready();
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connected);
 }
+TEST(BleTransportTest, NativeLinkLossIsRecoverableAndKeepsTheDiagnostic)
+{
+    Fixture f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    emit f.backend->lost(token, QStringLiteral("Qt RemoteHostClosedError: Remote device closed the connection"));
+    drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
+    ASSERT_EQ(f.events->errors.size(), 1U);
+    EXPECT_EQ(f.events->errors.back().operation, TransportOperation::Disconnect);
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+    EXPECT_NE(f.events->errors.back().message.find("Remote device closed the connection"), std::string::npos);
+    EXPECT_EQ(f.backend->released.back(), token);
+    emit f.backend->closed(token); drain(); // The later native `disconnected` is fenced.
+    EXPECT_EQ(f.events->errors.size(), 1U);
+}
+TEST(BleTransportTest, LocalAdapterFailureOnAnEstablishedLinkFaultsInsteadOfPassingAsLinkLoss)
+{
+    Fixture f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    emit f.backend->failed(token, TransportErrorCode::Unavailable,
+                           QStringLiteral("Qt InvalidBluetoothAdapterError: Bluetooth adapter not found"));
+    drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Fault);
+    ASSERT_EQ(f.events->errors.size(), 1U);
+    EXPECT_NE(f.events->errors.back().operation, TransportOperation::Disconnect);
+    EXPECT_NE(f.events->errors.back().message.find("InvalidBluetoothAdapterError"), std::string::npos);
+}
 TEST(BleTransportTest, LinkLossDuringSetupEndsDisconnectedAndRecoversWithANewScan)
 {
     Fixture f;

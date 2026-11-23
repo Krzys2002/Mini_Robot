@@ -81,6 +81,8 @@ private:
     void error(RobotId id, TransportOperation operation, TransportErrorCode code, const std::string& message);
     void fault(RobotId id, TransportErrorCode code, const std::string& message,
                std::optional<TransportOperation> operation = {});
+    // Ends the session for a backend close/loss; unexpected ones report link loss.
+    void endLink(std::uint64_t token, const std::string& diagnostic);
     [[nodiscard]] std::optional<RobotId> findToken(std::uint64_t token) const;
     void armTimeout(RobotId id, std::chrono::milliseconds duration);
     void clearIo(RobotId id, Session& session);

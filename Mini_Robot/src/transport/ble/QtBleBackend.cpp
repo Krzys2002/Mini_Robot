@@ -1,5 +1,6 @@
 #include "transport/ble/QtBleBackend.hpp"
 #include "transport/ble/BleWire.hpp"
+#include "transport/ble/QtBleErrorPolicy.hpp"
 
 #include <QBluetoothDeviceDiscoveryAgent>
 #include <QBluetoothDeviceInfo>
@@ -87,9 +88,14 @@ public:
         link->controller = QLowEnergyController::createCentral(found->second, link);
         if (!link->controller) { fail(link, "Cannot create Qt BLE Central controller"); return; }
         QObject::connect(link->controller, &QLowEnergyController::errorOccurred, link,
-            [this, link](QLowEnergyController::Error) {
-                if (link->established) lose(link);
-                else fail(link, link->controller->errorString());
+            [this, link](QLowEnergyController::Error error) {
+                const auto disposition = classifyQtBleControllerError(error, link->established);
+                const auto diagnostic = describeQtBleControllerError(error, link->controller->errorString());
+                switch (disposition.action) {
+                case QtBleErrorAction::Ignore: return;
+                case QtBleErrorAction::LinkLoss: lose(link, diagnostic); return;
+                case QtBleErrorAction::Failure: fail(link, diagnostic, disposition.code); return;
+                }
             });
         QObject::connect(link->controller, &QLowEnergyController::disconnected, link, [this, link] {
             if (!link->active) return;
@@ -117,7 +123,7 @@ public:
                     if (!usable(link)) return;
                     if (state == QLowEnergyService::RemoteServiceDiscovered) inspectService(link);
                     else if (state == QLowEnergyService::InvalidService) {
-                        if (link->established) lose(link);
+                        if (link->established) lose(link, QStringLiteral("Robot Control service became invalid"));
                         else fail(link, "Robot Control service became invalid");
                     }
                 });
@@ -253,14 +259,14 @@ private:
         link->failed = true;
         emit failed(link->token, code, message);
     }
-    // After setup, a controller error or service invalidation is how the native stack
-    // reports a vanished peer (often before `disconnected`); report it as link loss.
-    // Setup-time errors remain failures because the link never became usable.
-    void lose(Link* link)
+    // After setup, a peer-loss controller error (classifyQtBleControllerError) or service
+    // invalidation is how the native stack reports a vanished peer, often before
+    // `disconnected`. Report it as link loss and keep the native diagnostic.
+    void lose(Link* link, const QString& diagnostic)
     {
         if (!link->active || link->failed) return;
         link->failed = true;
-        emit closed(link->token);
+        emit lost(link->token, diagnostic);
     }
     void beginScan(std::uint64_t token)
     {
