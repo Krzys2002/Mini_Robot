@@ -215,6 +215,7 @@ int main(int argc, char* argv[])
     LiveVisualController visualControl{controller, world, robots, visualSettings,
         {}, MonotonicClock::now, nullptr, &controlTrace};
     visualControl.setImagePointUndistorter(OpenCvCalibrationUndistorter::undistortPoint);
+    visualControl.setImagePointDistorter(OpenCvCalibrationUndistorter::distortPoint);
     connectVisionTracking(vision, tracker, visualControl, [&controller] { controller.refreshWorld(); },
         MonotonicClock::now, [&visualControl](const MetricObservationBatchPtr& batch) { visualControl.receiveMeasurements(batch); });
     QObject::connect(&controller, &DesktopController::cameraInputChanged,

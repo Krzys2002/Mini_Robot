@@ -3,6 +3,7 @@
 #include "app/QtControlLoopScheduler.hpp"
 #include "control/GoalPointController.hpp"
 #include "vision/MetricObservation.hpp"
+#include "world/Workspace.hpp"
 #include <string_view>
 #include <functional>
 #include <QTimer>
@@ -29,6 +30,7 @@ class LiveVisualController final : public QObject {
 public:
     using Trace = std::function<void(std::string)>;
     using ImagePointUndistorter = std::function<std::optional<ImageCorner>(ImageCorner, const IntrinsicCalibration&)>;
+    using ImagePointDistorter = std::function<std::optional<ImageCorner>(ImageCorner, const IntrinsicCalibration&)>;
     LiveVisualController(DesktopController& desktop, WorldModel& world, RobotManager& robots,
                          LiveVisualSettings settings, Trace trace = {},
                          ControlLoop::Clock clock = MonotonicClock::now, QObject* parent = nullptr,
@@ -36,6 +38,7 @@ public:
     ~LiveVisualController() override;
     void setInput(const QString& source, bool streaming);
     void setImagePointUndistorter(ImagePointUndistorter undistorter);
+    void setImagePointDistorter(ImagePointDistorter distorter);
     // Invoke after RobotTracker ingestion. Metadata must match the authoritative
     // accepted timestamp; duplicate/old metadata cannot replace newer provenance.
     void receiveMeasurements(const MetricObservationBatchPtr& batch);
@@ -46,6 +49,21 @@ public:
     [[nodiscard]] QString description() const { return description_; }
     [[nodiscard]] std::optional<ControlCycle> lastCycle() const;
     [[nodiscard]] QString workspaceCalibrationRevision() const;
+    [[nodiscard]] QString imageSource() const { return source_; }
+    [[nodiscard]] RobotId selectedRobotId() const noexcept { return desktop_.selectedRobot(); }
+    [[nodiscard]] std::optional<std::string> workspaceFrameId() const { return world_.workspaceFrameId(); }
+    [[nodiscard]] std::optional<WorkspaceBounds> workspaceBounds() const { return world_.workspaceBounds(); }
+    // Metadata-only preview gate: deliberately does not project any image point.
+    [[nodiscard]] bool canMapImage(const QString& source, std::uint32_t width, std::uint32_t height,
+                                   Timestamp capturedAt, const QString& workspaceRevision) const;
+    [[nodiscard]] bool canEditPathFromImage(const QString& source, std::uint32_t width,
+        std::uint32_t height, Timestamp capturedAt, const QString& workspaceRevision) const;
+    // Pure coordinate conversions with live source/frame/revision and freshness
+    // gates. They never set a target or issue motion.
+    [[nodiscard]] std::optional<WorldPoint2D> mapImagePointToWorld(
+        const QString& source, std::uint32_t width, std::uint32_t height, double u, double v,
+        Timestamp capturedAt, const QString& workspaceRevision) const;
+    [[nodiscard]] std::optional<ImageCorner> mapWorldPointToRawImage(WorldPoint2D point) const;
     [[nodiscard]] std::optional<Pose2D> targetPose() const { return target_; }
 public slots:
     bool setTarget(double xMeters, double yMeters, double headingRadians);
@@ -99,5 +117,6 @@ private:
     QString source_, status_{QStringLiteral("Idle — apply a target and Start")}, description_;
     bool streaming_{};
     ImagePointUndistorter imagePointUndistorter_;
+    ImagePointDistorter imagePointDistorter_;
 };
 } // namespace micro_robot
