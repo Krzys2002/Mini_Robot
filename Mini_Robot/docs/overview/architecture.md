@@ -87,7 +87,8 @@ The current layers are:
 - `micro_robot_ui`: Qt Widgets presentation and operator request signals.
 - `micro_robot_control_loop`: Qt-free, per-robot supervisory service with an
   injected controller/clock, latest tracked inputs, timestamped cycle records,
-  bounded RobotManager commands and tracking/session inhibition. See
+  bounded RobotManager commands and tracking/session inhibition; includes the
+  opt-in [goal-point policy](goal-point-controller.md). See
   [supervisory control](supervisory-control.md) for scheduling and authority rules.
 - `micro_robot_desktop`: composition root selecting the native camera factory, simulated
   transport, and real system device-inventory adapter. The build selects the

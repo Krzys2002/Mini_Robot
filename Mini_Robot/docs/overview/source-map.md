@@ -67,6 +67,8 @@ reports are scope/history, not evidence that future modules are present.
 | [src/control/IController.hpp](../../src/control/IController.hpp) | [Supervisory controller boundary](supervisory-control.md) |
 | [src/control/ControlLoop.hpp](../../src/control/ControlLoop.hpp) | [Supervisory control service](supervisory-control.md) |
 | [src/control/ControlLoop.cpp](../../src/control/ControlLoop.cpp) | [Supervisory control service](supervisory-control.md) |
+| [src/control/GoalPointController.hpp](../../src/control/GoalPointController.hpp) | [Goal-point controller](goal-point-controller.md) |
+| [src/control/GoalPointController.cpp](../../src/control/GoalPointController.cpp) | [Goal-point controller](goal-point-controller.md) |
 | [src/app/QtControlLoopScheduler.hpp](../../src/app/QtControlLoopScheduler.hpp) | [Qt control scheduler](supervisory-control.md#qt-adapter-and-observability) |
 | [src/app/QtControlLoopScheduler.cpp](../../src/app/QtControlLoopScheduler.cpp) | [Qt control scheduler](supervisory-control.md#qt-adapter-and-observability) |
 | [src/infrastructure/configuration/ApplicationConfig.hpp](../../src/infrastructure/configuration/ApplicationConfig.hpp) | [configuration](configuration.md) |

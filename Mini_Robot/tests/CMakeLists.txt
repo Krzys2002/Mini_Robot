@@ -159,6 +159,12 @@ target_link_libraries(micro_robot_control_loop_tests PRIVATE
 micro_robot_target_defaults(micro_robot_control_loop_tests)
 gtest_discover_tests(micro_robot_control_loop_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
+add_executable(micro_robot_goal_controller_tests control/GoalPointControllerTest.cpp)
+target_link_libraries(micro_robot_goal_controller_tests PRIVATE
+    micro_robot_control_loop micro_robot_control micro_robot_tracking micro_robot_simulation GTest::gtest_main)
+micro_robot_target_defaults(micro_robot_goal_controller_tests)
+gtest_discover_tests(micro_robot_goal_controller_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
+
 add_executable(micro_robot_common_tests common/TypesTest.cpp common/AngleTest.cpp)
 target_link_libraries(micro_robot_common_tests PRIVATE micro_robot_common GTest::gtest_main)
 micro_robot_target_defaults(micro_robot_common_tests)
