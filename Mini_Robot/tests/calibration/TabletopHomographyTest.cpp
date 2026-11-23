@@ -2,6 +2,7 @@
 #include "calibration/WorkspaceProfile.hpp"
 #include <algorithm>
 #include <gtest/gtest.h>
+#include <cmath>
 #include <limits>
 
 namespace {
