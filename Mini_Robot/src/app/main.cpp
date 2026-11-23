@@ -259,7 +259,8 @@ int main(int argc, char* argv[])
     window.bindWorkspaceCalibration(workspace);
     window.bindCameraSelection(cameraSelection);
     QTimer trackingDisplayTimer;
-    trackingDisplayTimer.setInterval(100);
+    constexpr auto trackingDisplayInterval = std::chrono::milliseconds{100};
+    trackingDisplayTimer.setInterval(trackingDisplayInterval);
     QObject::connect(&trackingDisplayTimer, &QTimer::timeout, &controller, &DesktopController::refreshWorld);
     QObject::connect(&trackingDisplayTimer, &QTimer::timeout, &visualControl, &LiveVisualController::refresh);
     QTimer simulationTimer;

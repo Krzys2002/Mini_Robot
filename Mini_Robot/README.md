@@ -13,8 +13,8 @@ recorded-video replay, intrinsic calibration and profiles, AprilTag pixel
 observations and debug overlays, a metric WorldModel, RobotManager sessions,
 simulated transport, optional Qt BLE transport, configuration, and logging.
 The complete calibrated perception-to-motion loop is still unfinished: measured
-observations do not yet feed tracked WorldModel poses and closed-loop control.
-Displayed poses remain demo data. See [current capabilities and integration
+calibrated observations feed RobotTracker and metric WorldModel poses.
+Closed-loop motion control remains unfinished. See [current capabilities and integration
 limits](docs/overview/capabilities.md) for the authoritative status and hardware
 verification limits.
 The system camera list refreshes on device changes and lets the operator select,
