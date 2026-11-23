@@ -1,5 +1,6 @@
 #include "ui/ElevatedLocalizationDialog.hpp"
 #include "ui/CalibrationForm.hpp"
+#include "ui/ProfileFileDialog.hpp"
 
 #include <QCheckBox>
 #include <QLabel>
@@ -147,6 +148,10 @@ ElevatedLocalizationDialog::ElevatedLocalizationDialog(WorkspaceCalibrationContr
     save->setObjectName("robotCalibrationSave");
     save->setVisible(guided);
     actions->addWidget(save);
+    auto* saveFile = new QPushButton("Save as…", this);
+    saveFile->setObjectName("robotCalibrationSaveFile");
+    saveFile->setVisible(guided);
+    actions->addWidget(saveFile);
     auto* close = new QPushButton("Close", this);
     actions->addWidget(close);
     auto* next = new QPushButton("Next", this);
@@ -191,12 +196,13 @@ ElevatedLocalizationDialog::ElevatedLocalizationDialog(WorkspaceCalibrationContr
         const auto& draft = controller.draftProfile();
         return !state->dirty && controller.canActivate() && draft->localization && !draft->localization->mounts.empty();
     };
-    auto updateActions = [&controller, body, calculate, next, save, canAccept] {
+    auto updateActions = [&controller, body, calculate, next, save, saveFile, canAccept] {
         body->setEnabled(!controller.busy());
         calculate->setEnabled(!controller.busy() && controller.draftProfile() && controller.draftProfile()->homography);
         const bool ready = canAccept();
         next->setEnabled(ready);
         save->setEnabled(ready && controller.canSave());
+        saveFile->setEnabled(save->isEnabled());
     };
     auto edited = [inputs, confirmed, state, updateActions] {
         state->dirty = inputs->snapshot() != state->baseline;
@@ -264,6 +270,10 @@ ElevatedLocalizationDialog::ElevatedLocalizationDialog(WorkspaceCalibrationContr
         if (!canAccept() || controller.draftProfile()->localization->revision != revision) return;
         controller.activate();
         accept();
+    });
+    connect(saveFile, &QPushButton::clicked, this, [this, &controller, canAccept] {
+        const auto file = chooseProfileFile(this, ProfileFileKind::Workspace, QFileDialog::AcceptSave);
+        if (!file.isEmpty() && canAccept()) controller.save(file);
     });
     connect(save, &QPushButton::clicked, this, [&controller, this, canAccept] {
         if (canAccept() && controller.canSave()

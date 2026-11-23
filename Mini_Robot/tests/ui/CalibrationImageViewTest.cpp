@@ -1,9 +1,12 @@
 #include "ui/CalibrationImageView.hpp"
 
 #include <QApplication>
+#include <QDialog>
 #include <QImage>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QTest>
+#include <QVBoxLayout>
 #include <QWheelEvent>
 #include <gtest/gtest.h>
 
@@ -141,4 +144,67 @@ TEST_F(CalibrationImageViewTest, LetterboxAndMissingFrameCannotAddPoints)
     EXPECT_FALSE(controls_->isEnabled());
 }
 
+TEST(WorkspaceImageEditorTest, FullScreenKeepsViewportAndPointsAndReturnsWithEscape)
+{
+    QWidget owner;
+    auto* layout = new QVBoxLayout(&owner);
+    auto* editor = new WorkspaceImageEditor(&owner);
+    layout->addWidget(editor);
+    owner.resize(500, 360);
+    owner.show();
+    auto& image = editor->canvas();
+    auto* toggle = editor->findChild<QPushButton*>("workspaceImageFullScreen");
+    ASSERT_NE(toggle, nullptr);
+    EXPECT_FALSE(toggle->isEnabled());
+    image.setFrame(imageFrame());
+    ASSERT_TRUE(toggle->isEnabled());
+
+    std::vector<ImageCorner> clicks;
+    image.clicked = [&clicks](ImageCorner point) { clicks.push_back(point); };
+    image.corners.push_back({25, 40});
+    auto* flip = editor->findChild<QPushButton*>("workspaceImageFlipHorizontal");
+    ASSERT_NE(flip, nullptr);
+    flip->click();
+    auto* zoom = editor->findChild<QPushButton*>("workspaceImageZoomIn");
+    ASSERT_NE(zoom, nullptr);
+    zoom->click();
+
+    auto pickAtRelativePosition = [&image] {
+        const auto fitted = QSizeF(ImageWidth, ImageHeight).scaled(image.size(), Qt::KeepAspectRatio);
+        const auto position = QRectF(image.rect()).center() + QPointF{fitted.width() / 4, 0};
+        QMouseEvent press(QEvent::MouseButtonPress, position, position, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&image, &press);
+    };
+    QApplication::processEvents();
+    pickAtRelativePosition();
+
+    toggle->click();
+    auto* fullScreen = editor->findChild<QDialog*>("workspaceImageFullScreenWindow");
+    ASSERT_NE(fullScreen, nullptr);
+    ASSERT_TRUE(fullScreen->isFullScreen());
+    ASSERT_EQ(image.window(), fullScreen);
+    QApplication::processEvents();
+    pickAtRelativePosition();
+    ASSERT_EQ(clicks.size(), 2U);
+    EXPECT_NEAR(clicks.front().u, clicks.back().u, 1e-9);
+    EXPECT_NEAR(clicks.front().v, clicks.back().v, 1e-9);
+    EXPECT_EQ(image.corners.size(), 1U);
+    EXPECT_TRUE(flip->isChecked());
+
+    QTest::keyClick(fullScreen, Qt::Key_Escape);
+    EXPECT_EQ(image.window(), &owner);
+    EXPECT_EQ(toggle->text(), "Full screen");
+    EXPECT_EQ(image.corners.size(), 1U);
+    pickAtRelativePosition();
+    ASSERT_EQ(clicks.size(), 3U);
+    EXPECT_NEAR(clicks.front().u, clicks.back().u, 1e-9);
+
+    toggle->click();
+    ASSERT_TRUE(image.window()->isFullScreen());
+    image.setFrame({});
+    EXPECT_TRUE(toggle->isEnabled()); // Exit stays available after frame invalidation.
+    toggle->click();
+    EXPECT_EQ(image.window(), &owner);
+    EXPECT_FALSE(toggle->isEnabled());
+}
 } // namespace

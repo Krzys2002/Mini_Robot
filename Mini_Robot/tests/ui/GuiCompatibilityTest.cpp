@@ -84,6 +84,8 @@ struct GuiFixture {
 
     GuiFixture()
     {
+        QObject::connect(&controller, &DesktopController::calibrationInputChanged,
+                         &calibration, &CalibrationController::setInput);
         window.bindVision(vision);
         window.bindCalibration(calibration);
         window.bindCameraSelection(selection);
@@ -335,8 +337,12 @@ TEST(GuiCompatibilityTest, TabFollowsTheVisualOrderOfEnabledControls)
     fixture.selector()->setFocus(Qt::TabFocusReason);
     fixture.key(Qt::Key_Down); // Select a camera so that Start camera is enabled.
 
-    // Stop camera and Disconnect robot are disabled and skipped.
-    for (const char* name : {"openCalibration", "openVisionDebug", "startCamera", "robotSelector", "scanRobots", "connectRobot"}) {
+    // Calibration, Stop camera and Disconnect robot are disabled and skipped.
+    for (const char* name : {
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+             "openCalibrationUiPreview",
+#endif
+             "openVisionDebug", "startCamera", "openWorldView", "robotSelector", "scanRobots", "connectRobot"}) {
         fixture.key(Qt::Key_Tab);
         ASSERT_NE(fixture.window.focusWidget(), nullptr);
         EXPECT_EQ(fixture.window.focusWidget()->objectName().toStdString(), name);
@@ -352,11 +358,34 @@ TEST(GuiCompatibilityTest, CalibrationDialogOpensAndClosesWithTheMainWindow)
     GuiFixture fixture;
     ASSERT_TRUE(QTest::qWaitForWindowExposed(&fixture.window));
     auto* openCalibration = fixture.button("openCalibration");
-    fixture.click(openCalibration, openCalibration->rect().center());
     auto* wizard = fixture.window.findChild<CalibrationWizard*>();
     ASSERT_NE(wizard, nullptr);
+    EXPECT_FALSE(openCalibration->isEnabled());
+    openCalibration->click();
+    EXPECT_FALSE(wizard->isVisible());
+
+    fixture.selector()->setFocus(Qt::TabFocusReason);
+    fixture.key(Qt::Key_Down);
+    ASSERT_TRUE(fixture.button("startCamera")->isEnabled());
+    fixture.button("startCamera")->click();
+    EXPECT_FALSE(openCalibration->isEnabled()); // Still starting.
+    fixture.advanceTo(Timestamp{1s + 100ms});
+    ASSERT_TRUE(openCalibration->isEnabled());
+    fixture.click(openCalibration, openCalibration->rect().center());
     ASSERT_TRUE(QTest::qWaitForWindowExposed(wizard));
     EXPECT_TRUE(wizard->isWindow());
+
+    auto* restartCapture = wizard->findChild<QPushButton*>("calibrationRestart");
+    ASSERT_NE(restartCapture, nullptr);
+    EXPECT_TRUE(restartCapture->isEnabled());
+    fixture.button("stopCamera")->click();
+    EXPECT_FALSE(openCalibration->isEnabled());
+    EXPECT_FALSE(restartCapture->isEnabled());
+    fixture.advanceTo(Timestamp{1s + 200ms});
+    fixture.button("startCamera")->click();
+    fixture.advanceTo(Timestamp{1s + 300ms});
+    EXPECT_TRUE(openCalibration->isEnabled());
+    EXPECT_TRUE(restartCapture->isEnabled());
 
     // Closing through the platform window, as a window-manager close does.
     fixture.handle()->close();

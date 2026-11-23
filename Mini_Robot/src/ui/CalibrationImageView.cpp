@@ -1,6 +1,10 @@
 #include "ui/CalibrationImageView.hpp"
 
+#include <QDialog>
 #include <QGridLayout>
+#include <QHBoxLayout>
+#include <QHideEvent>
+#include <QVBoxLayout>
 #include <QImage>
 #include <QMouseEvent>
 #include <QPainter>
@@ -187,6 +191,11 @@ void WorkspaceImageView::wheelEvent(QWheelEvent* event)
 
 void WorkspaceImageView::resizeEvent(QResizeEvent* event)
 {
+    if (frame_ && event->oldSize().width() > 0 && event->oldSize().height() > 0) {
+        const QSizeF native(frame_->width, frame_->height);
+        const double previousWidth = native.scaled(event->oldSize(), Qt::KeepAspectRatio).width();
+        pan_ *= native.scaled(event->size(), Qt::KeepAspectRatio).width() / previousWidth;
+    }
     constrainPan();
     QWidget::resizeEvent(event);
 }
@@ -275,5 +284,78 @@ void WorkspaceImageView::paintEvent(QPaintEvent*)
     }
 
 }
+
+WorkspaceImageEditor::WorkspaceImageEditor(QWidget* parent) : QWidget(parent)
+{
+    setObjectName(QStringLiteral("workspaceImageEditor"));
+    layout_ = new QVBoxLayout(this);
+    layout_->setContentsMargins(0, 0, 0, 0);
+    panel_ = new QWidget(this);
+    auto* panelLayout = new QVBoxLayout(panel_);
+    panelLayout->setContentsMargins(0, 0, 0, 0);
+    auto* tools = new QHBoxLayout;
+    canvas_ = new WorkspaceImageView(panel_);
+    tools->addWidget(canvas_->createControls(panel_), 1);
+    fullScreenButton_ = new QPushButton(QStringLiteral("Full screen"), panel_);
+    fullScreenButton_->setObjectName(QStringLiteral("workspaceImageFullScreen"));
+    fullScreenButton_->setToolTip(QStringLiteral("Open the editor full screen. Press Esc to return."));
+    fullScreenButton_->setAutoDefault(false);
+    fullScreenButton_->setEnabled(false);
+    tools->addWidget(fullScreenButton_);
+    panelLayout->addLayout(tools);
+    panelLayout->addWidget(canvas_, 1);
+    layout_->addWidget(panel_);
+    connect(fullScreenButton_, &QPushButton::clicked, this, &WorkspaceImageEditor::toggleFullScreen);
+    connect(canvas_, &WorkspaceImageView::frameAvailabilityChanged, this, [this](bool available) {
+        hasFrame_ = available;
+        fullScreenButton_->setEnabled(available || fullScreen_);
+    });
+}
+
+void WorkspaceImageEditor::toggleFullScreen()
+{
+    if (fullScreen_) {
+        fullScreen_->reject();
+        return;
+    }
+    if (!hasFrame_) return;
+
+    auto* dialog = new QDialog(this);
+    fullScreen_ = dialog;
+    dialog->setObjectName(QStringLiteral("workspaceImageFullScreenWindow"));
+    dialog->setWindowTitle(QStringLiteral("Calibration image editor"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setAttribute(Qt::WA_QuitOnClose, false);
+    dialog->setWindowModality(Qt::WindowModal);
+    auto* fullScreenLayout = new QVBoxLayout(dialog);
+    fullScreenLayout->addWidget(panel_);
+    fullScreenButton_->setText(QStringLiteral("Exit full screen"));
+    connect(dialog, &QDialog::finished, this, [this] {
+        layout_->addWidget(panel_);
+        panel_->show();
+        fullScreen_.clear();
+        fullScreenButton_->setText(QStringLiteral("Full screen"));
+        fullScreenButton_->setEnabled(hasFrame_);
+    });
+    dialog->showFullScreen();
+}
+
+void WorkspaceImageEditor::hideEvent(QHideEvent* event)
+{
+    if (fullScreen_) fullScreen_->reject();
+    QWidget::hideEvent(event);
+}
+
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+void WorkspaceImageEditor::addSampleReset(std::function<void()> reset)
+{
+    auto* button = new QPushButton(QStringLiteral("Clear sample points"), panel_);
+    button->setObjectName(QStringLiteral("workspaceImageSampleReset"));
+    button->setAutoDefault(false);
+    panel_->layout()->addWidget(button);
+    connect(button, &QPushButton::clicked, this, std::move(reset));
+}
+#endif
+
 
 } // namespace micro_robot

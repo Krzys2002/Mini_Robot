@@ -41,8 +41,9 @@ points. It does not establish a safe extrapolation region or permission to contr
 
 ## Operator procedure
 
-1. Select and start the intended camera, then open **Calibration…**. When the
-   first stage is the only available starting point, it opens directly.
+1. Select the intended camera and press **Start camera**. **Calibration…**
+   becomes available once the camera is streaming. When the first stage is the
+   only available starting point, it opens directly.
    In **Camera**, calculate and review intrinsics, or use the matching saved
    profile. Select **Accept and next** to continue to **Workspace**.
 2. Enter an explicit workspace identity and the measured lengths along +X and +Y.
@@ -53,7 +54,8 @@ points. It does not establish a safe extrapolation region or permission to contr
    Click C1 (physical base), C2 (+X neighbour), C3 (opposite) and C4 (+Y neighbour).
    Use the wheel or zoom buttons and **Pan** to inspect corners. The two flip
    controls change the display orientation while the selected pixels and physical
-   axis labels retain their original calibration coordinates.
+   axis labels retain their original calibration coordinates. **Full screen**
+   enlarges the image editor. Press **Esc** or choose **Exit full screen** to return.
 4. Review the perimeter, axis arrows and measured lengths. Use the corner cells,
    **Undo last corner**, or **Reselect selected corner** to correct mistakes.
    Select **Accept and next** to confirm the boundary and open **Tabletop**.
@@ -67,8 +69,12 @@ points. It does not establish a safe extrapolation region or permission to contr
    correspondences can fit closely even when measurements are wrong, and an
    absent Check set is reported separately. Select **Accept and next** to
    install the reviewed transform and open **Robot**.
-7. **Save transform** stores the draft atomically. To reuse a saved transform,
-   enter its workspace identity in **Workspace** and select **Load transform**.
+7. **Save to app library** stores the draft atomically. To reuse a library
+   transform, enter its identity in **Workspace** and select **Load from app
+   library**. For a named file, choose **Save profile as…** in Tabletop or
+   **Save as…** in Robot or Surveyed References. Use **Load profile from file…**
+   in Workspace to restore the identity and data from the file. Keep any linked
+   `.acquisition` file beside its `.workspace` file with its original name.
    The loader checks the camera, resolution and lens calibration. Advance to
    **Tabletop**, then optionally freeze a fresh frame, add independent Check rows
    and **Verify checks** before accepting. Saving and loading require a stable
@@ -92,13 +98,18 @@ Late worker completion cannot restore an old result. Capture, solving and disk I
 are serialized off the GUI thread; shutdown drains the worker asynchronously.
 Closing the Workspace or Tabletop screen keeps its draft for this session.
 The calibration chooser lists the stages available for the current camera and
-accepted calibration.
+accepted calibration. Debug builds also offer **Debug: preview calibration
+screens…** for viewing each stage before the camera or prerequisite
+calibrations are ready. The Workspace and Tabletop tabs provide a sample frame
+for practising point placement, zoom, pan, flips and full screen. Sample points
+stay in the preview.
 
 **Top View** rectifies live camera pixels over the accepted tabletop bounds.
 It is a display view with +X right and +Y up. Objects above the tabletop will
-show parallax distortion. The **World Model View** retains its metric
-presentation, and tracking and control continue to use the existing calibrated
-observation pipeline.
+show parallax distortion. Select **World View…** next to **Top View…** in the
+main window to open the **World Model View** with the same overhead workspace map
+used in the distance preview. It shows current robot positions and headings in
+the signed workspace coordinates. Tracking and control use the calibrated observation pipeline.
 
 ## Estimation and persistence
 

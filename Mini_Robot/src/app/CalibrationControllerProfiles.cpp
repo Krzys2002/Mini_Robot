@@ -14,17 +14,22 @@ void CalibrationController::setProfileServices(std::unique_ptr<ICalibrationProfi
     undistorter_ = std::move(undistorter);
     emit changed();
 }
-void CalibrationController::reloadProfile()
+void CalibrationController::reloadProfile(const QString& file)
 {
     if (!persistentIdentity_ || !profileStore_ || !latest_ || shuttingDown_ || busy_) return;
+    if (profileIoBusy_) {
+        if (file.isEmpty()) reloadPending_ = true;
+        return;
+    }
     profileLookupRequested_ = true;
-    if (profileIoBusy_) { reloadPending_ = true; return; }
     profileIoBusy_ = true;
     reloadPending_ = false;
-    profile_.reset();
-    undistortedPreview_ = false;
-    ++previewEpoch_;
-    presentPreview(previewFrame_, previewCorners_, previewAccepted_);
+    if (file.isEmpty()) {
+        profile_.reset();
+        undistortedPreview_ = false;
+        ++previewEpoch_;
+        presentPreview(previewFrame_, previewCorners_, previewAccepted_);
+    }
     profileMessage_ = QStringLiteral("Loading the profile for this camera and delivered resolution…");
     emit changed();
     const auto store = profileStore_;
@@ -32,10 +37,11 @@ void CalibrationController::reloadProfile()
     const auto width = latest_->width;
     const auto height = latest_->height;
     const auto generation = profileGeneration_;
-    QMetaObject::invokeMethod(workerContext_, [this, store, id, width, height, generation] {
+    QMetaObject::invokeMethod(workerContext_, [this, store, id, width, height, generation, file] {
         ProfileLoadOutcome outcome;
         try {
-            outcome = store->load(id, width, height);
+            outcome = file.isEmpty() ? store->load(id, width, height)
+                : store->loadFile(file.toStdString(), id, width, height);
             if (outcome.state == ProfileLoadState::Loaded) {
                 if (!outcome.calibration) outcome.error = "Profile store returned no model.";
                 else {
@@ -45,20 +51,30 @@ void CalibrationController::reloadProfile()
             }
         } catch (const std::exception& error) { outcome.error = error.what(); }
         catch (...) { outcome.error = "Unknown profile loading failure."; }
-        QMetaObject::invokeMethod(this, [this, generation, outcome = std::move(outcome)]() mutable {
+        QMetaObject::invokeMethod(this, [this, generation, file, outcome = std::move(outcome)]() mutable {
             profileIoBusy_ = false;
             if (shuttingDown_) return;
             if (generation == profileGeneration_) {
                 if (outcome.state == ProfileLoadState::Loaded && outcome.calibration && outcome.error.empty()) {
                     profile_ = std::move(outcome.calibration);
-                    profileMessage_ = QStringLiteral("Saved profile loaded for this camera and resolution.");
+                    if (!file.isEmpty()) {
+                        resetCapture();
+                        undistortedPreview_ = false;
+                        presentPreview(latest_, {}, false);
+                    }
+                    profileMessage_ = file.isEmpty() ? QStringLiteral("Saved profile loaded for this camera and resolution.")
+                        : QStringLiteral("Camera profile loaded from %1").arg(file);
                     if (hasReprojectionWarning(*profile_, intrinsicConfig_))
                         profileMessage_ += QStringLiteral(" Warning: reprojection error exceeds threshold.");
                 } else {
-                    profile_.reset();
-                    profileMessage_ = outcome.state == ProfileLoadState::Missing && outcome.error.empty()
-                        ? QStringLiteral("No saved profile for this camera/resolution. Capture and save a calibration.")
-                        : QStringLiteral("Profile rejected: %1").arg(QString::fromStdString(outcome.error));
+                    if (file.isEmpty()) profile_.reset();
+                    if (outcome.state == ProfileLoadState::Missing && outcome.error.empty()) {
+                        profileMessage_ = file.isEmpty()
+                            ? QStringLiteral("No saved profile for this camera/resolution. Capture and save a calibration.")
+                            : QStringLiteral("No profile file found at %1").arg(file);
+                    } else {
+                        profileMessage_ = QStringLiteral("Profile rejected: %1").arg(QString::fromStdString(outcome.error));
+                    }
                 }
                 log_.info(profileMessage_.toStdString());
             }
@@ -67,7 +83,7 @@ void CalibrationController::reloadProfile()
         }, Qt::QueuedConnection);
     }, Qt::QueuedConnection);
 }
-void CalibrationController::saveProfile()
+void CalibrationController::saveProfile(const QString& file)
 {
     if (!canSaveProfile() || busy_) return;
     profileIoBusy_ = true;
@@ -76,17 +92,21 @@ void CalibrationController::saveProfile()
     const auto store = profileStore_;
     profileMessage_ = QStringLiteral("Saving calibration profile…");
     emit changed();
-    QMetaObject::invokeMethod(workerContext_, [this, store, calibration, generation] {
+    QMetaObject::invokeMethod(workerContext_, [this, store, calibration, generation, file] {
         std::string error;
-        try { error = store->save(calibration); }
+        try { error = file.isEmpty() ? store->save(calibration) : store->saveFile(file.toStdString(), calibration); }
         catch (const std::exception& e) { error = e.what(); }
         catch (...) { error = "Unknown profile saving failure."; }
-        QMetaObject::invokeMethod(this, [this, generation, error = std::move(error)] {
+        QMetaObject::invokeMethod(this, [this, generation, file, error = std::move(error)] {
             profileIoBusy_ = false;
             if (shuttingDown_) return;
             if (generation == profileGeneration_) {
-                profileMessage_ = error.empty() ? QStringLiteral("Calibration saved for this camera and resolution.")
-                    : QStringLiteral("Profile save failed: %1").arg(QString::fromStdString(error));
+                if (error.empty()) {
+                    profileMessage_ = file.isEmpty() ? QStringLiteral("Calibration saved for this camera and resolution.")
+                        : QStringLiteral("Camera profile saved to %1").arg(file);
+                } else {
+                    profileMessage_ = QStringLiteral("Profile save failed: %1").arg(QString::fromStdString(error));
+                }
                 log_.info(profileMessage_.toStdString());
             }
             if (reloadPending_ || !profileLookupRequested_) reloadProfile();

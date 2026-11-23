@@ -2,6 +2,7 @@
 #include "calibration/QtCalibrationProfileStore.hpp"
 #include "app/DesktopController.hpp"
 #include "ui/CalibrationWizard.hpp"
+#include "ui/CalibrationImageView.hpp"
 #include "ui/MainWindow.hpp"
 #include "ui/WorkspaceCalibrationDialog.hpp"
 #include "app/WorkspaceCalibrationController.hpp"
@@ -20,6 +21,12 @@
 #include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QLabel>
+#include <QLineEdit>
+#include <QTabWidget>
+#include <QTest>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QImage>
 #include <QPixmap>
@@ -474,6 +481,89 @@ TEST(CalibrationWizardTest, ClosingMainWindowClosesItsCalibrationDialog)
     EXPECT_FALSE(dialog->isVisible());
     EXPECT_EQ(fixture.controller->session().state(), CalibrationCaptureState::Cancelled);
 }
+TEST(GuidedCalibrationTest, StagePreviewIsDebugOnlyAndDoesNotCreateCalibration)
+{
+    CaptureFixture fixture;
+    fixture.controller->setInput("camera-a", false, true);
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    WorkspaceCalibrationController workspace{std::make_unique<OpenCvWorkspaceHomographySolver>(),
+        std::make_unique<DeterministicUndistorter>(), std::make_unique<QtWorkspaceProfileStore>(directory.path()),
+        fixture.logger.channel("workspace")};
+    SimulationTransport transport;
+    WorldModel world;
+    RobotManager robots{transport, world};
+    DesktopController desktop{robots, world, RobotId{1}, fixture.logger.channel("desktop")};
+    MainWindow window{desktop};
+    window.bindCalibration(*fixture.controller);
+    window.bindWorkspaceCalibration(workspace);
+    window.show();
+
+    EXPECT_FALSE(window.findChild<QPushButton*>("openCalibration")->isEnabled());
+    auto* action = window.findChild<QPushButton*>("openCalibrationUiPreview");
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+    ASSERT_NE(action, nullptr);
+    action->click();
+    auto* preview = window.findChild<QDialog*>("calibrationUiPreview");
+    ASSERT_NE(preview, nullptr);
+    ASSERT_TRUE(preview->isVisible());
+    auto* tabs = preview->findChild<QTabWidget*>("calibrationPreviewStages");
+    ASSERT_NE(tabs, nullptr);
+    const auto stages = {"Camera", "Workspace", "Tabletop", "Robot", "Surveyed references"};
+    const auto controls = {"calibrationRestart", "workspaceFreeze", "workspaceCalculate",
+                           "estimateExtrinsics", "applyReferenceRegistry"};
+    ASSERT_EQ(tabs->count(), static_cast<int>(stages.size()));
+    for (int index = 0; index < tabs->count(); ++index) {
+        tabs->setCurrentIndex(index);
+        EXPECT_EQ(tabs->tabText(index), QString::fromLatin1(*(stages.begin() + index)));
+        auto* page = tabs->currentWidget();
+        ASSERT_TRUE(page->isVisible());
+        auto* button = page->findChild<QPushButton*>(*(controls.begin() + index));
+        ASSERT_NE(button, nullptr);
+        EXPECT_FALSE(button->isEnabled());
+        button->click();
+    }
+    for (int index : {1, 2}) {
+        tabs->setCurrentIndex(index);
+        auto* page = tabs->currentWidget();
+        auto* image = page->findChild<WorkspaceImageView*>("workspaceImage");
+        ASSERT_NE(image, nullptr);
+        auto* zoom = page->findChild<QPushButton*>("workspaceImageZoomIn");
+        ASSERT_NE(zoom, nullptr);
+        ASSERT_TRUE(zoom->isEnabled());
+        zoom->click();
+        QApplication::processEvents();
+        QTest::mouseClick(image, Qt::LeftButton, {}, image->rect().center());
+        EXPECT_EQ(image->corners.size(), index == 1 ? 1U : 0U);
+        EXPECT_EQ(image->markers.size(), index == 2 ? 1U : 0U);
+
+        auto* fullScreen = page->findChild<QPushButton*>("workspaceImageFullScreen");
+        ASSERT_NE(fullScreen, nullptr);
+        fullScreen->click();
+        auto* editorWindow = page->findChild<QDialog*>("workspaceImageFullScreenWindow");
+        ASSERT_NE(editorWindow, nullptr);
+        EXPECT_EQ(image->window(), editorWindow);
+        EXPECT_TRUE(editorWindow->isFullScreen());
+        QTest::keyClick(editorWindow, Qt::Key_Escape);
+        EXPECT_EQ(image->window(), preview);
+
+        auto* clear = page->findChild<QPushButton*>("workspaceImageSampleReset");
+        ASSERT_NE(clear, nullptr);
+        clear->click();
+        EXPECT_TRUE(image->corners.empty());
+        EXPECT_TRUE(image->markers.empty());
+    }
+    EXPECT_TRUE(tabs->widget(1)->findChild<QLineEdit*>("workspaceWidth")->isReadOnly());
+    EXPECT_FALSE(fixture.controller->profile());
+    EXPECT_TRUE(fixture.controller->session().views().empty());
+    EXPECT_FALSE(workspace.draftProfile());
+    EXPECT_FALSE(workspace.draftBounds());
+    preview->close();
+    EXPECT_FALSE(window.findChild<QPushButton*>("openCalibration")->isEnabled());
+#else
+    EXPECT_EQ(action, nullptr);
+#endif
+}
 TEST(GuidedCalibrationTest, PrerequisitesAndAcceptanceAdvanceCameraWorkspaceTabletopAndRobot)
 {
     CaptureFixture fixture;
@@ -618,6 +708,65 @@ TEST(CalibrationWizardTest, DesktopRoutesActualFramesAndStopInvalidatesCalibrati
     desktop.shutdown();
 }
 
+TEST(CalibrationProfileUiTest, NamedFileDialogsSaveAndLoadCameraProfile)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    ASSERT_TRUE(QDir(directory.path()).mkdir("field records"));
+    CaptureFixture fixture{{}, directory.filePath("automatic")};
+    fixture.controller->restart();
+    fixture.capture(1); fixture.capture(2); fixture.capture(3);
+    fixture.controller->finish();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+    ASSERT_TRUE(fixture.controller->profile());
+    const auto calibration = *fixture.controller->profile();
+    const auto file = directory.filePath(QStringLiteral("field records/camera żółć.intrinsics"));
+
+    struct UseWidgetFileDialog {
+        const bool previous = QCoreApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+        UseWidgetFileDialog() { QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs); }
+        ~UseWidgetFileDialog() { QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, previous); }
+    } useWidgetFileDialog;
+    auto select = [](const QString& path, QFileDialog::AcceptMode mode) {
+        QTimer::singleShot(0, [path, mode] {
+            auto* picker = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+            ASSERT_NE(picker, nullptr);
+            EXPECT_EQ(picker->acceptMode(), mode);
+            picker->setDirectory(QFileInfo(path).absolutePath());
+            picker->selectFile(QFileInfo(path).fileName());
+            static_cast<QDialog*>(picker)->accept();
+        });
+    };
+    ASSERT_TRUE(fixture.button("calibrationSaveFile")->isEnabled());
+    select(directory.filePath(QStringLiteral("field records/camera żółć")), QFileDialog::AcceptSave);
+    fixture.button("calibrationSaveFile")->click();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    EXPECT_TRUE(QFileInfo::exists(file));
+    EXPECT_TRUE(fixture.controller->profileMessage().contains(file));
+
+    // The explicit export remains separate from the automatic camera lookup.
+    fixture.controller->setInput("camera-a", false, true);
+    fixture.controller->setInput("camera-a", true, true);
+    fixture.frame(4);
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    EXPECT_FALSE(fixture.controller->profile());
+    select(file, QFileDialog::AcceptOpen);
+    fixture.button("calibrationLoadFile")->click();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    ASSERT_TRUE(fixture.controller->profile());
+    EXPECT_EQ(fixture.controller->profile()->cameraMatrix, calibration.cameraMatrix);
+
+    auto different = calibration;
+    different.sourceId = "another-camera";
+    QtCalibrationProfileStore store(directory.path());
+    const auto incompatible = directory.filePath("incompatible.intrinsics");
+    ASSERT_TRUE(store.saveFile(incompatible.toStdString(), different).empty());
+    fixture.controller->reloadProfile(incompatible);
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
+    EXPECT_TRUE(fixture.controller->profileMessage().contains("rejected"));
+    ASSERT_TRUE(fixture.controller->profile());
+    EXPECT_EQ(fixture.controller->profile()->sourceId, calibration.sourceId);
+}
 TEST(CalibrationProfileUiTest, SavesCalculatedProfileAndReloadsAfterControllerRestart)
 {
     QTemporaryDir directory;

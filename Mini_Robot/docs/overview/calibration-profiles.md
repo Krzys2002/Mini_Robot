@@ -11,16 +11,22 @@ with durable profiles for an exact camera identity and delivered image size.
    its identity, dimensions, RMS and loaded/missing/rejected status.
 2. To create a replacement, collect and inspect diverse board views and calculate
    intrinsics. **Accept and next** installs the reviewed profile for this session.
-   To persist it, reopen **Camera** and select **Save profile**. Saving atomically
+   To persist it, reopen **Camera** and select **Save to app library**. Saving atomically
    replaces only this exact key after confirmation.
    High reprojection RMS remains an advisory warning; inspect/recapture before use.
-3. **Reload saved profile** discards the active preview profile and reads the exact
+3. **Load from app library** discards the active preview profile and reads the exact
    key again. It does not fabricate captured observations or a new solver result.
    The saved model loads again after camera stop/start or application restart.
 4. Toggle **Undistorted preview** to compare raw and corrected pixels. It is
    available only with a valid compatible model and a delivered frame, defaults
    OFF and resets on dialog close, reload, camera loss/change or resolution change. A newly
    calculated, unsaved model can also be previewed before saving.
+
+Use **Save profile as…** to choose a folder and filename for an
+`.intrinsics` file. **Load profile from file…** applies the same camera and
+resolution checks and keeps the current profile if the selected file is invalid.
+Named copies load when explicitly selected. The automatic lookup uses the app
+library.
 
 Profiles live in the application's per-user Qt `AppConfigLocation`, under
 `calibration/`. This is independent of a custom settings file passed with

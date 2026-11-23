@@ -111,7 +111,11 @@ public:
 
     [[nodiscard]] bool canLoad() const
     {
-        return !shuttingDown_ && !busy_ && persistent_ && intrinsics_ && !workspaceId_.isEmpty();
+        return canLoadFile() && !workspaceId_.isEmpty();
+    }
+    [[nodiscard]] bool canLoadFile() const
+    {
+        return !shuttingDown_ && !busy_ && persistent_ && intrinsics_;
     }
 
     [[nodiscard]] bool isStopped() const;
@@ -125,8 +129,8 @@ public slots:
     void calculate();
     void verify();
     void activate();
-    void save();
-    void load();
+    void save(const QString& file = {});
+    void load(const QString& file = {});
     void shutdown();
 signals:
     void changed();

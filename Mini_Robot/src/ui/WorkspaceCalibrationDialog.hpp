@@ -13,6 +13,7 @@ class QLabel;
 class QPushButton;
 
 namespace micro_robot {
+class WorkspaceImageEditor;
 class WorkspaceImageView;
 class WorkspaceReferenceModel;
 class WorkspaceBoardPanel;
@@ -25,6 +26,9 @@ public:
     enum class Stage { Combined, Workspace, Tabletop };
     void setStage(Stage stage);
     [[nodiscard]] Stage stage() const { return stage_; }
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+    void showSampleFrame(FramePtr frame);
+#endif
     explicit WorkspaceCalibrationDialog(WorkspaceCalibrationController& controller,
                                         QWidget* parent = nullptr);
 
@@ -36,7 +40,11 @@ private:
     void configure(bool confirmLoss = true);
     void restoreReferences();
     WorkspaceCalibrationController& controller_;
+    WorkspaceImageEditor* editor_{};
     WorkspaceImageView* image_{};
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+    bool sampleFrame_{};
+#endif
     QLineEdit* identity_{};
     QLineEdit *width_{}, *height_{}, *originX_{}, *originY_{};
     QComboBox* units_{};
@@ -61,6 +69,7 @@ private:
     QPushButton* distance_{};
     QPushButton* diagnostics_{};
     QLabel* message_{};
+    QPushButton *saveFile_{}, *loadFile_{};
     QPushButton *freeze_{}, *calculate_{}, *save_{}, *load_{}, *verify_{}, *activate_{};
     QPushButton *confirm_{}, *undo_{}, *reset_{}, *reselect_{}, *originPick_{}, *add_{}, *remove_{};
     std::optional<std::size_t> replacingCorner_;

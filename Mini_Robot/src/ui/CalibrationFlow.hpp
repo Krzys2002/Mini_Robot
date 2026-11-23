@@ -19,6 +19,9 @@ public:
     CalibrationFlow(CalibrationController& camera, QWidget* parent);
     void bindWorkspace(WorkspaceCalibrationController& workspace);
     void open();
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+    void openPreview();
+#endif
     bool close();
     bool confirmCameraChange();
 
@@ -33,6 +36,9 @@ private:
     CalibrationWizard* cameraDialog_;
     WorkspaceCalibrationDialog* workspaceDialog_{};
     QPointer<QDialog> current_;
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+    QPointer<QDialog> preview_;
+#endif
     std::string acceptedWorkspaceFrame_;
     std::string acceptedWorkspaceId_;
 };

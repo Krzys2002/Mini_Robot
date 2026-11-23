@@ -467,7 +467,7 @@ void WorkspaceCalibrationController::activate()
                            "measured errors is required; no automatic accuracy threshold is applied."));
 }
 
-void WorkspaceCalibrationController::save()
+void WorkspaceCalibrationController::save(const QString& file)
 {
     if (!canSave())
         return;
@@ -479,14 +479,15 @@ void WorkspaceCalibrationController::save()
     publish(QStringLiteral("Saving workspace profile…"));
     QMetaObject::invokeMethod(
         workerContext_,
-        [this, profile, generation, acquisition] {
+        [this, profile, generation, acquisition, file] {
             std::string error;
             try {
                 if (!profile.acquisitionId.empty()) {
                     error=acquisition ? validateWorkspaceAcquisition(*acquisition) : "Acquisition provenance is unavailable; calculate a complete dataset before saving.";
-                    if (error.empty()) error=store_->saveAcquisition(profile,*acquisition);
+                    if (error.empty()) error = file.isEmpty() ? store_->saveAcquisition(profile, *acquisition)
+                        : store_->saveFile(file.toStdString(), profile, acquisition.get());
                 }
-                else error = store_->save(profile);
+                else error = file.isEmpty() ? store_->save(profile) : store_->saveFile(file.toStdString(), profile, nullptr);
             } catch (const std::exception& e) {
                 error = e.what();
             } catch (...) {
@@ -494,15 +495,18 @@ void WorkspaceCalibrationController::save()
             }
             QMetaObject::invokeMethod(
                 this,
-                [this, generation, error, acquisition] {
+                [this, generation, error, acquisition, file] {
                     busy_ = false;
                     if (shuttingDown_)
                         return;
                     if (generation == generation_) {
                         if (error.empty() && acquisition) draftAcquisition_=acquisition;
-                        publish(error.empty() ? QStringLiteral("Workspace transform saved atomically.")
-                                              : QStringLiteral("Workspace save failed: %1")
-                                                    .arg(QString::fromStdString(error)));
+                        if (error.empty()) {
+                            publish(file.isEmpty() ? QStringLiteral("Workspace transform saved atomically.")
+                                : QStringLiteral("Workspace profile saved to %1").arg(file));
+                        } else {
+                            publish(QStringLiteral("Workspace save failed: %1").arg(QString::fromStdString(error)));
+                        }
                     } else
                         emit changed();
                 },
@@ -511,9 +515,9 @@ void WorkspaceCalibrationController::save()
         Qt::QueuedConnection);
 }
 
-void WorkspaceCalibrationController::load()
+void WorkspaceCalibrationController::load(const QString& file)
 {
-    if (!canLoad())
+    if (!canLoadFile() || (file.isEmpty() && !canLoad()))
         return;
     const auto id = workspaceId_.toStdString();
     const auto active = *intrinsics_;
@@ -522,13 +526,13 @@ void WorkspaceCalibrationController::load()
     publish(QStringLiteral("Loading workspace transform…"));
     QMetaObject::invokeMethod(
         workerContext_,
-        [this, id, active, generation] {
+        [this, id, active, generation, file] {
             WorkspaceProfileLoadOutcome result;
             try {
-                result = store_->load(id, active);
+                result = file.isEmpty() ? store_->load(id, active) : store_->loadFile(file.toStdString(), active);
                 if (result.profile) {
                     result.error = workspaceCalibrationCompatibilityError(*result.profile, active);
-                    if (result.profile->workspaceId != id || !result.profile->homography)
+                    if ((file.isEmpty() && result.profile->workspaceId != id) || !result.profile->homography)
                         result.error = "Loaded workspace identity/transform mismatch.";
                     if (!result.profile->acquisitionId.empty()) {
                         if (!result.acquisition) result.error="Linked acquisition provenance is missing.";
@@ -544,7 +548,7 @@ void WorkspaceCalibrationController::load()
             }
             QMetaObject::invokeMethod(
                 this,
-                [this, generation, result = std::move(result)] {
+                [this, generation, file, result = std::move(result)] {
                     busy_ = false;
                     if (shuttingDown_)
                         return;
@@ -556,6 +560,7 @@ void WorkspaceCalibrationController::load()
                         invalidate(false);
                         ++referencesRevision_;
                         draft_ = result.profile;
+                        workspaceId_ = QString::fromStdString(draft_->workspaceId);
                         bounds_ = draft_->bounds;
                         frameId_ = draft_->frameId;
                         corners_.clear();
@@ -586,7 +591,8 @@ void WorkspaceCalibrationController::load()
                     } else
                         publish(
                             result.state == ProfileLoadState::Missing && result.error.empty()
-                                ? QStringLiteral("No saved workspace transform for this camera/resolution.")
+                                ? (file.isEmpty() ? QStringLiteral("No saved workspace transform for this camera/resolution.")
+                                                  : QStringLiteral("No workspace profile file found at %1").arg(file))
                                 : QStringLiteral("Workspace profile rejected: %1")
                                       .arg(QString::fromStdString(result.error)));
                 },

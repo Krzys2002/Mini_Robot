@@ -64,6 +64,7 @@ public:
     [[nodiscard]] const QString& message() const noexcept { return message_; }
     [[nodiscard]] const QString& captureFeedback() const noexcept { return captureFeedback_; }
     [[nodiscard]] bool busy() const noexcept { return busy_; }
+    [[nodiscard]] bool isStreaming() const noexcept { return streaming_ && !shuttingDown_; }
     [[nodiscard]] bool canCapture() const;
     // GUI-thread access; copy the validated value before use on another worker.
     // Cleared on restart, cancellation, source/resolution change or source loss.
@@ -72,8 +73,8 @@ public:
     [[nodiscard]] bool isStopped() const { return worker_.isFinished() && liveWorker_.isFinished(); }
 
 public slots:
-    void saveProfile();
-    void reloadProfile();
+    void saveProfile(const QString& file = {});
+    void reloadProfile(const QString& file = {});
     void setUndistortedPreview(bool enabled);
     void restart();
     void capture();

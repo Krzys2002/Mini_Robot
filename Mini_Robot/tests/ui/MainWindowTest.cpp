@@ -1,7 +1,12 @@
 #include "ui/MainWindow.hpp"
+#include "ui/WorkspaceMapPainting.hpp"
 #include "ui/VisionDebugView.hpp"
 #include "app/VisionController.hpp"
 #include "app/DesktopController.hpp"
+#include "app/WorkspaceCalibrationController.hpp"
+#include "calibration/OpenCvCalibrationUndistorter.hpp"
+#include "calibration/OpenCvWorkspaceHomographySolver.hpp"
+#include "calibration/QtWorkspaceProfileStore.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include "simulation/FakeCameraSourceFactory.hpp"
 #include "simulation/SimulationTransport.hpp"
@@ -9,7 +14,10 @@
 #include "../calibration/HomographyFixtures.hpp"
 
 #include <QApplication>
+#include <QDialog>
+#include <QTemporaryDir>
 #include <QEventLoop>
+#include <QImage>
 #include <QLabel>
 #include <QPushButton>
 #include <QStatusBar>
@@ -19,6 +27,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -159,6 +168,63 @@ TEST(DesktopIntegrationTest, TabletopConventionAndUnconfiguredWorkspaceAreVisibl
     EXPECT_TRUE(fixture.label("workspaceDescription")->text().contains(QStringLiteral("not configured")));
     const auto screenshot = qEnvironmentVariable("MICRO_ROBOT_WORKSPACE_SCREENSHOT");
     if (!screenshot.isEmpty()) EXPECT_TRUE(fixture.window.grab().save(screenshot));
+}
+
+TEST(DesktopIntegrationTest, WorldViewOpensBesideTopViewAndShowsCurrentWorldModel)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    DesktopFixture fixture;
+    WorkspaceCalibrationController workspace{std::make_unique<OpenCvWorkspaceHomographySolver>(),
+        std::make_unique<OpenCvCalibrationUndistorter>(),
+        std::make_unique<QtWorkspaceProfileStore>(directory.path()), fixture.logger.channel("workspace")};
+    fixture.window.bindTopView(fixture.controller, workspace, std::make_unique<OpenCvCalibrationUndistorter>());
+    fixture.window.show();
+    QApplication::processEvents();
+
+    auto* world = fixture.button("openWorldView");
+    auto* top = fixture.button("openTopView");
+    ASSERT_NE(world, nullptr);
+    ASSERT_NE(top, nullptr);
+    EXPECT_EQ(top->geometry().top(), world->geometry().top());
+    EXPECT_LT(top->geometry().right(), world->geometry().left());
+    const WorkspaceBounds bounds{Meters{1.2}, Meters{0.8}, {Meters{-0.6}, Meters{-0.4}}};
+    fixture.controller.setWorkspaceBounds(bounds);
+    world->click();
+    auto* dialog = fixture.window.findChild<QDialog*>("worldModelViewDialog");
+    ASSERT_NE(dialog, nullptr);
+    EXPECT_TRUE(dialog->isVisible());
+    auto* description = dialog->findChild<QLabel*>("workspaceDescriptionDialog");
+    ASSERT_NE(description, nullptr);
+    EXPECT_TRUE(description->text().contains(QStringLiteral("1.2 m × 0.8 m")));
+    auto* canvas = dialog->findChild<QWidget*>("worldModelCanvas");
+    ASSERT_NE(canvas, nullptr);
+    const auto viewport = workspaceMapRect(canvas->size(), bounds);
+    const auto colorAt = [canvas](QPointF point) {
+        const auto raster = canvas->grab().toImage();
+        return raster.pixelColor((point * raster.devicePixelRatio()).toPoint());
+    };
+    EXPECT_EQ(colorAt({4, 4}), WorkspaceMapBackground);
+    const auto northEast = viewport.topLeft() + QPointF(0.75 * viewport.width(), 0.25 * viewport.height());
+    const RobotId robot{1};
+    ASSERT_EQ(fixture.world.updateTrackedPose(robot, {Meters{0.3}, Meters{0.2}, Radians{std::numbers::pi / 2}},
+                                             MonotonicClock::now(), {5s, 10s}), PoseUpdateResult::Applied);
+    fixture.controller.refreshWorld();
+    EXPECT_EQ(colorAt(northEast), QColor(Qt::cyan));
+    const auto north = northEast + QPointF(0, -10);
+    const auto south = northEast + QPointF(0, 10);
+    const int northBlue = std::max({colorAt(north).blue(), colorAt(north + QPointF(1, 0)).blue(),
+                                    colorAt(north - QPointF(1, 0)).blue()});
+    EXPECT_GT(northBlue, colorAt(south).blue() + 50); // Heading points up despite raster antialiasing.
+    fixture.world.invalidateTracking(robot);
+    fixture.controller.refreshWorld();
+    EXPECT_EQ(colorAt(northEast), QColor(45, 50, 55));
+
+    fixture.controller.setWorkspaceBounds(std::nullopt);
+    EXPECT_EQ(description->text(), fixture.label("workspaceDescription")->text());
+
+    fixture.window.close();
+    EXPECT_FALSE(dialog->isVisible());
 }
 
 TEST(DesktopIntegrationTest, MeasuredBoundsReachUiWithoutClaimingCameraCalibration)

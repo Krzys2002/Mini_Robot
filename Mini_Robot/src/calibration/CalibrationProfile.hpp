@@ -28,6 +28,12 @@ public:
     [[nodiscard]] virtual ProfileLoadOutcome load(std::string_view sourceId,
         std::uint32_t width, std::uint32_t height) = 0;
     [[nodiscard]] virtual std::string save(const IntrinsicCalibration& calibration) = 0;
+    // Optional explicit destinations use a UTF-8 filesystem path.
+    [[nodiscard]] virtual ProfileLoadOutcome loadFile(std::string_view, std::string_view,
+        std::uint32_t, std::uint32_t)
+    { return {ProfileLoadState::Rejected, {}, "This store cannot load a named calibration file."}; }
+    [[nodiscard]] virtual std::string saveFile(std::string_view, const IntrinsicCalibration&)
+    { return "This store cannot save a named calibration file."; }
 };
 struct UndistortedPreviewOutcome {
     FramePtr frame;

@@ -1,5 +1,6 @@
 #include "ui/ReferenceMarkersDialog.hpp"
 #include "ui/CalibrationForm.hpp"
+#include "ui/ProfileFileDialog.hpp"
 
 #include <QCheckBox>
 #include <QLabel>
@@ -150,6 +151,8 @@ ReferenceMarkersDialog::ReferenceMarkersDialog(WorkspaceCalibrationController& c
     auto* apply = button("Apply registry draft", "applyReferenceRegistry");
     auto* fit = button("Fit latest references", "fitReferenceRegistry");
     auto* save = button("Save profile", "referenceCalibrationSave");
+    auto* saveFile = button("Save as…", "referenceCalibrationSaveFile");
+    saveFile->setVisible(guided);
     auto* close = button("Close", "closeReferences");
     auto* finish = button("Finish", "otherCalibrationFinish");
     save->setVisible(guided);
@@ -183,6 +186,7 @@ ReferenceMarkersDialog::ReferenceMarkersDialog(WorkspaceCalibrationController& c
         const bool ready = canAccept();
         finish->setEnabled(ready);
         save->setEnabled(ready && controller.canSave());
+        saveFile->setEnabled(save->isEnabled());
     };
     auto edited = [=] {
         state->dirty = inputs->snapshot() != state->baseline;
@@ -244,6 +248,10 @@ ReferenceMarkersDialog::ReferenceMarkersDialog(WorkspaceCalibrationController& c
         if (!canAccept() || controller.draftProfile()->localization->revision != revision) return;
         controller.activate();
         accept();
+    });
+    connect(saveFile, &QPushButton::clicked, this, [this, &controller, canAccept] {
+        const auto file = chooseProfileFile(this, ProfileFileKind::Workspace, QFileDialog::AcceptSave);
+        if (!file.isEmpty() && canAccept()) controller.save(file);
     });
     connect(save, &QPushButton::clicked, this, [this, &controller, canAccept] {
         if (canAccept() && controller.canSave()

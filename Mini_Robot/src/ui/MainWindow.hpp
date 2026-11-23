@@ -6,6 +6,8 @@
 #include <memory>
 
 class QVBoxLayout;
+class QHBoxLayout;
+class QDialog;
 class QComboBox;
 class QLabel;
 class QPushButton;
@@ -59,6 +61,9 @@ private:
     CalibrationFlow* calibrationFlow_{};
     VisionDebugDialog* visionDebug_{};
     TopViewDialog* topView_{};
+    QDialog* worldView_{};
+    QHBoxLayout* viewActions_{};
+    QPushButton* worldViewAction_{};
     QPushButton* visionAction_{};
     QComboBox* cameraSelector_{};
     QLabel* selectedCamera_{};

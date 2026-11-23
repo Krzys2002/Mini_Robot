@@ -25,15 +25,16 @@ QString QtWorkspaceProfileStore::path(std::string_view workspace, const Intrinsi
                   ".workspace");
 }
 
-QString QtWorkspaceProfileStore::acquisitionPath(const WorkspaceCalibrationProfile& profile) const
+QString QtWorkspaceProfileStore::acquisitionPath(const QString& file, const WorkspaceCalibrationProfile& profile)
 {
     const auto id = QByteArray::fromStdString(profile.acquisitionId);
-    return path(profile.workspaceId,profile.intrinsics) + '.'
+    return file + '.'
         + QString::fromLatin1(QCryptographicHash::hash(id,QCryptographicHash::Sha256).toHex()) + ".acquisition";
 }
-WorkspaceAcquisitionLoadOutcome QtWorkspaceProfileStore::readAcquisition(const WorkspaceCalibrationProfile& profile) const
+WorkspaceAcquisitionLoadOutcome QtWorkspaceProfileStore::readAcquisition(const QString& name,
+    const WorkspaceCalibrationProfile& profile)
 {
-    QFile file{acquisitionPath(profile)};
+    QFile file{acquisitionPath(name, profile)};
     if (!file.open(QIODevice::ReadOnly)) return {{},"Linked acquisition record missing/unreadable: "+file.errorString().toStdString()};
     const auto bytes = file.read(static_cast<qint64>(MaximumWorkspaceAcquisitionBytes)+1);
     if (file.error()!=QFileDevice::NoError) return {{},file.errorString().toStdString()};
@@ -46,9 +47,17 @@ WorkspaceAcquisitionLoadOutcome QtWorkspaceProfileStore::readAcquisition(const W
 WorkspaceProfileLoadOutcome QtWorkspaceProfileStore::load(std::string_view workspace,
                                                           const IntrinsicCalibration& active)
 {
+    return readProfile(path(workspace, active), active, workspace);
+}
+WorkspaceProfileLoadOutcome QtWorkspaceProfileStore::loadFile(std::string_view file, const IntrinsicCalibration& active)
+{
+    return readProfile(QString::fromUtf8(file.data(), static_cast<qsizetype>(file.size())), active, std::nullopt);
+}
+WorkspaceProfileLoadOutcome QtWorkspaceProfileStore::readProfile(const QString& name, const IntrinsicCalibration& active,
+                                                                std::optional<std::string_view> workspace)
+{
     if (const auto error = validateIntrinsicCalibration(active); !error.empty())
         return {ProfileLoadState::Rejected, {}, error};
-    const auto name = path(workspace, active);
     if (!QFileInfo::exists(name))
         return {};
     QFile file{name};
@@ -60,10 +69,10 @@ WorkspaceProfileLoadOutcome QtWorkspaceProfileStore::load(std::string_view works
     auto result = parseWorkspaceProfile({bytes.constData(), static_cast<std::size_t>(bytes.size())});
     if (result.profile) {
         result.error = workspaceCalibrationCompatibilityError(*result.profile, active);
-        if (result.profile->workspaceId != workspace)
+        if (workspace && result.profile->workspaceId != *workspace)
             result.error = "Workspace identity mismatch.";
         if (result.error.empty() && !result.profile->acquisitionId.empty()) {
-            auto acquisition = readAcquisition(*result.profile);
+            auto acquisition = readAcquisition(name, *result.profile);
             result.error = acquisition.error;
             result.acquisition = std::move(acquisition.record);
         }
@@ -78,15 +87,28 @@ WorkspaceProfileLoadOutcome QtWorkspaceProfileStore::load(std::string_view works
 
 std::string QtWorkspaceProfileStore::save(const WorkspaceCalibrationProfile& profile)
 {
+    return writeProfile(path(profile.workspaceId, profile.intrinsics), profile);
+}
+
+std::string QtWorkspaceProfileStore::saveFile(std::string_view file, const WorkspaceCalibrationProfile& profile,
+                                              const WorkspaceAcquisitionRecord* record)
+{
+    const QFileInfo destination{QString::fromUtf8(file.data(), static_cast<qsizetype>(file.size()))};
+    return record ? writeAcquisition(destination.absoluteFilePath(), profile, *record)
+                  : writeProfile(destination.absoluteFilePath(), profile);
+}
+
+std::string QtWorkspaceProfileStore::writeProfile(const QString& name, const WorkspaceCalibrationProfile& profile)
+{
     try {
         const auto text = serializeWorkspaceProfile(profile);
         if (!profile.acquisitionId.empty()) {
-            const auto acquisition = readAcquisition(profile);
+            const auto acquisition = readAcquisition(name, profile);
             if (!acquisition.record) return acquisition.error;
         }
-        if (!QDir{}.mkpath(directory_))
+        if (!QDir{}.mkpath(QFileInfo(name).absolutePath()))
             return "Cannot create workspace profile directory.";
-        QSaveFile file{path(profile.workspaceId, profile.intrinsics)};
+        QSaveFile file{name};
         file.setDirectWriteFallback(false);
         if (!file.open(QIODevice::WriteOnly))
             return file.errorString().toStdString();
@@ -102,12 +124,17 @@ std::string QtWorkspaceProfileStore::save(const WorkspaceCalibrationProfile& pro
 std::string QtWorkspaceProfileStore::saveAcquisition(const WorkspaceCalibrationProfile& profile,
                                                     const WorkspaceAcquisitionRecord& record)
 {
+    return writeAcquisition(path(profile.workspaceId, profile.intrinsics), profile, record);
+}
+std::string QtWorkspaceProfileStore::writeAcquisition(const QString& profileName, const WorkspaceCalibrationProfile& profile,
+                                                      const WorkspaceAcquisitionRecord& record)
+{
     try {
         if (tabletopProfileBinding(record.profile)!=tabletopProfileBinding(profile))
             return "Acquisition snapshot/profile mismatch.";
         const auto text = serializeWorkspaceAcquisition(record);
-        if (!QDir{}.mkpath(directory_)) return "Cannot create workspace acquisition directory.";
-        const auto name = acquisitionPath(profile);
+        const auto name = acquisitionPath(profileName, profile);
+        if (!QDir{}.mkpath(QFileInfo(name).absolutePath())) return "Cannot create workspace acquisition directory.";
         QLockFile lock{name+".lock"};
         if (!lock.tryLock(StoreLockWaitMilliseconds)) return "Acquisition snapshot is being saved by another writer.";
         if (QFileInfo::exists(name)) {
@@ -131,7 +158,7 @@ std::string QtWorkspaceProfileStore::saveAcquisition(const WorkspaceCalibrationP
         }
         // A failure here preserves the old profile and its still-immutable record.
         // Unreferenced snapshots are retained as evidence; no automatic deletion.
-        return save(profile);
+        return writeProfile(profileName, profile);
     } catch (const std::exception& error) { return error.what(); }
 }
 } // namespace micro_robot

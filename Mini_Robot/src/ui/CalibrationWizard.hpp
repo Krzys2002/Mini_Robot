@@ -16,7 +16,8 @@ class CalibrationPreview;
 class CalibrationWizard final : public QDialog {
     Q_OBJECT
 public:
-    explicit CalibrationWizard(CalibrationController& controller, QWidget* parent = nullptr);
+    explicit CalibrationWizard(CalibrationController& controller, QWidget* parent = nullptr,
+                               bool previewOnly = false);
     ~CalibrationWizard() override;
     void enableGuidedMode();
 protected:
@@ -28,6 +29,7 @@ private:
     void refresh();
     QPushButton* next_{};
     bool guided_{};
+    const bool previewOnly_{};
     CalibrationController& controller_;
     CalibrationPreview* preview_{};
     QComboBox* views_{};
@@ -39,7 +41,10 @@ private:
     QLabel* profileStatus_{};
     QPushButton* saveProfile_{};
     QPushButton* reloadProfile_{};
+    QPushButton* saveFile_{};
+    QPushButton* loadFile_{};
     QCheckBox* undistorted_{};
+    QPushButton* restart_{};
     QPushButton* capture_{};
     QPushButton* remove_{};
     QPushButton* finish_{};

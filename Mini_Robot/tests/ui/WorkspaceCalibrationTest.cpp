@@ -4,6 +4,7 @@
 #include "calibration/QtWorkspaceProfileStore.hpp"
 #include <QTemporaryDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
 #include "../calibration/CaptureFixtures.hpp"
 #include "../calibration/HomographyFixtures.hpp"
@@ -1094,6 +1095,59 @@ TEST(WorkspaceInputUiTest, PlainLengthInputsRetainDecimalCommaSupportWithoutAcce
     ASSERT_TRUE(f.controller.draftBounds());
     EXPECT_DOUBLE_EQ(f.controller.draftBounds()->width().value,1.25);
     EXPECT_FALSE(width->styleSheet().isEmpty());
+}
+
+TEST(WorkspaceCalibrationReviewTest, NamedProfileLoadsItsWorkspaceIdentityAndLinkedAcquisition)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const auto filename = directory.filePath(QStringLiteral("field notes/custom table żółć.workspace"));
+    Logger logger;
+    WorkspaceCalibrationController writer{std::make_unique<Solver>(), std::make_unique<Undistorter>(),
+        std::make_unique<QtWorkspaceProfileStore>(directory.filePath("app library")), logger.channel("writer")};
+    writer.setInput(validIntrinsicCalibration(), true);
+    writer.configure("measured-table", 1, 0.6);
+    auto frame = std::make_shared<Frame>(*captureFrame(1));
+    frame->capturedAt = MonotonicClock::now();
+    writer.receiveFrame(frame);
+    writer.freeze();
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !writer.busy(); }));
+    for (const auto& point : homographyInput().fitPoints) writer.selectCorner(point.image);
+    writer.confirmBoundary();
+    writer.calculate();
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !writer.busy(); }));
+    ASSERT_TRUE(writer.canSave()) << writer.message().toStdString();
+    writer.save(filename);
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !writer.busy(); }));
+    ASSERT_TRUE(QFile::exists(filename)) << writer.message().toStdString();
+    ASSERT_TRUE(writer.draftAcquisition());
+
+    WorkspaceCalibrationController reader{std::make_unique<Solver>(), std::make_unique<Undistorter>(),
+        std::make_unique<QtWorkspaceProfileStore>(directory.filePath("app library")), logger.channel("reader")};
+    reader.setInput(validIntrinsicCalibration(), true);
+    WorkspaceCalibrationDialog dialog(reader);
+    EXPECT_FALSE(dialog.findChild<QPushButton*>("workspaceLoad")->isEnabled());
+    ASSERT_TRUE(dialog.findChild<QPushButton*>("workspaceLoadFile")->isEnabled());
+    reader.load(filename);
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !reader.busy(); }));
+    ASSERT_TRUE(reader.draftProfile()) << reader.message().toStdString();
+    ASSERT_TRUE(reader.draftAcquisition());
+    EXPECT_EQ(reader.draftProfile()->workspaceId, "measured-table");
+    EXPECT_EQ(reader.draftAcquisition()->id, writer.draftAcquisition()->id);
+    EXPECT_EQ(reader.references().size(), writer.references().size());
+    EXPECT_EQ(dialog.findChild<QLineEdit*>("workspaceIdentity")->text(), "measured-table");
+    EXPECT_FALSE(reader.profile());
+    EXPECT_TRUE(reader.canActivate());
+
+    const QDir chosenFolder(QFileInfo(filename).absolutePath());
+    const auto sidecars = chosenFolder.entryList({"*.acquisition"}, QDir::Files);
+    ASSERT_EQ(sidecars.size(), 1);
+    ASSERT_TRUE(QFile::remove(chosenFolder.filePath(sidecars.front())));
+    reader.load(filename);
+    ASSERT_TRUE(QTest::qWaitFor([&] { return !reader.busy(); }));
+    EXPECT_TRUE(reader.message().contains("rejected", Qt::CaseInsensitive));
+    ASSERT_TRUE(reader.draftAcquisition());
+    EXPECT_EQ(reader.draftAcquisition()->id, writer.draftAcquisition()->id);
 }
 
 TEST(WorkspaceBoardAcquisitionUiTest, ElevationThicknessAndMethodSurviveDialogAcquisitionSaveLoadAndResave)

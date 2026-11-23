@@ -49,6 +49,8 @@ public:
     void initialize(Timestamp now);
     [[nodiscard]] PoseUpdateResult applyPose(RobotId id, const Pose2D& pose, Timestamp at);
     void refreshWorld();
+    [[nodiscard]] WorldSnapshot worldSnapshot() const { return world_.snapshot(); }
+    [[nodiscard]] TrackingInfo worldTracking(RobotId id, Timestamp now) const { return world_.tracking(id, now); }
     // Measured table dimensions only; this never implies a calibrated camera.
     void setWorkspaceBounds(std::optional<WorkspaceBounds> bounds);
     // Presentation/metric-bounds activation from the workspace calibration service.

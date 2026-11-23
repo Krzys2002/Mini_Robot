@@ -6,6 +6,7 @@
 #include <QCloseEvent>
 #include "ui/VisionDebugView.hpp"
 #include "ui/TopViewDialog.hpp"
+#include "ui/WorldModelCanvas.hpp"
 #include "app/CalibrationController.hpp"
 #include "app/WorkspaceCalibrationController.hpp"
 #include "app/VisionController.hpp"
@@ -13,6 +14,8 @@
 #include "app/DesktopController.hpp"
 
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -22,6 +25,38 @@
 #include <QVBoxLayout>
 
 namespace micro_robot {
+namespace {
+QGroupBox* createWorldModelPanel(DesktopController& controller, QWidget* parent, const QString& nameSuffix = {})
+{
+    auto* worldGroup = new QGroupBox(QStringLiteral("World Model View"), parent);
+    worldGroup->setObjectName(QStringLiteral("worldModelView") + nameSuffix);
+    auto* worldLayout = new QVBoxLayout(worldGroup);
+    auto* worldDescription = new QLabel(QStringLiteral("No registered robots"), worldGroup);
+    worldDescription->setObjectName(QStringLiteral("worldDescription") + nameSuffix);
+    worldDescription->setWordWrap(true);
+    auto* convention = new QLabel(QStringLiteral(
+        "Tabletop frame: explicit calibrated origin (0, 0) m; +X → right, +Y ↑ up in World Model View.\n"
+        "Heading: 0 rad along +X; positive counterclockwise (CCW)."), worldGroup);
+    convention->setObjectName(QStringLiteral("worldCoordinateConvention") + nameSuffix);
+    convention->setWordWrap(true);
+    auto* workspaceDescription = new QLabel(QStringLiteral("Workspace dimensions not configured"), worldGroup);
+    workspaceDescription->setObjectName(QStringLiteral("workspaceDescription") + nameSuffix);
+    workspaceDescription->setWordWrap(true);
+    workspaceDescription->setTextFormat(Qt::PlainText);
+    // Wrapped labels must retain their text height when the window is resized.
+    for (auto* label : {convention, workspaceDescription, worldDescription}) {
+        auto policy = label->sizePolicy();
+        policy.setVerticalPolicy(QSizePolicy::Minimum);
+        label->setSizePolicy(policy);
+    }
+    worldLayout->addWidget(convention);
+    worldLayout->addWidget(workspaceDescription);
+    worldLayout->addWidget(worldDescription);
+    QObject::connect(&controller, &DesktopController::worldDescriptionChanged, worldDescription, &QLabel::setText);
+    QObject::connect(&controller, &DesktopController::workspaceDescriptionChanged, workspaceDescription, &QLabel::setText);
+    return worldGroup;
+}
+} // namespace
 
 MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     : QMainWindow(parent)
@@ -83,28 +118,37 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     cameraLayout->addLayout(cameraButtons);
     layout->addWidget(cameraGroup);
 
-    auto* worldGroup = new QGroupBox(QStringLiteral("World Model View"), central);
-    worldGroup->setObjectName(QStringLiteral("worldModelView"));
-    auto* worldLayout = new QVBoxLayout(worldGroup);
-    auto* worldDescription = new QLabel(QStringLiteral("No registered robots"), worldGroup);
-    worldDescription->setObjectName(QStringLiteral("worldDescription"));
-    worldDescription->setWordWrap(true);
-    auto* convention = new QLabel(QStringLiteral(
-        "Tabletop frame: explicit calibrated origin (0, 0) m; +X → right, +Y ↑ up in World Model View.\n"
-        "Heading: 0 rad along +X; positive counterclockwise (CCW)."), worldGroup);
-    convention->setObjectName(QStringLiteral("worldCoordinateConvention"));
-    convention->setWordWrap(true);
-    auto* workspaceDescription = new QLabel(QStringLiteral("Workspace dimensions not configured"), worldGroup);
-    workspaceDescription->setObjectName(QStringLiteral("workspaceDescription"));
-    workspaceDescription->setWordWrap(true);
-    workspaceDescription->setTextFormat(Qt::PlainText);
-    // Wrapped labels must retain their text height when the window is resized.
-    for (auto* label : {convention, workspaceDescription, worldDescription})
-        label->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
-    worldLayout->addWidget(convention);
-    worldLayout->addWidget(workspaceDescription);
-    worldLayout->addWidget(worldDescription);
-    layout->addWidget(worldGroup);
+    viewActions_ = new QHBoxLayout;
+    worldViewAction_ = new QPushButton(QStringLiteral("World View…"), content);
+    worldViewAction_->setObjectName(QStringLiteral("openWorldView"));
+    viewActions_->addWidget(worldViewAction_);
+    layout->addLayout(viewActions_);
+    layout->addWidget(createWorldModelPanel(controller, content));
+
+    worldView_ = new QDialog(this);
+    worldView_->setObjectName(QStringLiteral("worldModelViewDialog"));
+    worldView_->setWindowTitle(QStringLiteral("World Model View"));
+    worldView_->setAttribute(Qt::WA_QuitOnClose, false);
+    worldView_->resize(800, 620);
+    auto* worldViewLayout = new QVBoxLayout(worldView_);
+    worldViewLayout->addWidget(new WorldModelCanvas(controller, worldView_), 1);
+    auto* worldScroll = new QScrollArea(worldView_);
+    worldScroll->setWidgetResizable(true);
+    worldScroll->setMaximumHeight(150);
+    auto* worldContent = new QWidget(worldScroll);
+    auto* worldContentLayout = new QVBoxLayout(worldContent);
+    worldContentLayout->addWidget(createWorldModelPanel(controller, worldContent, QStringLiteral("Dialog")));
+    worldContentLayout->addStretch();
+    worldScroll->setWidget(worldContent);
+    worldViewLayout->addWidget(worldScroll);
+    auto* worldButtons = new QDialogButtonBox(QDialogButtonBox::Close, worldView_);
+    worldViewLayout->addWidget(worldButtons);
+    connect(worldButtons, &QDialogButtonBox::rejected, worldView_, &QDialog::reject);
+    connect(worldViewAction_, &QPushButton::clicked, worldView_, [view = worldView_] {
+        view->show();
+        view->raise();
+        view->activateWindow();
+    });
     layout->addStretch();
     auto* scroll = new QScrollArea(central);
     scroll->setWidgetResizable(true);
@@ -137,8 +181,6 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
             applicationStatus, &QLabel::setText);
     connect(&controller, &DesktopController::frameDescriptionChanged,
             frameDescription, &QLabel::setText);
-    connect(&controller, &DesktopController::worldDescriptionChanged, worldDescription, &QLabel::setText);
-    connect(&controller, &DesktopController::workspaceDescriptionChanged, workspaceDescription, &QLabel::setText);
     connect(&controller, &DesktopController::activeCameraChanged, this,
             [activeCamera](const QString& description, bool) { activeCamera->setText(description); });
     connect(&controller, &DesktopController::cameraStatusChanged, this,
@@ -161,6 +203,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
     }
     if (visionDebug_) visionDebug_->close();
     if (topView_) topView_->close();
+    worldView_->close();
     QMainWindow::closeEvent(event);
 }
 
@@ -190,9 +233,11 @@ void MainWindow::bindTopView(DesktopController& desktop, WorkspaceCalibrationCon
 {
     auto* view = new TopViewDialog(std::move(undistorter), this);
     topView_ = view;
-    auto* action = new QPushButton(QStringLiteral("Top View…"), this);
+    auto* action = new QPushButton(QStringLiteral("Top View…"), worldViewAction_->parentWidget());
     action->setObjectName(QStringLiteral("openTopView"));
-    contentLayout_->insertWidget(contentLayout_->indexOf(findChild<QGroupBox*>(QStringLiteral("worldModelView"))), action);
+    viewActions_->insertWidget(0, action);
+    setTabOrder(stopCamera_, action);
+    setTabOrder(action, worldViewAction_);
     connect(action, &QPushButton::clicked, view, [view] {
         view->show();
         view->raise();
@@ -222,8 +267,23 @@ void MainWindow::bindCalibration(CalibrationController& calibration)
     // Keyboard focus follows the visual order, after the camera selector.
     setTabOrder(cameraSelector_, action);
     if (visionAction_) setTabOrder(action, visionAction_);
+    const auto updateCalibrationAction = [&calibration, action] {
+        action->setEnabled(calibration.isStreaming());
+        action->setToolTip(calibration.isStreaming() ? QString{}
+            : QStringLiteral("Start the camera to enable calibration."));
+    };
+    connect(&calibration, &CalibrationController::changed, action, updateCalibrationAction);
+    updateCalibrationAction();
     calibrationFlow_ = new CalibrationFlow(calibration, this);
     connect(action, &QPushButton::clicked, calibrationFlow_, &CalibrationFlow::open);
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+    auto* preview = new QPushButton(QStringLiteral("Debug: preview calibration screens…"), this);
+    preview->setObjectName(QStringLiteral("openCalibrationUiPreview"));
+    layout->insertWidget(layout->indexOf(action) + 1, preview);
+    setTabOrder(action, preview);
+    if (visionAction_) setTabOrder(preview, visionAction_);
+    connect(preview, &QPushButton::clicked, calibrationFlow_, &CalibrationFlow::openPreview);
+#endif
 }
 
 void MainWindow::bindWorkspaceCalibration(WorkspaceCalibrationController& workspace)

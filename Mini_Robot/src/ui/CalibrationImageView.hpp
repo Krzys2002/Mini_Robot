@@ -3,6 +3,7 @@
 #include "calibration/WorkspaceAcquisition.hpp"
 #include "camera/CameraTypes.hpp"
 
+#include <QPointer>
 #include <QTransform>
 #include <QWidget>
 
@@ -10,6 +11,10 @@
 #include <optional>
 #include <utility>
 #include <vector>
+
+class QDialog;
+class QPushButton;
+class QVBoxLayout;
 
 namespace micro_robot {
 
@@ -66,6 +71,30 @@ private:
     bool panMode_{};
     bool horizontalFlip_{};
     bool verticalFlip_{};
+};
+
+// Holds a single canvas and toolbar so entering full screen keeps all edits
+// and the current zoom, flip, and point mapping.
+class WorkspaceImageEditor final : public QWidget {
+public:
+    explicit WorkspaceImageEditor(QWidget* parent = nullptr);
+    [[nodiscard]] WorkspaceImageView& canvas() const { return *canvas_; }
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+    void addSampleReset(std::function<void()> reset);
+#endif
+
+protected:
+    void hideEvent(QHideEvent* event) override;
+
+private:
+    void toggleFullScreen();
+
+    QVBoxLayout* layout_{};
+    QWidget* panel_{};
+    QPushButton* fullScreenButton_{};
+    WorkspaceImageView* canvas_{};
+    QPointer<QDialog> fullScreen_;
+    bool hasFrame_{};
 };
 
 } // namespace micro_robot

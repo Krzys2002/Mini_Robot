@@ -1,5 +1,6 @@
 #include "ui/WorkspaceCalibrationDialog.hpp"
 #include "ui/CalibrationForm.hpp"
+#include "ui/ProfileFileDialog.hpp"
 #include "ui/CalibrationImageView.hpp"
 #include "ui/WorkspaceDiagnosticsDialog.hpp"
 #include "ui/WorkspaceDistanceDialog.hpp"
@@ -98,9 +99,9 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
     originPick_->setObjectName("workspacePickOrigin"); originPick_->setCheckable(true);
     originRow->addWidget(originPick_); geometryLayout->addLayout(originRow);
     layout->addWidget(geometryFields_);
-    image_ = new WorkspaceImageView(this);
-    layout->addWidget(image_->createControls(this));
-    layout->addWidget(image_,1);
+    editor_ = new WorkspaceImageEditor(this);
+    image_ = &editor_->canvas();
+    layout->addWidget(editor_, 1);
     imageDetails_ = new QLabel(this);
     imageDetails_->setWordWrap(true);
     layout->addWidget(imageDetails_);
@@ -161,9 +162,13 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
     next_ = button(actions,"workspaceCalibrationNext","Accept and next");
     next_->hide();
     outer->addLayout(actions);
+    auto* files = new QHBoxLayout;
+    saveFile_ = button(files,"workspaceSaveFile","Save profile as…");
+    loadFile_ = button(files,"workspaceLoadFile","Load profile from file…");
+    outer->addLayout(files);
     auto* storage = new QHBoxLayout;
-    save_ = button(storage,"workspaceSave","Save transform");
-    load_ = button(storage,"workspaceLoad","Load transform");
+    save_ = button(storage,"workspaceSave","Save to app library");
+    load_ = button(storage,"workspaceLoad","Load from app library");
     distance_ = button(storage,"workspaceDistance","Measure distance…");
     connect(distance_, &QPushButton::clicked, this, [this] {
         if (!distanceDialog_) { distanceDialog_ = new WorkspaceDistanceDialog(controller_, this); distanceDialog_->setAttribute(Qt::WA_DeleteOnClose); }
@@ -184,12 +189,12 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
         const auto revision = controller_.referencesRevision();
         if (originPick_->isChecked()) {
             originPick_->setChecked(false);
-            if (confirmCalibrationLoss(this, "Move workspace origin", "Changing the origin clears the draft transform and references.")
+            if (confirmCalibrationLoss(image_->window(), "Move workspace origin", "Changing the origin clears the draft transform and references.")
                 && frame == controller_.frozenFrame() && revision == controller_.referencesRevision())
                 controller_.setOriginFromImage(p);
         } else if (replacingCorner_) {
             const auto index = replacingCorner_; replacingCorner_.reset();
-            if ((!hasGeometryDraft() || confirmCalibrationLoss(this, "Replace workspace corner", "Changing a corner clears the draft transform and dependent references."))
+            if ((!hasGeometryDraft() || confirmCalibrationLoss(image_->window(), "Replace workspace corner", "Changing a corner clears the draft transform and dependent references."))
                 && frame == controller_.frozenFrame() && revision == controller_.referencesRevision())
                 controller_.selectCorner(p,index);
         } else if (stage_ != Stage::Tabletop && !controller_.canAddReferences()) controller_.selectCorner(p);
@@ -301,6 +306,17 @@ WorkspaceCalibrationDialog::WorkspaceCalibrationDialog(WorkspaceCalibrationContr
             !confirmCalibrationLoss(this, "Load transform", "Loading may replace the draft transform and its points.")) return;
         controller_.load();
     });
+    connect(saveFile_, &QPushButton::clicked, this, [this] {
+        const auto file = chooseProfileFile(this, ProfileFileKind::Workspace, QFileDialog::AcceptSave);
+        if (!file.isEmpty()) controller_.save(file);
+    });
+    connect(loadFile_, &QPushButton::clicked, this, [this] {
+        const auto file = chooseProfileFile(this, ProfileFileKind::Workspace, QFileDialog::AcceptOpen);
+        if (file.isEmpty()) return;
+        if ((hasGeometryDraft() || controller_.frozenFrame() || !controller_.corners().empty()) &&
+            !confirmCalibrationLoss(this, "Load workspace profile", "A compatible file will replace the draft transform and its points.")) return;
+        controller_.load(file);
+    });
     connect(close,&QPushButton::clicked,this,&QDialog::close);
     connect(&controller_,&WorkspaceCalibrationController::changed,this,&WorkspaceCalibrationDialog::refresh);
     { const QSignalBlocker block(identity_); identity_->setText(controller_.workspaceId()); }
@@ -330,8 +346,10 @@ void WorkspaceCalibrationDialog::setStage(Stage stage)
     calculate_->setVisible(!workspace);
     verify_->setVisible(!workspace);
     save_->setVisible(!workspace);
+    saveFile_->setVisible(!workspace);
     activate_->hide();
     load_->setVisible(workspace);
+    loadFile_->setVisible(workspace);
     next_->setVisible(true);
     freeze_->setText(tabletop ? "Freeze reference image" : "Freeze workspace image");
     if (workspace) {
@@ -455,7 +473,7 @@ void WorkspaceCalibrationDialog::changeUnit(int index)
 void WorkspaceCalibrationDialog::addPoint(std::optional<ImageCorner> point)
 {
     if (controller_.boardReview() &&
-        !confirmCalibrationLoss(this, "Add reference", "Adding a reference clears the pending chessboard review.")) return;
+        !confirmCalibrationLoss(image_->window(), "Add reference", "Adding a reference clears the pending chessboard review.")) return;
     const auto before=controller_.references().size(); controller_.appendReference(point);
     if (controller_.references().size()>before)
         points_->setCurrentIndex(referenceModel_->index(static_cast<int>(before),2));
@@ -469,8 +487,43 @@ void WorkspaceCalibrationDialog::restoreReferences()
         image_->markers.emplace_back(r.point.image,r.check);
     }
 }
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+void WorkspaceCalibrationDialog::showSampleFrame(FramePtr frame)
+{
+    sampleFrame_ = true;
+    const bool tabletop = stage_ == Stage::Tabletop;
+    image_->corners.clear();
+    image_->markers.clear();
+    image_->board.clear();
+    image_->origin.reset();
+    image_->setFrame(std::move(frame));
+    imageDetails_->setText(tabletop
+        ? QStringLiteral("Sample frame · Click the image to add test references.")
+        : QStringLiteral("Sample frame · Click four corners in order to test the workspace perimeter."));
+    imageDetails_->show();
+    message_->setText(QStringLiteral("Practice points are temporary."));
+    image_->clicked = [this, tabletop](ImageCorner point) {
+        if (tabletop) {
+            if (image_->markers.size() < MaximumWorkspaceOverlayReferences)
+                image_->markers.emplace_back(point, false);
+        } else if (image_->corners.size() < WorkspaceCornerCount) {
+            image_->corners.push_back(point);
+        }
+        image_->update();
+    };
+    editor_->addSampleReset([this] {
+        image_->corners.clear();
+        image_->markers.clear();
+        image_->update();
+    });
+}
+#endif
+
 void WorkspaceCalibrationDialog::refresh()
 {
+#ifdef MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW
+    if (sampleFrame_) return;
+#endif
     diagnostics_->setEnabled(bool(controller_.profile()));
     distance_->setEnabled(bool(controller_.profile()));
     const auto frame = controller_.frozenFrame();
@@ -528,6 +581,7 @@ void WorkspaceCalibrationDialog::refresh()
         ? idle && inputError_.isEmpty() && (readyBoundary || (!frame && controller_.draftProfile()))
         : controller_.canActivate());
     save_->setEnabled(controller_.canSave()); load_->setEnabled(controller_.canLoad());
+    saveFile_->setEnabled(controller_.canSave()); loadFile_->setEnabled(controller_.canLoadFile());
     verify_->setEnabled(controller_.canVerify()); activate_->setEnabled(controller_.canActivate());
     corners_->setEnabled(idle); points_->setEnabled(idle);
     units_->setEnabled(idle);

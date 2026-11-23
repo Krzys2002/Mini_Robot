@@ -1,5 +1,6 @@
 #include "ui/CalibrationWizard.hpp"
 #include "ui/CalibrationForm.hpp"
+#include "ui/ProfileFileDialog.hpp"
 #include "app/CalibrationController.hpp"
 
 #include <QComboBox>
@@ -70,8 +71,8 @@ private:
     bool approximate_{};
 };
 
-CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget* parent)
-    : QDialog(parent), controller_(controller)
+CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget* parent, bool previewOnly)
+    : QDialog(parent), previewOnly_(previewOnly), controller_(controller)
 {
     setWindowTitle(QStringLiteral("Intrinsic camera calibration"));
     resize(900, 740);
@@ -175,16 +176,22 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     profileStatus_->setTextFormat(Qt::PlainText);
     layout->addWidget(profileStatus_);
     auto* profiles = new QGridLayout;
-    saveProfile_ = new QPushButton(QStringLiteral("Save profile"), this);
+    saveProfile_ = new QPushButton(QStringLiteral("Save to app library"), this);
     saveProfile_->setObjectName(QStringLiteral("calibrationSaveProfile"));
     profiles->addWidget(saveProfile_, 0, 0);
-    reloadProfile_ = new QPushButton(QStringLiteral("Reload saved profile"), this);
+    reloadProfile_ = new QPushButton(QStringLiteral("Load from app library"), this);
     reloadProfile_->setObjectName(QStringLiteral("calibrationReloadProfile"));
     profiles->addWidget(reloadProfile_, 0, 1);
+    saveFile_ = new QPushButton(QStringLiteral("Save profile as…"), this);
+    saveFile_->setObjectName(QStringLiteral("calibrationSaveFile"));
+    profiles->addWidget(saveFile_, 1, 0);
+    loadFile_ = new QPushButton(QStringLiteral("Load profile from file…"), this);
+    loadFile_->setObjectName(QStringLiteral("calibrationLoadFile"));
+    profiles->addWidget(loadFile_, 1, 1);
     undistorted_ = new QCheckBox(QStringLiteral("Undistorted preview"), this);
     undistorted_->setObjectName(QStringLiteral("calibrationUndistorted"));
     undistorted_->setToolTip(QStringLiteral("Verification only; captures use original pixels. Black borders are expected. Corner overlays follow the selected pixel mode."));
-    profiles->addWidget(undistorted_, 1, 0, 1, 2);
+    profiles->addWidget(undistorted_, 2, 0, 1, 2);
     layout->addLayout(profiles);
     connect(saveProfile_, &QPushButton::clicked, this, [this] {
         if (confirmCalibrationLoss(this, "Save camera profile", "Saving may replace the profile stored for this camera and resolution."))
@@ -194,6 +201,18 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
         if (controller_.profile() && !confirmCalibrationLoss(this, "Reload camera profile",
                 "Reloading replaces the accepted camera profile and clears any dependent calibration in this session.")) return;
         controller_.reloadProfile();
+    });
+    connect(saveFile_, &QPushButton::clicked, this, [this] {
+        const auto file = chooseProfileFile(this, ProfileFileKind::Camera, QFileDialog::AcceptSave);
+        if (!file.isEmpty() && !controller_.pendingResult()) controller_.saveProfile(file);
+    });
+    connect(loadFile_, &QPushButton::clicked, this, [this] {
+        const auto file = chooseProfileFile(this, ProfileFileKind::Camera, QFileDialog::AcceptOpen);
+        if (file.isEmpty() || controller_.pendingResult()) return;
+        if ((controller_.profile() || !controller_.session().views().empty()) &&
+            !confirmCalibrationLoss(this, "Load camera profile",
+                "A compatible profile from this file will replace the current calibration and capture review.")) return;
+        controller_.reloadProfile(file);
     });
     connect(undistorted_, &QCheckBox::toggled, &controller_, &CalibrationController::setUndistortedPreview);
     auto* overlayOptions = new QVBoxLayout;
@@ -221,9 +240,9 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
     review->addWidget(remove_, 1, 1);
     layout->addLayout(review);
     auto* actions = new QGridLayout;
-    auto* restart = new QPushButton(QStringLiteral("Start / restart capture"), this);
-    restart->setObjectName(QStringLiteral("calibrationRestart"));
-    actions->addWidget(restart, 0, 0);
+    restart_ = new QPushButton(QStringLiteral("Start / restart capture"), this);
+    restart_->setObjectName(QStringLiteral("calibrationRestart"));
+    actions->addWidget(restart_, 0, 0);
     capture_ = new QPushButton(QStringLiteral("Capture view"), this);
     capture_->setObjectName(QStringLiteral("calibrationCapture"));
     actions->addWidget(capture_, 0, 1);
@@ -245,7 +264,7 @@ CalibrationWizard::CalibrationWizard(CalibrationController& controller, QWidget*
         }
         if (controller_.profile() && !controller_.pendingResult()) accept();
     });
-    connect(restart, &QPushButton::clicked, this, [this] {
+    connect(restart_, &QPushButton::clicked, this, [this] {
         if ((controller_.busy() || !controller_.session().views().empty()) &&
             !confirmCalibrationLoss(this, "Restart capture", "Restarting discards captured views and the review result.")) return;
         controller_.restart();
@@ -302,7 +321,9 @@ void CalibrationWizard::refresh()
     case CalibrationSuggestion::ReplaceView:
         next = QStringLiteral("View limit reached before diversity minimums. Remove a similar view, then capture a different position, size or in-plane angle."); break;
     }
-    guidance_->setText(QStringLiteral("Next capture: ") + next);
+    guidance_->setText(controller_.isStreaming() ? QStringLiteral("Next capture: ") + next
+        : QStringLiteral("Start the camera in the main window to begin calibration."));
+    restart_->setEnabled(controller_.isStreaming());
     const QSignalBlocker overlayBlocker(overlayMode_);
     overlayMode_->setCurrentIndex(static_cast<int>(controller_.livePreviewMode()));
     overlayMode_->setEnabled(!controller_.busy());
@@ -317,6 +338,8 @@ void CalibrationWizard::refresh()
     profileStatus_->setText(profileText);
     saveProfile_->setEnabled(controller_.canSaveProfile() && !controller_.busy() && !controller_.pendingResult());
     reloadProfile_->setEnabled(controller_.canReloadProfile() && !controller_.busy() && !controller_.pendingResult());
+    saveFile_->setEnabled(saveProfile_->isEnabled());
+    loadFile_->setEnabled(reloadProfile_->isEnabled());
     next_->setEnabled(!controller_.busy() && !controller_.profileBusy()
         && (controller_.profile() || controller_.pendingResult())
         && (controller_.session().views().empty() || controller_.result()));
@@ -379,26 +402,30 @@ void CalibrationWizard::enableGuidedMode()
 {
     guided_ = true;
     setWindowTitle(QStringLiteral("Camera calibration"));
-    controller_.requireResultAcceptance();
+    if (!previewOnly_) controller_.requireResultAcceptance();
     next_->show();
     refresh();
 }
 CalibrationWizard::~CalibrationWizard()
 {
-    controller_.setLivePreviewActive(false);
+    if (!previewOnly_) controller_.setLivePreviewActive(false);
 }
 void CalibrationWizard::showEvent(QShowEvent* event)
 {
     QDialog::showEvent(event);
-    controller_.setLivePreviewActive(true);
+    if (!previewOnly_) controller_.setLivePreviewActive(true);
 }
 void CalibrationWizard::hideEvent(QHideEvent* event)
 {
-    controller_.setLivePreviewActive(false);
+    if (!previewOnly_) controller_.setLivePreviewActive(false);
     QDialog::hideEvent(event);
 }
 void CalibrationWizard::reject()
 {
+    if (previewOnly_) {
+        QDialog::reject();
+        return;
+    }
     const bool hasDraft = controller_.pendingResult() || controller_.busy()
         || (!controller_.result() && !controller_.session().views().empty());
     if (hasDraft && !confirmCalibrationLoss(this, "Discard camera capture",
