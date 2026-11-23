@@ -1,5 +1,6 @@
 #include "ui/VisionDebugView.hpp"
 #include "app/VisionController.hpp"
+#include "calibration/WorkspaceDistance.hpp"
 
 #include <QDialogButtonBox>
 #include <QFontMetricsF>
@@ -8,6 +9,7 @@
 #include <QShowEvent>
 #include <QLabel>
 #include <QPainter>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QPolygonF>
 #include <QVBoxLayout>
@@ -151,6 +153,15 @@ void VisionOverlay::paintEvent(QPaintEvent*)
         painter.drawText(label.adjusted(5, 0, -5, 0), Qt::AlignVCenter,
                          metrics.elidedText(text, Qt::ElideRight, label.width() - 10));
     }
+}
+void VisionOverlay::mousePressEvent(QMouseEvent* event)
+{
+    if (event->button() != Qt::LeftButton || !drawableFrame(preview_)) return;
+    const auto viewport = workspaceCameraViewport(preview_->frame->width, preview_->frame->height, width(), height());
+    if (!viewport) return;
+    const auto point = workspaceCameraPick(*viewport, event->position().x(), event->position().y());
+    if (!point) return;
+    emit imagePicked(point->u, point->v);
 }
 VisionDebugDialog::VisionDebugDialog(VisionController& vision, QWidget* parent)
     : QDialog(parent), vision_(vision)

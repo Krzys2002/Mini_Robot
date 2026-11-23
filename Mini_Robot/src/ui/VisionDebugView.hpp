@@ -6,6 +6,7 @@
 #include <QTimer>
 
 class QPlainTextEdit;
+class QMouseEvent;
 namespace micro_robot {
 class VisionController;
 // GUI-thread presentation only. Paints one immutable, matched raw-frame/overlay
@@ -20,8 +21,11 @@ public:
     // Detector coordinates address pixel centers; QImage's rectangle addresses
     // pixel edges. Include the half-pixel offset under the same uniform scale.
     [[nodiscard]] QPointF imageToView(ImagePoint point) const;
+signals:
+    void imagePicked(double u, double v);
 protected:
     void paintEvent(QPaintEvent*) override;
+    void mousePressEvent(QMouseEvent*) override;
 private:
     VisionDebugFramePtr preview_;
 };

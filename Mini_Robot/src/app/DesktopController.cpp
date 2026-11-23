@@ -1,4 +1,6 @@
 #include "app/DesktopController.hpp"
+#include "calibration/WorkspaceProfile.hpp"
+#include <QCryptographicHash>
 
 #include <QMetaObject>
 
@@ -607,6 +609,8 @@ void DesktopController::setWorkspaceBounds(std::optional<WorkspaceBounds> bounds
     emit motionInterruptRequested(MotionInterruptReason::WorkspaceChanged);
     if (shuttingDown_) return;
     workspaceCalibrationDescription_ = QStringLiteral("camera-to-world calibration not established");
+    workspaceProfile_.reset();
+    workspaceRevision_.clear();
     world_.setWorkspaceBounds(bounds);
     if (initialized_) publishWorld();
 }
@@ -616,6 +620,16 @@ void DesktopController::setWorkspaceCalibration(const std::optional<WorkspaceCal
     emit motionInterruptRequested(MotionInterruptReason::WorkspaceChanged);
     if (shuttingDown_) return;
     world_.clearMeasurements();
+    workspaceProfile_ = profile;
+    workspaceRevision_.clear();
+    if (profile && profile->homography) {
+        try {
+            const auto serialized = serializeWorkspaceProfile(*profile);
+            const auto bytes = QByteArray(serialized.data(), static_cast<qsizetype>(serialized.size()));
+            workspaceRevision_ = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex().toStdString();
+        }
+        catch (const std::exception&) { workspaceRevision_.clear(); }
+    }
     if (!profile || !profile->homography || !validateWorkspaceCalibrationProfile(*profile).empty()) {
         setWorkspaceBounds({});
         return;

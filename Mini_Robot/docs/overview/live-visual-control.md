@@ -2,18 +2,20 @@
 
 Issue #76 composes calibrated camera → metric observations → tracker → WorldModel
 → supervisory loop → RobotManager → selected transport for one selected robot.
-`LiveVisualController` coordinates application state; `VisualControlPanel`
-presents target entry and status. Neither reads pixels or implements detection,
-filtering, feedback equations or BLE mechanics.
+`VisualControlPanel` presents the matched preview, target entry and status.
+`LiveVisualController` maps selected pixels into the calibrated workspace and
+owns target and control decisions.
 
 ## Operation and motion ownership
 
 Select/connect the robot with the existing selector and start calibrated camera
 tracking. Apply target X/Y in metres and heading in radians, then explicitly
-Start visual control. Targets must be finite and inside the active metric
+Start visual control. A click on the matched calibrated preview sets metric X/Y
+and uses the heading field. Targets must be finite and inside the active metric
 workspace with a frame identity. The panel shows actual filtered pose, target,
-tracking state/age and control state. Target edits are disabled while running.
-Launch, target editing, fresh data, reconnect and E-stop clear never start motion.
+position error, heading error, tracking state/age and operational state. Target
+edits are disabled while running. Launch, target editing, fresh data, reconnect
+and E-stop clear all require an explicit Start before motion can resume.
 
 Live visual command submission is enabled for simulation only. In BLE mode the
 target panel remains visible but Start is disabled until physical acceptance
@@ -36,6 +38,20 @@ control before proceeding. E-stop first latches every manager session and cancel
 pending motion, then interrupts visual control so the run state is recorded as
 E-stop. Manual drive actions are disabled while visual control owns commands;
 Stop/E-stop remain in the always-visible robot panel.
+
+Pause submits a Stop attempt, ends the current run and retains the target for
+an explicit restart. Cancel clears the target and submits a Stop attempt if a
+run is active. You can cancel a paused target. The always-visible robot panel
+provides the global E-stop action.
+
+The preview and click handling share the aspect-fit viewport and pixel-centre
+convention. The injected `OpenCvCalibrationUndistorter` uses the active
+intrinsics to undistort the selected pixel before the workspace homography
+projects it into metres. Clicks in the letterbox margins are ignored. A click
+requires a current preview with the active camera, resolution and calibration
+revision, a matching WorldModel frame and a point-undistortion adapter. The
+preview must meet the control freshness limit and be at least as recent as any
+accepted measurement for the selected robot. Resizing preserves the metric target.
 Identity ambiguity, robot fault/error and session loss also interrupt. A different
 robot clears the old target/provenance; a different frame requires a new target.
 
