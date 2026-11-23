@@ -74,7 +74,7 @@ Focused target-panel rendering:
 QT_SCALE_FACTOR=1.5 MICRO_ROBOT_VISUAL_CONTROL_SCREENSHOT=/tmp/visual-panel.png build/macos/Mini_Robot/tests/micro_robot_tests '--gtest_filter=LiveVisualControlTest.TargetPanel*:LiveVisualControlTest.QWidgetImageClicks*'
 QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests '--gtest_filter=LiveVisualControlTest.TargetPanel*:LiveVisualControlTest.QWidgetImageClicks*'
 ```
-Core-only builds keep nineteen Robot Info/GATT and message-codec tests without Qt,
+Core-only builds keep twenty-three Robot Info/GATT and message-codec tests without Qt,
 including the shared [v1 byte vectors](../protocol/fixtures/v1-frames.txt) that the
 firmware codec tests also read.
 Physical checks are listed in the [connection guide](../overview/ble-connection.md)
