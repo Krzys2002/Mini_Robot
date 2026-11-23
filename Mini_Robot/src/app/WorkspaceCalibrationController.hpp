@@ -118,6 +118,7 @@ public:
 
 public slots:
     void freeze();
+    void freezeWorkspace();
     void freezeMeasurement();
     void freezeBoard();
     void detectBoard();
@@ -136,7 +137,7 @@ signals:
 private:
     void invalidate(bool clearFrame);
     void geometryChanged();
-    void freezeFrame(bool preserveReferences);
+    void freezeFrame(bool preserveReferences, bool resetGeometry = false);
     void synchronizeReferences();
     void referencesEdited();
     void clearBoardReview();

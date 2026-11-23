@@ -163,6 +163,29 @@ TEST(ReferenceWorkflowTest, RegistryEditorRejectsUnconfirmedAndOversizedPasteAnd
     const auto image=qEnvironmentVariable("MICRO_ROBOT_REFERENCE_SCREENSHOT"); if(!image.isEmpty()) EXPECT_TRUE(dialog.grab().save(image));
 }
 
+TEST(ReferenceWorkflowTest, GuidedFinishRequiresValidatedRegistryAndAcceptsIt)
+{
+    ReferenceWorkflow f;
+    ReferenceMarkersDialog dialog{*f.workspace, nullptr, true};
+    auto* finish = dialog.findChild<QPushButton*>("otherCalibrationFinish");
+    auto* rows = dialog.findChild<QPlainTextEdit*>("referenceRegistryRows");
+    ASSERT_TRUE(finish && rows);
+    EXPECT_FALSE(finish->isEnabled());
+    f.commission();
+    ASSERT_TRUE(finish->isEnabled());
+    const auto registry = rows->toPlainText();
+    rows->setPlainText(registry + "new unreviewed row");
+    EXPECT_FALSE(finish->isEnabled());
+    EXPECT_FALSE(f.workspace->profile());
+    rows->setPlainText(registry);
+    EXPECT_TRUE(finish->isEnabled());
+    finish->click();
+    EXPECT_EQ(dialog.result(), QDialog::Accepted);
+    ASSERT_TRUE(f.workspace->profile() && f.workspace->profile()->references);
+    EXPECT_EQ(f.workspace->profile()->references->validatedLocalizationRevision,
+              f.workspace->profile()->localization->revision);
+}
+
 TEST(ReferenceWorkflowTest, V5ReferenceUpgradePreservesImmutableV3SidecarByteForByte) {
     QTemporaryDir directory; auto runtime=referenceProfile(); auto mounts=runtime.localization;
     runtime.references.reset(); runtime.localization.reset(); runtime.acquisitionId="original-v3-sidecar";

@@ -11,8 +11,6 @@ class QPushButton;
 
 namespace micro_robot {
 class CalibrationController;
-class WorkspaceCalibrationController;
-class WorkspaceCalibrationDialog;
 class CalibrationPreview;
 // Presentation only: renders owned frames/corners and forwards operator actions.
 class CalibrationWizard final : public QDialog {
@@ -20,7 +18,7 @@ class CalibrationWizard final : public QDialog {
 public:
     explicit CalibrationWizard(CalibrationController& controller, QWidget* parent = nullptr);
     ~CalibrationWizard() override;
-    void bindWorkspaceCalibration(WorkspaceCalibrationController& controller);
+    void enableGuidedMode();
 protected:
     void reject() override;
     void showEvent(QShowEvent* event) override;
@@ -28,7 +26,8 @@ protected:
 private:
     static constexpr double MillimetersPerMeter = 1000.0;
     void refresh();
-    WorkspaceCalibrationDialog* workspace_{};
+    QPushButton* next_{};
+    bool guided_{};
     CalibrationController& controller_;
     CalibrationPreview* preview_{};
     QComboBox* views_{};

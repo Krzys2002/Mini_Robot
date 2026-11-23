@@ -2,9 +2,12 @@
 #include "ui/RobotControlPanel.hpp"
 #include "ui/VisualControlPanel.hpp"
 #include <QScrollArea>
-#include "ui/CalibrationWizard.hpp"
+#include "ui/CalibrationFlow.hpp"
+#include <QCloseEvent>
 #include "ui/VisionDebugView.hpp"
+#include "ui/TopViewDialog.hpp"
 #include "app/CalibrationController.hpp"
+#include "app/WorkspaceCalibrationController.hpp"
 #include "app/VisionController.hpp"
 #include "app/CameraSelectionController.hpp"
 #include "app/DesktopController.hpp"
@@ -80,13 +83,14 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
     cameraLayout->addLayout(cameraButtons);
     layout->addWidget(cameraGroup);
 
-    auto* worldGroup = new QGroupBox(QStringLiteral("WorldModel — tracked metric poses"), central);
+    auto* worldGroup = new QGroupBox(QStringLiteral("World Model View"), central);
+    worldGroup->setObjectName(QStringLiteral("worldModelView"));
     auto* worldLayout = new QVBoxLayout(worldGroup);
     auto* worldDescription = new QLabel(QStringLiteral("No registered robots"), worldGroup);
     worldDescription->setObjectName(QStringLiteral("worldDescription"));
     worldDescription->setWordWrap(true);
     auto* convention = new QLabel(QStringLiteral(
-        "Tabletop frame: explicit calibrated origin (0, 0) m; +X → right, +Y ↑ up in world view.\n"
+        "Tabletop frame: explicit calibrated origin (0, 0) m; +X → right, +Y ↑ up in World Model View.\n"
         "Heading: 0 rad along +X; positive counterclockwise (CCW)."), worldGroup);
     convention->setObjectName(QStringLiteral("worldCoordinateConvention"));
     convention->setWordWrap(true);
@@ -114,10 +118,18 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
 
     // activated fires for user choices only, never for programmatic updates.
     connect(cameraSelector_, &QComboBox::activated, this, [this](int index) {
-        emit cameraSelectionRequested(cameraSelector_->itemData(index).toString());
+        const auto id = cameraSelector_->itemData(index).toString();
+        if (id == selectedCameraId_) return;
+        if (calibrationFlow_ && !calibrationFlow_->confirmCameraChange()) {
+            cameraSelector_->setCurrentIndex(cameraSelector_->findData(selectedCameraId_));
+            return;
+        }
+        emit cameraSelectionRequested(id);
     });
     connect(startCamera_, &QPushButton::clicked, this, &MainWindow::cameraStartRequested);
-    connect(stopCamera_, &QPushButton::clicked, this, &MainWindow::cameraStopRequested);
+    connect(stopCamera_, &QPushButton::clicked, this, [this] {
+        if (!calibrationFlow_ || calibrationFlow_->confirmCameraChange()) emit cameraStopRequested();
+    });
     connect(this, &MainWindow::cameraStartRequested, &controller, &DesktopController::startCamera);
     connect(this, &MainWindow::cameraStopRequested, &controller, &DesktopController::stopCamera);
 
@@ -143,8 +155,12 @@ MainWindow::MainWindow(DesktopController& controller, QWidget* parent)
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
-    if (calibrationWizard_) calibrationWizard_->close();
+    if (calibrationFlow_ && !calibrationFlow_->close()) {
+        event->ignore();
+        return;
+    }
     if (visionDebug_) visionDebug_->close();
+    if (topView_) topView_->close();
     QMainWindow::closeEvent(event);
 }
 
@@ -169,6 +185,27 @@ void MainWindow::bindVision(VisionController& vision)
     });
 }
 
+void MainWindow::bindTopView(DesktopController& desktop, WorkspaceCalibrationController& workspace,
+                             std::unique_ptr<ICalibrationUndistorter> undistorter)
+{
+    auto* view = new TopViewDialog(std::move(undistorter), this);
+    topView_ = view;
+    auto* action = new QPushButton(QStringLiteral("Top View…"), this);
+    action->setObjectName(QStringLiteral("openTopView"));
+    contentLayout_->insertWidget(contentLayout_->indexOf(findChild<QGroupBox*>(QStringLiteral("worldModelView"))), action);
+    connect(action, &QPushButton::clicked, view, [view] {
+        view->show();
+        view->raise();
+        view->activateWindow();
+    });
+    connect(&desktop, &DesktopController::calibrationInputChanged, view,
+            [view](const QString& identity, bool streaming, bool) { view->setInput(identity, streaming); });
+    connect(&desktop, &DesktopController::frameAvailable, view, &TopViewDialog::receiveFrame);
+    connect(&workspace, &WorkspaceCalibrationController::profileChanged, view,
+            [view, &workspace] { view->setCalibration(workspace.profile()); });
+    view->setCalibration(workspace.profile());
+}
+
 void MainWindow::bindVisualControl(LiveVisualController& control, VisionController& vision)
 {
     auto* panel = new VisualControlPanel(control, this);
@@ -178,27 +215,20 @@ void MainWindow::bindVisualControl(LiveVisualController& control, VisionControll
 
 void MainWindow::bindCalibration(CalibrationController& calibration)
 {
-    auto* action = new QPushButton(QStringLiteral("Camera calibration…"), this);
+    auto* action = new QPushButton(QStringLiteral("Calibration…"), this);
     action->setObjectName(QStringLiteral("openCalibration"));
     auto* layout = contentLayout_;
     layout->insertWidget(3, action);
     // Keyboard focus follows the visual order, after the camera selector.
     setTabOrder(cameraSelector_, action);
     if (visionAction_) setTabOrder(action, visionAction_);
-    auto* wizard = new CalibrationWizard(calibration, this);
-    calibrationWizard_ = wizard;
-    // A child dialog must not trigger application shutdown on its own.
-    wizard->setAttribute(Qt::WA_QuitOnClose, false);
-    connect(action, &QPushButton::clicked, wizard, [wizard, &calibration] {
-        wizard->show();
-        wizard->raise();
-        calibration.showLive();
-    });
+    calibrationFlow_ = new CalibrationFlow(calibration, this);
+    connect(action, &QPushButton::clicked, calibrationFlow_, &CalibrationFlow::open);
 }
 
 void MainWindow::bindWorkspaceCalibration(WorkspaceCalibrationController& workspace)
 {
-    if (calibrationWizard_) calibrationWizard_->bindWorkspaceCalibration(workspace);
+    if (calibrationFlow_) calibrationFlow_->bindWorkspace(workspace);
 }
 
 void MainWindow::bindCameraSelection(CameraSelectionController& selection)

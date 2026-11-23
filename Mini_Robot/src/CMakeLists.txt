@@ -318,6 +318,10 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
+        ui/CalibrationFlow.hpp ui/CalibrationFlow.cpp
+        ui/CalibrationForm.hpp
+        ui/CalibrationImageView.hpp ui/CalibrationImageView.cpp
+        ui/TopViewDialog.hpp ui/TopViewDialog.cpp
         ui/VisualControlPanel.hpp ui/VisualControlPanel.cpp
         ui/WorkspaceDistanceDialog.hpp
         ui/WorkspaceDistanceDialog.cpp

@@ -109,15 +109,15 @@ void CalibrationController::presentPreview(FramePtr frame, const std::vector<Ima
     previewCorners_ = corners;
     previewAccepted_ = accepted;
     previewApproximate_ = approximate;
-    if (undistortedPreview_ && previewFrame_ && profile_) processPreview();
+    if (undistortedPreview_ && previewFrame_ && previewCalibration()) processPreview();
     else { selectedFrame_ = previewFrame_; emitPreview(previewFrame_, previewCorners_, previewAccepted_, previewApproximate_); }
 }
 void CalibrationController::processPreview()
 {
-    if (previewBusy_ || trackingBusy_ || shuttingDown_ || !undistortedPreview_ || !previewFrame_ || !profile_) return;
+    if (previewBusy_ || trackingBusy_ || shuttingDown_ || !undistortedPreview_ || !previewFrame_ || !previewCalibration()) return;
     previewBusy_ = true;
     const auto frame = previewFrame_;
-    const auto profile = *profile_;
+    const auto profile = *previewCalibration();
     const auto epoch = previewEpoch_;
     const auto revision = previewRevision_;
     const auto corners = previewCorners_;

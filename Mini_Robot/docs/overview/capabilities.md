@@ -19,6 +19,10 @@ end-to-end or physical acceptance. Historical proposals are not source inventori
 | Recording | Human-readable application logs and per-run [JSON Lines experiment exports](control-experiment-export.md) with pose/target/error/command samples and effective controller configuration | Validated end-to-end latency/error measurements and physical experiment evidence |
 
 The running desktop routes frames to calibration/detection/debug presentation.
+The guided desktop calibration advances through Camera, Workspace, Tabletop,
+Robot and surveyed references. The operator Top View displays live rectified
+pixels over the accepted tabletop and the World Model View presents metric state.
+See the [operator workflow](tabletop-homography.md#operator-procedure).
 Calibrated observations feed tracked WorldModel poses with explicit age and loss
 state. Explicitly started visual control can submit bounded commands through
 RobotManager to simulation. BLE remains available for connection and manual-drive

@@ -169,7 +169,7 @@ WorkspaceDistanceDialog::WorkspaceDistanceDialog(WorkspaceCalibrationController&
     auto* viewRow = new QHBoxLayout;
     viewMode_ = new QComboBox(body);
     viewMode_->setObjectName("distanceViewMode");
-    viewMode_->addItems({"Frozen undistorted camera", "World diagram (+Y up)"});
+    viewMode_->addItems({"Frozen undistorted camera", "World Model View (+Y up)"});
     target_ = new QComboBox(body);
     target_->setObjectName("distanceTarget");
     target_->addItems({"Pick / replace A", "Pick / replace B"});

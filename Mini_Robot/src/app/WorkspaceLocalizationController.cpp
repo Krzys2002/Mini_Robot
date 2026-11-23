@@ -70,8 +70,13 @@ void WorkspaceCalibrationController::calculateLocalization(ExtrinsicSolveInput i
             }
             draft_->localization=std::move(outcome.calibration);
             localizationValidationRequired_=false;
-            if(draft_->references && pendingReferenceRevision_==draft_->localization->revision)
-                draft_->references->validatedLocalizationRevision=draft_->localization->revision;
+            if (draft_->references && pendingReferenceRevision_ == draft_->localization->revision) {
+                draft_->references->validatedLocalizationRevision = draft_->localization->revision;
+            } else if (draft_->references) {
+                // The manual robot survey replaced the localization to which the registry was bound.
+                draft_->references.reset();
+                latestReferenceFrame_.reset();
+            }
             pendingReferenceRevision_.clear();
             lastLocalizationDraft_=draft_->localization;
             publish(QStringLiteral("Height-aware draft passed reference/cheirality/ambiguity checks. Review the survey and mounts, then explicitly Activate and Save. Physical ±5 mm/body-centre acceptance is NOT RUN (#224/#63)."));

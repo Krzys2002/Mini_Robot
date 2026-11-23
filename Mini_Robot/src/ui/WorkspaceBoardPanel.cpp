@@ -1,14 +1,13 @@
 #include "ui/WorkspaceBoardPanel.hpp"
+#include "ui/CalibrationForm.hpp"
 #include <QCheckBox>
 #include <QComboBox>
-#include <QDoubleSpinBox>
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
-#include <QSpinBox>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <numbers>
@@ -103,7 +102,7 @@ private:
 } // namespace
 WorkspaceBoardPanel::WorkspaceBoardPanel(WorkspaceCalibrationController& controller,
     std::function<std::optional<std::uint64_t>()> selectedReference,QWidget* parent)
-    : QGroupBox("Flat tabletop chessboard acquisition (not tilted intrinsic capture)",parent),controller_(controller),selectedReference_(std::move(selectedReference))
+    : QGroupBox("Tabletop chessboard acquisition",parent),controller_(controller),selectedReference_(std::move(selectedReference))
 {
     setObjectName("workspaceBoardPanel"); setCheckable(true); setChecked(false);
     auto* layout=new QVBoxLayout(this); auto* body=new QWidget(this); auto* content=new QVBoxLayout(body); layout->addWidget(body);
@@ -118,28 +117,45 @@ WorkspaceBoardPanel::WorkspaceBoardPanel(WorkspaceCalibrationController& control
     detect_=button("workspaceBoardDetect","Detect exact frozen frame");
     review_=button("workspaceBoardReview","Review measured geometry"); content->addLayout(actions);
     settings_=new QWidget(body); auto* grid=new QGridLayout(settings_);
-    auto number=[&](const char* name,double lo,double hi,const char* suffix) {
-        auto* spin=new QDoubleSpinBox(settings_); spin->setObjectName(name); spin->setDecimals(CoordinateDecimals); spin->setKeyboardTracking(false); spin->setRange(lo,hi); spin->setSuffix(suffix); return spin;
+    fields_=new CalibrationForm(this);
+    auto number=[&](const char* name,double lo,double hi,bool length,std::optional<double> fallback={}) {
+        auto* field=new QLineEdit(settings_);
+        field->setObjectName(name);
+        fields_->watch(field,[field]{return field->text();},[=,this] {
+            const double scale=length ? workspaceUnitsPerMeter(unit_) : 1.0;
+            const double value=CalibrationForm::value(field,fallback.value_or(std::numeric_limits<double>::quiet_NaN()));
+            return std::isfinite(value) && value>=lo*scale && value<=hi*scale ? QString{}
+                : QStringLiteral("Enter a number between %1 and %2.").arg(lo*scale).arg(hi*scale);
+        });
+        return field;
     };
-    anchor_=new QSpinBox(settings_); anchor_->setObjectName("workspaceBoardAnchorIndex");
-    anchor_->setRange(0,WorkspaceBoardTarget.columns*WorkspaceBoardTarget.rows-1);
-    x_=number("workspaceBoardAnchorX",-MaximumAnchorMeters,MaximumAnchorMeters,"");
-    y_=number("workspaceBoardAnchorY",-MaximumAnchorMeters,MaximumAnchorMeters,"");
-    angle_=number("workspaceBoardColumnAngle",-MaximumAngleDegrees,MaximumAngleDegrees,"");
-    spacing_=number("workspaceBoardSpacing",MinimumSpacingMeters,MaximumSpacingMeters,"");
-    spacing_->setValue(WorkspaceBoardTarget.squareSizeMeters);
+    anchor_=new QLineEdit(settings_);
+    anchor_->setObjectName("workspaceBoardAnchorIndex");
+    fields_->watch(anchor_,[this]{return anchor_->text();},[this] {
+        if (anchor_->text().trimmed().isEmpty()) return QString{};
+        bool ok=false;
+        const int index=anchor_->text().toInt(&ok);
+        const int limit=WorkspaceBoardTarget.columns*WorkspaceBoardTarget.rows;
+        return ok && index>=0 && index<limit ? QString{}
+            : QStringLiteral("Enter a corner index between 0 and %1.").arg(limit-1);
+    });
+    x_=number("workspaceBoardAnchorX",-MaximumAnchorMeters,MaximumAnchorMeters,true);
+    y_=number("workspaceBoardAnchorY",-MaximumAnchorMeters,MaximumAnchorMeters,true);
+    angle_=number("workspaceBoardColumnAngle",-MaximumAngleDegrees,MaximumAngleDegrees,false,0);
+    spacing_=number("workspaceBoardSpacing",MinimumSpacingMeters,MaximumSpacingMeters,true);
     rowDirection_=new QComboBox(settings_); rowDirection_->setObjectName("workspaceBoardRowDirection");
     rowDirection_->addItems({"Choose +rows direction","+rows = +90° from +columns","+rows = -90° from +columns"});
     auto labelled=[&](QWidget* input,const QString& name,int row,int column,bool length=false) {
         auto* group=new QWidget(settings_); auto* box=new QVBoxLayout(group); box->setContentsMargins(0,0,0,0);
         auto* label=new QLabel(name,group); label->setBuddy(input);
+        label->setWordWrap(true);
         if (length) label->setProperty("workspaceLengthLabel",name);
         box->addWidget(label); box->addWidget(input); grid->addWidget(group,row,column);
     };
-    labelled(anchor_,"Anchor corner index",0,0);
+    labelled(anchor_,"Anchor corner index · blank uses 0",0,0);
     labelled(x_,"Anchor X / measured offset",0,1,true);
     labelled(y_,"Anchor Y / measured offset",0,2,true);
-    labelled(angle_,"+columns angle from world +X (degrees)",1,0);
+    labelled(angle_,"+columns angle from world +X (degrees) · blank uses 0",1,0);
     labelled(rowDirection_,"Board row direction",1,1);
     labelled(spacing_,"Measured corner spacing",1,2,true);
     reverseColumns_=new QCheckBox("Reverse detector columns",settings_); reverseColumns_->setObjectName("workspaceBoardReverseColumns");
@@ -147,14 +163,17 @@ WorkspaceBoardPanel::WorkspaceBoardPanel(WorkspaceCalibrationController& control
     relative_=new QCheckBox("Measured offset from reference",settings_); relative_->setObjectName("workspaceBoardRelative");
     reference_=new QPushButton("Use selected reference",settings_); reference_->setObjectName("workspaceBoardUseReference");
     grid->addWidget(reverseColumns_,2,0); grid->addWidget(reverseRows_,2,1); grid->addWidget(relative_,2,2); grid->addWidget(reference_,3,2);
-    note_=new QLineEdit(settings_); note_->setObjectName("workspaceBoardNote"); note_->setMaxLength(static_cast<int>(MaximumWorkspacePlacementNoteBytes));
-    note_->setPlaceholderText("Measurement/setup note (stored with this placement)"); labelled(note_,"Measurement / setup note",3,0); content->addWidget(settings_);
+    note_=new QLineEdit(settings_);
+    note_->setObjectName("workspaceBoardNote");
+    labelled(note_,"Measurement / setup note",3,0);
+    content->addWidget(settings_);
     details_=new QLabel(body); details_->setObjectName("workspaceBoardDetails"); details_->setWordWrap(true); content->addWidget(details_);
-    auto* zoom=new WorkspaceBoardZoom(controller_,[this]{return static_cast<std::size_t>(anchor_->value());},
-        [this](std::size_t index){anchor_->setValue(static_cast<int>(index));},body);
+    auto* zoom=new WorkspaceBoardZoom(controller_,[this]{return static_cast<std::size_t>(anchor_->text().toInt());},
+        [this](std::size_t index){anchor_->setText(QString::number(index));},body);
     content->addWidget(zoom);
     connect(&controller_,&WorkspaceCalibrationController::changed,zoom,[zoom]{zoom->update();});
-    connect(anchor_,&QSpinBox::valueChanged,zoom,[zoom]{zoom->update();});
+    connect(anchor_,&QLineEdit::editingFinished,zoom,[zoom]{zoom->update();});
+    connect(anchor_,&QLineEdit::textChanged,zoom,[anchor=anchor_,zoom]{if (!anchor->hasFocus()) zoom->update();});
     points_=new QTableWidget(0,7,body); points_->setObjectName("workspaceBoardPoints");
     points_->setHorizontalHeaderLabels({"Index","u px","v px","x m","y m","Include","Review status"});
     points_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch); points_->setMaximumHeight(200); content->addWidget(points_);
@@ -163,12 +182,21 @@ WorkspaceBoardPanel::WorkspaceBoardPanel(WorkspaceCalibrationController& control
     auto* footer=new QHBoxLayout;
     check_=new QCheckBox("Check-only placement (measure independently; never fitted)",body); check_->setObjectName("workspaceBoardCheck"); footer->addWidget(check_);
     import_=new QPushButton("Import reviewed placement",body); import_->setObjectName("workspaceBoardImport"); footer->addWidget(import_); content->addLayout(footer);
-    connect(freeze_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::freezeBoard);
-    connect(detect_,&QPushButton::clicked,&controller_,&WorkspaceCalibrationController::detectBoard);
+    connect(freeze_,&QPushButton::clicked,this,[this] {
+        if (confirmReplacingReview("Freeze next board frame?")) controller_.freezeBoard();
+    });
+    connect(detect_,&QPushButton::clicked,this,[this] {
+        if (confirmReplacingReview("Detect board again?")) controller_.detectBoard();
+    });
     connect(review_,&QPushButton::clicked,this,[this]{review();});
-    connect(import_,&QPushButton::clicked,this,[this]{controller_.importBoardPlacement(check_->isChecked(),identity_->isChecked());});
-    for (auto* spin:{x_,y_,angle_,spacing_}) connect(spin,&QDoubleSpinBox::valueChanged,this,[this]{edited();});
-    connect(anchor_,&QSpinBox::valueChanged,this,[this]{edited();});
+    connect(import_,&QPushButton::clicked,this,[this] {
+        if (reviewDirty_) return;
+        if (controller_.draftProfile() && !confirmCalibrationLoss(this, "Change tabletop references?",
+                "Importing this placement invalidates the corresponding solved transform or verification evidence.")) return;
+        controller_.importBoardPlacement(check_->isChecked(),identity_->isChecked());
+    });
+    for (auto* field:{x_,y_,angle_,spacing_,anchor_,note_})
+        connect(field,&QLineEdit::textChanged,this,[this]{edited();});
     connect(rowDirection_,&QComboBox::currentIndexChanged,this,[this]{edited();});
     for (auto* box:{reverseColumns_,reverseRows_,relative_}) connect(box,&QCheckBox::toggled,this,[this]{edited();});
     int metadataRow=4;
@@ -180,14 +208,25 @@ WorkspaceBoardPanel::WorkspaceBoardPanel(WorkspaceCalibrationController& control
         (*entry.first)->setObjectName(entry.first==&surface_ ? "workspaceBoardSurfaceElevation" :
             entry.first==&boardThickness_ ? "workspaceBoardThickness" :
             entry.first==&backingThickness_ ? "workspaceBoardBackingThickness" : "workspaceBoardElevationMethod");
-        (*entry.first)->setMaxLength(static_cast<int>(MaximumWorkspacePlacementNoteBytes));
         auto* label=new QLabel(entry.second,settings_); label->setBuddy(*entry.first);
         if (entry.first!=&elevationMethod_) label->setProperty("workspaceLengthLabel",QString::fromUtf8(entry.second));
         grid->addWidget(label,metadataRow,0);
         grid->addWidget(*entry.first,metadataRow++,1);
         connect(*entry.first,&QLineEdit::textChanged,this,[this]{edited();});
     }
-    connect(note_,&QLineEdit::textChanged,this,[this]{edited();});
+    for (auto* field:{note_, elevationMethod_}) fields_->watch(field,[field]{return field->text();},[field] {
+        return field->text().toUtf8().size() <= static_cast<qsizetype>(MaximumWorkspacePlacementNoteBytes) ? QString{}
+            : QStringLiteral("Measurement note exceeds the supported length.");
+    });
+    for (auto* field:{surface_,boardThickness_,backingThickness_}) fields_->watch(field,[field]{return field->text();},[=,this] {
+        if (field->text().trimmed().isEmpty()) return QString{};
+        const double value=CalibrationForm::value(field);
+        if (!std::isfinite(value) || (field!=surface_ && value<0))
+            return QStringLiteral("Enter a valid measured length or leave blank.");
+        if (field==surface_ && elevationMethod_->text().trimmed().isEmpty())
+            return QStringLiteral("Add the measurement method for a known surface elevation.");
+        return QString{};
+    });
     connect(reference_,&QPushButton::clicked,this,[this]{relativeId_=selectedReference_(); edited();});
     connect(check_,&QCheckBox::toggled,this,[this]{identity_->setChecked(false);});
     connect(identity_,&QCheckBox::toggled,this,[this]{refresh();});
@@ -202,17 +241,10 @@ void WorkspaceBoardPanel::setLengthUnit(WorkspaceLengthUnit unit,bool recalculat
 {
     const double scale=workspaceUnitsPerMeter(unit),ratio=scale/workspaceUnitsPerMeter(unit_);
     preserveInputs_=true;
-    for (auto* spin:{x_,y_,spacing_}) {
-        const QSignalBlocker block(spin); const double old=spin->value();
-        const double value=recalculate ? old*ratio : old;
-        spin->setRange(std::min(spin==spacing_ ? MinimumSpacingMeters*scale : -MaximumAnchorMeters*scale,value),
-                       std::max(spin==spacing_ ? MaximumSpacingMeters*scale : MaximumAnchorMeters*scale,value));
-        spin->setValue(value);
-    }
-    if (recalculate) for (auto* field:{surface_,boardThickness_,backingThickness_}) {
+    if (recalculate) for (auto* field:{x_,y_,spacing_,surface_,boardThickness_,backingThickness_}) {
         const QSignalBlocker block(field); bool ok=false;
         const double value=parseWorkspaceLength(field->text(),&ok);
-        if (ok && std::isfinite(value)) field->setText(QString::number(value*ratio,'g',17));
+        if (ok && std::isfinite(value)) field->setText(workspaceLengthText(value*ratio));
     }
     unit_=unit;
     points_->setHorizontalHeaderLabels({"Index","u px","v px","x ("+workspaceUnitLabel(unit)+")",
@@ -222,27 +254,42 @@ void WorkspaceBoardPanel::setLengthUnit(WorkspaceLengthUnit unit,bool recalculat
 }
 void WorkspaceBoardPanel::edited()
 {
-    identity_->setChecked(false); controller_.discardBoardReview();
+    reviewDirty_=true;
+    identity_->setChecked(false);
+    refresh();
+    if (controller_.boardReview()) details_->setText("Review measured geometry again before importing the changed placement.");
+}
+bool WorkspaceBoardPanel::confirmReplacingReview(const QString& title)
+{
+    return !controller_.boardReview() || confirmCalibrationLoss(this,title,
+        "This action discards the pending board review and its inclusion choices.");
 }
 void WorkspaceBoardPanel::review()
 {
     if (relative_->isChecked() && !relativeId_) { details_->setText("Select a reference row and press Use selected reference first."); return; }
+    const auto error=fields_->validate();
+    if (!error.isEmpty()) { details_->setText(error); return; }
+    if (rowDirection_->currentIndex()==0) { details_->setText("Choose the measured board row direction."); return; }
+    if (!confirmReplacingReview("Replace board review?")) return;
+    const double scale=workspaceUnitsPerMeter(unit_);
     WorkspaceBoardPlacement p;
-    p.anchorIndex=static_cast<std::size_t>(anchor_->value()); p.anchor={Meters{x_->value()/workspaceUnitsPerMeter(unit_)},Meters{y_->value()/workspaceUnitsPerMeter(unit_)}};
-    p.columnAngle=Radians{angle_->value()*std::numbers::pi/180};
+    p.anchorIndex=static_cast<std::size_t>(anchor_->text().toInt());
+    p.anchor={Meters{CalibrationForm::value(x_)/scale},Meters{CalibrationForm::value(y_)/scale}};
+    p.columnAngle=Radians{CalibrationForm::value(angle_,0)*std::numbers::pi/180};
     p.rowDirection=rowDirection_->currentIndex()==1?1:rowDirection_->currentIndex()==2?-1:0;
-    p.reverseColumns=reverseColumns_->isChecked(); p.reverseRows=reverseRows_->isChecked(); p.target.squareSizeMeters=spacing_->value()/workspaceUnitsPerMeter(unit_);
+    p.reverseColumns=reverseColumns_->isChecked(); p.reverseRows=reverseRows_->isChecked();
+    p.target.squareSizeMeters=CalibrationForm::value(spacing_)/scale;
     p.note=note_->text().toStdString();
-    auto measurement=[this](QLineEdit* field)->std::optional<double> {
+    auto measurement=[scale](QLineEdit* field)->std::optional<double> {
         if (field->text().trimmed().isEmpty()) return {};
-        bool ok=false; const double value=parseWorkspaceLength(field->text(),&ok);
-        return ok ? value/workspaceUnitsPerMeter(unit_) : std::numeric_limits<double>::quiet_NaN();
+        return CalibrationForm::value(field)/scale;
     };
     p.surfaceElevationMeters=measurement(surface_);
     p.boardThicknessMeters=measurement(boardThickness_);
     p.backingThicknessMeters=measurement(backingThickness_);
     p.elevationMethod=elevationMethod_->text().toStdString();
     if (relative_->isChecked()) { p.relativeReferenceId=relativeId_; p.measuredOffset=p.anchor; }
+    reviewDirty_=false;
     controller_.reviewBoardPlacement(std::move(p));
 }
 void WorkspaceBoardPanel::refresh()
@@ -250,21 +297,26 @@ void WorkspaceBoardPanel::refresh()
     const bool idle=!controller_.busy(); settings_->setEnabled(idle);
     freeze_->setEnabled(idle && controller_.boundaryConfirmed() && controller_.canFreeze());
     detect_->setEnabled(controller_.canDetectBoard()); review_->setEnabled(controller_.canReviewBoard());
-    identity_->setEnabled(controller_.canImportBoard()); points_->setEnabled(idle);
-    import_->setEnabled(controller_.canImportBoard() && identity_->isChecked());
+    identity_->setEnabled(!reviewDirty_ && controller_.canImportBoard()); points_->setEnabled(idle && !reviewDirty_);
+    import_->setEnabled(!reviewDirty_ && controller_.canImportBoard() && identity_->isChecked());
     if (shownRevision_==controller_.boardRevision()) return;
     shownRevision_=controller_.boardRevision();
     if (frameId_!=controller_.frameId()) {
         frameId_=controller_.frameId(); relativeId_.reset();
-        const QSignalBlocker a(x_),b(y_),c(angle_),d(anchor_),e(rowDirection_),f(reverseColumns_),g(reverseRows_),h(relative_),j(note_);
+        const QSignalBlocker a(x_),b(y_),c(angle_),d(anchor_),e(rowDirection_),f(reverseColumns_),g(reverseRows_),h(relative_),
+            j(note_),k(spacing_),l(surface_),m(boardThickness_),n(backingThickness_),o(elevationMethod_);
         if (!preserveInputs_) {
-            x_->setValue(0); y_->setValue(0); angle_->setValue(0); anchor_->setValue(0); rowDirection_->setCurrentIndex(0);
-            reverseColumns_->setChecked(false); reverseRows_->setChecked(false); relative_->setChecked(false); note_->clear();
-            surface_->clear(); boardThickness_->clear(); backingThickness_->clear(); elevationMethod_->clear();
+            for (auto* field:{x_,y_,angle_,anchor_,spacing_,note_,surface_,boardThickness_,backingThickness_,elevationMethod_}) {
+                field->clear();
+                field->setStyleSheet({});
+                field->setToolTip({});
+            }
+            rowDirection_->setCurrentIndex(0);
+            reverseColumns_->setChecked(false); reverseRows_->setChecked(false); relative_->setChecked(false);
         } else { relative_->setChecked(false); }
     }
     if (!preserveInputs_) { const QSignalBlocker b(identity_); identity_->setChecked(false); }
-    import_->setEnabled(controller_.canImportBoard() && identity_->isChecked());
+    import_->setEnabled(!reviewDirty_ && controller_.canImportBoard() && identity_->isChecked());
     const QSignalBlocker block(points_); points_->setRowCount(0);
     if (const auto& p=controller_.boardReview()) {
         details_->setText(QStringLiteral("Placement %1 · frame %2 · resolved anchor (%3,%4) %8 · +columns %5 rad · +rows sign %6 · %7 stored placements. "

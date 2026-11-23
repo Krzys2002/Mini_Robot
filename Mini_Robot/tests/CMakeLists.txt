@@ -97,6 +97,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
         ui/WorkspaceDistanceTest.cpp
         ui/WorkspaceDiagnosticsTest.cpp
         ui/WorkspaceCalibrationTest.cpp
+        ui/CalibrationImageViewTest.cpp
+        ui/TopViewTest.cpp
         ui/CalibrationWizardTest.cpp
         ui/QtCameraSourceTest.cpp
         ui/RobotControlPanelTest.cpp

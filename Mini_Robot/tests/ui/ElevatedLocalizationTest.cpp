@@ -6,16 +6,19 @@
 #include "ui/ElevatedLocalizationDialog.hpp"
 #include <QApplication>
 #include <QCheckBox>
-#include <QDoubleSpinBox>
 #include <QFile>
 #include <QDir>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <atomic>
 #include <future>
+#include <iomanip>
+#include <sstream>
 #include <gtest/gtest.h>
 using namespace micro_robot;
 using namespace micro_robot::test;
@@ -104,6 +107,84 @@ TEST(ElevatedLocalizationUiTest, SurveyImportRejectsUnconfirmedMalformedAndOverC
     dialog.resize(640,480); QApplication::processEvents();
     const auto screenshot=qEnvironmentVariable("MICRO_ROBOT_ELEVATED_SCREENSHOT");
     if(!screenshot.isEmpty()) EXPECT_TRUE(dialog.grab().save(screenshot));
+}
+TEST(ElevatedLocalizationUiTest, GuidedFieldsValidateOnExitAndClosingConfirmsDiscard)
+{
+    LocalFixture f;
+    ElevatedLocalizationDialog dialog{f.controller, nullptr, true};
+    dialog.show();
+    QApplication::processEvents();
+    auto* surface = dialog.findChild<QLineEdit*>("referenceSurfaceHeight");
+    auto* method = dialog.findChild<QLineEdit*>("extrinsicSurveyMethod");
+    ASSERT_TRUE(surface && method);
+    EXPECT_TRUE(surface->text().isEmpty());
+    EXPECT_TRUE(surface->placeholderText().isEmpty());
+    surface->setFocus();
+    QTest::keyClicks(surface, "invalid");
+    EXPECT_TRUE(surface->styleSheet().isEmpty());
+    method->setFocus();
+    EXPECT_FALSE(surface->styleSheet().isEmpty());
+
+    const auto close = [&](QMessageBox::StandardButton response) {
+        QTimer::singleShot(0, [response] {
+            auto* warning = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+            ASSERT_NE(warning, nullptr);
+            EXPECT_EQ(warning->icon(), QMessageBox::Warning);
+            warning->button(response)->click();
+        });
+        dialog.reject();
+    };
+    close(QMessageBox::Cancel);
+    EXPECT_TRUE(dialog.isVisible());
+    EXPECT_EQ(surface->text(), "invalid");
+    close(QMessageBox::Ok);
+    EXPECT_FALSE(dialog.isVisible());
+}
+
+TEST(ElevatedLocalizationUiTest, GuidedNextAcceptsReviewedGeometryAndBlocksUnsubmittedEdits)
+{
+    LocalFixture f;
+    f.controller.activate();
+    ASSERT_FALSE(f.controller.profile()->localization);
+    ElevatedLocalizationDialog dialog{f.controller, nullptr, true};
+    auto* next = dialog.findChild<QPushButton*>("robotCalibrationNext");
+    auto* method = dialog.findChild<QLineEdit*>("extrinsicSurveyMethod");
+    ASSERT_TRUE(next && method);
+    EXPECT_FALSE(next->isEnabled());
+    const auto input = f.input();
+    const auto& survey = input.survey;
+    dialog.findChild<QLineEdit*>("referenceSurfaceHeight")->setText(QString::number(survey.surfaceHeightMeters));
+    dialog.findChild<QLineEdit*>("referenceBoardThickness")->setText(QString::number(survey.boardThicknessMeters));
+    dialog.findChild<QLineEdit*>("referenceBackingThickness")->setText(QString::number(survey.backingThicknessMeters));
+    method->setText(QString::fromStdString(survey.measurementMethod));
+    std::ostringstream surveyRows, mountRows;
+    surveyRows << std::setprecision(std::numeric_limits<double>::max_digits10);
+    for (const auto& point : survey.references) {
+        surveyRows << (point.check ? "Check" : "Fit") << ' ' << point.image.u << ' ' << point.image.v << ' '
+                   << point.world.x.value << ' ' << point.world.y.value << '\n';
+    }
+    for (const auto& mount : input.mounts) {
+        mountRows << mount.robotId.value() << ' ' << mount.tagHeightMeters << ' ' << mount.bodyForwardMeters << ' '
+                  << mount.bodyLeftMeters << ' ' << mount.bodyHeadingOffsetRadians << ' '
+                  << std::quoted(mount.revision) << ' ' << std::quoted(mount.measurementMethod) << '\n';
+    }
+    dialog.findChild<QPlainTextEdit*>("extrinsicReferences")->setPlainText(QString::fromStdString(surveyRows.str()));
+    dialog.findChild<QPlainTextEdit*>("robotMounts")->setPlainText(QString::fromStdString(mountRows.str()));
+    dialog.findChild<QCheckBox*>("surveyMeasurementsConfirmed")->setChecked(true);
+    dialog.findChild<QPushButton*>("estimateExtrinsics")->click();
+    ASSERT_TRUE(QTest::qWaitFor([&]{ return next->isEnabled(); })) << f.controller.message().toStdString();
+    ASSERT_TRUE(f.controller.draftProfile()->localization);
+    const auto revision = f.controller.draftProfile()->localization->revision;
+    const auto loadedMethod = method->text();
+    method->setText("edited method");
+    EXPECT_FALSE(next->isEnabled());
+    EXPECT_EQ(f.controller.draftProfile()->localization->revision, revision);
+    method->setText(loadedMethod);
+    EXPECT_TRUE(next->isEnabled());
+    next->click();
+    EXPECT_EQ(dialog.result(), QDialog::Accepted);
+    ASSERT_TRUE(f.controller.profile()->localization);
+    EXPECT_EQ(f.controller.profile()->localization->revision, revision);
 }
 TEST(ElevatedLocalizationUiTest, V4UpgradeResaveReloadLeavesOriginalV3AcquisitionBytesUntouched) {
     QTemporaryDir directory; ASSERT_TRUE(directory.isValid());

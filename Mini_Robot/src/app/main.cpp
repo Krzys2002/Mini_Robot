@@ -252,6 +252,7 @@ int main(int argc, char* argv[])
             });
     }
     MainWindow window{controller};
+    window.bindTopView(controller, workspace, std::make_unique<OpenCvCalibrationUndistorter>());
     window.bindVisualControl(visualControl, vision);
     window.bindVision(vision);
     if (arguments.isSet(bleOption)) window.setWindowTitle(QStringLiteral("Micro Robot — BLE connections"));

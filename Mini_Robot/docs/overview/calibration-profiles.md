@@ -5,13 +5,14 @@ with durable profiles for an exact camera identity and delivered image size.
 
 ## Operator workflow
 
-1. Select and start the camera, then open **Intrinsic camera calibration**.
+1. Select and start the camera, then open **Calibration…**, then **Camera** if the chooser appears.
    The first valid frame supplies the actual negotiated resolution. The controller
    automatically looks up that camera/resolution's saved profile; the dialog shows
    its identity, dimensions, RMS and loaded/missing/rejected status.
 2. To create a replacement, collect and inspect diverse board views and calculate
-   intrinsics as before. A calculated profile is explicitly **not saved** until
-   **Save profile** succeeds. Saving atomically replaces only this exact key.
+   intrinsics. **Accept and next** installs the reviewed profile for this session.
+   To persist it, reopen **Camera** and select **Save profile**. Saving atomically
+   replaces only this exact key after confirmation.
    High reprojection RMS remains an advisory warning; inspect/recapture before use.
 3. **Reload saved profile** discards the active preview profile and reads the exact
    key again. It does not fabricate captured observations or a new solver result.

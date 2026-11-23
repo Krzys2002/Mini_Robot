@@ -3,11 +3,16 @@
 #include "app/DesktopController.hpp"
 #include "ui/CalibrationWizard.hpp"
 #include "ui/MainWindow.hpp"
+#include "ui/WorkspaceCalibrationDialog.hpp"
+#include "app/WorkspaceCalibrationController.hpp"
+#include "calibration/OpenCvWorkspaceHomographySolver.hpp"
+#include "calibration/QtWorkspaceProfileStore.hpp"
 #include "infrastructure/logging/Logger.hpp"
 #include "simulation/SimulationTransport.hpp"
 #include "ManualBackends.hpp"
 #include "../calibration/CaptureFixtures.hpp"
 #include "../calibration/IntrinsicFixtures.hpp"
+#include "../calibration/HomographyFixtures.hpp"
 
 #include <QApplication>
 #include <QComboBox>
@@ -15,6 +20,7 @@
 #include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QLabel>
+#include <QMessageBox>
 #include <QImage>
 #include <QPixmap>
 #include <QPushButton>
@@ -44,6 +50,15 @@ bool processUntil(const std::function<bool()>& predicate)
         QThread::yieldCurrentThread();
     }
     return predicate();
+}
+void answerCalibrationWarning(QMessageBox::StandardButton answer = QMessageBox::Ok)
+{
+    QTimer::singleShot(0, [answer] {
+        auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        ASSERT_NE(box, nullptr);
+        ASSERT_EQ(box->icon(), QMessageBox::Warning);
+        box->button(answer)->click();
+    });
 }
 class DeterministicDetector final : public ICalibrationDetector {
 public:
@@ -369,14 +384,20 @@ TEST(CalibrationWizardTest, RemovalRecaptureRestartAndCancelUpdateProgress)
     CaptureFixture fixture;
     fixture.button("calibrationRestart")->click();
     fixture.capture(1);
+    answerCalibrationWarning(QMessageBox::Cancel);
+    fixture.button("calibrationRemove")->click();
+    ASSERT_EQ(fixture.controller->session().views().size(), 1U);
+    answerCalibrationWarning();
     fixture.button("calibrationRemove")->click();
     EXPECT_TRUE(fixture.controller->session().views().empty());
     fixture.capture(2);
     EXPECT_EQ(fixture.controller->session().views().size(), 1U);
+    answerCalibrationWarning();
     fixture.button("calibrationRestart")->click();
     EXPECT_TRUE(fixture.controller->session().views().empty());
     fixture.capture(3);
     fixture.wizard->show();
+    answerCalibrationWarning();
     fixture.wizard->close();
     EXPECT_EQ(fixture.controller->session().state(), CalibrationCaptureState::Cancelled);
     EXPECT_TRUE(fixture.controller->session().views().empty());
@@ -453,6 +474,103 @@ TEST(CalibrationWizardTest, ClosingMainWindowClosesItsCalibrationDialog)
     EXPECT_FALSE(dialog->isVisible());
     EXPECT_EQ(fixture.controller->session().state(), CalibrationCaptureState::Cancelled);
 }
+TEST(GuidedCalibrationTest, PrerequisitesAndAcceptanceAdvanceCameraWorkspaceTabletopAndRobot)
+{
+    CaptureFixture fixture;
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    WorkspaceCalibrationController workspace{std::make_unique<OpenCvWorkspaceHomographySolver>(),
+        std::make_unique<DeterministicUndistorter>(), std::make_unique<QtWorkspaceProfileStore>(directory.path()),
+        fixture.logger.channel("workspace")};
+    QObject::connect(fixture.controller.get(), &CalibrationController::changed, &workspace, [&] {
+        workspace.setInput(fixture.controller->profile(), true);
+    });
+    SimulationTransport transport;
+    WorldModel world;
+    RobotManager robots{transport, world};
+    DesktopController desktop{robots, world, RobotId{1}, fixture.logger.channel("desktop")};
+    MainWindow window{desktop};
+    window.bindCalibration(*fixture.controller);
+    window.bindWorkspaceCalibration(workspace);
+    window.show();
+    const auto button = [&window](const char* name) { return window.findChild<QPushButton*>(name); };
+    button("openCalibration")->click();
+    auto* camera = window.findChild<CalibrationWizard*>();
+    auto* dialog = window.findChild<WorkspaceCalibrationDialog*>();
+    ASSERT_NE(camera, nullptr);
+    ASSERT_NE(dialog, nullptr);
+    EXPECT_EQ(window.findChild<QDialog*>("calibrationChooser"), nullptr);
+    EXPECT_FALSE(dialog->isVisible());
+    EXPECT_FALSE(button("cameraCalibrationNext")->isEnabled());
+
+    fixture.controller->restart();
+    fixture.capture(1); fixture.capture(2); fixture.capture(3);
+    fixture.controller->finish();
+    ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
+    ASSERT_TRUE(fixture.controller->pendingResult());
+    EXPECT_FALSE(fixture.controller->profile());
+    ASSERT_TRUE(button("cameraCalibrationNext")->isEnabled());
+    button("cameraCalibrationNext")->click();
+    EXPECT_FALSE(camera->isVisible());
+    ASSERT_TRUE(fixture.controller->profile());
+    ASSERT_TRUE(dialog->isVisible());
+    EXPECT_EQ(dialog->stage(), WorkspaceCalibrationDialog::Stage::Workspace);
+    EXPECT_FALSE(button("workspaceCalibrationNext")->isEnabled());
+
+    dialog->close();
+    button("openCalibration")->click();
+    auto* chooser = window.findChild<QDialog*>("calibrationChooser");
+    ASSERT_NE(chooser, nullptr);
+    EXPECT_TRUE(button("chooseCameraCalibration")->isEnabled());
+    EXPECT_FALSE(button("chooseTabletopCalibration")->isEnabled());
+    EXPECT_FALSE(button("chooseRobotCalibration")->isEnabled());
+    EXPECT_FALSE(button("chooseOtherCalibration")->isEnabled());
+    button("chooseWorkspaceCalibration")->click();
+
+    workspace.configure("table-A", 1, 0.6, 0.4, 0.2);
+    auto frame = std::make_shared<Frame>(*captureFrame(10));
+    frame->capturedAt = MonotonicClock::now();
+    workspace.receiveFrame(frame);
+    button("workspaceFreeze")->click();
+    ASSERT_TRUE(processUntil([&] { return !workspace.busy(); }));
+    for (const auto& point : homographyInput().fitPoints) workspace.selectCorner(point.image);
+    ASSERT_TRUE(button("workspaceCalibrationNext")->isEnabled());
+    const auto screenshot = qEnvironmentVariable("MICRO_ROBOT_GUIDED_CALIBRATION_SCREENSHOT");
+    if (!screenshot.isEmpty()) EXPECT_TRUE(dialog->grab().save(screenshot + "-workspace.png"));
+    button("workspaceCalibrationNext")->click();
+    ASSERT_TRUE(dialog->isVisible());
+    EXPECT_EQ(dialog->stage(), WorkspaceCalibrationDialog::Stage::Tabletop);
+    ASSERT_TRUE(workspace.boundaryConfirmed());
+    EXPECT_FALSE(workspace.profile());
+    EXPECT_FALSE(button("workspaceCalibrationNext")->isEnabled());
+    button("workspaceCalculate")->click();
+    ASSERT_TRUE(processUntil([&] { return !workspace.busy(); }));
+    ASSERT_TRUE(workspace.draftProfile()) << workspace.message().toStdString();
+    const auto* review = dialog->findChild<QLabel*>("workspaceMessage");
+    ASSERT_NE(review, nullptr);
+    ASSERT_TRUE(processUntil([&] { return review->height() >= review->heightForWidth(review->width()); }));
+    if (!screenshot.isEmpty()) EXPECT_TRUE(dialog->grab().save(screenshot + "-tabletop.png"));
+    EXPECT_FALSE(workspace.profile());
+    ASSERT_TRUE(button("workspaceCalibrationNext")->isEnabled());
+    button("workspaceCalibrationNext")->click();
+    ASSERT_TRUE(workspace.profile());
+    EXPECT_FALSE(dialog->isVisible());
+    auto* robot = window.findChild<QDialog*>("robotCalibration");
+    ASSERT_NE(robot, nullptr);
+    EXPECT_TRUE(robot->isVisible());
+    EXPECT_FALSE(button("robotCalibrationNext")->isEnabled());
+    EXPECT_EQ(window.findChild<QDialog*>("otherCalibration"), nullptr);
+
+    robot->close();
+    button("openCalibration")->click();
+    EXPECT_TRUE(button("chooseTabletopCalibration")->isEnabled());
+    EXPECT_TRUE(button("chooseRobotCalibration")->isEnabled());
+    EXPECT_FALSE(button("chooseOtherCalibration")->isEnabled());
+    fixture.controller->setInput("camera-b", true, true);
+    EXPECT_FALSE(button("chooseWorkspaceCalibration")->isEnabled());
+    EXPECT_FALSE(button("chooseTabletopCalibration")->isEnabled());
+    EXPECT_FALSE(button("chooseRobotCalibration")->isEnabled());
+}
 TEST(CalibrationWizardTest, StaleAndOutOfOrderFramesCannotBeCaptured)
 {
     CaptureFixture fixture;
@@ -512,6 +630,7 @@ TEST(CalibrationProfileUiTest, SavesCalculatedProfileAndReloadsAfterControllerRe
         ASSERT_TRUE(processUntil([&] { return !fixture.controller->busy(); }));
         ASSERT_TRUE(fixture.controller->result());
         ASSERT_TRUE(fixture.button("calibrationSaveProfile")->isEnabled());
+        answerCalibrationWarning();
         fixture.button("calibrationSaveProfile")->click();
         ASSERT_TRUE(processUntil([&] { return !fixture.controller->profileBusy(); }));
         EXPECT_TRUE(fixture.controller->profileMessage().contains(QStringLiteral("saved")));

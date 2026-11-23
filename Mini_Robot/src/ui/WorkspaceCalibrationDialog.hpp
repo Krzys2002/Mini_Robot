@@ -13,8 +13,6 @@ class QLabel;
 class QPushButton;
 
 namespace micro_robot {
-inline constexpr std::size_t MaximumWorkspaceOverlayReferences = 2048;
-inline constexpr int MaximumWorkspaceOverlayReferenceLabels = 64;
 class WorkspaceImageView;
 class WorkspaceReferenceModel;
 class WorkspaceBoardPanel;
@@ -24,13 +22,18 @@ class WorkspaceDistanceDialog;
 class WorkspaceCalibrationDialog final : public QDialog {
     Q_OBJECT
 public:
+    enum class Stage { Combined, Workspace, Tabletop };
+    void setStage(Stage stage);
+    [[nodiscard]] Stage stage() const { return stage_; }
     explicit WorkspaceCalibrationDialog(WorkspaceCalibrationController& controller,
                                         QWidget* parent = nullptr);
 
 private:
+    [[nodiscard]] bool hasGeometryDraft() const;
+    void syncFields();
     void refresh();
     void addPoint(std::optional<ImageCorner> point);
-    void configure();
+    void configure(bool confirmLoss = true);
     void restoreReferences();
     WorkspaceCalibrationController& controller_;
     WorkspaceImageView* image_{};
@@ -40,6 +43,11 @@ private:
     WorkspaceLengthUnit unit_{WorkspaceLengthUnit::Meters};
     std::optional<WorkspaceBounds> shownBounds_;
     bool configuring_{};
+    Stage stage_{Stage::Combined};
+    QWidget *geometryFields_{}, *cornerTools_{}, *referenceTools_{};
+    QLabel *instructions_{}, *imageDetails_{};
+    QPushButton *next_{}, *localization_{}, *surveyedReferences_{};
+
     QString inputError_;
     void changeUnit(int index);
     void updateUnitLabels();

@@ -3,6 +3,7 @@
 #include <QList>
 #include <QMainWindow>
 #include <QString>
+#include <memory>
 
 class QVBoxLayout;
 class QComboBox;
@@ -13,12 +14,14 @@ namespace micro_robot {
 
 class VisionController;
 class VisionDebugDialog;
-class CalibrationWizard;
+class CalibrationFlow;
 class CalibrationController;
 class WorkspaceCalibrationController;
 class CameraSelectionController;
 class DesktopController;
 class LiveVisualController;
+class ICalibrationUndistorter;
+class TopViewDialog;
 struct CameraChoiceItem;
 
 class MainWindow final : public QMainWindow {
@@ -29,6 +32,8 @@ public:
 
     void bindVision(VisionController& vision);
     void bindVisualControl(LiveVisualController& control, VisionController& vision);
+    void bindTopView(DesktopController& desktop, WorkspaceCalibrationController& workspace,
+                     std::unique_ptr<ICalibrationUndistorter> undistorter);
 
     // Opens the capture/review dialog for the injected calibration service.
     void bindCalibration(CalibrationController& calibration);
@@ -51,8 +56,9 @@ private:
 
     // Non-owning; the Qt parent owns the widgets.
     QVBoxLayout* contentLayout_{};
-    CalibrationWizard* calibrationWizard_{};
+    CalibrationFlow* calibrationFlow_{};
     VisionDebugDialog* visionDebug_{};
+    TopViewDialog* topView_{};
     QPushButton* visionAction_{};
     QComboBox* cameraSelector_{};
     QLabel* selectedCamera_{};

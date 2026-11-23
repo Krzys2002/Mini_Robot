@@ -250,12 +250,13 @@ void WorkspaceCalibrationController::setPoints(std::vector<WorkspaceCorresponden
 }
 
 void WorkspaceCalibrationController::freeze() { freezeFrame(false); }
+void WorkspaceCalibrationController::freezeWorkspace() { freezeFrame(false, true); }
 void WorkspaceCalibrationController::freezeBoard()
 {
     if (!boundaryConfirmed_) { publish(QStringLiteral("Confirm the physical workspace boundary before retaining placement data.")); return; }
     freezeFrame(true);
 }
-void WorkspaceCalibrationController::freezeFrame(bool preserveReferences)
+void WorkspaceCalibrationController::freezeFrame(bool preserveReferences, bool resetGeometry)
 {
     if (!canFreeze())
         return;
@@ -269,7 +270,10 @@ void WorkspaceCalibrationController::freezeFrame(bool preserveReferences)
     ++generation_;
     frozen_.reset();
     clearBoardReview();
-    if (!preserveReferences) {
+    if (resetGeometry) {
+        geometryChanged();
+        corners_.clear();
+    } else if (!preserveReferences) {
         ++referencesRevision_;
         references_.clear(); placements_.clear();
         fit_.clear(); check_.clear(); corners_.clear(); boundaryConfirmed_ = false;
@@ -513,8 +517,7 @@ void WorkspaceCalibrationController::load()
         return;
     const auto id = workspaceId_.toStdString();
     const auto active = *intrinsics_;
-    invalidate(false);
-    const auto generation = generation_;
+    const auto generation = ++generation_;
     busy_ = true;
     publish(QStringLiteral("Loading workspace transform…"));
     QMetaObject::invokeMethod(
@@ -550,6 +553,7 @@ void WorkspaceCalibrationController::load()
                         return;
                     }
                     if (result.state == ProfileLoadState::Loaded && result.profile && result.error.empty()) {
+                        invalidate(false);
                         ++referencesRevision_;
                         draft_ = result.profile;
                         bounds_ = draft_->bounds;
