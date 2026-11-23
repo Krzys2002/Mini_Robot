@@ -494,8 +494,9 @@ TEST(SimulationTransportTest, FreshnessHasExclusiveDeadlineAndHandlesExtremeTime
     // No signed duration subtraction overflow on expiry or new validation.
     transport.sendCommand(id, {StopCommand{}, Timestamp::min(), Duration::max()});
     transport.advanceTo(Timestamp::max());
-    ASSERT_EQ(events->errors.size(), 1u);
-    EXPECT_EQ(events->errors.back().code, TransportErrorCode::InvalidCommand);
+    EXPECT_TRUE(events->errors.empty());
+    ASSERT_TRUE(transport.lastSentCommand(id));
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(transport.lastSentCommand(id)->payload));
     EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.0);
 
     SimulationTransport boundary;
@@ -508,7 +509,7 @@ TEST(SimulationTransportTest, FreshnessHasExclusiveDeadlineAndHandlesExtremeTime
     EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.3);
     boundary.sendCommand(id, command);
     boundary.advanceTo(Timestamp{1s + 100ms});
-    EXPECT_EQ(events->errors.size(), 2u);
+    EXPECT_EQ(events->errors.size(), 1u);
     EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.0);
 }
 
@@ -545,10 +546,10 @@ TEST(SimulationTransportTest, RejectsDisconnectedStaleFutureAndNonfiniteCommands
     transport.connect(id);
     transport.advanceTo(Timestamp{2s});
     const std::vector<RobotCommand> invalid{
-        {StopCommand{}, Timestamp{1s}, 1s},
-        {StopCommand{}, Timestamp{3s}, 1s},
-        {StopCommand{}, Timestamp{2s}, 0ms},
-        {StopCommand{}, Timestamp{2s}, -1ms},
+        {VelocityCommand{0.1, 0.0}, Timestamp{1s}, 1s},
+        {VelocityCommand{0.1, 0.0}, Timestamp{3s}, 1s},
+        {VelocityCommand{0.1, 0.0}, Timestamp{2s}, 0ms},
+        {VelocityCommand{0.1, 0.0}, Timestamp{2s}, -1ms},
         {VelocityCommand{std::numeric_limits<double>::infinity(), 0.0}, Timestamp{2s}, 1s},
         {VelocityCommand{0.0, std::numeric_limits<double>::quiet_NaN()}, Timestamp{2s}, 1s}
     };
@@ -559,6 +560,22 @@ TEST(SimulationTransportTest, RejectsDisconnectedStaleFutureAndNonfiniteCommands
     }
     EXPECT_EQ(events->errors.size(), 1 + invalid.size());
     EXPECT_FALSE(transport.lastSentCommand(id));
+}
+
+TEST(SimulationTransportTest, ExpiredStopTakesPriorityOverQueuedVelocity)
+{
+    SimulationTransport transport;
+    const RobotId id{7};
+    transport.connect(id);
+    transport.advanceTo(Timestamp{1s});
+    transport.sendCommand(id, {VelocityCommand{0.1, 0.0}, Timestamp{1s}, 1s});
+    transport.advanceTo(Timestamp{1s});
+    transport.sendCommand(id, {StopCommand{}, Timestamp{1s}, 1ms});
+    transport.sendCommand(id, {VelocityCommand{0.2, 0.0}, Timestamp{1100ms}, 1s});
+    transport.advanceTo(Timestamp{1100ms});
+    const auto sent = transport.lastSentCommand(id);
+    ASSERT_TRUE(sent);
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(sent->payload));
 }
 
 TEST(SimulationTransportTest, EmergencyStopClearsActiveMotionAndSurvivesReconnect)
@@ -651,12 +668,11 @@ TEST(SimulationTransportTest, RejectsSubmillisecondValidityAndConfiguredLimitsWi
     for (const auto& command : std::vector<RobotCommand>{
         {VelocityCommand{0.2001, 0}, Timestamp{1s}, 1s},
         {VelocityCommand{0, -0.5001}, Timestamp{1s}, 1s},
-        {VelocityCommand{0.1, 0}, Timestamp{1s}, 999us},
-        {StopCommand{}, Timestamp{1s}, 999us}}) {
+        {VelocityCommand{0.1, 0}, Timestamp{1s}, 999us}}) {
         transport.sendCommand(id, command);
         transport.advanceTo(Timestamp{1s});
     }
-    EXPECT_EQ(events->errors.size(), 4u);
+    EXPECT_EQ(events->errors.size(), 3u);
     EXPECT_FALSE(transport.lastSentCommand(id));
     transport.sendCommand(id, {VelocityCommand{-0.2, 0.5}, Timestamp{1s}, 1ms});
     transport.advanceTo(Timestamp{1s});

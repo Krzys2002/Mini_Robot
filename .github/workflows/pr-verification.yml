@@ -1,6 +1,8 @@
-name: Daily desktop verification
+name: Pull request and daily verification
 
 on:
+  pull_request:
+  workflow_dispatch:
   schedule:
     - cron: "0 2 * * *" # Once daily at 02:00 UTC.
 
@@ -8,12 +10,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: daily-desktop-verification
-  cancel-in-progress: false
+  group: verification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   desktop:
-    if: github.ref == 'refs/heads/master'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -35,3 +37,28 @@ jobs:
       - name: Test without hardware
         working-directory: Mini_Robot
         run: ctest --preset linux-gcc
+
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Install core dependencies
+        run: sudo apt-get update && sudo apt-get install --yes cmake ninja-build g++ libgtest-dev
+      - name: Configure root core (includes portable firmware tests)
+        run: cmake --preset core
+      - name: Build root core
+        run: cmake --build --preset core --parallel 4
+      - name: Test root core
+        run: ctest --preset core
+      - name: Configure standalone core
+        working-directory: Mini_Robot
+        run: cmake --preset core
+      - name: Build standalone core
+        working-directory: Mini_Robot
+        run: cmake --build --preset core --parallel 4
+      - name: Test standalone core
+        working-directory: Mini_Robot
+        run: ctest --preset core

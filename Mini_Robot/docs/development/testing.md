@@ -62,12 +62,11 @@ Enable `-DMICRO_ROBOT_BUILD_BLE=ON` for BLE adapter/lifecycle tests, then run
 with Qt 6.5+, this label also checks the production app's Bluetooth usage
 description and statically imported permission plugin without requesting access.
 
-Issue #76 also adds a fake-driven production BLE integration case,
-`BleTransportTest.VisualMetricFeedbackReachesBleWithDomainWireCorrelationAndStop`,
-plus core regressions for accepted-only metric provenance and optional domain
-command/Stop sequence correlation. These are software handoff tests, not over-air
-or physical stopping evidence. Physical #76 acceptance is tracked in existing #80,
-with actuator/safety gates #167/#228 still required; all physical checks NOT RUN.
+The fake-radio case `BleTransportTest.VisualMetricFeedbackCannotArmBleBeforePhysicalAcceptance`
+checks that the visual controller cannot arm over BLE. Core tests also cover accepted
+metric provenance and optional domain command/Stop sequence correlation. Physical
+#76 acceptance is tracked in #80 and depends on #167/#228. Physical checks remain
+NOT RUN.
 
 Focused target-panel rendering:
 
@@ -75,7 +74,7 @@ Focused target-panel rendering:
 QT_SCALE_FACTOR=1.5 MICRO_ROBOT_VISUAL_CONTROL_SCREENSHOT=/tmp/visual-panel.png build/macos/Mini_Robot/tests/micro_robot_tests '--gtest_filter=LiveVisualControlTest.TargetPanel*:LiveVisualControlTest.QWidgetImageClicks*'
 QT_SCALE_FACTOR=2 build/macos/Mini_Robot/tests/micro_robot_tests '--gtest_filter=LiveVisualControlTest.TargetPanel*:LiveVisualControlTest.QWidgetImageClicks*'
 ```
-Core-only builds keep fifteen Robot Info/GATT and message-codec tests without Qt,
+Core-only builds keep nineteen Robot Info/GATT and message-codec tests without Qt,
 including the shared [v1 byte vectors](../protocol/fixtures/v1-frames.txt) that the
 firmware codec tests also read.
 Physical checks are listed in the [connection guide](../overview/ble-connection.md)
@@ -305,6 +304,14 @@ Use `linux-clang` in place of `linux-gcc` for the Clang job. For the core job,
 install only `build-essential cmake ninja-build libgtest-dev` and use the commands in
 [regression suite](#regression-suite).
 
+## Pull request core validation
+
+`pr-verification.yml` runs the root and standalone `core` presets on pull requests
+and manual dispatch, including portable firmware host tests through the core tree.
+The full BLE desktop suite runs daily on master. Host desktop presets enable BLE
+and require Qt Bluetooth. Successful local tests do not establish hosted CI availability;
+account billing and runner access must be resolved by the repository owner.
+
 ## Windows continuous integration
 
 The reusable `.github/workflows/windows-build-test.yml` uses the daily caller
@@ -313,7 +320,7 @@ and read-only checkout. Its Windows jobs remain master-only and run on
 
 | Job (status check name) | Preset | Compiler | Builds |
 | --- | --- | --- | --- |
-| `Windows Server 2022 / MSVC / Desktop + tests` | `windows-msvc` | MSVC `cl` | Desktop, replay, and all test targets |
+| `Windows Server 2022 / MSVC / Desktop + tests` | `windows-msvc` | MSVC `cl` | Desktop, replay, BLE, and all test targets |
 | `Windows Server 2022 / MSVC / Core without Qt and OpenCV` | `core` | MSVC `cl` | Core libraries and their tests |
 
 The desktop job installs Ninja and OpenCV through Chocolatey, installs Qt 6.8.3

@@ -49,6 +49,9 @@ public:
         std::uint32_t generation = 0;
         const auto outcome = gate_.admitVelocity(session, receipt, validFor, ceiling_, withinLimits, generation);
         if (outcome != CommandOutcome::Accepted) return reject(outcome);
+        // Production serializes command callbacks on the BLE host task (kNimbleHostPriority,
+        // above kControlPriority). Admission and publication must not be invoked
+        // concurrently by multiple command producers.
         // A Stop/E-stop/fault between admission and publication advances the generation,
         // so this snapshot is then refused by the gate instead of driving.
         if (mailbox_.publish({velocity, generation})) diagnostics_.count(Counter::MailboxOverwrite);

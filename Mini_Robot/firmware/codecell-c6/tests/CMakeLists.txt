@@ -8,6 +8,11 @@ add_executable(codecell_firmware_host_tests FirmwareClockTest.cpp LatencyHistogr
     DiagnosticsReportTest.cpp)
 target_include_directories(codecell_firmware_host_tests PRIVATE ../include)
 target_compile_features(codecell_firmware_host_tests PRIVATE cxx_std_20)
+if(MSVC)
+    target_compile_options(codecell_firmware_host_tests PRIVATE /W4)
+else()
+    target_compile_options(codecell_firmware_host_tests PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 # Shared v1 byte vectors (#161), also read by the desktop codec tests.
 target_compile_definitions(codecell_firmware_host_tests PRIVATE
     CODECELL_PROTOCOL_V1_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/../../../docs/protocol/fixtures/v1-frames.txt")

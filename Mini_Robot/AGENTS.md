@@ -13,8 +13,8 @@ to `Mini_Robot`; use project/current-directory paths for application resources.
 Use `docs/overview/capabilities.md` and `docs/overview/source-map.md` for current
 implementation status. Camera adapters, intrinsic calibration/profiles, AprilTag
 pixel observations/debugging, WorldModel, RobotManager, simulated transport, and
-optional Qt BLE transport exist. Metric observation/tracking integration and the
-complete closed-loop motion chain remain unfinished. The BLE fixture is a separate
+optional Qt BLE transport exist. Calibrated observations feed RobotTracker and
+metric WorldModel poses; the complete closed-loop motion chain remains unfinished. The BLE fixture is a separate
 connection-only PlatformIO build, not production motor/safety firmware.
 
 From either entry point, `cmake --preset core`, `cmake --build --preset core`,
@@ -72,7 +72,7 @@ When implementing work, follow this order:
 1. the current user request;
 2. the assigned GitHub issue and its acceptance criteria;
 3. this `AGENTS.md`;
-4. the local `micro-robot-swarm-desktop` skill at
+4. the optional, gitignored local `micro-robot-swarm-desktop` skill (when installed) at
    [`.codex/skills/micro-robot-swarm/SKILL.md`](.codex/skills/micro-robot-swarm/SKILL.md)
    and its references;
 5. existing repository conventions and code.

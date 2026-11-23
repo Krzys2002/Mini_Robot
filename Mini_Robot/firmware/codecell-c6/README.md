@@ -116,8 +116,7 @@ configure normally without it.
 | ESP-IDF libraries | 5.5.0+sha.87912cd291 (`esp32-core-3.3.7-libs`), fixed by the platform |
 | RISC-V GCC toolchain | 14.2.0+20251107, fixed by the platform |
 | esptool | 5.1.2, fixed by the platform |
-| CodeCell | Git commit 795616b3fc6fa14c0e23fbdac8aed697d897d303 (2.0.4) |
-| DriveCell | Registry release 1.1.3 (pinned explicitly; CodeCell declares it unversioned) |
+| Motor output | Direct GPIO/LEDC adapter; no CodeCell or DriveCell dependency |
 | NimBLE-Arduino | Registry release 2.3.6 (the release the #156 pilot and #157 spike used); configured by the prebuilt Arduino `sdkconfig.h` |
 | Host GoogleTest fallback | 1.17.0 archive, SHA-256 checked |
 | C++ standard | `-std=gnu++20` for the cross-build (all framework defaults removed); C++20 for host tests |

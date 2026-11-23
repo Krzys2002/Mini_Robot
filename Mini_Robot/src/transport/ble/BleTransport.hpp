@@ -63,6 +63,7 @@ private:
         std::optional<std::uint64_t> clearRequest;
         std::optional<Timestamp> lastVelocityAt;
         bool pumpScheduled{}, nativeReady{}, emergencyRequested{}, emergencyConfirmed{};
+        bool faultReported{};
         BleRobotState robotState{BleRobotState::Idle};
         std::size_t invalidNotifications{};
         std::unique_ptr<QTimer> pumpTimer, emergencyTimer, emergencyWriteTimer, clearResultTimer;

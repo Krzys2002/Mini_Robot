@@ -798,3 +798,38 @@ TEST(BleSessionSecurityTest, TelemetryFramesAreProtectedAndARefusedOneIsDropped)
     EXPECT_EQ(rig.link.telemetryAttempts, 1) << "a refused frame never reaches the stack";
     EXPECT_EQ(rig.ble->state(), LinkState::Ready) << "telemetry loss alone does not end the session";
 }
+
+TEST(BlePeripheralAuditRegression, AdvertisingFailureRetriesAtBoundedRate)
+{
+    Rig rig;
+    rig.link.failAdvertising = true;
+    rig.ble->onConnected(kOwner);
+    rig.ble->onDisconnected(kOwner, kRemoteUserTerminated);
+    ASSERT_EQ(rig.ble->state(), LinkState::AdvertisingFailed);
+    rig.ble->onTelemetryTick();
+    const auto attempts = rig.link.advertisingStarts;
+    rig.ble->onTelemetryTick();
+    EXPECT_EQ(rig.link.advertisingStarts, attempts);
+    rig.link.failAdvertising = false;
+    rig.clock.advance(1s);
+    rig.ble->onTelemetryTick();
+    EXPECT_EQ(rig.ble->state(), LinkState::Advertising);
+}
+TEST(BlePeripheralAuditRegression, ClosingRetriesTerminationWithoutRestoringMotion)
+{
+    Rig rig;
+    rig.makeMoving();
+    rig.link.failNotify = true;
+    rig.link.failTerminate = true;
+    rig.command(kOwner, headerFrame(MessageType::Stop, 1));
+    ASSERT_EQ(rig.ble->state(), LinkState::Closing);
+    rig.ble->onTelemetryTick();
+    const auto attempts = rig.link.terminated.size();
+    rig.ble->onTelemetryTick();
+    EXPECT_EQ(rig.link.terminated.size(), attempts);
+    rig.link.failTerminate = false;
+    rig.clock.advance(1s);
+    rig.ble->onTelemetryTick();
+    EXPECT_EQ(rig.link.terminated.size(), attempts + 1);
+    EXPECT_FALSE(rig.status().sessionReady);
+}

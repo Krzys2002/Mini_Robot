@@ -43,6 +43,7 @@ bool elapsedAtLeast(Timestamp from, Timestamp to, Duration interval)
 
 bool valid(const RobotCommand& command, Timestamp now, const SimulationTransportConfig& config)
 {
+    if (std::holds_alternative<StopCommand>(command.payload)) return true;
     if (!fresh(command, now)) {
         return false;
     }

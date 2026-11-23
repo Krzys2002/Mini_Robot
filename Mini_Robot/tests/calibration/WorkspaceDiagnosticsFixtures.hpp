@@ -19,14 +19,15 @@ inline std::shared_ptr<WorkspaceAcquisitionRecord> diagnosticsAcquisition(double
     for (auto c : homographyInput().fitPoints)
         a->references.push_back({++id, c, false, false, {}});
     std::mt19937 random(249);
-    std::normal_distribution<double> gaussian(0, noise);
+    std::normal_distribution<double> gaussian(0, noise > 0 ? noise : 1);
+    const auto sampleNoise = [&] { return noise > 0 ? gaussian(random) : 0.0; };
     for (int y = 0; y < 3; ++y)
         for (int x = 0; x < 3; ++x) {
             WorldPoint2D world{Meters{0.2 + 0.3 * x}, Meters{0.1 + 0.2 * y}};
             auto pixel = *unprojectWorkspacePoint(*a->profile.homography, world);
             // Deliberate affine systematic error plus independent deterministic pseudo-random survey noise.
-            pixel.u += (0.002 + 0.001 * world.x.value + gaussian(random)) / 0.00125;
-            pixel.v -= (0.001 - 0.001 * world.y.value + gaussian(random)) / 0.001;
+            pixel.u += (0.002 + 0.001 * world.x.value + sampleNoise()) / 0.00125;
+            pixel.v -= (0.001 - 0.001 * world.y.value + sampleNoise()) / 0.001;
             a->references.push_back({++id, {pixel, world}, true, false, {}});
         }
     return a;

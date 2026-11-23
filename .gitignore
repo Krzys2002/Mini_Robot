@@ -17,3 +17,14 @@
 graphify-out/
 /tools/graphify/.venv/
 __pycache__/
+
+# LaTeX intermediate output (keep source and final PDF).
+/Pres/*.aux
+/Pres/*.fdb_latexmk
+/Pres/*.fls
+/Pres/*.log
+/Pres/*.nav
+/Pres/*.out
+/Pres/*.snm
+/Pres/*.synctex.gz
+/Pres/*.toc
