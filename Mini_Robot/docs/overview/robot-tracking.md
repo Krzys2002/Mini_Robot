@@ -83,3 +83,7 @@ calibrated probability or a controller safety authorization. The GUI shows age,
 reliability and motion; consumers must still gate on fresh tracking at current time.
 Synthetic stationary, constant-motion, wrap and dt tests run without hardware.
 Physical velocity accuracy and confidence calibration remain unverified.
+
+## Measurement provenance and instrumentation
+
+[Localization timing](localization-timing.md) defines receipt/exposure semantics, exact frame/calibration and optional mounting bindings, publication timing and useful per-robot cadence. Raw and filtered poses retain the observation timestamp. The existing tracker remains authoritative through WorldModel; no predicted-current pose or horizon is fabricated. Binding changes reset derived filtering/velocity, and the bridge records only applied new observations as useful updates.

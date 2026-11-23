@@ -121,6 +121,13 @@ reports are scope/history, not evidence that future modules are present.
 | [src/vision/RobotObservation.hpp](../../src/vision/RobotObservation.hpp), [RobotObservation.cpp](../../src/vision/RobotObservation.cpp) | [Robot marker observations](../vision/robot-observation.md) |
 | [src/app/VisionController.hpp](../../src/app/VisionController.hpp), [VisionController.cpp](../../src/app/VisionController.cpp) | [Bounded worker and lifecycle](../vision/apriltag-detection.md#application-worker-and-use) |
 
+### Localization timing and provenance (#272)
+
+- `common/MeasurementProvenance.hpp` (`micro_robot_common`): receipt/exposure clock metadata and immutable measurement binding.
+- `vision/LocalizationMetrics.{hpp,cpp}` and `vision/LocalizationQuality.cpp` (`micro_robot_vision_observation`): bounded owner-thread latency/cadence distributions, unavailable metrics, quality gates and rejection names.
+- `app/VisionController` and `app/VisionTracking.hpp`: worker timing, newest-pending counters, exact revision snapshots and applied WorldModel publication accounting. `tracking/RobotTracker` / `world/TrackingState.hpp` retain provenance alongside raw/filtered observation time.
+- `ui/VisionDebugView`: sampling/age controls, load toggles and measured diagnostics/paint costs. See [metric definitions](localization-timing.md).
+
 ## Target boundaries
 
 | Target | Direct dependencies |
