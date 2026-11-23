@@ -8,13 +8,15 @@ struct PoseFilterConfig {
     double headingAlpha{1.0};
 };
 enum class TrackerUpdate { Applied, InvalidMeasurement, FutureTimestamp, ExpiredMeasurement, RejectedByWorld };
+[[nodiscard]] const char* trackerUpdateName(TrackerUpdate);
 // Owner-thread service. WorldModel remains the sole pose authority. `now` must
 // use the same steady clock as capturedAt. No motion control. Filter state is derived from the authoritative world.
 class RobotTracker final {
 public:
     RobotTracker(WorldModel& world, TrackingThresholds thresholds, PoseFilterConfig filter = {});
     [[nodiscard]] TrackerUpdate observe(RobotId id, const Pose2D& pose, Timestamp capturedAt, Timestamp now,
-                                        std::optional<double> quality = {});
+                                        std::optional<double> quality = {},
+                                        std::optional<MeasurementProvenance> provenance = {});
     // Input/calibration invalidation makes all poses from this tracker lost.
     void invalidate(Timestamp now);
     // Exclusive camera/frame owner: discard raw/tracked coordinates while retaining robot identities.

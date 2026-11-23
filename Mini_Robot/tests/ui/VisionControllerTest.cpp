@@ -110,6 +110,11 @@ TEST(VisionControllerTest, KeepsOnlyNewestPendingFrameAndGuiProcessesEventsDurin
     f.unblock();
     ASSERT_TRUE(visionUntil([&] { return f.results.size() == 2; }));
     EXPECT_EQ(f.detector->calls, 2);
+    const auto report=f.vision->localizationReport(MonotonicClock::now());
+    EXPECT_EQ(report.inputFrames,100U); EXPECT_EQ(report.pendingReplaced,98U);
+    EXPECT_EQ(report.detection.samples,2U); EXPECT_EQ(report.queue.samples,2U);
+    EXPECT_EQ(report.instrumentation.samples,2U);
+    EXPECT_FALSE(report.exposureToOutput.p50Milliseconds);
     EXPECT_EQ(f.results[0]->frameSequence, 1U);
     EXPECT_EQ(f.results[1]->frameSequence, 100U);
     EXPECT_EQ(f.results[1]->capturedAt, visionFrame(100)->capturedAt);
@@ -401,4 +406,88 @@ TEST(VisionTrackingIntegrationTest, ShutdownInvalidatesImmediatelyWhileDetection
     f.unblock(); ASSERT_TRUE(visionUntil([&]{return !f.vision->busy();}));
     EXPECT_EQ(world.tracking(RobotId{1},now).status,TrackingStatus::Unknown);
     EXPECT_FALSE(world.robot(RobotId{2}));
+}
+
+TEST(VisionTimingTest, ReceiptMetadataQualityAndFeatureCostsSurviveWorkerLifecycle) {
+    VisionFixture f; f.unblock(); f.vision->setMetricConverter(std::make_unique<TrackingConverter>());
+    f.vision->setWorkspaceCalibration(micro_robot::test::homographyInput().profile);
+    f.vision->setDebugEnabled(false); f.vision->setFrameLoggingEnabled(false);
+    MetricObservationBatchPtr batch;
+    QObject::connect(f.vision.get(),&VisionController::metricObservationsAvailable,f.vision.get(),
+        [&](const QString&,MetricObservationBatchPtr b){if(b) batch=std::move(b);});
+    WorldModel world;
+    RobotTracker tracker{world, {200ms, 1s}};
+    QObject context;
+    MetricObservationBatchPtr applied;
+    connectVisionTracking(*f.vision, tracker, context, [] {}, [] { return MonotonicClock::now(); },
+        [&](const MetricObservationBatchPtr& value) { applied = value; });
+    auto t=MonotonicClock::now(); auto frame=std::make_shared<Frame>(*trackingFrame(1,t));
+    frame->timing={t,{},ObservationTimeSource::Receipt,{},{},false};
+    f.vision->receiveFrame(frame); ASSERT_TRUE(visionUntil([&]{return bool(batch);}));
+    EXPECT_EQ(batch->provenance.timing.receivedAt,t); EXPECT_FALSE(batch->provenance.timing.exposureAt);
+    EXPECT_EQ(batch->provenance.sourceId,"camera-a"); EXPECT_TRUE(batch->provenance.profileIdentity);
+    ASSERT_EQ(batch->measurements.size(),2U);
+    EXPECT_EQ(batch->measurements[0].provenance.observedAt,t);
+    EXPECT_EQ(batch->measurements[0].capturedAt,t); EXPECT_EQ(batch->measurements[0].provenance.frameSequence,1U);
+    auto report=f.vision->localizationReport(MonotonicClock::now());
+    EXPECT_EQ(report.detection.samples,1U); EXPECT_EQ(report.conversion.samples,1U);
+    EXPECT_EQ(report.debugPreparation.samples,0U); EXPECT_EQ(report.logging.samples,0U); EXPECT_TRUE(f.previews.empty());
+    LocalizationQualityGates gates; gates.minimumEdgePixels=21; f.vision->setQualityGates(gates);
+    applied.reset(); f.vision->receiveFrame(trackingFrame(2,MonotonicClock::now()));
+    ASSERT_TRUE(visionUntil([&]{return bool(applied);}));
+    EXPECT_TRUE(applied->measurements.empty());
+    const auto gated = f.vision->localizationReport(MonotonicClock::now());
+    ASSERT_FALSE(gated.robots.empty());
+    EXPECT_EQ(gated.robots[0].lastRejection, measurementRejectionName(MeasurementRejection::TooSmall));
+    EXPECT_EQ(batch->missingRobots, (std::vector<RobotId>{RobotId{2}}));
+    EXPECT_EQ(f.vision->localizationReport(MonotonicClock::now()).inputFrames,2U);
+    f.vision->setInput("camera-b",true);
+    EXPECT_EQ(f.vision->localizationReport(MonotonicClock::now()).detection.samples,0U);
+}
+TEST(VisionTimingTest, TrackingPublicationCountsOnlyAppliedRobotMeasurements) {
+    VisionFixture f; f.unblock(); f.vision->setMetricConverter(std::make_unique<TrackingConverter>());
+    WorldModel world; RobotTracker tracker{world,{200ms,1s}}; QObject context;
+    connectVisionTracking(*f.vision,tracker,context,[]{});
+    f.vision->receiveFrame(trackingFrame(1,MonotonicClock::now()));
+    ASSERT_TRUE(visionUntil([&]{return world.robot(RobotId{1}).has_value();}));
+    const auto r=f.vision->localizationReport(MonotonicClock::now());
+    ASSERT_FALSE(r.robots.empty()); EXPECT_EQ(r.robots[0].accepted,1U);
+    EXPECT_TRUE(r.receiptToOutput.samples==0); EXPECT_TRUE(r.observationAge.p50Milliseconds);
+    EXPECT_FALSE(r.exposureToOutput.p50Milliseconds);
+    ASSERT_TRUE(world.robot(RobotId{1})->tracking->provenance);
+    EXPECT_EQ(world.robot(RobotId{1})->tracking->provenance->sourceId,"camera-a");
+    const auto generation = f.vision->inputGeneration();
+    LocalizationQualityGates gates;
+    gates.minimumEdgePixels = 21;
+    f.vision->setQualityGates(gates);
+    EXPECT_EQ(f.vision->inputGeneration(), generation);
+    EXPECT_TRUE(world.robot(RobotId{1})->pose);
+    EXPECT_EQ(f.vision->localizationReport(MonotonicClock::now()).robots[0].accepted, 1U);
+    const auto snapshot=world.snapshot();
+    f.vision->setInput("camera-b",true); EXPECT_FALSE(world.robot(RobotId{1})->pose);
+    EXPECT_TRUE(snapshot.robots.at(RobotId{1}).tracking->provenance); // detached evidence
+}
+
+TEST(VisionTimingTest, ToggleDuringBlockedWorkCannotRestoreDisabledOverlayOrPolluteNewStatistics) {
+    VisionFixture f; f.vision->receiveFrame(visionFrame(1));
+    ASSERT_TRUE(visionUntil([&]{return f.detector->calls==1;}));
+    f.vision->setDebugEnabled(false); f.vision->setFrameLoggingEnabled(false); f.unblock();
+    ASSERT_TRUE(visionUntil([&]{return !f.vision->busy();}));
+    EXPECT_TRUE(f.previews.empty());
+    EXPECT_EQ(f.vision->localizationReport(MonotonicClock::now()).detection.samples,0U);
+    f.vision->receiveFrame(visionFrame(2));
+    ASSERT_TRUE(visionUntil([&]{return f.results.size()==2;}));
+    const auto report=f.vision->localizationReport(MonotonicClock::now());
+    EXPECT_EQ(report.inputFrames,1U); EXPECT_EQ(report.detection.samples,1U);
+    EXPECT_EQ(report.debugPreparation.samples,0U); EXPECT_EQ(report.logging.samples,0U);
+}
+TEST(VisionTimingTest, ReentrantMetricObserverCannotRestoreTracksOrStatisticsAfterInputChange) {
+    VisionFixture f; f.unblock(); f.vision->setMetricConverter(std::make_unique<TrackingConverter>());
+    QObject::connect(f.vision.get(),&VisionController::metricObservationsAvailable,f.vision.get(),
+        [&](const QString&,MetricObservationBatchPtr b){if(b) f.vision->setInput("replacement",true);});
+    WorldModel world; RobotTracker tracker{world,{200ms,1s}}; QObject context;
+    connectVisionTracking(*f.vision,tracker,context,[]{});
+    f.vision->receiveFrame(trackingFrame(1,MonotonicClock::now()));
+    ASSERT_TRUE(visionUntil([&]{return f.results.size()==1;}));
+    EXPECT_EQ(world.robotCount(),0U); EXPECT_TRUE(f.vision->localizationReport(MonotonicClock::now()).robots.empty());
 }

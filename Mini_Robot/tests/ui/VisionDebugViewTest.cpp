@@ -6,6 +6,7 @@
 #include "VisionDebugFixtures.hpp"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QElapsedTimer>
 #include <QImage>
 #include <QPlainTextEdit>
@@ -97,9 +98,12 @@ TEST(VisionDebugViewTest, DialogShowsIndependentIdsQualityAgeTimingAndOutputFps)
     auto preview = debugPreview(); preview->outputFramesPerSecond = 25.0;
     emit vision.previewAvailable("camera-a", preview);
     const auto text = dialog.findChild<QPlainTextEdit*>("visionDiagnostics")->toPlainText();
+    EXPECT_TRUE(text.contains("Mapped exposure to output ms p50/p95/p99: unavailable"));
+    EXPECT_TRUE(text.contains("predicted-current pose/horizon/uncertainty unavailable"));
+    EXPECT_TRUE(text.contains("unknown observation clock"));
     EXPECT_TRUE(text.contains("Source camera-a"));
     EXPECT_TRUE(text.contains("frame 42"));
-    EXPECT_TRUE(text.contains("Age "));
+    EXPECT_TRUE(text.contains("Observation age "));
     EXPECT_TRUE(text.contains("detector 2.00 ms"));
     EXPECT_TRUE(text.contains("output FPS 25.0"));
     EXPECT_TRUE(text.contains("Tag 0 · Robot 1 · min edge 60.0 px · margin unavailable"));
@@ -133,6 +137,14 @@ TEST(VisionDebugViewTest, HiddenDialogDefersDiagnosticsAndRefreshesOnShow)
     EXPECT_EQ(diagnostics->toPlainText(), previous);
     dialog.show(); QApplication::processEvents();
     EXPECT_TRUE(diagnostics->toPlainText().contains("expired"));
+    EXPECT_TRUE(diagnostics->toPlainText().contains("Input receipt FPS"));
+    const auto buttons = dialog.findChildren<QPushButton*>();
+    const auto copy = std::find_if(buttons.begin(), buttons.end(), [](auto* button) {
+        return button->text() == QStringLiteral("Copy snapshot");
+    });
+    ASSERT_NE(copy, buttons.end());
+    (*copy)->click();
+    EXPECT_EQ(QApplication::clipboard()->text(), diagnostics->toPlainText());
     EXPECT_FALSE(dialog.findChild<VisionOverlay*>("visionOverlay")->preview());
     vision.shutdown();
 }
