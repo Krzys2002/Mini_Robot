@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vision/VisionDebugFrame.hpp"
+#include "vision/MetricObservation.hpp"
 
 #include <QDialog>
 #include <QTimer>
@@ -26,6 +27,7 @@ public:
     // pixel edges. Include the half-pixel offset under the same uniform scale.
     [[nodiscard]] QPointF imageToView(ImagePoint point) const;
 signals:
+    void paintCompleted(micro_robot::Duration duration);
     void imagePicked(double u, double v);
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -50,6 +52,8 @@ private:
     QPlainTextEdit* diagnostics_{};
     QString sourceId_;
     VisionDebugFramePtr preview_;
+    MetricObservationBatchPtr metric_;
     QTimer ageTimer_;
+    bool previewExpired_{};
 };
 } // namespace micro_robot

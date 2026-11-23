@@ -4,6 +4,16 @@
 #include <stdexcept>
 
 namespace micro_robot {
+const char* trackerUpdateName(TrackerUpdate u) {
+    switch(u) {
+    case TrackerUpdate::Applied: return "applied";
+    case TrackerUpdate::InvalidMeasurement: return "invalid measurement";
+    case TrackerUpdate::FutureTimestamp: return "future observation timestamp";
+    case TrackerUpdate::ExpiredMeasurement: return "expired measurement";
+    case TrackerUpdate::RejectedByWorld: return "invalidated or non-increasing WorldModel observation";
+    }
+    return "unknown tracker rejection";
+}
 RobotTracker::RobotTracker(WorldModel& world, TrackingThresholds thresholds, PoseFilterConfig filter)
     : world_(world), thresholds_(thresholds), filter_(filter)
 {
@@ -14,8 +24,9 @@ RobotTracker::RobotTracker(WorldModel& world, TrackingThresholds thresholds, Pos
         throw std::invalid_argument("Tracking thresholds must be positive and ordered");
 }
 TrackerUpdate RobotTracker::observe(RobotId id, const Pose2D& pose, Timestamp capturedAt, Timestamp now,
-                                    std::optional<double> quality)
+                                    std::optional<double> quality, std::optional<MeasurementProvenance> provenance)
 {
+    if (provenance && provenance->observedAt != capturedAt) return TrackerUpdate::InvalidMeasurement;
     if (quality && (!std::isfinite(*quality) || *quality < 0 || *quality > 1))
         return TrackerUpdate::InvalidMeasurement;
     if (!std::isfinite(pose.x.value) || !std::isfinite(pose.y.value) || !std::isfinite(pose.heading.value))
@@ -30,7 +41,18 @@ TrackerUpdate RobotTracker::observe(RobotId id, const Pose2D& pose, Timestamp ca
     std::optional<PlanarVelocity> velocity;
     if (previous && previous->poseUpdatedAt && capturedAt <= *previous->poseUpdatedAt)
         return TrackerUpdate::RejectedByWorld;
-    if (previous && previous->pose && previous->tracking && previous->tracking->rawPose
+    const auto sameBinding=[&] {
+        if(!previous || !previous->tracking) return true;
+        const auto& old=previous->tracking->provenance;
+        if(bool(old)!=bool(provenance)) return false;
+        if(!old) return true;
+        const auto& a=*old; const auto& b=*provenance;
+        const bool calibration=a.profileIdentity==b.profileIdentity
+            || (a.profileIdentity && b.profileIdentity && *a.profileIdentity==*b.profileIdentity);
+        return a.sourceId==b.sourceId && a.inputGeneration==b.inputGeneration && a.frameId==b.frameId
+            && calibration && a.mountingRevision==b.mountingRevision && a.width==b.width && a.height==b.height;
+    };
+    if (sameBinding() && previous && previous->pose && previous->tracking && previous->tracking->rawPose
         && world_.tracking(id, capturedAt).status != TrackingStatus::Lost) {
         heading = previous->tracking->continuousHeading + normalizeAngle(Radians{
             normalizeAngle(pose.heading).value - normalizeAngle(previous->tracking->rawPose->heading).value}).value;
@@ -50,7 +72,7 @@ TrackerUpdate RobotTracker::observe(RobotId id, const Pose2D& pose, Timestamp ca
         filtered.heading = normalizeAngle(Radians{previous->pose->heading.value + filter_.headingAlpha
             * normalizeAngle(Radians{normalizeAngle(pose.heading).value - normalizeAngle(previous->pose->heading).value}).value});
     }
-    if (world_.updateTrackedPose(id, filtered, capturedAt, thresholds_, pose, heading, velocity, quality) != PoseUpdateResult::Applied)
+    if (world_.updateTrackedPose(id, filtered, capturedAt, thresholds_, pose, heading, velocity, quality, std::move(provenance), now) != PoseUpdateResult::Applied)
         return TrackerUpdate::RejectedByWorld;
     observed_.insert(id);
     return TrackerUpdate::Applied;

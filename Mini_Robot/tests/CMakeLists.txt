@@ -212,7 +212,7 @@ micro_robot_target_defaults(micro_robot_simulation_tests)
 gtest_discover_tests(micro_robot_simulation_tests DISCOVERY_MODE PRE_TEST PROPERTIES LABELS "core")
 
 # Robot identity, center and heading from raw markers; no detector backend.
-add_executable(micro_robot_vision_observation_tests vision/RobotObservationTest.cpp vision/VisionDebugFrameTest.cpp vision/MetricObservationTest.cpp)
+add_executable(micro_robot_vision_observation_tests vision/RobotObservationTest.cpp vision/VisionDebugFrameTest.cpp vision/MetricObservationTest.cpp vision/LocalizationMetricsTest.cpp)
 target_link_libraries(micro_robot_vision_observation_tests PRIVATE
     micro_robot_vision_observation GTest::gtest_main
 )

@@ -76,7 +76,8 @@ void FakeCameraSource::advanceTo(Timestamp now)
         }
         auto frame = std::make_shared<const Frame>(Frame{
             sequence, now, 8, 6, 8, PixelFormat::Gray8,
-            std::make_shared<const std::vector<std::byte>>(std::move(pixels))
+            std::make_shared<const std::vector<std::byte>>(std::move(pixels)),
+            FrameTiming{.receivedAt = now, .observationSource = ObservationTimeSource::Simulated}
         });
         lastFrameTick_ = tick;
         nextSequence_ = sequence + 1;

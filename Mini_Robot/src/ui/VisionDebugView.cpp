@@ -2,7 +2,14 @@
 #include "app/VisionController.hpp"
 #include "calibration/WorkspaceDistance.hpp"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QDialogButtonBox>
+#include <QPushButton>
+#include <QScrollBar>
+#include <QCheckBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QFontMetricsF>
 #include <QImage>
 #include <QHideEvent>
@@ -88,6 +95,7 @@ QPointF VisionOverlay::imageToView(ImagePoint point) const
 }
 void VisionOverlay::paintEvent(QPaintEvent*)
 {
+    const auto paintStart=MonotonicClock::now();
     QPainter painter(this);
     painter.fillRect(rect(), Qt::black);
     if (!preview_) {
@@ -179,6 +187,7 @@ void VisionOverlay::paintEvent(QPaintEvent*)
         painter.drawText(label.adjusted(5, 0, -5, 0), Qt::AlignVCenter,
                          metrics.elidedText(text, Qt::ElideRight, label.width() - 10));
     }
+    emit paintCompleted(MonotonicClock::now()-paintStart);
 }
 void VisionOverlay::mousePressEvent(QMouseEvent* event)
 {
@@ -198,21 +207,51 @@ VisionDebugDialog::VisionDebugDialog(VisionController& vision, QWidget* parent)
     resize(900, 680);
     auto* layout = new QVBoxLayout(this);
     auto* legend = new QLabel(QStringLiteral("Green: assigned robot · orange dashed: rejected tag · cyan: center · yellow: front. "
-        "Raw pixels (+u right, +v down); headings are provisional, not world poses."), this);
+        "Raw pixels (+u right, +v down); headings are provisional, not world poses. Compare feature toggles under identical commissioned conditions; rates are measurements, not acceptance."), this);
     legend->setWordWrap(true);
     layout->addWidget(legend);
+    auto* controls=new QFormLayout;
+    auto* debug=new QCheckBox(QStringLiteral("Prepare debug overlays"),this); debug->setChecked(vision.debugEnabled());
+    auto* logging=new QCheckBox(QStringLiteral("Per-frame debug logging calls"),this); logging->setChecked(vision.frameLoggingEnabled());
+    controls->addRow(debug); controls->addRow(logging);
+    connect(debug,&QCheckBox::toggled,&vision,&VisionController::setDebugEnabled);
+    connect(logging,&QCheckBox::toggled,&vision,&VisionController::setFrameLoggingEnabled);
+    auto* edge=new QDoubleSpinBox(this); edge->setObjectName("minimumEdgeGate"); edge->setRange(0,10000);
+    edge->setValue(vision.qualityGates().minimumEdgePixels); edge->setSpecialValueText(QStringLiteral("Disabled"));
+    auto* age=new QDoubleSpinBox(this); age->setObjectName("maximumAgeGate"); age->setRange(0,10000);
+    age->setSpecialValueText(QStringLiteral("Disabled"));
+    if(vision.qualityGates().maximumObservationAge) age->setValue(std::chrono::duration<double,std::milli>(*vision.qualityGates().maximumObservationAge).count());
+    controls->addRow(QStringLiteral("Minimum shortest edge (px)"),edge);
+    controls->addRow(QStringLiteral("Maximum observation age (ms)"),age);
+    const auto gates=[&vision,edge,age] {
+        auto g=vision.qualityGates(); g.minimumEdgePixels=edge->value();
+        g.maximumObservationAge=age->value()>0?std::optional<Duration>{std::chrono::duration_cast<Duration>(std::chrono::duration<double,std::milli>{age->value()})}:std::nullopt;
+        vision.setQualityGates(g);
+    };
+    connect(edge, &QDoubleSpinBox::editingFinished, this, gates);
+    connect(age, &QDoubleSpinBox::editingFinished, this, gates);
+    layout->addLayout(controls);
     overlay_ = new VisionOverlay(this);
     layout->addWidget(overlay_, 1);
+    connect(overlay_,&VisionOverlay::paintCompleted,&vision,&VisionController::recordOverlayPaint);
     diagnostics_ = new QPlainTextEdit(this);
     diagnostics_->setObjectName(QStringLiteral("visionDiagnostics"));
     diagnostics_->setReadOnly(true);
     diagnostics_->setMaximumHeight(170);
     layout->addWidget(diagnostics_);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    auto* copy = buttons->addButton(QStringLiteral("Copy snapshot"), QDialogButtonBox::ActionRole);
+    connect(copy, &QPushButton::clicked, this, [this] {
+        QApplication::clipboard()->setText(diagnostics_->toPlainText());
+    });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
     layout->addWidget(buttons);
     connect(&vision, &VisionController::previewAvailable, this,
         [this](const QString& source, VisionDebugFramePtr preview) { present(source, std::move(preview)); });
+    connect(&vision,&VisionController::metricObservationsAvailable,this,[this](const QString&,MetricObservationBatchPtr batch) {
+        if(batch && batch->provenance.inputGeneration!=vision_.inputGeneration()) return;
+        metric_=std::move(batch);
+    });
     ageTimer_.setInterval(200);
     connect(&ageTimer_, &QTimer::timeout, this, [this] { refreshDiagnostics(); });
     present({}, {});
@@ -223,16 +262,17 @@ void VisionDebugDialog::present(const QString& sourceId, VisionDebugFramePtr pre
     // clear before this observer receives the outer (old) signal invocation.
     if (preview && preview->inputGeneration != vision_.inputGeneration()) return;
     sourceId_ = sourceId;
+    previewExpired_ = false;
     preview_ = drawableFrame(preview) ? std::move(preview) : VisionDebugFramePtr{};
     overlay_->present(preview_);
-    if (preview_ && isVisible()) ageTimer_.start(); else ageTimer_.stop();
+    if (isVisible()) ageTimer_.start();
     refreshDiagnostics();
 }
 void VisionDebugDialog::showEvent(QShowEvent* event)
 {
     QDialog::showEvent(event);
     refreshDiagnostics(); // Recheck age before displaying a retained hidden preview.
-    if (preview_) ageTimer_.start();
+    ageTimer_.start();
 }
 void VisionDebugDialog::hideEvent(QHideEvent* event)
 {
@@ -242,21 +282,58 @@ void VisionDebugDialog::hideEvent(QHideEvent* event)
 void VisionDebugDialog::refreshDiagnostics()
 {
     if (!isVisible()) return;
-    if (!preview_) { diagnostics_->setPlainText(QStringLiteral("No current processed frame")); return; }
+    const auto diagnosticsStart=MonotonicClock::now();
+    const auto report=vision_.localizationReport(MonotonicClock::now());
+    const auto number=[](std::optional<double> v) {return v?QString::number(*v,'f',2):QStringLiteral("unavailable");};
+    const auto latency=[&](const QString& name,const LatencyDistribution& d) {
+        return QStringLiteral("\n%1 ms p50/p95/p99: %2 / %3 / %4 (n=%5)").arg(name,number(d.p50Milliseconds),number(d.p95Milliseconds),number(d.p99Milliseconds)).arg(d.samples);
+    };
+    QString performance=QStringLiteral("\nInput receipt FPS %1 · frames %2 · pending replaced %3 · source sequence gaps %4 · invalid %5 · old/duplicate %6 · detector errors %7 · metric unavailable %8")
+        .arg(number(report.inputFramesPerSecond)).arg(report.inputFrames).arg(report.pendingReplaced).arg(report.sequenceGaps)
+        .arg(report.invalidFrames).arg(report.outOfOrder).arg(report.detectorErrors).arg(report.metricUnavailableFrames);
+    performance+=latency("Queue",report.queue)+latency("Detection",report.detection)+latency("Metric conversion (includes enabled reference monitoring)",report.conversion)
+        +latency("Debug preparation",report.debugPreparation)+latency("Logging calls",report.logging)+latency("Delivery/observers",report.delivery)
+        +latency("World publication",report.publication)+latency("Receipt to output",report.receiptToOutput)+latency("Mapped exposure to output",report.exposureToOutput)
+        +latency("Observation age at output",report.observationAge)+latency("Overlay paint CPU",report.overlayPaint)+latency("Diagnostics CPU",report.diagnostics)+latency("Instrumentation update CPU",report.instrumentation);
+    performance+=QStringLiteral("\nExposure is unavailable without verified mapping/uncertainty. Upstream buffering/drops may be unknown. Rolling latency: last 256 samples; rates: last 5 s.\nMeasured/filtered at observation time; predicted-current pose/horizon/uncertainty unavailable. Sampling/age quality is a heuristic, not probability or mm covariance.");
+    for(const auto& robot:report.robots) performance+=QStringLiteral("\nRobot %1 useful Hz %2 · accepted %3 · rejected %4 · missing frames %5 · observation age %6 ms")
+        .arg(robot.id.value()).arg(number(robot.usefulUpdatesPerSecond)).arg(robot.accepted).arg(robot.rejected).arg(robot.missingFrames)
+        .arg(number(robot.outputAge?std::optional<double>{std::chrono::duration<double,std::milli>(*robot.outputAge).count()}:std::nullopt))
+        +QStringLiteral(" · last rejection: ")+QString::fromStdString(robot.lastRejection);
+    if(metric_) {
+        if(!metric_->error.empty()) performance+=QStringLiteral("\nMetric error: ")+QString::fromStdString(metric_->error);
+        for(const auto& d:metric_->diagnostics) performance+=QStringLiteral("\nTag %1 · sampling %2 px · %3").arg(d.markerId).arg(number(d.minimumEdgePixels)).arg(QString::fromUtf8(measurementRejectionName(d.reason)));
+    }
+    const auto updateText = [&](const QString& text) {
+        auto* scroll = diagnostics_->verticalScrollBar();
+        const auto position = scroll->value();
+        diagnostics_->setPlainText(text + performance);
+        scroll->setValue(position);
+        vision_.recordDiagnostics(MonotonicClock::now() - diagnosticsStart);
+    };
     const auto now = MonotonicClock::now();
-    const auto capturedAt = preview_->frame->capturedAt;
-    const auto age = now >= capturedAt ? now - capturedAt : Duration::zero();
-    if (age >= CameraFrameTimeout) {
-        preview_.reset(); overlay_->present({}); ageTimer_.stop();
-        diagnostics_->setPlainText(QStringLiteral("Preview expired: no current processed frame"));
+    const auto age = preview_ && now >= preview_->frame->capturedAt
+        ? now - preview_->frame->capturedAt : Duration::zero();
+    if (preview_ && age >= CameraFrameTimeout) {
+        preview_.reset();
+        overlay_->present({});
+        previewExpired_ = true;
+    }
+    if (!preview_) {
+        updateText(previewExpired_ ? QStringLiteral("Preview expired: no current processed frame")
+                                   : QStringLiteral("No current processed frame"));
         return;
     }
     const auto& detections = *preview_->detections;
-    QString text = QStringLiteral("Source %1 · frame %2 · %3 × %4 raw pixels\nAge %5 ms · detector %6 ms · output FPS %7")
+    QString text = QStringLiteral("Source %1 · frame %2 · %3 × %4 raw pixels\nObservation age %5 ms · detector %6 ms · output FPS %7")
         .arg(sourceId_).arg(detections.frameSequence).arg(detections.width).arg(detections.height)
         .arg(std::chrono::duration<double, std::milli>(age).count(), 0, 'f', 1)
         .arg(std::chrono::duration<double, std::milli>(detections.processingTime).count(), 0, 'f', 2)
         .arg(preview_->outputFramesPerSecond ? QString::number(*preview_->outputFramesPerSecond, 'f', 1) : QStringLiteral("n/a"));
+    text+=QStringLiteral("\nTime source: %1 · upstream buffering %2 · exposure uncertainty %3 ms")
+        .arg(QString::fromUtf8(observationTimeSourceName(preview_->frame->timing.observationSource)))
+        .arg(preview_->frame->timing.upstreamBufferingKnown?QStringLiteral("documented by source"):QStringLiteral("unknown"))
+        .arg(number(hasMappedExposure(preview_->frame->timing)?std::optional<double>{std::chrono::duration<double,std::milli>(*preview_->frame->timing.exposureUncertainty).count()}:std::nullopt));
     if (!detections.error.empty()) text += QStringLiteral("\nDetector error: ") + QString::fromStdString(detections.error);
     for (const auto& marker : preview_->markers) {
         text += '\n' + markerLabel(marker);
@@ -264,6 +341,6 @@ void VisionDebugDialog::refreshDiagnostics()
         text += QStringLiteral(" · margin %1").arg(marker.marker.decisionMargin
             ? QString::number(*marker.marker.decisionMargin, 'f', 1) : QStringLiteral("unavailable"));
     }
-    diagnostics_->setPlainText(text);
+    updateText(text);
 }
 } // namespace micro_robot
