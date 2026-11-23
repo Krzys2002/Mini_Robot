@@ -1,4 +1,5 @@
 #include "transport/ble/BleTransport.hpp"
+#include "transport/ble/BleWire.hpp"
 
 #include <QMetaObject>
 
@@ -45,6 +46,7 @@ void BleTransport::clearIo(RobotId id, Session& session)
     session.lastVelocityAt.reset();
     session.pumpScheduled = session.nativeReady = session.emergencyConfirmed = false;
     session.robotState = BleRobotState::Idle;
+    session.faultReported = false;
     session.invalidNotifications = 0;
     session.sent.clear();
     if (session.pumpTimer) session.pumpTimer->stop();
@@ -111,7 +113,7 @@ void BleTransport::pump(RobotId id)
     ++session.transmitSequence; // Increment only for actual native handoffs.
     session.writing = sequence;
     if (velocity) session.lastVelocityAt = dispatched.dispatchedAt;
-    rememberSent(id, sequence, velocity ? 2 : 1, dispatched.dispatchedAt, command->metadata.sequence);
+    rememberSent(id, sequence, velocity ? ble_wire::velocity : ble_wire::stop, dispatched.dispatchedAt, command->metadata.sequence);
     armTimeout(id, config_.phaseTimeout);
 }
 void BleTransport::rememberSent(RobotId id, std::uint16_t sequence, std::uint8_t type, Timestamp at,
@@ -176,7 +178,7 @@ bool BleTransport::requestEmergencyClear(RobotId id, std::uint64_t request)
         });
     }
     session.clearResultTimer->start(static_cast<int>(config_.phaseTimeout.count()));
-    rememberSent(id, sequence, 4, outcome.dispatchedAt);
+    rememberSent(id, sequence, ble_wire::emergencyClear, outcome.dispatchedAt);
     armTimeout(id, config_.phaseTimeout);
     return true;
 }
@@ -203,7 +205,7 @@ void BleTransport::sendEmergencyStop(RobotId id)
     }
     ++session.transmitSequence;
     session.emergencyWriting = sequence;
-    rememberSent(id, sequence, 3, outcome.dispatchedAt);
+    rememberSent(id, sequence, ble_wire::emergencyStop, outcome.dispatchedAt);
     if (!session.emergencyWriteTimer) {
         session.emergencyWriteTimer = std::make_unique<QTimer>();
         session.emergencyWriteTimer->setSingleShot(true);
@@ -260,13 +262,19 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
         + " unwrapped_sequence=" + std::to_string(accepted->unwrapped) + " gap=" + std::to_string(accepted->gap)
         + " steady_us=" + std::to_string(steadyMicroseconds(at)), *id);
     // Both notification forms carry authoritative robot safety state.
-    const auto applySafetyState = [&](BleRobotState state) {
+    const auto applySafetyState = [&](BleRobotState state, TransportOperation operation) {
         session.robotState = state;
         if (state == BleRobotState::EmergencyStop || state == BleRobotState::Fault) {
             session.emergencyRequested = true;
             if (session.pending && std::holds_alternative<VelocityCommand>(session.pending->payload))
                 session.pending.reset();
-            if (state == BleRobotState::EmergencyStop) confirmEmergencyStop(*id);
+            // Fault confirms inhibited motion and can finish connection setup.
+            // The emergency latch continues to block Velocity.
+            confirmEmergencyStop(*id);
+            if (state == BleRobotState::Fault && !session.faultReported) {
+                session.faultReported = true;
+                error(*id, operation, TransportErrorCode::RobotFault, "Robot reports fault");
+            }
             if (state == BleRobotState::Fault && session.clearRequest) {
                 const auto request = *session.clearRequest;
                 session.clearRequest.reset();
@@ -277,8 +285,8 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
         }
     };
     if (const auto* telemetry = std::get_if<BleTelemetryFrame>(&decoded.frame->payload)) {
-        applySafetyState(telemetry->state);
-        if (telemetry->state != BleRobotState::EmergencyStop && session.emergencyRequested && !session.clearRequest) {
+        applySafetyState(telemetry->state, TransportOperation::ReceiveTelemetry);
+        if (telemetry->state != BleRobotState::EmergencyStop && telemetry->state != BleRobotState::Fault && session.emergencyRequested && !session.clearRequest) {
             session.emergencyConfirmed = false;
             sendEmergencyStop(*id);
         }
@@ -298,11 +306,10 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
             operatingState(telemetry->state)});
     } else {
         const auto& result = std::get<BleCommandResultFrame>(decoded.frame->payload);
-        applySafetyState(result.result == 8 || result.state == BleRobotState::Fault ? BleRobotState::Fault
-            : result.result == 7 ? BleRobotState::EmergencyStop : result.state);
-        if (result.state == BleRobotState::Fault || result.result == 8)
-            error(*id, TransportOperation::SendCommand, TransportErrorCode::RobotFault, "Robot reports fault");
-        else if (result.state == BleRobotState::EmergencyStop || result.result == 7)
+        applySafetyState(result.result == ble_wire::robotFault || result.state == BleRobotState::Fault ? BleRobotState::Fault
+            : result.result == ble_wire::emergencyStopLatched ? BleRobotState::EmergencyStop : result.state, TransportOperation::SendCommand);
+        if (result.state != BleRobotState::Fault && result.result != ble_wire::robotFault
+            && (result.state == BleRobotState::EmergencyStop || result.result == ble_wire::emergencyStopLatched))
             error(*id, TransportOperation::SendCommand, TransportErrorCode::EmergencyStopLatched, "Robot reports E-stop");
         const auto sent = std::find_if(session.sent.begin(), session.sent.end(), [&](const auto& entry) {
             return entry.sequence == result.commandSequence && entry.type == result.commandType;
@@ -316,18 +323,18 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
             else message += " round_trip_us=unknown";
             log_->debug(message, *id);
         }
-        if (session.emergencyRequested && result.commandType == 3 && result.result == 0 && sent != session.sent.end())
+        if (session.emergencyRequested && result.commandType == ble_wire::emergencyStop && result.result == ble_wire::accepted && sent != session.sent.end())
             confirmEmergencyStop(*id);
-        if (result.commandType == 4 && session.clearSequence == result.commandSequence && session.clearRequest
+        if (result.commandType == ble_wire::emergencyClear && session.clearSequence == result.commandSequence && session.clearRequest
             && sent != session.sent.end()) {
             const auto request = *session.clearRequest;
             session.clearSequence.reset();
             session.clearRequest.reset();
             if (session.clearResultTimer) session.clearResultTimer->stop();
-            const bool accepted = result.result == 0 && result.state == BleRobotState::Idle;
+            const bool accepted = result.result == ble_wire::accepted && result.state == BleRobotState::Idle;
             if (accepted) { session.emergencyRequested = false; session.emergencyConfirmed = false; }
             if (auto sink = sink_.lock()) sink->onEmergencyClearResult(*id, request, accepted, at);
-        } else if (result.commandType == 4 && session.emergencyRequested && sent != session.sent.end()) {
+        } else if (result.commandType == ble_wire::emergencyClear && session.emergencyRequested && sent != session.sent.end()) {
             // A late clear may follow a newer E-stop or clear attempt. Cancel
             // the newer attempt and reassert; no prior result can unlock it.
             const auto canceled = session.clearRequest;
@@ -338,7 +345,7 @@ void BleTransport::receive(std::uint64_t token, BleEndpoint endpoint, const QByt
             sendEmergencyStop(*id);
             if (canceled) if (auto sink = sink_.lock()) sink->onEmergencyClearResult(*id, *canceled, false, at);
         }
-        if (result.result != 0 && result.result != 7 && result.result != 8) error(*id, TransportOperation::SendCommand, bleRejectionCode(result.result),
+        if (result.result != ble_wire::accepted && result.result != ble_wire::emergencyStopLatched && result.result != ble_wire::robotFault) error(*id, TransportOperation::SendCommand, bleRejectionCode(result.result),
             std::string{"Robot rejected command wire_sequence="} + std::to_string(result.commandSequence) + ": " + bleResultName(result.result));
     }
 }

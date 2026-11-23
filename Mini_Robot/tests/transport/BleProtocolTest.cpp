@@ -71,13 +71,16 @@ TEST(BleProtocolTest, RecomputesRemainingValidityAtDispatchAndRejectsDeadlineAnd
     command.issuedAt = Timestamp::min(); command.validFor = Duration::max();
     EXPECT_FALSE(encodeBleCommand(command, limits, 0, Timestamp::max()).frame);
 }
-TEST(BleProtocolTest, ValidatesDomainVersionStopFreshnessAndAdvertisedLimits)
+TEST(BleProtocolTest, ValidatesDomainVersionAndAdvertisedLimitsButNeverExpiresStop)
 {
     auto command = velocity();
     command.metadata.modelVersion = 2;
     EXPECT_EQ(encodeBleCommand(command, limits, 0, now).code, TransportErrorCode::UnsupportedVersion);
     command = velocity(); command.payload = StopCommand{};
-    EXPECT_FALSE(encodeBleCommand(command, limits, 0, now + 250ms).frame);
+    EXPECT_TRUE(encodeBleCommand(command, limits, 0, now + 250ms).frame);
+    command.issuedAt = Timestamp::min();
+    command.validFor = Duration::zero();
+    EXPECT_TRUE(encodeBleCommand(command, limits, 0, Timestamp::max()).frame);
     auto invalidLimits = limits;
     invalidLimits.maximumValidityMilliseconds = 0;
     EXPECT_FALSE(encodeBleCommand(velocity(), invalidLimits, 0, now).frame);
