@@ -79,10 +79,16 @@ The current layers are:
   simulation by default. Native command writes recheck freshness at API handoff;
   incoming notifications receive a steady-clock timestamp.
 - `micro_robot_desktop_controller`: Qt Core adapters using interface references;
+  its opt-in `QtControlLoopScheduler` drives the supervisory service on the
+  model/manager owner thread, with prompt nonblocking policy callbacks;
   DesktopController coordinates the demo/model through RobotManager and owns the active camera source,
   while CameraSelectionController presents device inventories and creates the
   selected source through the factory, without a Qt Multimedia dependency.
 - `micro_robot_ui`: Qt Widgets presentation and operator request signals.
+- `micro_robot_control_loop`: Qt-free, per-robot supervisory service with an
+  injected controller/clock, latest tracked inputs, timestamped cycle records,
+  bounded RobotManager commands and tracking/session inhibition. See
+  [supervisory control](supervisory-control.md) for scheduling and authority rules.
 - `micro_robot_desktop`: composition root selecting the native camera factory, simulated
   transport, and real system device-inventory adapter. The build selects the
   [camera backend](camera-backends.md): V4L2 on Linux, Qt Multimedia elsewhere.

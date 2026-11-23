@@ -64,6 +64,11 @@ reports are scope/history, not evidence that future modules are present.
 | [src/common/Units.hpp](../../src/common/Units.hpp) | [common](architecture.md#domain-conventions) |
 | [src/control/DifferentialDrive.hpp](../../src/control/DifferentialDrive.hpp) | [Differential-drive model](differential-drive.md) |
 | [src/control/DifferentialDrive.cpp](../../src/control/DifferentialDrive.cpp) | [Differential-drive model](differential-drive.md) |
+| [src/control/IController.hpp](../../src/control/IController.hpp) | [Supervisory controller boundary](supervisory-control.md) |
+| [src/control/ControlLoop.hpp](../../src/control/ControlLoop.hpp) | [Supervisory control service](supervisory-control.md) |
+| [src/control/ControlLoop.cpp](../../src/control/ControlLoop.cpp) | [Supervisory control service](supervisory-control.md) |
+| [src/app/QtControlLoopScheduler.hpp](../../src/app/QtControlLoopScheduler.hpp) | [Qt control scheduler](supervisory-control.md#qt-adapter-and-observability) |
+| [src/app/QtControlLoopScheduler.cpp](../../src/app/QtControlLoopScheduler.cpp) | [Qt control scheduler](supervisory-control.md#qt-adapter-and-observability) |
 | [src/infrastructure/configuration/ApplicationConfig.hpp](../../src/infrastructure/configuration/ApplicationConfig.hpp) | [configuration](configuration.md) |
 | [src/infrastructure/configuration/ConfigLoader.cpp](../../src/infrastructure/configuration/ConfigLoader.cpp) | [configuration](configuration.md) |
 | [src/infrastructure/configuration/ConfigLoader.hpp](../../src/infrastructure/configuration/ConfigLoader.hpp) | [configuration](configuration.md) |

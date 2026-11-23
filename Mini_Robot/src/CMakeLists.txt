@@ -188,6 +188,12 @@ target_link_libraries(micro_robot_robot_manager PUBLIC
 micro_robot_target_defaults(micro_robot_robot_manager)
 micro_robot_platform_boundary(micro_robot_robot_manager)
 
+add_library(micro_robot_control_loop STATIC control/IController.hpp
+    control/ControlLoop.hpp control/ControlLoop.cpp)
+target_link_libraries(micro_robot_control_loop PUBLIC micro_robot_robot_manager)
+micro_robot_target_defaults(micro_robot_control_loop)
+micro_robot_platform_boundary(micro_robot_control_loop)
+
 add_library(micro_robot_configuration STATIC
     infrastructure/configuration/ApplicationConfig.hpp
     infrastructure/configuration/ConfigLoader.hpp
@@ -270,6 +276,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     endif()
 
     add_library(micro_robot_desktop_controller STATIC
+        app/QtControlLoopScheduler.hpp
+        app/QtControlLoopScheduler.cpp
         app/VisionController.hpp
         app/VisionController.cpp
         app/WorkspaceDistanceController.hpp
@@ -294,7 +302,7 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     target_link_libraries(micro_robot_desktop_controller PUBLIC
         micro_robot_camera_api micro_robot_camera_selection micro_robot_transport_api
         micro_robot_world micro_robot_logging micro_robot_calibration micro_robot_vision_api
-        micro_robot_vision_observation micro_robot_robot_manager micro_robot_tracking Qt6::Core
+        micro_robot_vision_observation micro_robot_robot_manager micro_robot_tracking micro_robot_control_loop Qt6::Core
     )
     micro_robot_target_defaults(micro_robot_desktop_controller)
     # Application adapters use Qt Core only; device backends stay in adapter targets.
