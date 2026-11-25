@@ -217,7 +217,7 @@ TEST(RobotControlPanelTest, UnexpectedLinkLossIsVisibleAndAllowsDirectReconnectW
     Fixture f; f.connected(); f.controller.beginManualDrive(0.1, 0);
     const auto lostAt = MonotonicClock::now();
     f.transport.publishState(one, ConnectionState::Disconnected, lostAt);
-    f.transport.publishError({one, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+    f.transport.publishError({one, TransportOperation::Disconnect, TransportErrorCode::LinkLost,
                              "BLE link disconnected unexpectedly", lostAt});
     EXPECT_TRUE(f.window.findChild<QLabel*>("connectionStatus")->text().contains("lost"));
     EXPECT_TRUE(f.window.findChild<QLabel*>("manualStatus")->text().contains("reconnect"));
@@ -230,6 +230,22 @@ TEST(RobotControlPanelTest, UnexpectedLinkLossIsVisibleAndAllowsDirectReconnectW
     EXPECT_TRUE(f.button("manualForward")->isEnabled()); // Loss is not latched as a fault.
     f.transport.publishTelemetry({one, MonotonicClock::now(), 3.8, {}, {}, {}, RobotOperatingState::Idle});
     EXPECT_TRUE(f.window.findChild<QLabel*>("telemetryDescription")->text().contains("3.80"));
+}
+TEST(RobotControlPanelTest, AdapterFaultDuringDisconnectKeepsTheFaultStatusAndLatch)
+{
+    Fixture f; f.connected();
+    f.controller.disconnectRobot();
+    const auto at = MonotonicClock::now();
+    f.transport.publishState(one, ConnectionState::Disconnecting, at);
+    f.transport.publishState(one, ConnectionState::Fault, at);
+    f.transport.publishError({one, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+                             "Qt InvalidBluetoothAdapterError: Bluetooth adapter not found", at});
+    const auto connection = f.window.findChild<QLabel*>("connectionStatus")->text();
+    EXPECT_TRUE(connection.contains("Fault")) << connection.toStdString();
+    EXPECT_FALSE(connection.contains("lost")) << connection.toStdString();
+    EXPECT_TRUE(f.window.findChild<QLabel*>("manualStatus")->text().contains("transport error"));
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Fault);
+    EXPECT_FALSE(f.button("manualForward")->isEnabled());
 }
 TEST(RobotControlPanelTest, RobotFaultTelemetryDisablesManualDriveWhileStopStaysAvailable)
 {

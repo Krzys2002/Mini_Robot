@@ -50,12 +50,6 @@ QString connectionStateText(ConnectionState state)
     return QStringLiteral("Unknown");
 }
 
-// Transport contract: Disconnect/Unavailable is unexpected but recoverable link loss.
-bool isLinkLoss(const TransportError& error)
-{
-    return error.operation == TransportOperation::Disconnect && error.code == TransportErrorCode::Unavailable;
-}
-
 } // namespace
 
 // Plain C++ camera/application sink owned by the controller. Weak camera and
@@ -93,7 +87,7 @@ public:
     }
     void onTransportError(const TransportError& error) override
     {
-        if (error.robotId == owner_.robotId_ && isLinkLoss(error)) {
+        if (error.robotId == owner_.robotId_ && isRecoverableLinkLoss(error)) {
             // The session already ended (Disconnected); no fault latch is needed because
             // motion stays inhibited until an explicit reconnect starts a new session.
             // Live visual motion is still interrupted at once, as for any connection loss.

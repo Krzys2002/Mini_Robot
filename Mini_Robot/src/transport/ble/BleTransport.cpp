@@ -193,7 +193,7 @@ void BleTransport::endLink(std::uint64_t token, const std::string& diagnostic)
     backend_->release(std::exchange(session.token, 0));
     changePhase(*id, BlePhase::Disconnected);
     changeState(*id, ConnectionState::Disconnected);
-    if (unexpected) error(*id, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+    if (unexpected) error(*id, TransportOperation::Disconnect, TransportErrorCode::LinkLost,
                           diagnostic.empty() ? std::string{"BLE link disconnected unexpectedly"}
                                              : "BLE link disconnected unexpectedly (" + diagnostic + ")");
 }

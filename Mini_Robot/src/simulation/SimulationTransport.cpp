@@ -81,6 +81,7 @@ std::string_view toString(TransportErrorCode code)
     case TransportErrorCode::InvalidTelemetry: return "InvalidTelemetry";
     case TransportErrorCode::RobotFault: return "RobotFault";
     case TransportErrorCode::EmergencyStopLatched: return "EmergencyStopLatched";
+    case TransportErrorCode::LinkLost: return "LinkLost";
     }
     return "Unknown";
 }
@@ -275,7 +276,7 @@ void SimulationTransport::advanceTo(Timestamp now)
                 const bool fault = *failure == ConnectionState::Fault;
                 // Same classification as the BLE adapter: link loss is recoverable.
                 sink->onTransportError({id, TransportOperation::Disconnect,
-                    fault ? TransportErrorCode::BackendFailure : TransportErrorCode::Unavailable,
+                    fault ? TransportErrorCode::BackendFailure : TransportErrorCode::LinkLost,
                     fault ? "Simulated backend fault" : "Simulated connection loss", now});
             }
             continue; // Recovery explicitly requested in a callback waits for next advance.

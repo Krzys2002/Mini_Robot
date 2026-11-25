@@ -408,7 +408,7 @@ TEST(DesktopSafetyTest, UnexpectedDisconnectKeepsLostConnectionStateAndSupportsE
     ASSERT_TRUE(f.robots.session(one));
     EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::LostConnection);
     EXPECT_FALSE(f.robots.session(one)->safetyFault);
-    f.transport.error({one, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+    f.transport.error({one, TransportOperation::Disconnect, TransportErrorCode::LinkLost,
                        "BLE link disconnected unexpectedly", Timestamp{2s}});
     EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::LostConnection);
     EXPECT_FALSE(f.robots.session(one)->safetyFault);
@@ -416,6 +416,23 @@ TEST(DesktopSafetyTest, UnexpectedDisconnectKeepsLostConnectionStateAndSupportsE
     f.transport.state(one, ConnectionState::Connected, Timestamp{3s});
     EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Ready);
     EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{3s}, 1s}), CommandSubmission::Submitted);
+}
+
+TEST(DesktopSafetyTest, AdapterFaultDuringDisconnectIsAFaultNotRecoverableLinkLoss)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.connected(one);
+    ASSERT_TRUE(f.robots.disconnect(one));
+    f.transport.state(one, ConnectionState::Disconnecting, Timestamp{2s});
+    f.transport.state(one, ConnectionState::Fault, Timestamp{3s});
+    f.transport.error({one, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+                       "Qt InvalidBluetoothAdapterError: Bluetooth adapter not found", Timestamp{3s}});
+    ASSERT_TRUE(f.robots.session(one));
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Fault);
+    EXPECT_TRUE(f.robots.session(one)->safetyFault);
+    ASSERT_TRUE(f.robots.session(one)->lastError);
+    EXPECT_EQ(f.robots.session(one)->lastError->code, TransportErrorCode::Unavailable);
 }
 
 TEST(DesktopSafetyTest, RepeatedSimulatedLinkLossRestoresTelemetryAndNeverReplaysMotion)
@@ -449,7 +466,7 @@ TEST(DesktopSafetyTest, RepeatedSimulatedLinkLossRestoresTelemetryAndNeverReplay
         EXPECT_EQ(robots.session(one)->safety, DesktopSafetyState::LostConnection);
         EXPECT_FALSE(robots.session(one)->safetyFault);
         ASSERT_TRUE(robots.session(one)->lastError);
-        EXPECT_EQ(robots.session(one)->lastError->code, TransportErrorCode::Unavailable);
+        EXPECT_EQ(robots.session(one)->lastError->code, TransportErrorCode::LinkLost);
         EXPECT_FALSE(robots.session(one)->telemetry);
         EXPECT_EQ(robots.sendCommand(one, motion), CommandSubmission::NotConnected);
         EXPECT_EQ(robots.connectionState(two), ConnectionState::Connected);

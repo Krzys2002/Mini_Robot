@@ -272,7 +272,7 @@ TEST(BleTransportTest, RepeatedUnexpectedLinkLossReconnectsWithoutLeakingOrRepla
         emit f.backend->closed(token); drain();
         EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
         ASSERT_EQ(f.events->errors.size(), errorsBefore + 1U);
-        EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+        EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::LinkLost);
         EXPECT_EQ(f.backend->released.back(), token);
         if (previous != 0) {
             emit f.backend->closed(previous); drain();
@@ -296,7 +296,7 @@ TEST(BleTransportTest, NativeLinkLossIsRecoverableAndKeepsTheDiagnostic)
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
     ASSERT_EQ(f.events->errors.size(), 1U);
     EXPECT_EQ(f.events->errors.back().operation, TransportOperation::Disconnect);
-    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::LinkLost);
     EXPECT_NE(f.events->errors.back().message.find("Remote device closed the connection"), std::string::npos);
     EXPECT_EQ(f.backend->released.back(), token);
     emit f.backend->closed(token); drain(); // The later native `disconnected` is fenced.
@@ -315,6 +315,27 @@ TEST(BleTransportTest, LocalAdapterFailureOnAnEstablishedLinkFaultsInsteadOfPass
     EXPECT_NE(f.events->errors.back().operation, TransportOperation::Disconnect);
     EXPECT_NE(f.events->errors.back().message.find("InvalidBluetoothAdapterError"), std::string::npos);
 }
+TEST(BleTransportTest, AdapterFailureDuringExplicitDisconnectFaultsAndIsNotClassifiedAsLinkLoss)
+{
+    Fixture f;
+    f.ready();
+    const auto token = f.backend->links.at(robot);
+    f.transport->disconnect(robot); drain();
+    ASSERT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnecting);
+    emit f.backend->failed(token, TransportErrorCode::Unavailable,
+                           QStringLiteral("Qt InvalidBluetoothAdapterError: Bluetooth adapter not found"));
+    drain();
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Fault);
+    ASSERT_EQ(f.events->errors.size(), 1U);
+    const auto& error = f.events->errors.back();
+    EXPECT_EQ(error.operation, TransportOperation::Disconnect);
+    EXPECT_EQ(error.code, TransportErrorCode::Unavailable);
+    EXPECT_FALSE(isRecoverableLinkLoss(error));
+    EXPECT_NE(error.message.find("InvalidBluetoothAdapterError"), std::string::npos);
+    emit f.backend->closed(token); drain(); // The later native `disconnected` is fenced.
+    EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Fault);
+    EXPECT_EQ(f.events->errors.size(), 1U);
+}
 TEST(BleTransportTest, LinkLossDuringSetupEndsDisconnectedAndRecoversWithANewScan)
 {
     Fixture f;
@@ -324,7 +345,7 @@ TEST(BleTransportTest, LinkLossDuringSetupEndsDisconnectedAndRecoversWithANewSca
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
     ASSERT_EQ(f.events->errors.size(), 1U);
     EXPECT_EQ(f.events->errors.back().operation, TransportOperation::Disconnect);
-    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::LinkLost);
     emit f.backend->ready(token); drain(); // A late setup completion is fenced.
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
     const auto scans = f.backend->scans;
@@ -381,7 +402,7 @@ TEST(BleTransportTest, RepeatedLinkLossThroughRobotManagerRestoresTelemetryWitho
         if (cycle % 2 == 0) {
             emit f.backend->closed(token); drain();
             ASSERT_TRUE(robots.session(robot)->lastError);
-            EXPECT_EQ(robots.session(robot)->lastError->code, TransportErrorCode::Unavailable);
+            EXPECT_EQ(robots.session(robot)->lastError->code, TransportErrorCode::LinkLost);
         } else {
             ASSERT_TRUE(robots.disconnect(robot)); drain();
             ++explicitDisconnects;
@@ -462,7 +483,7 @@ TEST(BleTransportTest, DisconnectTimeoutAndUnexpectedLinkLossAreRecoverable)
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Disconnected);
     ASSERT_EQ(f.events->errors.size(), 2U);
     EXPECT_EQ(f.events->errors.back().operation, TransportOperation::Disconnect);
-    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::Unavailable);
+    EXPECT_EQ(f.events->errors.back().code, TransportErrorCode::LinkLost);
     f.ready();
     EXPECT_EQ(f.transport->connectionState(robot), ConnectionState::Connected);
 }

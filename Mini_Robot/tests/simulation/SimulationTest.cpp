@@ -732,7 +732,7 @@ TEST(SimulationTransportTest, FailureScenariosAreDeferredIsolatedAndRequireExpli
         EXPECT_EQ(events->errors.back().occurredAt, Timestamp{1001ms});
         EXPECT_EQ(events->errors.back().robotId, id);
         EXPECT_EQ(events->errors.back().code,
-                  fault ? TransportErrorCode::BackendFailure : TransportErrorCode::Unavailable);
+                  fault ? TransportErrorCode::BackendFailure : TransportErrorCode::LinkLost);
         EXPECT_EQ(events->telemetry.back().robotId, other);
         EXPECT_EQ(events->telemetry.back().linearMetersPerSecond, 0.3);
         transport.advanceTo(Timestamp{1002ms});

@@ -56,9 +56,11 @@ struct RobotTelemetry {
 };
 
 enum class TransportOperation { Connect, Disconnect, SendCommand, ReceiveTelemetry };
+// LinkLost is reserved for unexpected but recoverable link loss (#71); every other code
+// on a Disconnect operation, including Unavailable, is a fault.
 enum class TransportErrorCode {
     Unavailable, NotConnected, InvalidCommand, BackendFailure, UnsupportedVersion, InvalidTelemetry,
-    RobotFault, EmergencyStopLatched
+    RobotFault, EmergencyStopLatched, LinkLost
 };
 
 // What a transport can say about the protection of one robot session (#157). Adapters
@@ -78,5 +80,13 @@ struct TransportError {
     std::string message;
     Timestamp occurredAt;
 };
+
+// Transport contract (IRobotTransportEvents::onTransportError): the session already ended
+// in Disconnected and only an explicit connect starts a new one. Not a fault; a fault
+// while disconnecting keeps its own code and is never classified here.
+[[nodiscard]] constexpr bool isRecoverableLinkLoss(const TransportError& error) noexcept
+{
+    return error.operation == TransportOperation::Disconnect && error.code == TransportErrorCode::LinkLost;
+}
 
 } // namespace micro_robot
