@@ -18,9 +18,9 @@ dedicated E-stop still latches. No observers are supported. The restricted-lab m
 unauthenticated and unencrypted. The policy from #274 is included; desktop companion
 #287 remains an integration dependency.
 It publishes v1 [telemetry](../../docs/overview/firmware-telemetry.md) (#164) periodically and on
-state change, on the counter it shares with CommandResults. Battery voltage comes from the
-CodeCell GPIO4 reading under provisional bench evidence (#309, not meter-verified); measured
-velocity is reported as unknown. It prints bounded diagnostics (task jitter, stack, heap, drops) on USB
+state change, on the counter it shares with CommandResults, with battery and measured velocity
+reported as unknown. The separate `battery-bench` image (`pio run -e battery-bench`) publishes
+the CodeCell GPIO4 battery reading under provisional bench evidence (#309, not meter-verified). It prints bounded diagnostics (task jitter, stack, heap, drops) on USB
 serial. Robot Info reports firmware 0.1.0. The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
 (#160). It wakes the H-bridges only with a valid provisioned profile, and it is not
 proof of safe electrical boot behaviour or of any physical motor limit (#238).
@@ -243,6 +243,19 @@ name (`MR-PILOT-156`), so a v1 desktop cannot mistake it for a robot. Flash it
 only USB-powered with the battery and motors disconnected, then restore the image
 the board had. Use, results and limits: [timing pilot record](../../docs/testing/timing-pilot-156.md).
 Default builds, the CMake `firmware_codecell_c6` target and robots never use it.
+
+## Battery bench image (#309)
+
+`pio run -d Mini_Robot/firmware/codecell-c6 -e battery-bench` builds the production runtime
+with `CODECELL_PROVISIONAL_BATTERY=1`: it reads GPIO4 once per telemetry period and publishes
+the voltage under the provisional, not meter-verified, evidence of
+`include/telemetry/CodeCellBattery.hpp`. The default image never reads the battery ADC and
+reports the battery as unknown. On USB the battery node reads the USB rail, so the image
+reports `unknown` there too, and the full conformance run applies to it unchanged. The
+battery-present check is BLE-only, on the LiPo with USB unplugged:
+`scripts/gatt_conformance_host.py --battery-present --robot-id <id> --duration-s 30`.
+Details: [telemetry](../../docs/overview/firmware-telemetry.md#battery). Default builds and the
+CMake `firmware_codecell_c6` target never use it.
 
 ## Troubleshooting
 

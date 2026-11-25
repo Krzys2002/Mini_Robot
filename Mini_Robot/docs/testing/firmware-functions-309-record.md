@@ -109,6 +109,21 @@ provisioning record was kept). The firmware reads GPIO4 with the CodeCell conver
 Not established: accuracy (no multimeter at the battery leads; #238), the `batteryLow`
 transition (cell not near 3350 mV), and averaging (one unaveraged conversion per sample).
 
+Both rows are for the earlier image `61eb9d9`, which read the battery in the default image
+and sampled before the BLE host wake. Since the #314 review the default image reports the
+battery as unknown and never reads the ADC. Only the `battery-bench` image publishes it,
+sampling after the wake with one ADC warm-up conversion in `setup()`, and an ADC failure
+(Arduino returns 0) counts as a failed read.
+
+**NOT RUN on the current images:**
+- the full GATT conformance run on the default image (USB only), which expects the battery
+  unknown in every frame;
+- the full run on the `battery-bench` image on USB, including B10 spacing under load and the
+  C13 paused-reader case (C13 stall tracked separately in #315);
+- the BLE-only `--battery-present` pass on the `battery-bench` image (LiPo only, USB
+  unplugged): plausible voltage in every frame, consistent `batteryLow`, B10 periodic spacing;
+- a meter comparison of the conversion and the `batteryLow` transition (#238).
+
 ## Operator steps for the physical rows
 
 1. Keep motor power disconnected for all USB steps (rows B and C). The README
