@@ -96,6 +96,34 @@ acceptance):
 - Turning at 5.0 rad/s (`config/codecell-c6-bench.ini`) moves the wheels in both directions.
   The motor deadband between these values was not measured (#167).
 
+**Battery telemetry** (image `61eb9d9`, build ID `cc90652114273294`, routine upload; the
+provisioning record was kept). The firmware reads GPIO4 with the CodeCell conversion
+(`adc_mV × 2 + 65`) and publishes it under provisional evidence: plausible 3000–4400 mV,
+`batteryLow` at 3350/3450 mV, 500 ms sample age.
+
+| Power | Observation | Source | Result |
+| --- | --- | --- | --- |
+| USB connected | Serial `battery_raw_mv=4421`, six reports in a row; `battery_quality=implausible`, telemetry `unknown` | Serial log | As designed: the USB supply on the battery node is above the 4400 mV ceiling |
+| LiPo only, USB unplugged | App status line `4.15 V` over BLE | Operator-observed | PASS: reading published end to end |
+
+Not established: accuracy (no multimeter at the battery leads; #238), the `batteryLow`
+transition (cell not near 3350 mV), and averaging (one unaveraged conversion per sample).
+
+Both rows are for the earlier image `61eb9d9`, which read the battery in the default image
+and sampled before the BLE host wake. Since the #314 review the default image reports the
+battery as unknown and never reads the ADC. Only the `battery-bench` image publishes it,
+sampling after the wake with one ADC warm-up conversion in `setup()`, and an ADC failure
+(Arduino returns 0) counts as a failed read.
+
+**NOT RUN on the current images:**
+- the full GATT conformance run on the default image (USB only), which expects the battery
+  unknown in every frame;
+- the full run on the `battery-bench` image on USB, including B10 spacing under load and the
+  C13 paused-reader case (C13 stall tracked separately in #315);
+- the BLE-only `--battery-present` pass on the `battery-bench` image (LiPo only, USB
+  unplugged): plausible voltage in every frame, consistent `batteryLow`, B10 periodic spacing;
+- a meter comparison of the conversion and the `batteryLow` transition (#238).
+
 ## Operator steps for the physical rows
 
 1. Keep motor power disconnected for all USB steps (rows B and C). The README

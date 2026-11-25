@@ -36,6 +36,8 @@ jobs:
         run: pio run -d Mini_Robot/firmware/codecell-c6 -e esp32-c6-devkitc-1
       - name: Build the timing pilot bench image without upload (#156)
         run: pio run -d Mini_Robot/firmware/codecell-c6 -e timing-pilot
+      - name: Build the provisional battery bench image without upload (#309)
+        run: pio run -d Mini_Robot/firmware/codecell-c6 -e battery-bench
       - name: Record build provenance and resolved packages
         run: |
           cat Mini_Robot/firmware/codecell-c6/.pio/build/esp32-c6-devkitc-1/firmware-provenance.json

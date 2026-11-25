@@ -20,9 +20,18 @@ ceiling below 250 ms, which guarantees InvalidValidity; otherwise it is skipped 
 check fails. --max-validity-ms must therefore be below 250. Use it USB-only with the
 battery and motors disconnected; it is not a powered or HIL test (#238/#166).
 
+Battery (#309): the full run expects the battery as unknown in every frame, with batteryLow
+never set: the default image does not read the battery, and on USB the battery-bench image
+reads the USB rail, which is outside the provisional plausible range. --battery-present is a
+separate BLE-only pass for the battery-bench image on its LiPo with USB unplugged (no serial
+cross-checks are possible then). It sends no command, requires a plausible voltage in every
+frame, a batteryLow flag consistent with the provisional thresholds, and the B10 periodic
+spacing on the robot clock.
+
 Example (from Mini_Robot/firmware/codecell-c6):
   scripts/gatt_conformance_host.py --port /dev/serial/by-id/usb-Espressif_* --robot-id 7 \
       --max-validity-ms 200 --cycles 20 --log gatt-163.log
+  scripts/gatt_conformance_host.py --battery-present --robot-id 7 --duration-s 30 --log battery-309.log
 """
 import argparse
 import os
@@ -49,6 +58,11 @@ STOP, VELOCITY, EMERGENCY_STOP, CLEAR = 0x01, 0x02, 0x03, 0x04
 TELEMETRY_TYPE, RESULT_TYPE = 0x80, 0x81
 FLAG_EXPIRED, FLAG_BATTERY_LOW, FLAG_HAS_ACCEPTED = 0x01, 0x02, 0x04
 UNKNOWN_BATTERY, UNKNOWN_VELOCITY = 0xFFFF, -32768
+# #309 provisional battery evidence (include/telemetry/CodeCellBattery.hpp), battery-bench image
+# only: a published value lies in this range, batteryLow is set at or below the enter threshold
+# and cleared at or above the exit threshold.
+BATTERY_PLAUSIBLE_MV = (3000, 4400)
+BATTERY_LOW_ENTER_MV, BATTERY_LOW_EXIT_MV = 3350, 3450
 EXPECTED_FIRMWARE = (0, 1, 0)
 # #156 budgets the robot reports on (docs/protocol/timing-budgets.md).
 TELEMETRY_PERIOD_MS = 100
@@ -281,6 +295,23 @@ def parse_result(data):
         return None
     seq, cmd_seq, cmd_type, code, state = struct.unpack("<HHBBB", data[2:9])
     return {"seq": seq, "cmd_seq": cmd_seq, "cmd_type": cmd_type, "code": code, "state": state}
+
+
+def battery_low_consistent(frame):
+    """batteryLow only with a published voltage, and on the right side of the #309 thresholds."""
+    low = bool(frame["flags"] & FLAG_BATTERY_LOW)
+    mv = frame["battery"]
+    if mv == UNKNOWN_BATTERY:
+        return not low
+    if mv <= BATTERY_LOW_ENTER_MV:
+        return low
+    if mv >= BATTERY_LOW_EXIT_MV:
+        return not low
+    return True  # Hysteresis band: either is valid.
+
+
+def battery_plausible(millivolts):
+    return millivolts != UNKNOWN_BATTERY and BATTERY_PLAUSIBLE_MV[0] <= millivolts <= BATTERY_PLAUSIBLE_MV[1]
 
 
 def parse_telemetry(data):
@@ -611,6 +642,12 @@ def stress_notifications(args, log, watch, checks, central, results, telemetry, 
     log.write("host", f"robot report telemetry={report} safety={safety} resources={resources}")
     checks.check("C14 robot TELEMETRY line reports unknown battery and velocity", report is not None
                  and report.get("battery_mv") == "unknown" and report.get("velocity") == "unknown", str(report))
+    # #309: across every frame of this session, not only T1, the battery stays unknown and
+    # batteryLow is never set (the flag needs a published voltage).
+    session_frames = [f for f in (parse_telemetry(d) for d in telemetry) if f]
+    bad = [f for f in session_frames if f["battery"] != UNKNOWN_BATTERY or f["flags"] & FLAG_BATTERY_LOW]
+    checks.check("C14 every telemetry frame reports unknown battery without batteryLow",
+                 session_frames and not bad, f"n={len(session_frames)} first_bad={bad[0] if bad else None}")
     # Every 5 s report window of this session, not only the last: B10 is a bound under each load.
     windows = [int(v["periodic_dev_max_us"]) for v in watch.all_since("TELEMETRY", session_start)
                if v.get("periodic_dev_max_us", "none") != "none"]
@@ -625,17 +662,77 @@ def stress_notifications(args, log, watch, checks, central, results, telemetry, 
             task.get("stack_free_pct", 0)) >= MIN_STACK_FREE_PCT, str(task))
 
 
+def run_battery_present(args, log, checks):
+    """BLE-only #309 pass on the battery-bench image, LiPo only, USB unplugged. Sends no command."""
+    central = Central(f"MR-{args.robot_id}")
+    found = central.discover()
+    if not checks.check("P1 discovery by service UUID and MR-<id> name", found is not None):
+        return
+    central.connect()
+    try:
+        info = central.read(INFO)
+        ok = len(info) == 18
+        fields = struct.unpack("<BBBI3BHHHH", info) if ok else ()
+        checks.check("P1 Robot Info robotId and telemetry period", ok and fields[3] == args.robot_id
+                     and fields[10] == TELEMETRY_PERIOD_MS, info.hex())
+        results, telemetry = [], TimedSink()
+        central.subscribe(RESULT, results)
+        central.subscribe(TELEMETRY, telemetry)
+        time.sleep(args.duration_s)
+        frames = [parse_telemetry(d) for d in telemetry]
+        valid = [f for f in frames if f]
+        expected = args.duration_s * 1000 / TELEMETRY_PERIOD_MS
+        log.write("host", f"battery frames={len(valid)} mv={sorted({f['battery'] for f in valid})}")
+        checks.check("P2 telemetry frames received for the whole window", len(valid) == len(frames)
+                     and len(valid) >= 0.9 * expected, f"n={len(valid)} expected~{expected:.0f}")
+        implausible = [f for f in valid if not battery_plausible(f["battery"])]
+        checks.check("P3 every frame publishes a plausible battery voltage", valid and not implausible,
+                     f"range={BATTERY_PLAUSIBLE_MV} first_bad={implausible[0] if implausible else None}")
+        inconsistent = [f for f in valid if not battery_low_consistent(f)]
+        checks.check("P4 batteryLow matches the published voltage and thresholds", valid and not inconsistent,
+                     f"first_bad={inconsistent[0] if inconsistent else None}")
+        checks.check("P5 measured velocity stays the unknown sentinel", valid and all(
+            f["linear"] == UNKNOWN_VELOCITY and f["angular"] == UNKNOWN_VELOCITY for f in valid))
+        deltas = periodic_deltas(frames)
+        checks.check("P6 periodic telemetry within B10 on the robot clock with the battery read",
+                     len(deltas) >= 0.8 * expected and all(abs(d - TELEMETRY_PERIOD_MS) <= PERIOD_DEVIATION_MS
+                                                           for d in deltas),
+                     f"n={len(deltas)} deltas={sorted(set(deltas))}")
+        host_gaps = [b - a for a, b in zip(telemetry.times, telemetry.times[1:])]
+        checks.check("P7 host never sees a telemetry silence of 3 periods", host_gaps and max(host_gaps)
+                     < SILENCE_PERIODS * TELEMETRY_PERIOD_MS / 1000.0,
+                     f"max_gap_s={max(host_gaps) if host_gaps else None}")
+        checks.check("P8 no command result without a command", not results, str(len(results)))
+    finally:
+        central.disconnect()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--port", required=True)
+    parser.add_argument("--battery-present", action="store_true",
+                        help="BLE-only #309 battery pass (battery-bench image, LiPo only, USB unplugged)")
+    parser.add_argument("--duration-s", type=float, default=30.0, help="--battery-present: seconds of telemetry")
+    parser.add_argument("--port", help="robot USB serial port (full run only)")
     parser.add_argument("--robot-id", type=int, required=True)
-    parser.add_argument("--max-validity-ms", type=int, required=True, help="provisioned maxCommandValidityMs")
+    parser.add_argument("--max-validity-ms", type=int, help="provisioned maxCommandValidityMs (full run only)")
     parser.add_argument("--cycles", type=int, default=20)
     parser.add_argument("--burst", type=int, default=50)
     parser.add_argument("--flood", type=int, default=500, help="write-without-response Stops in the C12 flood")
     parser.add_argument("--serial-pause-s", type=float, default=30.0, help="C13: seconds without reading serial")
     parser.add_argument("--log", default="gatt-conformance.log")
     args = parser.parse_args()
+    if args.battery_present:
+        if args.port:
+            parser.error("--battery-present is BLE-only: unplug USB (it powers the battery node) and omit --port")
+        if args.duration_s < 5:
+            parser.error("--duration-s must be at least 5")
+        log = Log(args.log)
+        checks = Checks(log)
+        run_battery_present(args, log, checks)
+        log.write("host", f"SUMMARY passed={checks.passed} failed={len(checks.failed)} {' | '.join(checks.failed)}")
+        return 1 if checks.failed else 0
+    if args.port is None or args.max_validity_ms is None:
+        parser.error("the full run needs --port and --max-validity-ms")
     if args.max_validity_ms >= VECTOR_VELOCITY_258_VALID_FOR_MS:
         parser.error(f"--max-validity-ms must be below {VECTOR_VELOCITY_258_VALID_FOR_MS}: with a higher "
                      "ceiling the robot would accept the nonzero shared vector velocity_seq258")

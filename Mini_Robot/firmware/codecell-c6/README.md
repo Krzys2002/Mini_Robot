@@ -19,7 +19,8 @@ unauthenticated and unencrypted. The policy from #274 is included; desktop compa
 #287 remains an integration dependency.
 It publishes v1 [telemetry](../../docs/overview/firmware-telemetry.md) (#164) periodically and on
 state change, on the counter it shares with CommandResults, with battery and measured velocity
-reported as unknown, and prints bounded diagnostics (task jitter, stack, heap, drops) on USB
+reported as unknown. The separate `battery-bench` image (`pio run -e battery-bench`) publishes
+the CodeCell GPIO4 battery reading under provisional bench evidence (#309, not meter-verified). It prints bounded diagnostics (task jitter, stack, heap, drops) on USB
 serial. Robot Info reports firmware 0.1.0. The drive is the [bounded actuator contract](../../docs/overview/firmware-drive.md)
 (#160). It wakes the H-bridges only with a valid provisioned profile, and it is not
 proof of safe electrical boot behaviour or of any physical motor limit (#238).
@@ -47,13 +48,13 @@ FreeRTOS, so no ESP-IDF migration is needed to obtain an RTOS.
 | `include/provisioning/` | Portable identity/configuration record, A/B atomic store, runtime configuration source and USB maintenance console (#159) |
 | `include/protocol/` | Portable [v1 codec and command validation](../../docs/overview/firmware-protocol.md) (#161): wire constants, command decoder, Telemetry/CommandResult/Robot Info encoders, sequence rules and the per-session command handler |
 | `include/ble/` | Portable [BLE peripheral](../../docs/overview/firmware-ble.md) (#163): GATT profile and advertising bytes, restricted-lab readiness policy, session lifecycle controller, telemetry publication (#164) |
-| `include/telemetry/` | Portable [telemetry](../../docs/overview/firmware-telemetry.md) (#164): schedule, battery policy, measurement availability, publication counters |
+| `include/telemetry/` | Portable [telemetry](../../docs/overview/firmware-telemetry.md) (#164): schedule, battery policy, measurement availability, publication counters; CodeCell battery conversion and provisional evidence (#309) |
 | `include/diagnostics/` | Portable bounded log ring, byte budget and drain, and the diagnostic report lines (#164) |
 | `include/drive/` | Portable [bounded drive](../../docs/overview/firmware-drive.md) (#160): drive profile, kinematics and actuator map, rate limiter, motor HAL port and `BoundedDriveOutput` |
 | `include/TimingBudget.hpp` | Named [timing, resource and stopping budgets](../../docs/protocol/timing-budgets.md) (#156, proposed) with compile-time composition checks |
 | `include/LatencyHistogram.hpp` | Fixed-memory latency histogram used by instrumentation |
 | `pilot/`, `scripts/timing_pilot_host.py` | [#156 timing pilot](../../docs/testing/timing-pilot-156.md): bench measurement image and its Linux/BlueZ host driver; never a robot image |
-| `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp`, `src/CodeCellMotorDriver.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS/board adapters: clock, critical section, periodic tasks, task watchdog and its ISR hook, shutdown handler, reset reason, DRV8837 motor HAL (LEDC, bridge sleep), NVS record storage and bond erase |
+| `src/main.cpp`, `src/EspRuntimeAdapters.hpp`, `src/EspProvisioningAdapters.hpp`, `src/CodeCellMotorDriver.hpp`, `src/CodeCellBatterySensor.hpp` | Arduino entry point and the only ESP-IDF/FreeRTOS/board adapters: clock, critical section, periodic tasks, task watchdog and its ISR hook, shutdown handler, reset reason, DRV8837 motor HAL (LEDC, bridge sleep), battery ADC read on GPIO4 (#309), NVS record storage and bond erase |
 | `src/NimBlePeripheral.hpp` | NimBLE-Arduino adapter of the v1 GATT peripheral (#163); the only production code that names NimBLE besides `main.cpp` |
 | `scripts/gatt_conformance_host.py` | BlueZ conformance and notification/logging stress run of the production image on a USB-only board (#163, #164) |
 | `CMakeLists.txt`, `tests/` | Independent GoogleTest host entry point (no Arduino, Qt or OpenCV) |
@@ -242,6 +243,19 @@ name (`MR-PILOT-156`), so a v1 desktop cannot mistake it for a robot. Flash it
 only USB-powered with the battery and motors disconnected, then restore the image
 the board had. Use, results and limits: [timing pilot record](../../docs/testing/timing-pilot-156.md).
 Default builds, the CMake `firmware_codecell_c6` target and robots never use it.
+
+## Battery bench image (#309)
+
+`pio run -d Mini_Robot/firmware/codecell-c6 -e battery-bench` builds the production runtime
+with `CODECELL_PROVISIONAL_BATTERY=1`: it reads GPIO4 once per telemetry period and publishes
+the voltage under the provisional, not meter-verified, evidence of
+`include/telemetry/CodeCellBattery.hpp`. The default image never reads the battery ADC and
+reports the battery as unknown. On USB the battery node reads the USB rail, so the image
+reports `unknown` there too, and the full conformance run applies to it unchanged. The
+battery-present check is BLE-only, on the LiPo with USB unplugged:
+`scripts/gatt_conformance_host.py --battery-present --robot-id <id> --duration-s 30`.
+Details: [telemetry](../../docs/overview/firmware-telemetry.md#battery). Default builds and the
+CMake `firmware_codecell_c6` target never use it.
 
 ## Troubleshooting
 

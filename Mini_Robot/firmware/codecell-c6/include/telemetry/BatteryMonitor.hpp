@@ -6,9 +6,11 @@
 // compared against a reference meter on this board and pack, with its plausible range, low
 // threshold and sample age. Without evidence every reading stays diagnostic: telemetry
 // carries the v1 "unknown" sentinel (0xFFFF) and batteryLow is never set. That is the
-// production state today. The CodeCell API conversion and the pack's thresholds are
-// unverified (hardware record #154, physical check #238, NOT RUN), so the image wires no
-// battery sensor at all (src/main.cpp), in the same way as the IMU (#158).
+// default production image: it wires no sensor and no evidence. Only the separate
+// battery-bench image (CODECELL_PROVISIONAL_BATTERY, src/main.cpp) wires the CodeCell GPIO4
+// sensor with provisional bench evidence (#309, telemetry/CodeCellBattery.hpp):
+// operator-approved bring-up bounds, not yet compared with a reference meter (hardware record
+// #154, physical check #238).
 //
 // With evidence, a reading is published only while it is fresh (age <= maxSampleAge), inside
 // the plausible range and representable (not the sentinel). Otherwise the quality says why
@@ -31,8 +33,9 @@ namespace codecell::telemetry {
 
 using runtime::Instant;
 
-// Approved battery evidence. No instance exists in this repository yet: the values must come
-// from the reviewed hardware record (#238), never from vendor defaults.
+// Approved battery evidence. Verified values must come from the reviewed hardware record
+// (#238). The only instance, kProvisionalCodeCellBatteryEvidence, is a provisional bench
+// approval (#309) that partly uses vendor values and is not that verified evidence.
 struct BatteryEvidence {
     std::uint16_t minPlausibleMillivolts{0};
     std::uint16_t maxPlausibleMillivolts{0};
