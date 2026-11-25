@@ -1,6 +1,7 @@
 #include "HomographyFixtures.hpp"
 #include "calibration/WorkspaceProfile.hpp"
 #include <algorithm>
+#include <cmath>
 #include <gtest/gtest.h>
 #include <cmath>
 #include <limits>

@@ -205,12 +205,12 @@ the `status` output, together with the firmware provenance, for every robot you 
 
 ## Controller credentials
 
-The restricted-lab v1 profile proposed by #157 (PR #274, not yet merged) defines no controller
+The restricted-lab v1 profile ([security profile](../protocol/security-profile.md), #157) defines no controller
 keys, passkeys or passwords. The record therefore contains no credential, and `status` prints
 identity and limits only. Factory reset also erases NimBLE's bond store (NVS namespace
 `nimble_bond`, the same store `NimBLEDevice::deleteAllBonds()` clears). Bonds left by an earlier
 image, such as the BLE fixture, therefore do not survive. This image links no BLE stack, so
-it erases that namespace directly. Any future credential belongs to #165 and needs its own
+it erases that namespace directly. Any future credential belongs to a separate secure-profile issue and needs its own
 reviewed storage (NVS encryption). It must never be added to this record or printed.
 
 ## Robot identity management and the desktop

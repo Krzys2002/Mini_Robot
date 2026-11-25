@@ -2,9 +2,10 @@
 
 Status: threat model and controller policy for
 [issue #157](https://github.com/Krzys2002/Mini_Robot/issues/157). It is a
-documentation and policy decision. No firmware in this repository enforces it
-yet. [#165](https://github.com/Krzys2002/Mini_Robot/issues/165) owns enforcement,
-[#163](https://github.com/Krzys2002/Mini_Robot/issues/163) owns the GATT
+documentation and policy decision. The C6 production firmware enforces it
+([#165](https://github.com/Krzys2002/Mini_Robot/issues/165); see
+[section 10.1](#101-enforcement-evidence-165) for what is tested and what remains
+hardware-in-the-loop). [#163](https://github.com/Krzys2002/Mini_Robot/issues/163) owns the GATT
 peripheral, [#158](https://github.com/Krzys2002/Mini_Robot/issues/158) owns
 removal of legacy control paths, and
 [#159](https://github.com/Krzys2002/Mini_Robot/issues/159) owns identity
@@ -550,6 +551,46 @@ Requirements for the eventual real implementation behind the F12 interfaces:
 - **Replay statement:** within one session, older sequences are rejected;
   across sessions, a recorded Velocity/ClearEmergencyStop is accepted as a new
   first frame and is bounded only by its validity window.
+
+### 10.1 Enforcement evidence (#165)
+
+The profile has one definition, `ble::kSecurityProfile` in
+[`SessionPolicy.hpp`](../../firmware/codecell-c6/include/ble/SessionPolicy.hpp).
+`platformio.ini` passes `-DCODECELL_SECURITY_PROFILE="restricted-lab-v1"` and the header
+`static_assert`s that value, so a build naming any other profile fails to compile; there
+is no fallback profile. The boot log, the `BLE` line and the `IDENTITY` line print
+`profile=restricted-lab-v1`, and no output calls the session authenticated.
+
+| Rule / test | Evidence | Status |
+| --- | --- | --- |
+| F1 single central | `BlePeripheralTest.SecondCentral…`, `ProvisioningRuntimeTest`, `RestrictedLabEnforcementTest.ForeignCentralStorm…` | host |
+| F2 session state not reused | `BlePeripheralTest.DisconnectStopsKeepsNothing…`, `RestrictedLabEnforcementTest.RecordedVelocity…` | host |
+| F3 disconnect and readiness loss stop | `BlePeripheralTest.DisconnectStopsKeepsNothing…`, `BlePeripheralTest.NotificationDisableEndsTheSession…`, `RestrictedLabEnforcementTest.DisconnectDuringMotion…`, `SafetySessionTest` | host; HIL NOT RUN |
+| F4 prompt and permissive E-stop | `BlePeripheralTest.EmergencyStopFromANonOwner…`, `BlePeripheralTest.EmergencyStopLatchesAnyPayload…`, `ProtocolSessionTest.EmergencyStopCharacteristicLatches…`, `BleSessionSecurityTest.EmergencyStopBypasses…` | host |
+| F5 bounded input | `RestrictedLabEnforcementTest.MalformedAndOversizedFlood…`, `ProtocolFuzzTest` | host; HIL NOT RUN |
+| F6 pairing grants nothing | `check_firmware_credentials.py` flags pairing, bonding and passkey calls; `NimBlePeripheral.hpp` sets `setSecurityAuth(false, false, false)` and NoInputNoOutput explicitly | host (scripted); radio pairing and bond count NOT RUN |
+| F7 no credentials | `.github/scripts/check_firmware_credentials.py` (CI), `MaintenanceConsoleTest.StatusReportsIdentity…`, `StatusReportTest` | host (scripted) |
+| F8 USB serial is maintenance only | `MaintenanceConsoleTest.NoConsoleCommandCanRequestMotion`, `MaintenanceConsoleTest.MutatingCommandsRequireMaintenance` | host |
+| F9 no legacy bypass | linked-image symbol gate `scripts/production_image_policy.py` (#158) fails the `esp32-c6-devkitc-1` link on Wi-Fi, AP, HTTP, DNS or OTA symbols; rule unit-tested by `test_firmware_image_policy.py` | build (linked image); AT-13 map review NOT RUN |
+| F10 identifiable profile | compile-time guard, `RestrictedLabProfileTest`, `DiagnosticsReportTest` | host/build |
+| F11 safe storage failure | `ConfigStoreTest` (corruption, interruption, factory reset) | host |
+| F12 extension points | `BleSessionSecurityTest` | host |
+| AT-02 | `BlePeripheralTest.BeforeReadinessVelocity…` | host |
+| AT-03 | `BlePeripheralTest.SecondCentral…` | host; second real central NOT RUN |
+| AT-04 | `RestrictedLabEnforcementTest.RecordedVelocity…`, `…RecordedClear…` | host; HIL NOT RUN |
+| AT-05 | `ProtocolSessionTest`, `RestrictedLabEnforcementTest.RecordedVelocity…` | host |
+| AT-06a/b | `RestrictedLabEnforcementTest.DisconnectDuringMotion…`, `…LatchedDisconnect…` | host; HIL NOT RUN |
+| AT-07 | `RestrictedLabEnforcementTest.MalformedAndOversizedFlood…`, `TimingBudgetTest`, `ProtocolFuzzTest` | host; HIL NOT RUN |
+| AT-08 | `RestrictedLabEnforcementTest.ConnectionStorms…` and `…ForeignCentralStorm…` (callbacks only) | host; radio pairing, bond count NOT RUN |
+| AT-09, AT-10 | desktop behavior, analysis only | NOT RUN |
+| AT-11 | `check_firmware_credentials.py`; captured serial logs and advertising data | scan: host; captured logs NOT RUN |
+| AT-12 | `MaintenanceConsoleTest` | host; HIL NOT RUN |
+| AT-13, AT-14 | needs the PlatformIO image and map | NOT RUN |
+| AT-15 | `ConfigStoreTest` | host; HIL NOT RUN |
+| AT-16 | `BlePeripheralTest.NotificationDisable…`, `RestrictedLabEnforcementTest.NotificationLoss…` | host |
+
+Host tests exercise the controller through callbacks. They do not prove behaviour of the
+NimBLE stack, the radio, flash power loss or physical motor stopping.
 
 Pairing/encryption, bonding and controller keys are explicitly **not** in #165's
 scope while this profile is selected. The F12 pass-through stays in place until a
