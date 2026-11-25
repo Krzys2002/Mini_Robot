@@ -5,10 +5,12 @@
 // A voltage is published only with approved evidence (BatteryEvidence), meaning a conversion
 // compared against a reference meter on this board and pack, with its plausible range, low
 // threshold and sample age. Without evidence every reading stays diagnostic: telemetry
-// carries the v1 "unknown" sentinel (0xFFFF) and batteryLow is never set. The production
-// image wires the CodeCell GPIO4 sensor with provisional bench evidence (#309,
-// telemetry/CodeCellBattery.hpp): operator-approved bring-up bounds, not yet compared with a
-// reference meter (hardware record #154, physical check #238).
+// carries the v1 "unknown" sentinel (0xFFFF) and batteryLow is never set. That is the
+// default production image: it wires no sensor and no evidence. Only the separate
+// battery-bench image (CODECELL_PROVISIONAL_BATTERY, src/main.cpp) wires the CodeCell GPIO4
+// sensor with provisional bench evidence (#309, telemetry/CodeCellBattery.hpp):
+// operator-approved bring-up bounds, not yet compared with a reference meter (hardware record
+// #154, physical check #238).
 //
 // With evidence, a reading is published only while it is fresh (age <= maxSampleAge), inside
 // the plausible range and representable (not the sentinel). Otherwise the quality says why

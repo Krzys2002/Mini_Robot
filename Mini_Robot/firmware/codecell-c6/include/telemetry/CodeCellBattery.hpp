@@ -8,7 +8,9 @@
 // and reports `adc_mV * 2 + 65`. The vendor schematic shows the BAT net at the module's IO4.
 //
 // Evidence (provisional): the operator approved publishing the battery reading on the bench
-// on 2026-11-20 before a reference-meter comparison exists. These values are therefore bench
+// on 2026-11-20 before a reference-meter comparison exists. Only the `battery-bench`
+// PlatformIO image (CODECELL_PROVISIONAL_BATTERY) uses it; the default image reports unknown
+// and never reads the ADC (src/main.cpp). These values are therefore bench
 // bring-up bounds, NOT the multimeter-verified evidence that BatteryMonitor.hpp describes;
 // the paired API-versus-meter samples of the hardware record (#154/#238) are still open.
 // - Low thresholds: CodeCell 2.0.4 `MIN_BATTERY_VOLTAGE` (3350 mV) to enter, with 100 mV
@@ -21,6 +23,7 @@
 #include "TimingBudget.hpp"
 #include "telemetry/BatteryMonitor.hpp"
 #include <cstdint>
+#include <optional>
 
 namespace codecell::telemetry {
 
@@ -51,6 +54,16 @@ static_assert(isUsable(kProvisionalCodeCellBatteryEvidence));
         (kUnrepresentableMillivolts - kCodeCellBatteryOffsetMillivolts) / kCodeCellBatteryDividerRatio;
     if (adcMillivolts > kMaxAdcMillivolts) return kUnrepresentableMillivolts;
     return static_cast<std::uint16_t>(adcMillivolts * kCodeCellBatteryDividerRatio + kCodeCellBatteryOffsetMillivolts);
+}
+
+// One reading from the value analogReadMilliVolts() returned. Arduino-ESP32 3.3.7 returns 0
+// when ADC initialization, calibration or the conversion fails, so 0 is a failed read
+// (nullopt, counted by BatteryMonitor::readFailures), never the 65 mV the formula would give.
+// A genuine 0 mV pin reading cannot be told apart from a failure and is reported the same way.
+[[nodiscard]] constexpr std::optional<std::uint16_t> codeCellBatteryReading(std::uint32_t adcMillivolts) noexcept
+{
+    if (adcMillivolts == 0) return std::nullopt;
+    return codeCellBatteryMillivolts(adcMillivolts);
 }
 
 } // namespace codecell::telemetry

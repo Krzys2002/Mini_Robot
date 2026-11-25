@@ -16,7 +16,7 @@ namespace {
 class FakeAdcSensor final : public IBatterySensor {
 public:
     std::uint32_t adcMillivolts{0};
-    std::optional<std::uint16_t> readMillivolts() noexcept override { return codeCellBatteryMillivolts(adcMillivolts); }
+    std::optional<std::uint16_t> readMillivolts() noexcept override { return codeCellBatteryReading(adcMillivolts); }
 };
 } // namespace
 
@@ -35,6 +35,33 @@ TEST(CodeCellBatteryTest, ConversionNeverWrapsAndOverflowIsUnrepresentable)
     EXPECT_LT(codeCellBatteryMillivolts(kLargestRepresentable), kUnrepresentableMillivolts);
     EXPECT_EQ(codeCellBatteryMillivolts(kLargestRepresentable + 1), kUnrepresentableMillivolts);
     EXPECT_EQ(codeCellBatteryMillivolts(0xFFFFFFFFU), kUnrepresentableMillivolts);
+}
+
+TEST(CodeCellBatteryTest, ArduinoZeroIsAFailedReadNotAVoltage)
+{
+    // analogReadMilliVolts() returns 0 on ADC init, calibration or conversion failure.
+    EXPECT_EQ(codeCellBatteryReading(0), std::nullopt);
+    EXPECT_EQ(codeCellBatteryReading(1), std::optional<std::uint16_t>{67});
+    EXPECT_EQ(codeCellBatteryReading(1918), std::optional<std::uint16_t>{3901});
+    EXPECT_EQ(codeCellBatteryReading(0xFFFFFFFFU), std::optional<std::uint16_t>{kUnrepresentableMillivolts});
+}
+
+TEST(CodeCellBatteryTest, ProductionConfigurationCountsAnAdcFailureAsReadFailed)
+{
+    FakeAdcSensor sensor;
+    BatteryMonitor monitor{kProvisionalCodeCellBatteryEvidence, &sensor};
+    sensor.adcMillivolts = 1918;
+    monitor.sample(1s);
+    ASSERT_EQ(monitor.assess(1s).quality, BatteryQuality::Valid);
+    sensor.adcMillivolts = 0;
+    monitor.sample(1100ms);
+    const auto a = monitor.assess(1100ms);
+    EXPECT_EQ(a.quality, BatteryQuality::ReadFailed);
+    EXPECT_FALSE(a.telemetryMillivolts);
+    EXPECT_FALSE(a.low);
+    EXPECT_EQ(monitor.readFailures(), 1U);
+    EXPECT_EQ(monitor.samples(), 2U);
+    EXPECT_EQ(monitor.lastRawMillivolts(), std::optional<std::uint16_t>{3901});  // The last successful read.
 }
 
 TEST(CodeCellBatteryTest, ProvisionalEvidenceIsUsableAndKeepsItsDocumentedBounds)
@@ -80,11 +107,12 @@ TEST(CodeCellBatteryTest, ProductionConfigurationWithholdsImplausibleAndStaleRea
 {
     FakeAdcSensor sensor;
     BatteryMonitor monitor{kProvisionalCodeCellBatteryEvidence, &sensor};
-    sensor.adcMillivolts = 0;  // 65 mV: nothing on the divider.
+    sensor.adcMillivolts = 1;  // 67 mV: nothing on the divider.
     monitor.sample(1s);
     EXPECT_EQ(monitor.assess(1s).quality, BatteryQuality::Implausible);
     EXPECT_FALSE(monitor.assess(1s).telemetryMillivolts);
-    EXPECT_EQ(monitor.lastRawMillivolts(), std::optional<std::uint16_t>{65});  // Still diagnostic.
+    EXPECT_EQ(monitor.lastRawMillivolts(), std::optional<std::uint16_t>{67});  // Still diagnostic.
+    EXPECT_EQ(monitor.readFailures(), 0U);
     sensor.adcMillivolts = 2400;  // 4865 mV: above the plausible range.
     monitor.sample(2s);
     EXPECT_EQ(monitor.assess(2s).quality, BatteryQuality::Implausible);

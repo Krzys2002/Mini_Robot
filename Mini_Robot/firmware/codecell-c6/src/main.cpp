@@ -14,9 +14,11 @@
 // esp_restart() runs the runtime's shutdown first. Every boot starts Idle with outputs off
 // and nothing restored; the boot and status lines report the reset reason.
 // Telemetry (#164): a priority-5 telemetry task ticks every 1 ms and the BLE host decides
-// and queues Telemetry frames on the shared robot counter. Battery voltage is read on GPIO4
-// with the CodeCell conversion and published under provisional bench evidence (#309), not a
-// reference-meter check; measured velocity is unknown because no velocity sensor exists.
+// and queues Telemetry frames on the shared robot counter. Battery voltage is unknown in the
+// default image, which never reads the battery ADC. Only the `battery-bench` image
+// (CODECELL_PROVISIONAL_BATTERY) reads GPIO4 with the CodeCell conversion and publishes it
+// under provisional bench evidence (#309), not a reference-meter check. Measured velocity is
+// unknown because no velocity sensor exists.
 // USB serial carries status output and the maintenance console only, never motion. Every line
 // goes through a bounded ring drained without blocking at <= 2048 B/s (#156 B12/B13).
 #include <Arduino.h>
@@ -38,7 +40,9 @@
 #include <string_view>
 #include "EspProvisioningAdapters.hpp"
 #include "CodeCellMotorDriver.hpp"
+#if CODECELL_PROVISIONAL_BATTERY
 #include "CodeCellBatterySensor.hpp"
+#endif
 #include "EspRuntimeAdapters.hpp"
 #include "NimBlePeripheral.hpp"
 #include "ble/PeripheralController.hpp"
@@ -86,15 +90,18 @@ bool motorsAttached{false};
 esp::NvsRecordStorage recordStorage;
 provisioning::ConfigStore configStore{recordStorage};
 provisioning::ProvisionedConfiguration configuration{configStore};
-// The telemetry task's step (priority 5, every 1 ms): sample the battery port once per
-// telemetry period (one GPIO4 ADC conversion), then ask the host to evaluate
-// the schedule. It never touches the session or the drive. Defined below, once the BLE
+// The telemetry task's step (priority 5, every 1 ms): ask the host to evaluate the schedule,
+// then, in the battery-bench image only, sample the battery port once per telemetry period
+// (one GPIO4 ADC conversion) after the wake, so the conversion never delays it. It never
+// touches the session or the drive. Defined below, once the BLE
 // peripheral exists; until the peripheral is running a tick does nothing.
 class TelemetryTick final : public runtime::IPeriodicStep {
 public:
     void step() noexcept override;
 
 private:
+    [[nodiscard]] bool hostWakeDue(runtime::Instant now) noexcept;
+
     std::optional<runtime::Instant> lastSample_{};
     std::uint32_t checks_{0};
 };
@@ -176,12 +183,22 @@ void flushLogBlocking()
 }
 
 // ---- Telemetry inputs (#164) ----
-// The battery is read through the CodeCell conversion and published under the provisional
-// bench evidence of #309 (telemetry/CodeCellBattery.hpp). The conversion has not been compared
-// with a reference meter (#154/#238), so a published value is a bring-up reading. batteryLow
-// is informational: there is no low-battery protection in this image.
+#if CODECELL_PROVISIONAL_BATTERY
+// battery-bench image only (#309 review): the battery is read through the CodeCell conversion
+// and published under the provisional bench evidence (telemetry/CodeCellBattery.hpp). The
+// conversion has not been compared with a reference meter (#154/#238), so a published value is
+// a bring-up reading. batteryLow is informational: there is no low-battery protection.
 esp::CodeCellBatterySensor batterySensor;
 telemetry::BatteryMonitor battery{telemetry::kProvisionalCodeCellBatteryEvidence, &batterySensor};
+bool batteryWarmUpRead{false};
+constexpr const char* kBatteryBootFields = "battery=provisional battery_low=informational";
+#else
+// Default image: no battery sensor is wired and no evidence is approved; the CodeCell
+// conversion and the pack's thresholds are unverified (#154, #238). Telemetry sends 0xFFFF,
+// never sets batteryLow, and the telemetry task never touches the ADC.
+telemetry::BatteryMonitor battery{std::nullopt, nullptr};
+constexpr const char* kBatteryBootFields = "battery=unknown battery_low=unsupported";
+#endif
 telemetry::RobotTelemetryInputs telemetryInputs{battery};
 
 // v1 BLE peripheral (#163). The controller is constructed in setup() only with a validated
@@ -230,25 +247,29 @@ BleStart startBle()
     return BleStart::Started;
 }
 
+// Every millisecond: wake the host when a frame could be due (the controller decides
+// exactly), and every 5 ms regardless. Ticks are dropped until the peripheral is running.
+bool TelemetryTick::hostWakeDue(runtime::Instant now) noexcept
+{
+    constexpr std::uint32_t kChecksPerRoutinePost =
+        static_cast<std::uint32_t>(timing::kTelemetryRoutinePostPeriod / timing::kTelemetryTickPeriod);
+    if (checks_++ % kChecksPerRoutinePost == 0) return true;
+    const auto* controller = bleControllerRunning.load(std::memory_order_acquire);
+    if (!controller) return false;
+    const auto status = firmwareRuntime.status();
+    return controller->telemetryMayBeDue(now, status.state, status.commandExpired);
+}
+
 void TelemetryTick::step() noexcept
 {
     const auto now = firmwareClock.nowMicroseconds();
+    if (hostWakeDue(now)) blePeripheral.requestTelemetryTick();
+    // After the wake: a frame built now uses the previous sample, at most one telemetry period
+    // old against the evidence's five-period limit. No-op in the default image (no sensor).
     if (battery.hasSensor() && (!lastSample_ || now - *lastSample_ >= runtime::Instant{timing::kTelemetryPeriod})) {
         battery.sample(now);
         lastSample_ = now;
     }
-    // Every millisecond: wake the host when a frame could be due (the controller decides
-    // exactly), and every 5 ms regardless. Ticks are dropped until the peripheral is running.
-    constexpr std::uint32_t kChecksPerRoutinePost =
-        static_cast<std::uint32_t>(timing::kTelemetryRoutinePostPeriod / timing::kTelemetryTickPeriod);
-    const bool routine = checks_++ % kChecksPerRoutinePost == 0;
-    if (!routine) {
-        const auto* controller = bleControllerRunning.load(std::memory_order_acquire);
-        if (!controller) return;
-        const auto status = firmwareRuntime.status();
-        if (!controller->telemetryMayBeDue(now, status.state, status.commandExpired)) return;
-    }
-    blePeripheral.requestTelemetryTick();
 }
 
 class SerialMaintenanceOutput final : public provisioning::IMaintenanceOutput {
@@ -462,6 +483,11 @@ void setup()
     // bridges only with a valid profile. A failed attach makes the boot disable fail, so the
     // runtime faults. Serial comes after.
     motorsAttached = motors.begin();
+#if CODECELL_PROVISIONAL_BATTERY
+    // Before the runtime starts the telemetry task: the first conversion's lazy ADC setup and
+    // calibration runs here, not on a periodic tick.
+    batteryWarmUpRead = batterySensor.warmUp();
+#endif
     startResult = firmwareRuntime.start();
     bleStart = startBle();
     readBuildId();
@@ -481,10 +507,14 @@ void setup()
          bleStart == BleStart::Started ? name.data() : "none");
     logf("SECURITY mode=%s policy=%s authenticated=no encrypted=no %s", ble::toString(ble::kSecurityMode),
          bleSecurity.profile(), ble::kRestrictedLabSecurityWarning);
-    logf("TELEMETRY start=%s tick_ms=%ld period_ms=%u battery=provisional battery_low=informational velocity=unknown",
+    logf("TELEMETRY start=%s tick_ms=%ld period_ms=%u %s velocity=unknown",
          firmwareRuntime.telemetryTaskStarted() ? "started" : "failed",
          static_cast<long>(timing::kTelemetryTickPeriod.count()),
-         identity ? static_cast<unsigned>(identity->telemetryPeriodMilliseconds) : 0U);
+         identity ? static_cast<unsigned>(identity->telemetryPeriodMilliseconds) : 0U, kBatteryBootFields);
+#if CODECELL_PROVISIONAL_BATTERY
+    logf("BATTERY image=battery-bench adc_pin=%u warm_up=%s", esp::CodeCellBatterySensor::kBatteryAdcPin,
+         batteryWarmUpRead ? "read" : "failed");
+#endif
     if (!motorsAttached) logLine("DRIVE attach=failed");
     const auto& boot = configuration.bootState();
     logf("PROVISIONING state=%s reason=%s generation=%lu pending=%s", provisioning::toString(boot.state),
