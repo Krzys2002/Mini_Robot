@@ -112,15 +112,28 @@ identity mismatch, incompatible Robot Info, denied permission, disabled/unavaila
 adapter, backend errors and timeouts end the attempt with a domain error and
 `Fault`. Unknown Robot Info format/version/length reports `UnsupportedVersion`.
 An unexpected link loss while connecting/connected ends in `Disconnected` and
-publishes an `Unavailable` disconnect error, preserving explicit operator-driven
-reconnect policy (#71). After setup, the Qt backend classifies each controller
-error (`QtBleErrorPolicy.hpp`): only `RemoteHostClosedError` and
-`ConnectionError`, through which the native stack can report a vanished peer
-before `disconnected`, and Robot Control service invalidation count as link loss.
-Adapter, authorization and permission errors still fault as `Unavailable`; other
-controller errors fault as `BackendFailure`; an RSSI read error is ignored. Every
-controller error during setup faults. Link-loss and fault messages keep the Qt
-error name and native text. Loss drops queued work and resets both sequence
+publishes a `LinkLost` disconnect error (`isRecoverableLinkLoss`), preserving
+explicit operator-driven reconnect policy (#71). Any other disconnect error,
+including an adapter failure during an explicit disconnect, accompanies `Fault`.
+After setup, the Qt backend classifies each controller error
+(`QtBleErrorPolicy.hpp`): only `RemoteHostClosedError` and `ConnectionError`,
+through which the native stack can report a vanished peer before `disconnected`,
+count as link loss. Adapter, authorization and permission errors still fault as
+`Unavailable`; other controller errors fault as `BackendFailure`; an RSSI read
+error is ignored. Every controller error during setup faults. Robot Control
+service invalidation blocks writes at once but does not decide the cause:
+BlueZ invalidates services before it emits the controller error, so removing
+the adapter would otherwise pass as peer loss. `QtBleLinkTeardown` lets a
+following controller error decide; without one, the invalidation is reported as
+link loss on `disconnected` or a queued settle step. Each link reports exactly
+one terminal event. Qt's BlueZ backend (6.10 and 6.12) does not always name a lost
+adapter: when the adapter is unbound or powered off, BlueZ marks the device
+disconnected first and Qt closes the link with no error. Before an unrequested
+link loss is reported, the backend therefore checks, after the native teardown
+call returns, that the local adapter which carried the link is still present and
+powered (`confirmQtBleLinkLoss`). If it is not, the loss faults as `Unavailable`
+with "Local Bluetooth adapter unavailable" and the native diagnostic. Link-loss and fault messages keep the Qt error name and
+native text. Loss drops queued work and resets both sequence
 counters. Reconnect scans again, revalidates Robot Info identity and rewrites both
 CCCDs. Old-session frames are discarded. Fault still releases native resources, clears the token and
 allows an explicit new connection attempt; no automatic reconnect occurs.

@@ -5,7 +5,8 @@ and resumed telemetry.** The robot was idle throughout: no drive input was held 
 queued, so this run does not exercise stale motion. Desktop process memory was not
 measured. The #312 checklist (20 cycles, out-of-range loss) is not complete. Desktop
 leak, out-of-range loss and motion-stop acceptance stay open; motion, watchdog and stop
-behaviour remain #189/#228.
+behaviour remain #189/#228. A local adapter loss check (2026-11-25, below) shows that
+removing or powering off the desktop adapter faults instead of passing as link loss.
 
 ## Configuration
 
@@ -92,3 +93,37 @@ Times are UTC from the desktop log.
   - a second central;
   - E-stop reassertion through reconnect (#189);
   - motion or disconnect stop (#228).
+
+## Local adapter loss check, 2026-11-25 (review of PR #313)
+
+Purpose: confirm that losing the desktop's own Bluetooth adapter faults instead of
+passing as recoverable link loss. Robot idle throughout; no drive input.
+
+| Item | Value |
+| --- | --- |
+| Desktop | `feat/71-ble-reconnect-recovery` at `4a5ec36` plus the uncommitted review fixes (link teardown arbitration, `LinkLost` code, local adapter check), `build/linux-gcc` with BLE, launched with `--ble` and `QT_LOGGING_RULES="qt.bluetooth.bluez=true"` |
+| Host | Ubuntu, Qt 6.10.2 (system packages), BlueZ 5.85, adapter `hci0` on `btusb` |
+| Robot | MR-7, `robot_id` 7. Firmware image not re-recorded for this run |
+
+**First attempt, before the adapter check (11:37).** `btusb` unbind while connected
+was reported as `Disconnected` with "BLE link disconnected unexpectedly (Robot Control
+service became invalid)" and "Connection lost unexpectedly": the adapter loss passed
+as link loss. Qt 6.10.2's BlueZ backend handles the device's `Connected=false` first
+and closes with `NoError`; it then stops watching the adapter, so
+`InvalidBluetoothAdapterError` never arrives (same code in 6.12.0). This led to the
+local adapter check (`confirmQtBleLinkLoss`).
+
+| Check | Induced by | Result |
+| --- | --- | --- |
+| A. Adapter removed | `btusb` unbind of `hci0` while connected | PASS: 11:57:56 `Fault`, "Local Bluetooth adapter unavailable (removed); native: Robot Control service became invalid" |
+| C. Adapter powered off | `bluetoothctl power off` while connected | PASS: Qt logged `ServicesResolved=false`, `Connected=false`; 11:59:33 `Fault`, "Local Bluetooth adapter unavailable (powered off); native: Robot Control service became invalid" |
+| Recovery after A and C | Rebind/power on, explicit Connect | PASS: `Ready`/`Connected` at 11:59:16 and 11:59:59 |
+| B. Robot reset with working adapter | Robot reset while connected, 5 cycles | PASS (operator, 5/5): each loss ended in "Connection lost unexpectedly", never `Fault`; explicit Connect restored telemetry. Log lines not reproduced here |
+
+Observation: the first Connect after rebinding the adapter (11:58:22) timed out in
+`Connecting` after the 10 s phase timeout. Qt saw `Connected=true` but no
+`ServicesResolved`. It faulted as "BLE timeout during Connecting", and the next
+Connect succeeded. This was not investigated further.
+
+Fault during an explicit disconnect (finding 2) was not induced on the bench; it is
+covered by automated tests only.

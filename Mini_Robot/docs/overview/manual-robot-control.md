@@ -38,6 +38,8 @@ repeated Connect on an already connected session cannot clear that inhibition.
 An unexpected link loss (#71) shows "Connection lost unexpectedly", cancels held
 motion and leaves Connect available. The ended session already inhibits motion,
 so a new connection does not need a fault cleared and never resumes the old drive.
+Only a `LinkLost` disconnect error counts as link loss; a fault reported while
+disconnecting keeps the fault status and the manual fault latch.
 
 ## Bounds, timing and limitations
 
