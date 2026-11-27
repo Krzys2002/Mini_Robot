@@ -126,21 +126,11 @@ BleTransport::BleTransport(std::unique_ptr<IBleBackend> backend, std::shared_ptr
         if (const auto id = findToken(token)) fault(*id, TransportErrorCode::BackendFailure,
             message.toStdString(), TransportOperation::SendCommand);
     }, Qt::QueuedConnection);
-    QObject::connect(backend_.get(), &IBleBackend::closed, this, [this](std::uint64_t token) {
-        const auto id = findToken(token);
-        if (!id) return;
-        if (connectionState(*id) != ConnectionState::Disconnecting) {
-            fault(*id, TransportErrorCode::Unavailable, "BLE link disconnected unexpectedly");
-            return;
-        }
-        auto& session = sessions_.at(*id);
-        clearIo(*id, session);
-        session.timer->stop();
-        backend_->release(token);
-        session.token = 0;
-        changePhase(*id, BlePhase::Disconnected);
-        changeState(*id, ConnectionState::Disconnected);
-    }, Qt::QueuedConnection);
+    QObject::connect(backend_.get(), &IBleBackend::closed, this,
+        [this](std::uint64_t token) { endLink(token, {}); }, Qt::QueuedConnection);
+    QObject::connect(backend_.get(), &IBleBackend::lost, this,
+        [this](std::uint64_t token, const QString& diagnostic) { endLink(token, diagnostic.toStdString()); },
+        Qt::QueuedConnection);
     QObject::connect(backend_.get(), &IBleBackend::failed, this,
         [this](std::uint64_t token, TransportErrorCode code, const QString& message) {
             if (scanning_ && token == scanToken_) finishScan(false, message);
@@ -189,6 +179,23 @@ void BleTransport::error(RobotId id, TransportOperation op, TransportErrorCode c
 {
     if (log_) log_->warning(message, id);
     if (auto sink = sink_.lock()) sink->onTransportError({id, op, code, message, MonotonicClock::now()});
+}
+void BleTransport::endLink(std::uint64_t token, const std::string& diagnostic)
+{
+    const auto id = findToken(token);
+    if (!id) return;
+    // An unrequested close is recoverable link loss, not a fault: the session ends
+    // with all queued work dropped, and only an explicit connect starts a new one.
+    const bool unexpected = connectionState(*id) != ConnectionState::Disconnecting;
+    auto& session = sessions_.at(*id);
+    clearIo(*id, session);
+    if (session.timer) session.timer->stop();
+    backend_->release(std::exchange(session.token, 0));
+    changePhase(*id, BlePhase::Disconnected);
+    changeState(*id, ConnectionState::Disconnected);
+    if (unexpected) error(*id, TransportOperation::Disconnect, TransportErrorCode::LinkLost,
+                          diagnostic.empty() ? std::string{"BLE link disconnected unexpectedly"}
+                                             : "BLE link disconnected unexpectedly (" + diagnostic + ")");
 }
 void BleTransport::fault(RobotId id, TransportErrorCode code, const std::string& message,
                          std::optional<TransportOperation> operationOverride)

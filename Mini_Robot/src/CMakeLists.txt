@@ -141,7 +141,8 @@ if(MICRO_ROBOT_BUILD_BLE)
     micro_robot_target_defaults(micro_robot_ble_lifecycle)
     micro_robot_platform_boundary(micro_robot_ble_lifecycle BACKEND ALLOW Qt6::Core)
 
-    add_library(micro_robot_ble_qt STATIC transport/ble/QtBleBackend.hpp transport/ble/QtBleBackend.cpp)
+    add_library(micro_robot_ble_qt STATIC transport/ble/QtBleBackend.hpp transport/ble/QtBleBackend.cpp
+        transport/ble/QtBleErrorPolicy.hpp)
     target_link_libraries(micro_robot_ble_qt PUBLIC micro_robot_ble_lifecycle PRIVATE Qt6::Bluetooth)
     micro_robot_target_defaults(micro_robot_ble_qt)
 endif()

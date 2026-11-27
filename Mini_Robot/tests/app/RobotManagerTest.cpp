@@ -399,6 +399,88 @@ TEST(DesktopSafetyTest, SessionLossRejectsOldMotionAndIndependentFaultsRemainInh
     EXPECT_EQ(f.robots.stop(one, Timestamp{5s}, 1s), CommandSubmission::Submitted);
 }
 
+TEST(DesktopSafetyTest, UnexpectedDisconnectKeepsLostConnectionStateAndSupportsExplicitReconnect)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.connected(one);
+    f.transport.state(one, ConnectionState::Disconnected, Timestamp{2s});
+    ASSERT_TRUE(f.robots.session(one));
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::LostConnection);
+    EXPECT_FALSE(f.robots.session(one)->safetyFault);
+    f.transport.error({one, TransportOperation::Disconnect, TransportErrorCode::LinkLost,
+                       "BLE link disconnected unexpectedly", Timestamp{2s}});
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::LostConnection);
+    EXPECT_FALSE(f.robots.session(one)->safetyFault);
+    ASSERT_TRUE(f.robots.connect(one));
+    f.transport.state(one, ConnectionState::Connected, Timestamp{3s});
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Ready);
+    EXPECT_EQ(f.robots.sendCommand(one, {VelocityCommand{.1, 0}, Timestamp{3s}, 1s}), CommandSubmission::Submitted);
+}
+
+TEST(DesktopSafetyTest, AdapterFaultDuringDisconnectIsAFaultNotRecoverableLinkLoss)
+{
+    using namespace micro_robot;
+    using namespace std::chrono_literals;
+    Fixture f; f.connected(one);
+    ASSERT_TRUE(f.robots.disconnect(one));
+    f.transport.state(one, ConnectionState::Disconnecting, Timestamp{2s});
+    f.transport.state(one, ConnectionState::Fault, Timestamp{3s});
+    f.transport.error({one, TransportOperation::Disconnect, TransportErrorCode::Unavailable,
+                       "Qt InvalidBluetoothAdapterError: Bluetooth adapter not found", Timestamp{3s}});
+    ASSERT_TRUE(f.robots.session(one));
+    EXPECT_EQ(f.robots.session(one)->safety, DesktopSafetyState::Fault);
+    EXPECT_TRUE(f.robots.session(one)->safetyFault);
+    ASSERT_TRUE(f.robots.session(one)->lastError);
+    EXPECT_EQ(f.robots.session(one)->lastError->code, TransportErrorCode::Unavailable);
+}
+
+TEST(DesktopSafetyTest, RepeatedSimulatedLinkLossRestoresTelemetryAndNeverReplaysMotion)
+{
+    constexpr int kLifecycleStressCycles = 50;
+    constexpr Duration kStep = 1ms;
+    constexpr Duration kLongValidity = 10s; // Freshness alone cannot reject the old intent.
+    SimulationTransport transport;
+    WorldModel world;
+    RobotManager robots{transport, world};
+    ASSERT_TRUE(robots.addRobot(one, Timestamp{}));
+    ASSERT_TRUE(robots.addRobot(two, Timestamp{}));
+    Timestamp now{1s};
+    ASSERT_TRUE(robots.connect(one));
+    ASSERT_TRUE(robots.connect(two));
+    transport.advanceTo(now);
+    for (int cycle = 0; cycle < kLifecycleStressCycles; ++cycle) {
+        SCOPED_TRACE(cycle);
+        ASSERT_EQ(robots.connectionState(one), ConnectionState::Connected);
+        EXPECT_EQ(robots.session(one)->safety, DesktopSafetyState::Ready);
+        ASSERT_TRUE(robots.session(one)->telemetry); // Reconnect restores telemetry.
+        EXPECT_EQ(robots.session(one)->telemetry->robotId, one);
+        const RobotCommand motion{VelocityCommand{0.1, 0}, now, kLongValidity};
+        ASSERT_EQ(robots.sendCommand(one, motion), CommandSubmission::Submitted);
+        now += kStep; transport.advanceTo(now);
+        ASSERT_TRUE(transport.lastSentCommand(one));
+
+        transport.simulateDisconnect(one);
+        now += kStep; transport.advanceTo(now);
+        EXPECT_EQ(robots.connectionState(one), ConnectionState::Disconnected);
+        EXPECT_EQ(robots.session(one)->safety, DesktopSafetyState::LostConnection);
+        EXPECT_FALSE(robots.session(one)->safetyFault);
+        ASSERT_TRUE(robots.session(one)->lastError);
+        EXPECT_EQ(robots.session(one)->lastError->code, TransportErrorCode::LinkLost);
+        EXPECT_FALSE(robots.session(one)->telemetry);
+        EXPECT_EQ(robots.sendCommand(one, motion), CommandSubmission::NotConnected);
+        EXPECT_EQ(robots.connectionState(two), ConnectionState::Connected);
+
+        ASSERT_TRUE(robots.connect(one));
+        now += kStep; transport.advanceTo(now);
+        ASSERT_EQ(robots.connectionState(one), ConnectionState::Connected);
+        EXPECT_FALSE(transport.lastSentCommand(one)); // Nothing resumes automatically.
+        EXPECT_EQ(robots.sendCommand(one, motion), CommandSubmission::StaleSession);
+    }
+    EXPECT_EQ(robots.sessions().size(), 2U);
+    EXPECT_EQ(robots.session(two)->safety, DesktopSafetyState::Ready);
+}
+
 TEST(DesktopSafetyTest, EmergencyStopInhibitsEvenWithoutTransportSupport)
 {
     using namespace micro_robot;

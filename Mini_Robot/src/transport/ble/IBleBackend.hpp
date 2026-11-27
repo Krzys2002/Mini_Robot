@@ -68,6 +68,9 @@ signals:
     void written(std::uint64_t token, std::uint16_t sequence);
     void writeFailed(std::uint64_t token, QString message);
     void closed(std::uint64_t token);
+    // Unrequested loss of an established link, with the native diagnostic (#71). The
+    // transport treats it as an unexpected close: recoverable, not a fault.
+    void lost(std::uint64_t token, QString diagnostic);
     void failed(std::uint64_t token, micro_robot::TransportErrorCode code, QString message);
 };
 } // namespace micro_robot

@@ -92,7 +92,10 @@ or acknowledgement contract.
 
 A terminal state clears active telemetry and connect intent; another robot's data
 is untouched. Fault is quiescent and permits an explicit later `connect`, without
-an automatic reconnect policy. The last error is diagnostic and does not invent a
+an automatic reconnect policy. Expected radio-loss reporting (`Disconnect` +
+`LinkLost`, `isRecoverableLinkLoss`) keeps the session in a recoverable lost-connection safety state
+rather than escalating to a persistent safety fault; any other disconnect error,
+such as an adapter failure while disconnecting, is a fault. The last error is diagnostic and does not invent a
 connection transition; errors older than the current connection transition are
 ignored. Connection timestamps cannot move backwards; the adapter
 must already report the callback's state. Per-session history is bounded to one
@@ -142,7 +145,8 @@ Native Linux BlueZ and
 Windows execution are not established by these deterministic tests. Manual-motion
 UI and the dedicated E-stop handoff are described in
 [manual robot control](manual-robot-control.md). Broader safety/recovery policy,
-automatic reconnect and measurements remain #70–#72; no M7 coordination is implemented here.
+and measurements remain #72; #71 adds explicit reconnect recovery, not an automatic
+reconnect policy. No M7 coordination is implemented here.
 
 ## Desktop safety state
 

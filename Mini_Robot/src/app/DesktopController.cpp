@@ -87,7 +87,17 @@ public:
     }
     void onTransportError(const TransportError& error) override
     {
-        if (error.robotId == owner_.robotId_) {
+        if (error.robotId == owner_.robotId_ && isRecoverableLinkLoss(error)) {
+            // The session already ended (Disconnected); no fault latch is needed because
+            // motion stays inhibited until an explicit reconnect starts a new session.
+            // Live visual motion is still interrupted at once, as for any connection loss.
+            emit owner_.motionInterruptRequested(MotionInterruptReason::ConnectionLost);
+            if (owner_.manualVelocity_) owner_.cancelManualDrive();
+            owner_.publishRobotActions();
+            emit owner_.connectionStatusChanged(QStringLiteral("Connection lost unexpectedly"), false, false);
+            emit owner_.manualStatusChanged(
+                QStringLiteral("Connection lost — motion inhibited; reconnect to resume"));
+        } else if (error.robotId == owner_.robotId_) {
             emit owner_.motionInterruptRequested(MotionInterruptReason::TransportError);
             owner_.manualFault_ = true;
             if (owner_.manualVelocity_) owner_.cancelManualDrive();

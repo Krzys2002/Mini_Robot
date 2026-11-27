@@ -1,20 +1,25 @@
 #include "transport/ble/QtBleBackend.hpp"
 #include "transport/ble/BleWire.hpp"
+#include "transport/ble/QtBleErrorPolicy.hpp"
 
 #include <QBluetoothDeviceDiscoveryAgent>
 #include <QBluetoothDeviceInfo>
+#include <QBluetoothLocalDevice>
 #include <QBluetoothUuid>
 #include <QCoreApplication>
 #include <QLowEnergyCharacteristic>
 #include <QLowEnergyController>
 #include <QLowEnergyDescriptor>
 #include <QLowEnergyService>
+#include <QMetaObject>
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 #include <QPermissions>
 #endif
 
 #include <array>
 #include <map>
+#include <memory>
+#include <optional>
 
 namespace micro_robot {
 namespace {
@@ -84,13 +89,21 @@ public:
         }
         auto* link = new Link(this, token, expected);
         links_.emplace(token, link);
+        // createCentral uses the default local adapter; remember which one for the
+        // link-loss check (confirmQtBleLinkLoss). Null where the platform hides it.
+        link->localAdapter = QBluetoothLocalDevice{}.address();
         link->controller = QLowEnergyController::createCentral(found->second, link);
         if (!link->controller) { fail(link, "Cannot create Qt BLE Central controller"); return; }
         QObject::connect(link->controller, &QLowEnergyController::errorOccurred, link,
-            [this, link](QLowEnergyController::Error) { fail(link, link->controller->errorString()); });
+            [this, link](QLowEnergyController::Error error) {
+                if (!link->active) return;
+                report(link, link->teardown.controllerError(error, link->established, link->controller->errorString()));
+            });
         QObject::connect(link->controller, &QLowEnergyController::disconnected, link, [this, link] {
             if (!link->active) return;
-            emit closed(link->token);
+            if (auto end = link->teardown.disconnected()) report(link, std::move(end));
+            else if (!link->closing && !link->teardown.ended()) report(link, link->teardown.unexpectedClose());
+            else emit closed(link->token);
         });
         QObject::connect(link->controller, &QLowEnergyController::connected, link, [this, link] {
             if (!usable(link)) return;
@@ -104,16 +117,23 @@ public:
             if (!link->service) { fail(link, "Cannot create Robot Control service"); return; }
             QObject::connect(link->service, &QLowEnergyService::errorOccurred, link,
                 [this, link](QLowEnergyService::ServiceError error) {
-                    if (link->established && usable(link)) {
-                        link->failed = true;
-                        emit writeFailed(link->token, QStringLiteral("BLE GATT write/channel operation failed (%1)").arg(static_cast<int>(error)));
-                    } else fail(link, "BLE GATT service operation failed");
+                    // After invalidation the controller error or `disconnected` decides the cause.
+                    if (!link->active || !link->teardown.writable()) return;
+                    if (!link->established || link->closing) { fail(link, "BLE GATT service operation failed"); return; }
+                    const auto message = QStringLiteral("BLE GATT write/channel operation failed (%1)").arg(static_cast<int>(error));
+                    if (link->teardown.failure(TransportErrorCode::BackendFailure, message)) emit writeFailed(link->token, message);
                 });
             QObject::connect(link->service, &QLowEnergyService::stateChanged, link,
                 [this, link](QLowEnergyService::ServiceState state) {
                     if (!usable(link)) return;
                     if (state == QLowEnergyService::RemoteServiceDiscovered) inspectService(link);
-                    else if (state == QLowEnergyService::InvalidService) fail(link, "Robot Control service became invalid");
+                    else if (state == QLowEnergyService::InvalidService) {
+                        // Block writes now; a specific controller error may still follow (BlueZ).
+                        link->teardown.serviceInvalidated(link->established);
+                        QMetaObject::invokeMethod(link, [this, link] {
+                            if (link->active) report(link, link->teardown.settle());
+                        }, Qt::QueuedConnection);
+                    }
                 });
             QObject::connect(link->service, &QLowEnergyService::characteristicRead, link,
                 [this, link](const QLowEnergyCharacteristic& characteristic, const QByteArray& value) {
@@ -235,17 +255,48 @@ private:
         QLowEnergyController* controller{}; // QObject children of this link.
         QLowEnergyService* service{};
         QLowEnergyDescriptor resultCccd, telemetryCccd;
-        bool active{true}, closing{}, failed{}, readingInfo{}, established{};
+        bool active{true}, closing{}, readingInfo{}, established{};
+        QtBleLinkTeardown teardown; // Write inhibition and the single terminal event.
+        QBluetoothAddress localAdapter; // Adapter that carried the link; null if unknown.
         Subscription subscription{Subscription::Idle};
         BleRobotInfo info;
         std::optional<PendingWrite> ordinaryWrite, emergencyWrite;
     };
-    static bool usable(const Link* link) { return link->active && !link->closing && !link->failed; }
+    static bool usable(const Link* link) { return link->active && !link->closing && link->teardown.writable(); }
     void fail(Link* link, const QString& message, TransportErrorCode code = TransportErrorCode::BackendFailure)
     {
-        if (!link->active || link->failed) return;
-        link->failed = true;
-        emit failed(link->token, code, message);
+        if (link->active) report(link, link->teardown.failure(code, message));
+    }
+    // Emits the link's single terminal event chosen by QtBleLinkTeardown. After setup, a
+    // peer-loss controller error or an unexplained service invalidation is how the native
+    // stack reports a vanished peer, often before `disconnected`: link loss with the
+    // native diagnostic. Local and protocol failures keep their own code and diagnostic.
+    // An unrequested link loss is decided only after the native teardown call returns,
+    // so BlueZ can finish removing an unplugged adapter, and then only if the local
+    // adapter is still present and powered (confirmQtBleLinkLoss).
+    void report(Link* link, std::optional<QtBleLinkEnd> end)
+    {
+        if (!end) return;
+        if (end->action == QtBleErrorAction::LinkLoss && !link->closing) {
+            QMetaObject::invokeMethod(link, [this, link, loss = std::move(*end)] {
+                if (link->active) emitEnd(link, confirmQtBleLinkLoss(loss, localAdapterState(link->localAdapter)));
+            }, Qt::QueuedConnection);
+            return;
+        }
+        emitEnd(link, *end);
+    }
+    void emitEnd(Link* link, const QtBleLinkEnd& end)
+    {
+        if (end.action == QtBleErrorAction::LinkLoss) emit lost(link->token, end.diagnostic);
+        else emit failed(link->token, end.code, end.diagnostic);
+    }
+    static QtBleLocalAdapter localAdapterState(const QBluetoothAddress& address)
+    {
+        const auto local = address.isNull() ? std::make_unique<QBluetoothLocalDevice>()
+                                            : std::make_unique<QBluetoothLocalDevice>(address);
+        if (!local->isValid()) return QtBleLocalAdapter::Missing;
+        if (local->hostMode() == QBluetoothLocalDevice::HostPoweredOff) return QtBleLocalAdapter::PoweredOff;
+        return QtBleLocalAdapter::Available;
     }
     void beginScan(std::uint64_t token)
     {
