@@ -22,11 +22,13 @@ using std::chrono::milliseconds;
 // 2.0.4, hardware/CodeCell C6 Drive) names them by their motor outputs M1 (U7) and M2 (U8).
 enum class MotorChannel : std::uint8_t { M1 = 0, M2 = 1 };
 
-// Wheel to channel assignment. UNVERIFIED on the assembled robot (#238): it follows the
-// retired prototype, whose joystick mixing drove M1 faster for a clockwise (right) turn,
-// which makes M1 the left wheel. The powered rotation-sign check owns its confirmation.
-inline constexpr MotorChannel kLeftWheelChannel = MotorChannel::M1;
-inline constexpr MotorChannel kRightWheelChannel = MotorChannel::M2;
+// Wheel to channel assignment of the assembled robot (#317): left = M2, right = M1. The
+// prototype's left = M1 swapped the turn directions. With this assignment and the left
+// polarity bit provisioned (drive_polarity = 1, a per-robot record value, not a default
+// here), forward, reverse, CCW and CW were operator-observed correct on lifted wheels.
+// That is an observation, not a measured per-wheel sign table or on-floor driving.
+inline constexpr MotorChannel kLeftWheelChannel = MotorChannel::M2;
+inline constexpr MotorChannel kRightWheelChannel = MotorChannel::M1;
 static_assert(kLeftWheelChannel != kRightWheelChannel, "each wheel needs its own bridge");
 
 // PWM duty full scale at the actuator write: 8-bit LEDC resolution, as in DriveCell 1.1.3

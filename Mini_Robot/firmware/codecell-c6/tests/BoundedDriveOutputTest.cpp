@@ -28,6 +28,7 @@ constexpr int kFullScaleSteps =
 constexpr int kStopSteps = static_cast<int>(kStopFullScaleRampTime / kPeriod);
 
 std::int16_t left(const MotorDuty& duty) { return kLeftWheelChannel == MotorChannel::M1 ? duty.m1 : duty.m2; }
+std::int16_t right(const MotorDuty& duty) { return kRightWheelChannel == MotorChannel::M1 ? duty.m1 : duty.m2; }
 
 struct Rig {
     FakeMotorDriver motors;
@@ -100,7 +101,7 @@ TEST(BoundedDriveOutputTest, NoStartupBoostAccelerationIsRateLimitedFromZero)
     // The left wheel ramps to its own (curvature-preserving) target, 0.05 m/s, never above.
     EXPECT_NEAR(rig.drive.wheelIntent().leftMetresPerSecond, 0.05, kTolerance);
     // First write from rest is one step: 0.02 m/s -> 0.1 of the bound -> 10 counts. No boost.
-    EXPECT_EQ(std::abs(rig.motors.writes().front().m2), 10);
+    EXPECT_EQ(std::abs(right(rig.motors.writes().front())), 10);
 }
 
 TEST(BoundedDriveOutputTest, ElapsedTimeIsClampedToOneControlPeriod)

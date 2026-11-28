@@ -170,12 +170,26 @@ TEST(DriveKinematicsTest, PolarityAndChannelAssignmentApplyOnlyAtTheWrite)
     EXPECT_LT(rightDuty(forward), 0);
     EXPECT_EQ(std::abs(leftDuty(forward)), std::abs(rightDuty(forward)));
     EXPECT_EQ(leftDuty(forward), 51) << "0.1 / 0.2 * 0.4 * 255 = 51";
-    // Assignment from the profile constants: left is M1 and right is M2 (UNVERIFIED, #238).
-    EXPECT_EQ(forward.m1, leftDuty(forward));
-    EXPECT_EQ(forward.m2, rightDuty(forward));
+    // Assignment (#317): left is M2 and right is M1.
+    EXPECT_EQ(forward.m2, leftDuty(forward));
+    EXPECT_EQ(forward.m1, rightDuty(forward));
     DriveProfile both = kProfile;
     both.leftReversed = true;
     const auto reversedForward = dutyFor({0.1, 0.0}, both);
     EXPECT_EQ(leftDuty(reversedForward), -51);
     EXPECT_EQ(rightDuty(reversedForward), -51);
+}
+
+TEST(DriveKinematicsTest, CounterClockwiseDrivesM2BackAndM1ForwardWithoutPolarity)
+{
+    // #317 channel signs, checked on the raw channels rather than through the helpers so a
+    // swapped assignment fails: CCW turns the left wheel (M2) back and the right wheel (M1)
+    // forward; CW is the mirror image.
+    const auto profile = unreversed();
+    const auto ccw = dutyFor({0.0, 1.0}, profile);
+    EXPECT_GT(ccw.m1, 0);
+    EXPECT_LT(ccw.m2, 0);
+    const auto cw = dutyFor({0.0, -1.0}, profile);
+    EXPECT_LT(cw.m1, 0);
+    EXPECT_GT(cw.m2, 0);
 }
