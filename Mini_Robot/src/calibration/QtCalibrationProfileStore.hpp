@@ -10,6 +10,9 @@ public:
     [[nodiscard]] ProfileLoadOutcome load(std::string_view sourceId,
         std::uint32_t width, std::uint32_t height) override;
     [[nodiscard]] std::string save(const IntrinsicCalibration& calibration) override;
+    [[nodiscard]] ProfileLoadOutcome loadFile(std::string_view file, std::string_view sourceId,
+        std::uint32_t width, std::uint32_t height) override;
+    [[nodiscard]] std::string saveFile(std::string_view file, const IntrinsicCalibration&) override;
 private:
     [[nodiscard]] QString path(std::string_view sourceId, std::uint32_t width, std::uint32_t height) const;
     QString directory_;

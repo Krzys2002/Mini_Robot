@@ -7,6 +7,7 @@ namespace micro_robot {
 // GUI-thread projection of typed application references. No per-cell widgets or
 // repeated full-dataset geometry validation; edits go through the service.
 class WorkspaceReferenceModel final : public QAbstractTableModel {
+    Q_OBJECT
 public:
     explicit WorkspaceReferenceModel(WorkspaceCalibrationController& controller, QObject* parent=nullptr);
     int rowCount(const QModelIndex& parent={}) const override;
@@ -17,6 +18,8 @@ public:
     bool setData(const QModelIndex& index,const QVariant& value,int role=Qt::EditRole) override;
     void refresh();
     void setLengthUnit(WorkspaceLengthUnit unit);
+signals:
+    void editRejected(const QString& message);
 private:
     WorkspaceCalibrationController& controller_;
     WorkspaceLengthUnit unit_{WorkspaceLengthUnit::Meters};

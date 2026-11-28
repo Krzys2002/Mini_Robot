@@ -13,9 +13,17 @@ public:
 
     [[nodiscard]] std::string saveAcquisition(const WorkspaceCalibrationProfile& profile,
                                              const WorkspaceAcquisitionRecord& record) override;
+    [[nodiscard]] WorkspaceProfileLoadOutcome loadFile(std::string_view file, const IntrinsicCalibration& active) override;
+    [[nodiscard]] std::string saveFile(std::string_view file, const WorkspaceCalibrationProfile& profile,
+                                       const WorkspaceAcquisitionRecord* record) override;
 private:
-    [[nodiscard]] QString acquisitionPath(const WorkspaceCalibrationProfile& profile) const;
-    [[nodiscard]] WorkspaceAcquisitionLoadOutcome readAcquisition(const WorkspaceCalibrationProfile& profile) const;
+    [[nodiscard]] static QString acquisitionPath(const QString& file, const WorkspaceCalibrationProfile& profile);
+    [[nodiscard]] static WorkspaceAcquisitionLoadOutcome readAcquisition(const QString& file, const WorkspaceCalibrationProfile& profile);
+    [[nodiscard]] static WorkspaceProfileLoadOutcome readProfile(const QString& file, const IntrinsicCalibration& active,
+                                                                  std::optional<std::string_view> workspace);
+    [[nodiscard]] static std::string writeProfile(const QString& file, const WorkspaceCalibrationProfile& profile);
+    [[nodiscard]] static std::string writeAcquisition(const QString& file, const WorkspaceCalibrationProfile& profile,
+                                                      const WorkspaceAcquisitionRecord& record);
     static constexpr int StoreLockWaitMilliseconds = 0;
     [[nodiscard]] QString path(std::string_view workspaceId, const IntrinsicCalibration& active) const;
     QString directory_;

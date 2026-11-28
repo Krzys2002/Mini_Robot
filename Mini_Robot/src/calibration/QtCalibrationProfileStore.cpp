@@ -21,7 +21,12 @@ QString QtCalibrationProfileStore::path(std::string_view id, std::uint32_t width
 }
 ProfileLoadOutcome QtCalibrationProfileStore::load(std::string_view id, std::uint32_t width, std::uint32_t height)
 {
-    const auto name = path(id, width, height);
+    return loadFile(path(id, width, height).toStdString(), id, width, height);
+}
+ProfileLoadOutcome QtCalibrationProfileStore::loadFile(std::string_view filePath, std::string_view id,
+    std::uint32_t width, std::uint32_t height)
+{
+    const auto name = QString::fromUtf8(filePath.data(), static_cast<qsizetype>(filePath.size()));
     if (!QFileInfo::exists(name)) return {};
     QFile file{name};
     if (!file.open(QIODevice::ReadOnly)) return {ProfileLoadState::Rejected, {}, "Cannot read profile: " + file.errorString().toStdString()};
@@ -34,10 +39,15 @@ ProfileLoadOutcome QtCalibrationProfileStore::load(std::string_view id, std::uin
 }
 std::string QtCalibrationProfileStore::save(const IntrinsicCalibration& calibration)
 {
+    return saveFile(path(calibration.sourceId, calibration.width, calibration.height).toStdString(), calibration);
+}
+std::string QtCalibrationProfileStore::saveFile(std::string_view filePath, const IntrinsicCalibration& calibration)
+{
     try {
         const auto text = serializeCalibrationProfile(calibration);
-        if (!QDir{}.mkpath(directory_)) return "Cannot create calibration profile directory.";
-        QSaveFile file{path(calibration.sourceId, calibration.width, calibration.height)};
+        const QFileInfo destination{QString::fromUtf8(filePath.data(), static_cast<qsizetype>(filePath.size()))};
+        if (!QDir{}.mkpath(destination.absolutePath())) return "Cannot create calibration profile directory.";
+        QSaveFile file{destination.absoluteFilePath()};
         // No direct-write fallback: atomic replacement or an actionable failure.
         file.setDirectWriteFallback(false);
         if (!file.open(QIODevice::WriteOnly)) return "Cannot save profile: " + file.errorString().toStdString();

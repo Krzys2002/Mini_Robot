@@ -41,54 +41,48 @@ points. It does not establish a safe extrapolation region or permission to contr
 
 ## Operator procedure
 
-1. Select/start the intended camera and load or calculate its compatible intrinsic
-   calibration in **Camera calibration…**. Open **Tabletop / workspace calibration…**
-   from that dialog. A stable physical camera identity is required for save/load;
-   session-only identities may estimate a transform but cannot persist one.
-2. Enter an explicit workspace identity and measured positive width/height in
-   metres. No physical table dimensions are assumed. Keep camera, lens settings,
-   resolution and table fixed throughout acquisition and later use.
-3. Press **Freeze / reset references**. A fresh frame (at most two seconds old) is
-   remapped on the worker. Point selection always refers to that immutable frame;
-   incoming frames do not move its reference features. Freezing again clears all
-   old correspondences while retaining the draft transform for verification.
-4. Select C1 (physical base), C2 (+X neighbour), C3 (opposite), C4 (+Y neighbour).
-   Review the cyan numbered perimeter, axis arrows and measured edge lengths.
-   Use **Undo last corner**, numeric corner cells, or **Reselect selected corner**
-   followed by an image click to correct mistakes. Crossed, duplicate, concave or
-   collinear boundaries cannot be confirmed. The application never sorts corners
-   by their positions on screen.
-   Choose a corner origin, or measured origin offsets from C1 along +X/+Y in metres.
-   Interior origins deliberately create negative coordinates on part of the table.
-   Press **Confirm boundary / axes** before adding extra references. The four
-   generated paired boundary rows are locked; correct them through the corner
-   controls. Add up to 4,096 total fitting references, including those four corners.
-   After **Calculate**, **Pick origin after Calculate** permits a mapped image
-   pick inside the workspace. Changing the origin clears draft results and all
-   fit/check references; confirm the boundary again and recalculate. A picked
-   origin is transform-derived, not independent ground truth.
-5. Add independent interior/reference points and tick **Check only**. Up to 4,096
-   check points are held out of estimation. They must not repeat fitting points
-   or each other. All image points must lie inside the native image, and all world
-   points inside the declared measured bounds. Numeric cells use a decimal dot.
-6. Press **Calculate**. Invalid input is rejected with an actionable message.
-   Inspect fit and held-out RMS/maximum Euclidean errors, in metres. Four exact
-   correspondences can fit almost perfectly even when the physical calibration
-   is wrong. No check points is explicitly reported as missing validation, not as
-   zero independent error. No project-specific physical accuracy threshold is
-   invented; compare errors to an approved experiment requirement.
-7. **Save transform** atomically stores the draft profile. Saving does not activate
-   it. **Load transform** loads an exact workspace/camera/resolution key, rejects
-   optical mismatches and updates the draft dimensions. It does not replace the
-   active calibration. To recheck a loaded transform, freeze a fresh frame, enter
-   independent points with **Check only** selected, then press **Verify checks**.
-   New points default to Check when a draft transform exists. Verification reports
-   metric errors without refitting or changing H; an invalid check is rejected.
-8. Review fit/check errors against the experiment's approved accuracy requirement,
-   then press **Activate transform** to install the draft. Activation is an explicit
-   operator decision; missing checks and the absence of an automatic accuracy
-   threshold are visible warnings. A finite fit alone never establishes physical
-   acceptance. Keep the previous active calibration until a replacement is accepted.
+1. Select the intended camera and press **Start camera**. **Calibration…**
+   becomes available once the camera is streaming. When the first stage is the
+   only available starting point, it opens directly.
+   In **Camera**, calculate and review intrinsics, or use the matching saved
+   profile. Select **Accept and next** to continue to **Workspace**.
+2. Enter an explicit workspace identity and the measured lengths along +X and +Y.
+   Choose a corner origin or enter offsets from C1. Leaving both offsets blank
+   places the origin at C1. An interior origin produces signed coordinates.
+   Keep the camera, lens settings, resolution and table fixed.
+3. Select **Freeze workspace image**. The worker undistorts the current frame.
+   Click C1 (physical base), C2 (+X neighbour), C3 (opposite) and C4 (+Y neighbour).
+   Use the wheel or zoom buttons and **Pan** to inspect corners. The two flip
+   controls change the display orientation while the selected pixels and physical
+   axis labels retain their original calibration coordinates. **Full screen**
+   enlarges the image editor. Press **Esc** or choose **Exit full screen** to return.
+4. Review the perimeter, axis arrows and measured lengths. Use the corner cells,
+   **Undo last corner**, or **Reselect selected corner** to correct mistakes.
+   Select **Accept and next** to confirm the boundary and open **Tabletop**.
+5. Reuse the four locked boundary rows and add measured fit references or
+   independent **Check only** points. The shared image editor adds points in
+   native undistorted pixels. Fit and Check each support up to 4,096 rows.
+   **Freeze reference image** can capture another placement while keeping an
+   accepted guided boundary and its references.
+6. Select **Calculate** and review fit and held-out RMS/maximum errors in metres.
+   Compare errors to the experiment's accuracy requirement. Four exact
+   correspondences can fit closely even when measurements are wrong, and an
+   absent Check set is reported separately. Select **Accept and next** to
+   install the reviewed transform and open **Robot**.
+7. **Save to app library** stores the draft atomically. To reuse a library
+   transform, enter its identity in **Workspace** and select **Load from app
+   library**. For a named file, choose **Save profile as…** in Tabletop or
+   **Save as…** in Robot or Surveyed References. Use **Load profile from file…**
+   in Workspace to restore the identity and data from the file. Keep any linked
+   `.acquisition` file beside its `.workspace` file with its original name.
+   The loader checks the camera, resolution and lens calibration. Advance to
+   **Tabletop**, then optionally freeze a fresh frame, add independent Check rows
+   and **Verify checks** before accepting. Saving and loading require a stable
+   physical camera identity.
+8. In **Robot**, validate and accept surveyed tag-to-body geometry. The last
+   stage fits and validates surveyed references for placement monitoring. Close
+   the calibration workflow when the accepted tabletop or robot calibration is
+   sufficient for your task.
 
 Identity, dimension, origin and corner edits invalidate the draft and clear its
 references. Additional fitting-point edits invalidate draft H. Active calibration
@@ -102,7 +96,20 @@ reopening the dialog, so the operator can reload and recheck without retyping th
 It does not automatically re-arm a transform after a camera interruption.
 Late worker completion cannot restore an old result. Capture, solving and disk I/O
 are serialized off the GUI thread; shutdown drains the worker asynchronously.
-Closing the dialog preserves active and draft calibrations and session references.
+Closing the Workspace or Tabletop screen keeps its draft for this session.
+The calibration chooser lists the stages available for the current camera and
+accepted calibration. Debug builds also offer **Debug: preview calibration
+screens…** for viewing each stage before the camera or prerequisite
+calibrations are ready. The Workspace and Tabletop tabs provide a sample frame
+for practising point placement, zoom, pan, flips and full screen. Sample points
+stay in the preview.
+
+**Top View** rectifies live camera pixels over the accepted tabletop bounds.
+It is a display view with +X right and +Y up. Objects above the tabletop will
+show parallax distortion. Select **World View…** next to **Top View…** in the
+main window to open the **World Model View** with the same overhead workspace map
+used in the distance preview. It shows current robot positions and headings in
+the signed workspace coordinates. Tracking and control use the calibrated observation pipeline.
 
 ## Estimation and persistence
 

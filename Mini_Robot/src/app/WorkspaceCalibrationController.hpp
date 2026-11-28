@@ -111,21 +111,26 @@ public:
 
     [[nodiscard]] bool canLoad() const
     {
-        return !shuttingDown_ && !busy_ && persistent_ && intrinsics_ && !workspaceId_.isEmpty();
+        return canLoadFile() && !workspaceId_.isEmpty();
+    }
+    [[nodiscard]] bool canLoadFile() const
+    {
+        return !shuttingDown_ && !busy_ && persistent_ && intrinsics_;
     }
 
     [[nodiscard]] bool isStopped() const;
 
 public slots:
     void freeze();
+    void freezeWorkspace();
     void freezeMeasurement();
     void freezeBoard();
     void detectBoard();
     void calculate();
     void verify();
     void activate();
-    void save();
-    void load();
+    void save(const QString& file = {});
+    void load(const QString& file = {});
     void shutdown();
 signals:
     void changed();
@@ -136,7 +141,7 @@ signals:
 private:
     void invalidate(bool clearFrame);
     void geometryChanged();
-    void freezeFrame(bool preserveReferences);
+    void freezeFrame(bool preserveReferences, bool resetGeometry = false);
     void synchronizeReferences();
     void referencesEdited();
     void clearBoardReview();

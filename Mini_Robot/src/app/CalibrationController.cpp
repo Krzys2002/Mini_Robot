@@ -87,7 +87,7 @@ void CalibrationController::expireReview()
     }
     showLive();
 }
-void CalibrationController::invalidate()
+void CalibrationController::resetCapture()
 {
     cancelReview();
     captureFeedback_.clear();
@@ -98,8 +98,16 @@ void CalibrationController::invalidate()
     resetLiveOverlay();
     detectedFrame_.reset();
     liveDetection_.reset();
-    ++profileGeneration_;
     ++previewEpoch_;
+    session_.cancel();
+    result_.reset();
+    resultAccepted_ = false;
+    live_ = true;
+}
+void CalibrationController::invalidate()
+{
+    resetCapture();
+    ++profileGeneration_;
     undistortedPreview_ = false;
     profile_.reset();
     profileLookupRequested_ = false;
@@ -108,10 +116,26 @@ void CalibrationController::invalidate()
     previewFrame_.reset();
     previewCorners_.clear();
     latest_.reset();
-    session_.cancel();
-    result_.reset();
-    live_ = true;
     presentPreview({}, {}, false);
+}
+void CalibrationController::discardCapture()
+{
+    if (shuttingDown_) return;
+    resetCapture();
+    showLive();
+    publish(QStringLiteral("Capture discarded. The accepted profile is retained."));
+}
+void CalibrationController::acceptResult()
+{
+    if (!pendingResult() || busy_ || profileIoBusy_ || shuttingDown_) return;
+    profile_ = result_;
+    resultAccepted_ = true;
+    profileMessage_ = persistentIdentity_
+        ? QStringLiteral("Accepted camera profile. Save to keep it after restart.")
+        : QStringLiteral("Accepted for this camera session.");
+    ++previewEpoch_;
+    if (undistortedPreview_) processPreview();
+    emit changed();
 }
 void CalibrationController::setInput(const QString& sourceId, bool streaming, bool persistentIdentity)
 {
@@ -179,6 +203,7 @@ void CalibrationController::restart()
     ++previewEpoch_;
     session_.restart(sourceId_.toStdString());
     result_.reset();
+    resultAccepted_ = false;
     live_ = true;
     if (latest_) presentPreview(latest_, {}, false);
     publish(QStringLiteral("Capture the full board in different image regions, distances and rotations."));
@@ -535,8 +560,11 @@ void CalibrationController::finish()
                 return;
             }
             result_ = std::move(outcome.result);
-            profile_ = result_;
-            profileMessage_ = persistentIdentity_
+            resultAccepted_ = !deferResultActivation_;
+            if (resultAccepted_) profile_ = result_;
+            profileMessage_ = deferResultActivation_
+                ? QStringLiteral("Review the calculated result, then select Next to accept it.")
+                : persistentIdentity_
                 ? QStringLiteral("Calculated profile — not saved. Save to keep it after restart.")
                 : QStringLiteral("Session calibration only: physical identity unavailable or ambiguous; save/reload disabled.");
             ++previewEpoch_;

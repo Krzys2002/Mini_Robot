@@ -322,6 +322,13 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     micro_robot_platform_boundary(micro_robot_desktop_controller ALLOW Qt6::Core)
 
     add_library(micro_robot_ui STATIC
+        ui/CalibrationFlow.hpp ui/CalibrationFlow.cpp
+        ui/CalibrationForm.hpp
+        ui/ProfileFileDialog.hpp
+        ui/CalibrationImageView.hpp ui/CalibrationImageView.cpp
+        ui/TopViewDialog.hpp ui/TopViewDialog.cpp
+        ui/WorldModelCanvas.hpp ui/WorldModelCanvas.cpp
+        ui/WorkspaceMapPainting.hpp ui/WorkspaceMapPainting.cpp
         ui/VisualControlPanel.hpp ui/VisualControlPanel.cpp
         ui/WorkspaceDistanceDialog.hpp
         ui/WorkspaceDistanceDialog.cpp
@@ -351,6 +358,8 @@ if(MICRO_ROBOT_BUILD_DESKTOP)
     target_include_directories(micro_robot_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(micro_robot_ui PUBLIC Qt6::Widgets micro_robot_desktop_controller)
     target_link_libraries(micro_robot_ui PUBLIC micro_robot_planning)
+    target_compile_definitions(micro_robot_ui PUBLIC
+        $<$<CONFIG:Debug>:MICRO_ROBOT_DEBUG_CALIBRATION_PREVIEW>)
     micro_robot_target_defaults(micro_robot_ui)
     micro_robot_platform_boundary(micro_robot_ui ALLOW Qt6::Core Qt6::Widgets)
 

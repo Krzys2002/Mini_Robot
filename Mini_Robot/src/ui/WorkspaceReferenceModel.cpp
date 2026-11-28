@@ -1,4 +1,5 @@
 #include "ui/WorkspaceReferenceModel.hpp"
+#include "ui/CalibrationForm.hpp"
 #include <limits>
 #include <algorithm>
 namespace micro_robot {
@@ -45,7 +46,9 @@ QVariant WorkspaceReferenceModel::data(const QModelIndex& index,int role) const
     }
     const double values[]{r.point.image.u,r.point.image.v,r.point.world.x.value*workspaceUnitsPerMeter(unit_),r.point.world.y.value*workspaceUnitsPerMeter(unit_)};
     if (index.column()<0 || index.column()>3) return {};
-    return QString::number(values[index.column()],'g',role==Qt::DisplayRole?12:std::numeric_limits<double>::max_digits10);
+    const auto number = values[index.column()];
+    if (!std::isfinite(number)) return QString{};
+    return QString::number(number,'g',role==Qt::DisplayRole?12:std::numeric_limits<double>::max_digits10);
 }
 Qt::ItemFlags WorkspaceReferenceModel::flags(const QModelIndex& index) const
 {
@@ -63,16 +66,30 @@ bool WorkspaceReferenceModel::setData(const QModelIndex& index,const QVariant& v
     const auto& r=controller_.references()[static_cast<std::size_t>(index.row())];
     if (r.boundary) return false;
     auto point=r.point; bool check=r.check;
-    if (index.column()==4 && role==Qt::CheckStateRole) check=value.toInt()==Qt::Checked;
+    const auto revision = controller_.referencesRevision();
+    if (index.column()==4 && role==Qt::CheckStateRole) {
+        check=value.toInt()==Qt::Checked;
+        if (check == r.check) return true;
+    }
     else if (index.column()>=0 && index.column()<4 && role==Qt::EditRole) {
-        bool valid{}; double number=index.column()>=2 ? parseWorkspaceLength(value.toString(),&valid) : value.toDouble(&valid);
-        if (!valid) number=std::numeric_limits<double>::quiet_NaN();
+        bool valid{};
+        const double number = parseWorkspaceLength(value.toString(), &valid);
+        if (!valid || !std::isfinite(number)) {
+            emit editRejected(QStringLiteral("Enter a finite coordinate in the selected units."));
+            return false;
+        }
+        if (value == data(index, Qt::EditRole)) return true;
         if (index.column()==0) point.image.u=number;
         if (index.column()==1) point.image.v=number;
         if (index.column()==2) point.world.x=Meters{number/workspaceUnitsPerMeter(unit_)};
         if (index.column()==3) point.world.y=Meters{number/workspaceUnitsPerMeter(unit_)};
     } else return false;
-    controller_.editReference(static_cast<std::size_t>(index.row()),point,check); return true;
+    if ((controller_.boardReview() || (controller_.draftProfile() && (!r.check || !check))) &&
+        !confirmCalibrationLoss(qobject_cast<QWidget*>(parent()), "Edit calibration reference",
+            "This edit clears the dependent draft transform or pending chessboard review.")) return false;
+    if (revision != controller_.referencesRevision() || !index.isValid()) return false;
+    controller_.editReference(static_cast<std::size_t>(index.row()),point,check);
+    return true;
 }
 void WorkspaceReferenceModel::setLengthUnit(WorkspaceLengthUnit unit)
 {

@@ -1,6 +1,7 @@
 #include "calibration/WorkspaceProfile.hpp"
 #include <QCryptographicHash>
 #include "ui/WorkspaceDistanceDialog.hpp"
+#include "ui/WorkspaceMapPainting.hpp"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -34,24 +35,14 @@ public:
     std::function<void(WorldPoint2D)> worldPicked;
     QRectF worldRect() const
     {
-        if (!geometry)
-            return {};
-        const auto& b = geometry->profile.bounds;
-        const QSizeF fitted = QSizeF(b.width().value, b.height().value)
-                                  .scaled(QSizeF(width() - 70, height() - 55), Qt::KeepAspectRatio);
-        return {{(width() - fitted.width()) / 2, (height() - fitted.height()) / 2}, fitted};
+        return geometry ? workspaceMapRect(size(), geometry->profile.bounds) : QRectF{};
     }
     std::optional<QPointF> display(WorldPoint2D q) const
     {
         if (!geometry)
             return {};
-        if (worldView) {
-            const auto p = workspaceToView(geometry->profile.bounds, q);
-            if (!p)
-                return {};
-            const auto r = worldRect();
-            return QPointF{r.left() + p->u * r.width(), r.top() + p->v * r.height()};
-        }
+        if (worldView)
+            return workspaceMapPoint(worldRect(), geometry->profile.bounds, q);
         if (!frame)
             return {};
         const auto pixel = unprojectWorkspacePoint(*geometry->profile.homography, q);
@@ -90,7 +81,7 @@ protected:
     void paintEvent(QPaintEvent*) override
     {
         QPainter painter(this);
-        painter.fillRect(rect(), QColor{25, 28, 33});
+        painter.fillRect(rect(), WorkspaceMapBackground);
         painter.setPen(Qt::white);
         if (!geometry) {
             painter.drawText(rect(), Qt::AlignCenter,
@@ -98,23 +89,7 @@ protected:
             return;
         }
         if (worldView) {
-            const auto r = worldRect();
-            painter.fillRect(r, QColor{45, 50, 55});
-            painter.drawRect(r);
-            const auto& b = geometry->profile.bounds;
-            painter.drawText(QPointF{r.left(), r.bottom() + 18},
-                             QStringLiteral("%1 mm").arg(b.minimum().x.value * 1000));
-            painter.drawText(QRectF{r.left(), r.bottom() + 3, r.width(), 22}, Qt::AlignRight,
-                             QStringLiteral("%1 mm +X").arg(b.maximum().x.value * 1000));
-            painter.drawText(QPointF{r.left() - 34, r.top() - 5},
-                             QStringLiteral("+Y %1 mm").arg(b.maximum().y.value * 1000));
-            painter.drawText(QPointF{r.left() - 34, r.bottom()},
-                             QStringLiteral("%1 mm").arg(b.minimum().y.value * 1000));
-            if (auto origin = display({})) {
-                painter.setPen(Qt::gray);
-                painter.drawLine(*origin + QPointF{-5, 0}, *origin + QPointF{5, 0});
-                painter.drawLine(*origin + QPointF{0, -5}, *origin + QPointF{0, 5});
-            }
+            paintWorkspaceMap(painter, worldRect(), geometry->profile.bounds);
         } else {
             if (!frame) {
                 painter.drawText(rect(), Qt::AlignCenter,
@@ -169,7 +144,7 @@ WorkspaceDistanceDialog::WorkspaceDistanceDialog(WorkspaceCalibrationController&
     auto* viewRow = new QHBoxLayout;
     viewMode_ = new QComboBox(body);
     viewMode_->setObjectName("distanceViewMode");
-    viewMode_->addItems({"Frozen undistorted camera", "World diagram (+Y up)"});
+    viewMode_->addItems({"Frozen undistorted camera", "World Model View (+Y up)"});
     target_ = new QComboBox(body);
     target_->setObjectName("distanceTarget");
     target_->addItems({"Pick / replace A", "Pick / replace B"});

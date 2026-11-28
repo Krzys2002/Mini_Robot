@@ -34,5 +34,11 @@ public:
     [[nodiscard]] virtual std::string saveAcquisition(const WorkspaceCalibrationProfile&,
                                                      const WorkspaceAcquisitionRecord&)
     { return "This store cannot persist acquisition provenance."; }
+    // Named files carry their workspace identity and retain linked acquisition data.
+    [[nodiscard]] virtual WorkspaceProfileLoadOutcome loadFile(std::string_view, const IntrinsicCalibration&)
+    { return {ProfileLoadState::Rejected, {}, "This store cannot load a named workspace file."}; }
+    [[nodiscard]] virtual std::string saveFile(std::string_view, const WorkspaceCalibrationProfile&,
+                                               const WorkspaceAcquisitionRecord*)
+    { return "This store cannot save a named workspace file."; }
 };
 } // namespace micro_robot

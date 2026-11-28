@@ -45,13 +45,17 @@ public:
     // undistortion uses the preview worker.
     void setProfileServices(std::unique_ptr<ICalibrationProfileStore> store,
                             std::unique_ptr<ICalibrationUndistorter> undistorter);
+    void requireResultAcceptance() { deferResultActivation_ = true; }
+    void acceptResult();
+    void discardCapture();
+    [[nodiscard]] bool pendingResult() const { return deferResultActivation_ && result_ && !resultAccepted_; }
     [[nodiscard]] const std::optional<IntrinsicCalibration>& profile() const noexcept { return profile_; }
     [[nodiscard]] const QString& profileMessage() const noexcept { return profileMessage_; }
     [[nodiscard]] bool persistentIdentity() const noexcept { return persistentIdentity_; }
     [[nodiscard]] bool profileBusy() const noexcept { return profileIoBusy_; }
     [[nodiscard]] bool canSaveProfile() const { return persistentIdentity_ && profileStore_ && profile_ && !profileIoBusy_ && !shuttingDown_; }
     [[nodiscard]] bool canReloadProfile() const { return persistentIdentity_ && profileStore_ && latest_ && !profileIoBusy_ && !shuttingDown_; }
-    [[nodiscard]] bool canUndistort() const { return undistorter_ && profile_ && latest_ && !shuttingDown_; }
+    [[nodiscard]] bool canUndistort() const { return undistorter_ && previewCalibration() && latest_ && !shuttingDown_; }
     [[nodiscard]] bool undistortedPreview() const noexcept { return undistortedPreview_; }
     // Callers must explicitly attest persistence; the default is session-only.
     void setInput(const QString& sourceId, bool streaming, bool persistentIdentity = false);
@@ -60,6 +64,7 @@ public:
     [[nodiscard]] const QString& message() const noexcept { return message_; }
     [[nodiscard]] const QString& captureFeedback() const noexcept { return captureFeedback_; }
     [[nodiscard]] bool busy() const noexcept { return busy_; }
+    [[nodiscard]] bool isStreaming() const noexcept { return streaming_ && !shuttingDown_; }
     [[nodiscard]] bool canCapture() const;
     // GUI-thread access; copy the validated value before use on another worker.
     // Cleared on restart, cancellation, source/resolution change or source loss.
@@ -68,8 +73,8 @@ public:
     [[nodiscard]] bool isStopped() const { return worker_.isFinished() && liveWorker_.isFinished(); }
 
 public slots:
-    void saveProfile();
-    void reloadProfile();
+    void saveProfile(const QString& file = {});
+    void reloadProfile(const QString& file = {});
     void setUndistortedPreview(bool enabled);
     void restart();
     void capture();
@@ -102,7 +107,12 @@ private:
     FramePtr reviewFrame_;
     std::uint64_t reviewRevision_{};
     QString captureFeedback_;
+    [[nodiscard]] const std::optional<IntrinsicCalibration>& previewCalibration() const
+    { return pendingResult() ? result_ : profile_; }
+    void resetCapture();
     void invalidate();
+    bool deferResultActivation_{};
+    bool resultAccepted_{};
     void presentPreview(FramePtr frame, const std::vector<ImageCorner>& corners, bool accepted, bool approximate = false);
     void processPreview();
     void sampleLive();
