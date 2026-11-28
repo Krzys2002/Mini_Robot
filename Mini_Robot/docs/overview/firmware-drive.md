@@ -61,7 +61,7 @@ Each control step (10 ms) for a permitted setpoint:
 6. **Polarity, quantization and final enforcement:** the sign is flipped for a reversed
    wheel, the fraction is rounded to counts and clamped to
    `floor(maxOutputFraction × 255)`. Rounding can therefore never add a count above the
-   approved bound. Left goes to M1 and right to M2.
+   approved bound. Left goes to M2 and right to M1 (#317).
 
 There is **no startup boost**. The retired prototype raised small commands to 70 % at
 motion start; that is removed, because it exceeded the intent and the approved bound.
@@ -74,7 +74,7 @@ within the approved bound.
 
 With no polarity bit set:
 
-| Command | Left wheel intent | Right wheel intent | M1 duty | M2 duty |
+| Command | Left wheel intent | Right wheel intent | M2 (left) duty | M1 (right) duty |
 | --- | --- | --- | --- | --- |
 | Forward `v > 0` | + | + | + | + |
 | Reverse `v < 0` | − | − | − | − |
@@ -85,8 +85,21 @@ With no polarity bit set:
 A positive duty drives the bridge's OUT1 (M+) high. A set polarity bit flips that
 wheel's duty only. The retired prototype drove both bridges M−-positive for forward
 (`Drive1.Drive(!forward)`, `Drive2.Drive(forward)` with Drive1's pins swapped), so its
-wiring suggests both polarity bits set. That is source analysis of the old code, not a
-measurement; the powered polarity check in #238 decides.
+wiring suggested both polarity bits set. That was source analysis of the old code and
+was superseded by the #317 observation below.
+
+### Assembled-robot polarity (#317)
+
+On the assembled robot, with left = M2 and right = M1 and no polarity bit set, the
+operator observed (wheels lifted) that the right wheel followed every command and the
+left wheel ran opposite to every command: a sign inversion, not a channel error. The
+fix is per robot, not in code: provision `drive_polarity` = 1 (bit 0, left reversed)
+through the [maintenance console](firmware-provisioning.md). With both applied, forward,
+reverse, CCW and CW were operator-observed correct on lifted wheels.
+
+This is an operator observation, not a measured per-wheel sign table with captured duty
+traces, and not on-floor driving. Polarity is a record field, so another assembly may
+need a different value.
 
 ### Rates (provisional)
 
@@ -154,10 +167,11 @@ pull-downs on its inputs. That, the actual
 coasting behaviour and the output timing are **not measured** (#238). Waking the
 bridges also powers the on-board sensors; a future IMU user must keep that in mind.
 
-The channel assignment (left = M1, right = M2) follows the prototype's joystick mixing
-and is **unverified**. If the rotation-sign check in #238 fails, swap
-`kLeftWheelChannel`/`kRightWheelChannel` in `DriveProfile.hpp`. The record has no field
-for it.
+The channel assignment (left = M2, right = M1) is fixed in `DriveProfile.hpp`
+(`kLeftWheelChannel`/`kRightWheelChannel`); the record has no field for it. The
+prototype's left = M1 swapped the turn directions on the assembled robot (#317); the
+current assignment is operator-observed on lifted wheels only, see
+[assembled-robot polarity](#assembled-robot-polarity-317).
 
 ## Not covered
 

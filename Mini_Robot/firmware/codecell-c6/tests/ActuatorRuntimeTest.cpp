@@ -87,9 +87,9 @@ TEST(ActuatorRuntimeTest, ForwardRampsUpWithTheProvisionedSignsAndBound)
     Rig rig;
     rig.accelerateFully();
     const auto duty = rig.drive.lastDuty();
-    // kTestDriveProfile reverses the right wheel: forward is M1 positive, M2 negative.
-    EXPECT_GT(duty.m1, 0);
-    EXPECT_LT(duty.m2, 0);
+    // kTestDriveProfile reverses the right wheel (M1, #317): forward is M2 positive, M1 negative.
+    EXPECT_GT(duty.m2, 0);
+    EXPECT_LT(duty.m1, 0);
     EXPECT_EQ(duty.m1, -duty.m2);
     EXPECT_FALSE(rig.motors.calledOutsideSection) << "every HAL write is serialized by the gate";
     for (const auto& write : rig.motors.writes()) EXPECT_LE(magnitude(write), drive::dutyBoundCounts(kTestDriveProfile));
